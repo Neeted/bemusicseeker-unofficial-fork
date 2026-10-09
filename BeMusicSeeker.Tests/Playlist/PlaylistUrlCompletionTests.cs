@@ -472,29 +472,29 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase()
+    public async Task DetailEdit_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4001, "LocalTable");
             DateTime oldLastUpdate = DateTime.Now.AddDays(1);
             table.last_update = oldLastUpdate;
             BMSTableEntry entry = CreateEntry("ffffffffffffffffffffffffffffffff", "LocalSong");
             table.entries = [entry];
-            InsertPlaylistHeader(tempDbPath, table);
+            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
-            playlist.CommitBMSTableEntry(entry);
+            await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using var db = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
+            Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.AreEqual(new Uri("https://example.com/runtime"), entry.Url);
             Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.Url_diff);
-            Assert.IsNull(entry.RuntimeUrlCompletion);
-            Assert.IsNull(entry.RuntimeUrlDiffCompletion);
+            Assert.AreEqual(new Uri("https://example.com/runtime"), entry.EffectiveUrl);
+            Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.EffectiveUrlDiff);
             Assert.AreEqual(new Uri("https://example.com/runtime"), storedEntry.Url);
             Assert.AreEqual(new Uri("https://example.com/runtime-diff"), storedEntry.Url_diff);
             BMSTable storedTable = db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id);
@@ -509,13 +509,12 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls()
+    public async Task DetailEdit_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
             table.Header_url = new Uri("https://example.com/header.json");
@@ -523,13 +522,14 @@ public sealed class PlaylistUrlCompletionTests
             table.EnableExternalSync();
             BMSTableEntry entry = CreateEntry("12121212121212121212121212121212", "ExternalSong");
             table.entries = [entry];
-            InsertPlaylistHeader(tempDbPath, table);
+            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
-            playlist.CommitBMSTableEntry(entry);
+            await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using var db = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5);
+            Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.IsNull(entry.Url);
             Assert.IsNull(entry.Url_diff);
             Assert.AreEqual(new Uri("https://example.com/runtime"), entry.EffectiveUrl);
@@ -545,25 +545,22 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_Sha256Identity_ReplacesExistingRowWithoutDuplicates()
+    public async Task DetailEdit_Sha256Identity_ReplacesExistingRowWithoutDuplicates()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4003, "ShaTable");
-            InsertPlaylistHeader(tempDbPath, table);
-            TestablePlaylistEntry first = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-1");
-            first.playlist_id = table.playlist_id;
-            TestablePlaylistEntry second = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "memo-2");
-            second.playlist_id = table.playlist_id;
+            TestablePlaylistEntry entry = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "before");
+            table.entries = [entry];
+            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
 
-            playlist.CommitBMSTableEntry(first);
-            playlist.CommitBMSTableEntry(second);
+            await SaveDetailMemoAsync(workspace, entry, "memo-1");
+            await SaveDetailMemoAsync(workspace, entry, "memo-2");
 
-            using var db = new LR2SongDBExtended(tempDbPath);
-            List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id && row.sha256 == second.sha256)];
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
+            List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id)];
             Assert.AreEqual(1, rows.Count);
             Assert.AreEqual("memo-2", rows[0].memo);
             Assert.IsNull(rows[0].md5);
@@ -576,30 +573,31 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_AddedMd5ReplacesExistingSha256CompatibilityRow()
+    public async Task DetailEdit_AddedMd5ReplacesExistingSha256CompatibilityRow()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4005, "ShaToBothTable");
-            InsertPlaylistHeader(tempDbPath, table);
             string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
-            TestablePlaylistEntry first = CreateShaOnlyEntry(sha256, "BmsonSong", "old");
-            first.playlist_id = table.playlist_id;
-            TestablePlaylistEntry second = CreateShaOnlyEntry(sha256, "BmsonSong", "new");
-            second.SetMd5("abababababababababababababababab");
-            second.playlist_id = table.playlist_id;
+            TestablePlaylistEntry entry = CreateShaOnlyEntry(sha256, "BmsonSong", "old");
+            table.entries = [entry];
+            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            ChartFile chart = ChartTestValues.Empty(ChartFileKind.Bmson) with
+            {
+                Path = Path.Combine(Path.GetDirectoryName(tempDbPath)!, "song.bmson"),
+                Md5 = "abababababababababababababababab",
+                Sha256 = sha256
+            };
 
-            playlist.CommitBMSTableEntry(first);
-            playlist.CommitBMSTableEntry(second);
+            await SaveDetailMemoAsync(workspace, entry, "new", chart);
 
-            using var db = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             List<BMSTableEntry> rows = [.. db.Table<BMSTableEntry>().Where(row => row.playlist_id == table.playlist_id)];
             Assert.AreEqual(1, rows.Count);
-            Assert.AreEqual(second.md5, rows[0].md5);
-            Assert.AreEqual(second.sha256, rows[0].sha256);
+            Assert.AreEqual(chart.Md5, rows[0].md5);
+            Assert.AreEqual(sha256, rows[0].sha256);
             Assert.AreEqual("new", rows[0].memo);
         }
         finally
@@ -649,15 +647,13 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_BmsonPlaylistEntry_PersistsBothHashesAndOrgMd5()
+    public async Task DetailEdit_BmsonPlaylistEntry_PersistsBothHashesAndOrgMd5()
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(tempDbPath, testSettings);
             BMSTable table = CreateTable(4004, "BmsonTable");
-            InsertPlaylistHeader(tempDbPath, table);
             ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
                 Path = Path.Combine(Path.GetTempPath(), "playlist-bmson-test", "song.bmson"),
@@ -675,10 +671,13 @@ public sealed class PlaylistUrlCompletionTests
                 Org_md5 = ["abababababababababababababababab"]
             };
 
-            playlist.CommitBMSTableEntry(entry);
+            table.entries = [entry];
+            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
-            using var db = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             BMSTableEntry storedEntry = db.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.sha256 == entry.sha256);
+            Assert.AreEqual("saved memo", storedEntry.memo);
             Assert.AreEqual("99999999999999999999999999999999", storedEntry.md5);
             Assert.AreEqual("8989898989898989898989898989898989898989898989898989898989898989", storedEntry.sha256);
             CollectionAssert.AreEqual(new[] { "abababababababababababababababab" }, storedEntry.Org_md5);
@@ -739,10 +738,31 @@ public sealed class PlaylistUrlCompletionTests
         };
     }
 
-    private static void InsertPlaylistHeader(string songDbPath, BMSTable table)
+    private PlaylistWorkspaceViewModel CreateSavedDetailWorkspace(string songDbPath, BMSTable table)
     {
-        using var db = new LR2SongDBExtended(songDbPath);
-        db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+        testSettings.OperationModeLR2DB = false;
+        var library = new TestBmsLibrary(songDbPath, null, null, null,
+            () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
+        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
+        playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+        playlist.CommitBMSTableWithEntriesToDB(table);
+        PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        return workspace;
+    }
+
+    private static async Task SaveDetailMemoAsync(PlaylistWorkspaceViewModel workspace,
+        BMSTableEntry entry, string memo, ChartFile? chart = null)
+    {
+        var source = new PlaylistDetailSourceRow(entry, chart);
+        PlaylistDetailRow row = source.CreateViewRow();
+        workspace.DetailViewState.Source.Rows = [source];
+        var context = new MainChartListCellEditContext(row, nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+        workspace.BeginDetailEdit(context);
+        await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, memo, commit: true));
+        Assert.AreEqual(memo, entry.memo);
     }
 
     private static string CreateEmptySongDbPath()

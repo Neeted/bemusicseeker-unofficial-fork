@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -13,7 +14,7 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns playlist table and folder removal confirmation, mutation, and terminal presentation facts.
+/// 表とフォルダーの削除確認を行い、Pを保存・必須出力・通知の実終端まで保持します。
 /// </summary>
 internal sealed class PlaylistRemovalWorkflowOwner
 {
@@ -79,8 +80,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
             return;
         }
 
-        applySelectionBeforeMutation();
-        await RemoveTablesAsync([table]).ConfigureAwait(false);
+        await RemoveTablesAsync([table], applySelectionBeforeMutation).ConfigureAwait(false);
     }
 
     internal async Task RemoveSummaryRowsAsync(IEnumerable<PlaylistSummaryRow> rows)
@@ -117,7 +117,18 @@ internal sealed class PlaylistRemovalWorkflowOwner
             return;
         }
 
-        await Task.Run(() => RemoveFolder(table, folderName)).ConfigureAwait(false);
+        if (table.is_external_sync)
+        {
+            MutationRejected?.Invoke(this, new PlaylistWorkspaceMutationRejectedEventArgs(
+                PlaylistWorkspaceMutationKind.RemoveFolder, isBusy: false, isStale: false));
+            return;
+        }
+
+        BMSPlaylist store = GetPlaylistStore();
+        using IDisposable admission = TryAccept(store, PlaylistWorkspaceMutationKind.RemoveFolder);
+        if (admission == null) { return; }
+        using LibraryFileMutationCapability capability = store.CreatePlaylistMutationCapability(admission);
+        await RemoveFolderAsync(store, table, folderName, capability).ConfigureAwait(false);
     }
 
     private async Task<bool> ConfirmAsync(string message, string routeName)
@@ -149,107 +160,107 @@ internal sealed class PlaylistRemovalWorkflowOwner
                 routeName + " could not be displayed (" + result.Status + ").");
     }
 
-    private async Task RemoveTablesAsync(IEnumerable<BMSTable> tables)
+    private IDisposable TryAccept(BMSPlaylist store, PlaylistWorkspaceMutationKind kind)
     {
-        List<BMSTable> requestedTables = [.. (tables ?? []).Where(table => table != null)];
-        if (requestedTables.Count == 0)
-        {
-            return;
-        }
-        await Task.Run(() => RemoveTables(requestedTables)).ConfigureAwait(false);
+        if (tryBeginPlaylistMutation != null) { return tryBeginPlaylistMutation(store, kind); }
+        if (store.TryEnterPlaylistMutation(out IDisposable admission)) { return admission; }
+        MutationRejected?.Invoke(this, new PlaylistWorkspaceMutationRejectedEventArgs(kind, isBusy: true, isStale: false));
+        return null;
     }
 
-    private void RemoveTables(IReadOnlyList<BMSTable> tables)
+    private async Task RemoveTablesAsync(IEnumerable<BMSTable> tables, Action applySelectionBeforeMutation = null)
     {
-        CustomFolderOutputSettingsSnapshot settings = null;
-        bool settingsLoaded = false;
-        CustomFolderOutputSettingsSnapshot GetSettingsSnapshot()
-        {
-            if (!settingsLoaded)
-            {
-                settings = customFolderOutputSettingsProvider()
-                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
-                settingsLoaded = true;
-            }
-            return settings;
-        }
-
-        foreach (BMSTable table in tables)
-        {
-            RemoveTableCore(table, GetSettingsSnapshot);
-        }
-        SummaryRefreshRequested?.Invoke(this, EventArgs.Empty);
-    }
-
-    private void RemoveTableCore(
-        BMSTable table,
-        Func<CustomFolderOutputSettingsSnapshot> settingsProvider)
-    {
-        if (table == null)
-        {
-            throw new ArgumentNullException(nameof(table));
-        }
-
-        BMSPlaylist playlistStore = GetPlaylistStore();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
-            playlistStore.OperationNotificationOwner.BeginSession();
+        BMSPlaylist store = GetPlaylistStore();
+        using IDisposable admission = TryAccept(store, PlaylistWorkspaceMutationKind.RemoveTable);
+        if (admission == null) { return; }
+        using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
+        List<BMSTable> requestedTables = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        if (requestedTables.Count == 0) { return; }
+        applySelectionBeforeMutation?.Invoke();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = store.OperationNotificationOwner.BeginSession();
+        List<BMSTable> removed = [];
+        List<Exception> failures = [];
         try
         {
-            CustomFolderOutputSettingsSnapshot settings = settingsProvider();
-            BMSLibrary library = GetPlaylistLibrary();
-            if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(table.Output_dir))
+            CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+            List<BMSTable> prepared = [];
+            foreach (BMSTable requested in requestedTables)
             {
-                playlistStore.RemoveCustomFolder(table, settings);
+                BMSTable table = store.ResolveActivePlaylistTableForMutation(requested);
+                if (table == null)
+                {
+                    MutationRejected?.Invoke(this, new PlaylistWorkspaceMutationRejectedEventArgs(
+                        PlaylistWorkspaceMutationKind.RemoveTable, isBusy: false, isStale: true));
+                    continue;
+                }
+                try
+                {
+                    await Task.Run(() => PrepareTableRemoval(store, table, settings, authority)).ConfigureAwait(false);
+                    prepared.Add(table);
+                }
+                catch (Exception failure) { failures.Add(failure); }
             }
-
-            BMSTable removedTable = playlistStore.RemoveBMSTable(table);
-            if (settings.OperationModeLR2DB
-                && table.is_root_folder
-                && !string.IsNullOrWhiteSpace(table.Output_dir))
+            try
             {
-                LR2Config lr2config = lr2ConfigProvider()
-                    ?? throw new InvalidOperationException("LR2 config provider is not configured.");
-                string customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(
-                    table,
-                    "playlist remove custom folder output directory notification",
-                    settings);
-                lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
-                lr2config.Save();
+                (IReadOnlyList<BMSTable> Removed, Exception PublicationFailure) result = await Task.Run(() => store.RemoveBMSTables(prepared, authority)).ConfigureAwait(false);
+                removed.AddRange(result.Removed);
+                if (result.PublicationFailure != null) { failures.Add(result.PublicationFailure); }
             }
-
-            if (removedTable != null)
+            catch (Exception failure) { failures.Add(failure); }
+            foreach (BMSTable table in removed)
             {
-                library.RemoveReferenceBMSTables(removedTable);
+                try { PublishRemovedTable(table, settings); }
+                catch (Exception failure) { failures.Add(failure); }
             }
-
-            ReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+            try { await store.BmtOutput.RemoveTablesAsync(removed, "playlist_remove_tables", authority).ConfigureAwait(false); }
+            catch (Exception failure) { failures.Add(failure); }
+            try
+            {
+                ReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+                SummaryRefreshRequested?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception failure) { failures.Add(failure); }
         }
         finally
         {
-            OperationNotificationPresentationRequested?.Invoke(
-                this,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    notificationSession.TakeReceipt(),
-                    "playlist remove custom folder notification"));
+            try
+            {
+                OperationNotificationPresentationRequested?.Invoke(this,
+                    new PlaylistOperationNotificationPresentationRequestedEventArgs(notificationSession.TakeReceipt(),
+                        "playlist remove custom folder notification"));
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
+    }
+
+    private static void PrepareTableRemoval(BMSPlaylist playlistStore, BMSTable table,
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
+    {
+        if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(table.Output_dir))
+        {
+            playlistStore.RemoveCustomFolder(table, settings, capability);
         }
     }
 
-    private void RemoveFolder(BMSTable table, string folderName)
+    private void PublishRemovedTable(BMSTable table, CustomFolderOutputSettingsSnapshot settings)
     {
-        if (!CanRemoveFolder(table))
+        GetPlaylistLibrary().RemoveReferenceBMSTables(table);
+        if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
         {
-            return;
+            LR2Config lr2config = lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config provider is not configured.");
+            lr2config.RemoveBMSSearchDirectories([ResolveCustomFolderOutputDirectory(table,
+                "playlist remove custom folder output directory notification", settings)]);
+            lr2config.Save();
         }
+    }
 
-        BMSPlaylist playlistStore = GetPlaylistStore();
-        IDisposable admission = tryBeginPlaylistMutation?.Invoke(
-            playlistStore,
-            PlaylistWorkspaceMutationKind.RemoveFolder);
-        if (tryBeginPlaylistMutation != null && admission == null)
-        {
-            return;
-        }
-        using IDisposable admissionScope = admission;
+    private async Task RemoveFolderAsync(BMSPlaylist playlistStore, BMSTable table, string folderName,
+        LibraryFileMutationCapability capability)
+    {
+        if (!CanRemoveFolder(table)) { return; }
         BMSTable activeTable = playlistStore.ResolveActivePlaylistTableForMutation(table);
         if (activeTable == null)
         {
@@ -278,11 +289,12 @@ internal sealed class PlaylistRemovalWorkflowOwner
             if (!CanRemoveFolder(activeTable)
                 || !playlistStore.ContainsBMSTable(activeTable)
                 || !playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName)
-                || !playlistStore.RemoveFolderBMSTable(activeTable, folderName))
+                || !await Task.Run(() => playlistStore.RemoveFolderBMSTable(activeTable, folderName, capability: capability)).ConfigureAwait(false))
             {
                 return;
             }
 
+            await playlistStore.BmtOutput.ExportTablesAsync([activeTable], "playlist_remove_folder", capability).ConfigureAwait(false);
             FolderRemovalApplied?.Invoke(
                 this,
                 new PlaylistFolderRemovalAppliedEventArgs(activeTable, folderName));

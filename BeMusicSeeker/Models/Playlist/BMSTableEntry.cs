@@ -598,11 +598,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
-    internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source)
-    {
-        ApplyPlaylistEditableStateFrom(source, null);
-    }
-
+    /// <summary>詳細編集の保存前失敗で、同じ項目の編集列だけを編集前値へ戻します。</summary>
+    /// <param name="source">編集前に捕捉した元項目の値。</param>
+    /// <param name="propertyName">詳細編集が受理した列名。</param>
+    /// <exception cref="ArgumentOutOfRangeException">詳細編集が扱う列以外を渡した場合。</exception>
     internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source, string propertyName)
     {
         if (source == null)
@@ -628,12 +627,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 memo = source.memo;
                 break;
             default:
-                level = source.level;
-                Url = source.Url;
-                Url_diff = source.Url_diff;
-                comment = source.comment;
-                memo = source.memo;
-                break;
+                throw new ArgumentOutOfRangeException(nameof(propertyName));
         }
     }
 

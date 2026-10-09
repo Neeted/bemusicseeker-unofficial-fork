@@ -82,7 +82,10 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void ResolveConfiguredActions_PlaylistStorageProjectionPreservesChartInfoSha256()
     {
-        Settings settings = new() { RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            });
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(settingsProvider: () => settings);
         string chartInfoSha256 = new string('c', 64);
         var chartInfo = new BeMusicSeeker.Models.ChartDetails { sha256 = chartInfoSha256 };
@@ -124,7 +127,10 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_UrlLauncherFailureReturnsTypedResult()
     {
-        Settings settings = new() { RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            });
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             urlLauncher: _ => throw new InvalidOperationException("browser failed"),
             settingsProvider: () => settings);
@@ -151,7 +157,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     public void Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens(bool bmson, bool pending)
     {
         ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
-        Settings settings = new();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [],
@@ -213,12 +219,12 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     public void ResolveConfiguredProgram_RejectsUnavailableFileTargetsWithoutLaunching(string condition)
     {
         const string chartPath = @"C:\Songs\alpha.bms";
-        Settings settings = new()
-        {
-            RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
                 new RightClickActionSettings([], [new RightClickProgramActionDefinition(
-                    "player", "Player", @"C:\Tools\player.exe", "{filePath}", enabled: true)]))
-        };
+                    "player", "Player", @"C:\Tools\player.exe", "{filePath}", enabled: true)]));
+            });
         TestExternalProgramLaunchGateway programGateway = new();
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             fileExists: path => path == chartPath && condition != "missing-pending-file",
@@ -256,7 +262,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_ConfiguredProgramMapsGatewayMissingExecutableToTypedFailure()
     {
-        Settings settings = new();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
             new RightClickActionSettings(
                 [],
@@ -293,7 +299,10 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
     [TestMethod]
     public void Execute_InvalidSettingsReturnsTypedFailureWithInternalDiagnosticOnly()
     {
-        Settings settings = new() { RightClickActionsJson = "{invalid" };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = "{invalid";
+            });
         SelectedChartExternalActionWorkflowOwner owner = CreateOwner(
             settingsProvider: () => settings);
         ChartOperationTarget target = CreateTarget(
@@ -439,13 +448,19 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
 
         using var cancellation = new CancellationTokenSource();
         Task<RelatedDocumentQueryReceipt> query = owner.QueryRelatedDocumentsAsync(target, cancellation.Token);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        cancellation.Cancel();
-        release.TrySetResult(true);
-
-        RelatedDocumentQueryReceipt receipt = await query;
-
-        Assert.AreEqual(RelatedDocumentQueryStatus.Canceled, receipt.Status);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, query, "related-documents.enumeration");
+            cancellation.Cancel();
+            release.TrySetResult(true);
+            RelatedDocumentQueryReceipt receipt = await query;
+            Assert.AreEqual(RelatedDocumentQueryStatus.Canceled, receipt.Status);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            await query;
+        }
     }
 
     [TestMethod]

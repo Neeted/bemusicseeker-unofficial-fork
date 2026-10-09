@@ -161,6 +161,9 @@ internal sealed class PendingPackageMutationResult
 
 internal interface IPendingPackageStore
 {
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
+
     void SearchPackages(
         BMSLibrary library,
         PendingInstallDestinationSearchKind kind,
@@ -175,6 +178,15 @@ internal interface IPendingPackageStore
     IReadOnlyList<ChartFile> ClearPending(
         BMSLibrary library,
         PendingInstallDestinationClearRequest request);
+
+    /// <summary>固定済み物理scopeの条件付きPを停止前に取得します。純portは独立した処理判定を維持します。</summary>
+    bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
+    { lease = null; return true; }
+
+    /// <summary>保留導入または資源上書きの実scopeと実行窓口を一回準備します。取得Pは呼出元が実終端まで保持します。</summary>
+    IPendingPackageStore PreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
+        bool forceInstall, bool overwriteResources, out LibraryFileMutationLease lease)
+    { lease = null; return this; }
 
     IReadOnlyList<ChartFile> SearchCorrect(
         BMSLibrary library,
@@ -396,9 +408,9 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return RunSearchAsync(kind, async () =>
         {
-            await ExecuteInstallDestinationMutation(library =>
+            await ExecuteInstallDestinationMutation((library, operationStore) =>
             {
-                store.SearchPackages(library, kind, packageSnapshot);
+                operationStore.SearchPackages(library, kind, packageSnapshot);
                 return [];
             }, operationGate, identitySortKeyChanged: true);
         }, operationGate);
@@ -419,7 +431,7 @@ internal sealed class PendingPackageWorkflowOwner
         return RunSearchAsync(request.Kind, async () =>
         {
             await ExecuteInstallDestinationMutation(
-                library => store.SearchPending(library, request),
+                (library, operationStore) => operationStore.SearchPending(library, request),
                 operationGate,
                 identitySortKeyChanged: true);
         }, operationGate);
@@ -439,9 +451,9 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(async () =>
         {
-            await ExecuteInstallDestinationMutation(_ =>
+            await ExecuteInstallDestinationMutation((_, operationStore) =>
             {
-                store.ClearPackages(packageSnapshot);
+                operationStore.ClearPackages(packageSnapshot);
                 return [];
             }, operationGate, requiresLibrary: false);
         });
@@ -462,7 +474,7 @@ internal sealed class PendingPackageWorkflowOwner
         return Task.Run(async () =>
         {
             await ExecuteInstallDestinationMutation(
-                library => store.ClearPending(library, request),
+                (library, operationStore) => operationStore.ClearPending(library, request),
                 operationGate);
         });
     }
@@ -482,7 +494,7 @@ internal sealed class PendingPackageWorkflowOwner
         return Task.Run(async () =>
         {
             await ExecuteInstallDestinationMutation(
-                library => SelectChangedChartsForTransientProjection(store.SearchCorrect(library, request), request.Targets),
+                (library, operationStore) => SelectChangedChartsForTransientProjection(operationStore.SearchCorrect(library, request), request.Targets),
                 operationGate);
         });
     }
@@ -502,7 +514,7 @@ internal sealed class PendingPackageWorkflowOwner
         return Task.Run(async () =>
         {
             await ExecuteInstallDestinationMutation(
-                library => SelectChangedChartsForTransientProjection(store.ClearCorrect(library, request), request.Targets),
+                (library, operationStore) => SelectChangedChartsForTransientProjection(operationStore.ClearCorrect(library, request), request.Targets),
                 operationGate);
         });
     }
@@ -522,9 +534,9 @@ internal sealed class PendingPackageWorkflowOwner
         }
         return Task.Run(async () =>
         {
-            await ExecuteInstallDestinationMutation(library =>
+            await ExecuteInstallDestinationMutation((library, operationStore) =>
             {
-                ChartFile changedChart = store.SetPending(library, request, destinationDirectory);
+                ChartFile changedChart = operationStore.SetPending(library, request, destinationDirectory);
                 return changedChart == null ? null : request.PackageEntry == null ? [changedChart] : [];
             }, operationGate, refreshRejectedEdit: true);
         });
@@ -566,7 +578,7 @@ internal sealed class PendingPackageWorkflowOwner
             }
             IReadOnlyList<ChartPackage> packages = await Task.Run(() =>
                 Read(
-                    library => store.ResolvePendingPackages(library, request.Targets),
+                    (library, operationStore) => operationStore.ResolvePendingPackages(library, request.Targets),
                     operationGate,
                     releaseAcquiredOperationGate: false)) ?? [];
             return await InstallResolvedPackagesAsync(request.Kind, packages, operationGate);
@@ -625,7 +637,7 @@ internal sealed class PendingPackageWorkflowOwner
             IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
             IReadOnlyList<BMSLibrary.DuplicateInstallRepairConfirmation> duplicateConfirmations =
                 await Task.Run(() => Read(
-                    library => store.GetDuplicateInstallRepairConfirmations(library, repairCharts),
+                    (library, operationStore) => operationStore.GetDuplicateInstallRepairConfirmations(library, repairCharts),
                     operationGate,
                     releaseAcquiredOperationGate: false)) ?? [];
             var approvedDuplicateRemovalChartPaths = new List<string>();
@@ -654,12 +666,12 @@ internal sealed class PendingPackageWorkflowOwner
             }
 
             await Task.Run(() => Execute(
-                library => repairResult = store.FixInstalledLocations(
+                (library, operationStore) => repairResult = operationStore.FixInstalledLocations(
                     library,
                     repairCharts,
                     approvedDuplicateRemovalChartPaths),
                 PendingPackageRefreshScope.PackageMutation,
-                changesFiles: true,
+                changesFiles: true, physicalPaths: repairCharts.SelectMany(chart => new[] { chart.Path, chart.InstallDestination }).Concat(approvedDuplicateRemovalChartPaths), recursivePhysicalPaths: false,
                 acquiredOperationGate: operationGate,
                 releaseAcquiredOperationGate: false));
         }
@@ -684,7 +696,7 @@ internal sealed class PendingPackageWorkflowOwner
         try
         {
             IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
-                store.GetInstalledOnlyPendingPackages,
+                (library, operationStore) => operationStore.GetInstalledOnlyPendingPackages(library),
                 operationGate,
                 releaseAcquiredOperationGate: false)) ?? [];
             if (packages.Count == 0)
@@ -716,12 +728,12 @@ internal sealed class PendingPackageWorkflowOwner
                 BeMusicSeeker.Properties.Resources.Remove,
                 package => package.path,
                 (cancellationToken, onEachProcessed) => Execute(
-                    library => store.DeletePendingPackageSources(
+                    (library, operationStore) => operationStore.DeletePendingPackageSources(
                         library,
                         packages,
                         cancellationToken,
                         onEachProcessed),
-                    changesFiles: true,
+                    changesFiles: true, physicalPaths: packages.SelectMany(package => package.delete_parent ? new[] { package.path, System.IO.Path.GetDirectoryName(package.path) } : new[] { package.path }),
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
         }
@@ -741,7 +753,7 @@ internal sealed class PendingPackageWorkflowOwner
         try
         {
             IReadOnlyList<ChartFile> charts = await Task.Run(() => Read(
-                store.GetPendingBmsFormatCharts,
+                (library, operationStore) => operationStore.GetPendingBmsFormatCharts(library),
                 operationGate,
                 releaseAcquiredOperationGate: false)) ?? [];
             if (charts.Count == 0)
@@ -771,12 +783,12 @@ internal sealed class PendingPackageWorkflowOwner
                 BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
                 chart => chart.Path,
                 (cancellationToken, onEachProcessed) => Execute(
-                    library => store.RenamePendingZeroNoteCharts(
+                    (library, operationStore) => operationStore.RenamePendingZeroNoteCharts(
                         library,
                         charts,
                         cancellationToken,
                         onEachProcessed),
-                    changesFiles: true,
+                    changesFiles: true, physicalPaths: charts.SelectMany(chart => new[] { chart.Path, System.IO.Path.ChangeExtension(chart.Path, System.IO.Path.GetExtension(chart.Path).StartsWith(".p", StringComparison.OrdinalIgnoreCase) ? ".pmx" : ".bmx") }), recursivePhysicalPaths: false,
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
         }
@@ -800,7 +812,7 @@ internal sealed class PendingPackageWorkflowOwner
         try
         {
             IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
-                store.GetInstalledOnlyPendingPackages,
+                (library, operationStore) => operationStore.GetInstalledOnlyPendingPackages(library),
                 operationGate,
                 releaseAcquiredOperationGate: false)) ?? [];
             if (packages.Count == 0)
@@ -832,12 +844,12 @@ internal sealed class PendingPackageWorkflowOwner
                 BeMusicSeeker.Properties.Resources.Install_to_estimation,
                 package => package.path,
                 (cancellationToken, onEachProcessed) => Execute(
-                    library => overwriteResult = store.OverwriteInstalledOnlyPendingPackageResources(
+                    (library, operationStore) => overwriteResult = operationStore.OverwriteInstalledOnlyPendingPackageResources(
                         library,
                         packages,
                         cancellationToken,
                         onEachProcessed),
-                    changesFiles: true,
+                    changesFiles: true, physicalPackages: packages, overwriteResources: true,
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
         }
@@ -920,14 +932,14 @@ internal sealed class PendingPackageWorkflowOwner
                 case PendingInstallPackageOperationKind.ForceInstall:
                     ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
                     return await ExecuteInstallAsync(
-                        library => store.ForceInstallPackagesWithReceipt(library, packages, approvedPackages),
-                        acquiredOperationGate);
+                        (library, operationStore) => operationStore.ForceInstallPackagesWithReceipt(library, packages, approvedPackages),
+                        acquiredOperationGate, packages.Where(approvedPackages.Contains).ToArray(), forceInstall: true);
                 case PendingInstallPackageOperationKind.ManualInstall:
                     return await ExecuteInstallAsync(
-                        library => (store.ManualInstallPackagesWithReceipt(library, packages)
+                        (library, operationStore) => (operationStore.ManualInstallPackagesWithReceipt(library, packages)
                             ?? throw new InvalidOperationException("Pending manual install returned no batch result."))
                             .SessionReceipt ?? throw new InvalidOperationException("Pending manual install returned no session receipt."),
-                        acquiredOperationGate);
+                        acquiredOperationGate, packages, forceInstall: false);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
             }
@@ -939,19 +951,25 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
-        Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt,
-        IDisposable acquiredOperationGate)
+        Func<BMSLibrary, IPendingPackageStore, LibraryMutationSessionReceipt> mutationWithReceipt,
+        IDisposable acquiredOperationGate, IReadOnlyList<ChartPackage> packages, bool forceInstall)
     {
         bool pendingSectionEmpty = false;
         LibraryMutationSessionReceipt sessionReceipt = null;
+        bool viewApplyRequired = false;
         try
         {
             bool executed = await Task.Run(() => Execute(
-                library => sessionReceipt = mutationWithReceipt(library)
-                    ?? throw new InvalidOperationException("Pending install returned no session receipt."),
+                (library, operationStore) =>
+                {
+                    viewApplyRequired = true;
+                    sessionReceipt = mutationWithReceipt(library, operationStore)
+                        ?? throw new InvalidOperationException("Pending install returned no session receipt.");
+                },
                 PendingPackageRefreshScope.PackageMutation,
-                changesFiles: true,
-                captureMutationFacts: library => pendingSectionEmpty = store.IsPendingSectionEmpty(library),
+                changesFiles: true, physicalPackages: packages, forceInstall: forceInstall,
+                captureMutationFacts: (library, operationStore) => pendingSectionEmpty = operationStore.IsPendingSectionEmpty(library),
+                onRefreshSuppressionStarted: () => viewApplyRequired = true,
                 acquiredOperationGate: acquiredOperationGate,
                 releaseAcquiredOperationGate: false));
             if (!executed)
@@ -964,10 +982,10 @@ internal sealed class PendingPackageWorkflowOwner
         }
         catch (Exception exception)
         {
-            return PendingPackageMutationResult.FailedAfterMutation(
-                exception,
-                pendingSectionEmpty ? PackageCatalogSection.Pending : null,
-                sessionReceipt);
+            return viewApplyRequired
+                ? PendingPackageMutationResult.FailedAfterMutation(exception,
+                    pendingSectionEmpty ? PackageCatalogSection.Pending : null, sessionReceipt)
+                : PendingPackageMutationResult.FailedBeforeMutation(exception);
         }
     }
 
@@ -1189,7 +1207,7 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private bool TryEnterPendingOperation(out IDisposable operationGate) =>
-        chartFileOperations.TryEnterPendingOperation(libraryProvider(), out operationGate);
+        chartFileOperations.TryEnter(out operationGate);
 
     private bool TryGetInstalledDirectoryByHash(
         string hash,
@@ -1337,13 +1355,15 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private async Task<bool> Execute(
-        Action<BMSLibrary> mutation,
+        Action<BMSLibrary, IPendingPackageStore> mutation,
         PendingPackageRefreshScope refreshScope = PendingPackageRefreshScope.DestinationState,
         bool changesFiles = false,
         bool requiresLibrary = true,
-        Action<BMSLibrary> captureMutationFacts = null,
+        Action<BMSLibrary, IPendingPackageStore> captureMutationFacts = null,
         IDisposable acquiredOperationGate = null,
-        bool releaseAcquiredOperationGate = true)
+        bool releaseAcquiredOperationGate = true, IEnumerable<string> physicalPaths = null, bool recursivePhysicalPaths = true,
+        IReadOnlyList<ChartPackage> physicalPackages = null, bool forceInstall = false, bool overwriteResources = false,
+        Action onRefreshSuppressionStarted = null)
     {
         IDisposable operationGate = acquiredOperationGate;
         if (operationGate == null
@@ -1372,6 +1392,11 @@ internal sealed class PendingPackageWorkflowOwner
             }
             return false;
         }
+        using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+        IPendingPackageStore operationStore = store.ForAcceptedOperation(capability);
+        LibraryFileMutationLease playlistLease = null;
+        LibraryFileMutationCapability playlistCapability = null;
+        LibraryFileMutationCapability combinedCapability = null;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
@@ -1379,13 +1404,26 @@ internal sealed class PendingPackageWorkflowOwner
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
+            if (physicalPackages != null)
+            {
+                operationStore = operationStore.PreparePackagePhysicalMutation(library, physicalPackages,
+                    forceInstall, overwriteResources, out playlistLease);
+            }
+            else if (physicalPaths != null && !operationStore.TryBeginPhysicalMutation(library, physicalPaths, recursivePhysicalPaths, out playlistLease))
+            { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+            playlistCapability = playlistLease?.CreateMutationCapability();
+            combinedCapability = capability.WithPlaylistCapability(playlistCapability);
+            operationStore = operationStore.ForAcceptedOperation(combinedCapability);
             activityLease = chartMutationActivity.Enter();
             if (changesFiles) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
             dialogScope = library?.BeginOperationDialogScope();
             suppressionStarted = true;
+            // 抑制の通知が失敗しても、開始済みの画面状態を復元する反映は必要です。
+            // 変更核の開始とは分け、変更後の目録照会を未開始時に行いません。
+            onRefreshSuppressionStarted?.Invoke();
             PublishRefreshSuppressionChanged(isSuppressed: true, refreshScope);
             mutationAttempted = true;
-            mutation(library);
+            mutation(library, operationStore);
         }
         catch (Exception ex)
         {
@@ -1395,7 +1433,7 @@ internal sealed class PendingPackageWorkflowOwner
         {
             if (mutationAttempted && captureMutationFacts != null && library != null)
             {
-                CaptureCleanupFailure(() => captureMutationFacts(library), failures);
+                CaptureCleanupFailure(() => captureMutationFacts(library, operationStore), failures);
             }
             if (suppressionStarted)
             {
@@ -1403,20 +1441,21 @@ internal sealed class PendingPackageWorkflowOwner
                     () => PublishRefreshSuppressionChanged(isSuppressed: false, refreshScope: null),
                     failures);
             }
+            if (activityLease != null)
+            {
+                CaptureCleanupFailure(activityLease.Dispose, failures);
+            }
+            if (dialogScope != null) { CaptureCleanupFailure(dialogScope.Dispose, failures); }
+            combinedCapability?.Dispose();
+            playlistCapability?.Dispose();
+            playlistLease?.Dispose();
             if (operationGate != null
                 && (acquiredOperationGate == null || releaseAcquiredOperationGate))
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (activityLease != null)
-            {
-                CaptureCleanupFailure(activityLease.Dispose, failures);
-            }
             if (dialogScope != null)
-            {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-                FileDbMutationReport.ShowOperationMessagesAsync(dialogs, dialogScope.Messages).ObserveFault();
-            }
+            { FileDbMutationReport.ShowOperationMessagesAsync(dialogs, dialogScope.Messages).ObserveFault(); }
         }
         if (failures.Count > 1 && failures[0].SourceException is LibraryChartRemovalException removalFailure)
         {
@@ -1442,7 +1481,7 @@ internal sealed class PendingPackageWorkflowOwner
     /// null は編集拒否、空集合はパッケージ正本だけを変更した結果を表します。
     /// </summary>
     private async Task ExecuteInstallDestinationMutation(
-        Func<BMSLibrary, IReadOnlyList<ChartFile>> mutation,
+        Func<BMSLibrary, IPendingPackageStore, IReadOnlyList<ChartFile>> mutation,
         IDisposable operationGate,
         bool requiresLibrary = true,
         bool identitySortKeyChanged = false,
@@ -1450,7 +1489,7 @@ internal sealed class PendingPackageWorkflowOwner
     {
         IReadOnlyList<ChartFile> changedCharts = null;
         if (await Execute(
-            library => changedCharts = mutation(library),
+            (library, operationStore) => changedCharts = mutation(library, operationStore),
             requiresLibrary: requiresLibrary,
             acquiredOperationGate: operationGate))
         {
@@ -1490,7 +1529,7 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private T Read<T>(
-        Func<BMSLibrary, T> operation,
+        Func<BMSLibrary, IPendingPackageStore, T> operation,
         IDisposable acquiredOperationGate = null,
         bool releaseAcquiredOperationGate = true)
     {
@@ -1525,9 +1564,11 @@ internal sealed class PendingPackageWorkflowOwner
             }
             return default;
         }
+        using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+        IPendingPackageStore operationStore = store.ForAcceptedOperation(capability);
         try
         {
-            return operation(library);
+            return operation(library, operationStore);
         }
         finally
         {
@@ -1574,6 +1615,33 @@ internal sealed class PendingPackageWorkflowOwner
 
 internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
 {
+    private readonly LibraryFileMutationCapability capability;
+    private readonly IReadOnlyDictionary<ChartPackage, string> preparedDestinations;
+    private readonly BmsLibraryOptionsSnapshot preparedOptions;
+
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    internal BmsLibraryPendingPackageStore(LibraryFileMutationCapability capability = null,
+        IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null, BmsLibraryOptionsSnapshot preparedOptions = null)
+    { this.capability = capability; this.preparedDestinations = preparedDestinations; this.preparedOptions = preparedOptions; }
+
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    public IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryPendingPackageStore(capability, preparedDestinations, preparedOptions);
+
+    /// <summary>固定した実scopeが管理領域と交差する場合だけPを取得し、外側へ所有を渡します。</summary>
+    public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
+        => library.TryEnterManagedOutputMutation(paths, recursive, out lease, capability);
+
+    /// <summary>同じLで実scope・宛先・設定を捕捉し、交差Pを停止前に取得します。Busyでは物理実行しません。</summary>
+    public IPendingPackageStore PreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
+        bool forceInstall, bool overwriteResources, out LibraryFileMutationLease lease)
+    {
+        (IReadOnlyList<string> paths, IReadOnlyDictionary<ChartPackage, string> destinations, BmsLibraryOptionsSnapshot options)
+            = library.PreparePendingPackagePhysicalScope(packages, forceInstall, overwriteResources);
+        if (!library.TryEnterManagedOutputMutation(paths, true, out lease, capability))
+        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        return new BmsLibraryPendingPackageStore(capability, destinations, options);
+    }
+
     public void SearchPackages(
         BMSLibrary library,
         PendingInstallDestinationSearchKind kind,
@@ -1693,7 +1761,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
             packages,
             approveNormalInstallOverride: false,
             approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages,
-            reportAtTerminal: true);
+            reportAtTerminal: true, capability: capability, preparedDestinations: preparedDestinations, preparedOptions: preparedOptions);
     }
 
     /// <summary>推定導入の集約結果を操作終端へ返します。</summary>
@@ -1701,7 +1769,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages)
     {
-        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true);
+        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true, capability: capability);
     }
 
     public bool IsPendingSectionEmpty(BMSLibrary library)
@@ -1724,7 +1792,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     {
         return library.FixInstallationDirectoryCharts(
             repairCharts,
-            approvedDuplicateRemovalChartPaths);
+            approvedDuplicateRemovalChartPaths, capability);
     }
 
     public IReadOnlyList<ChartPackage> GetInstalledOnlyPendingPackages(BMSLibrary library)
@@ -1747,7 +1815,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
             packages,
             sendToRecycleBin: false,
             cancellationToken,
-            onEachProcessed);
+            onEachProcessed, capability: capability);
     }
 
     public void RenamePendingZeroNoteCharts(
@@ -1759,7 +1827,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         library.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
             charts,
             cancellationToken,
-            onEachProcessed);
+            onEachProcessed, capability: capability);
     }
 
     public PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
@@ -1771,7 +1839,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         return library.OverwritePendingInstalledOnlyPackagesResources(
             packages,
             cancellationToken,
-            onEachProcessed);
+            onEachProcessed, capability: capability);
     }
 
     private static IReadOnlyList<ChartPackage> ResolvePackages(

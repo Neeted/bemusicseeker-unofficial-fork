@@ -56,7 +56,7 @@ public sealed class NextSongPreloadOwnerTests
         Task<PreparedBmsSong> preparation = owner.Request(input);
         try
         {
-            await entered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, preparation, "next-song.preparation");
             adoption = owner.TakeAsync(input);
             Assert.IsFalse(adoption.IsCompleted);
             release.Set();
@@ -107,13 +107,13 @@ public sealed class NextSongPreloadOwnerTests
             token.ThrowIfCancellationRequested();
             return PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
         });
-        _ = owner.Request(fixture.Input("next.bms"));
+        Task<PreparedBmsSong> preparation = owner.Request(fixture.Input("next.bms"));
         Task<PreparedBmsSong?>? discard = null;
         try
         {
-            await entered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, preparation, "next-song.preparation-before-discard");
             discard = owner.TakeAsync(fixture.Input("different.bms"));
-            await cancelled.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancelled.Task, discard, "next-song.discard-cancellation");
             Assert.IsFalse(discard.IsCompleted, "取消要求だけでは後片付け完了になりません。");
             cleanup.Set();
             Assert.IsNull(await discard);

@@ -22,10 +22,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInstallFailureRetryTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void InstallChartPackages_AddsBmsAndBuildsInlineChartInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBms");
@@ -56,7 +58,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((pendingChart))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -86,7 +88,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     [DataRow(false)]
     public void InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup(bool failureMatchesInstalledSnapshot)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceChangedBms");
@@ -136,7 +138,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -159,7 +161,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     [TestMethod]
     public void InstallChartPackages_AddsBmsonAndBuildsInlineChartInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBmson");
@@ -179,7 +181,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((pendingSong))]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -196,7 +198,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     [TestMethod]
     public void InstallChartPackages_ChartInfoParseFailurePersistsRecordWithoutBlockingInstall()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string sourceDir = Path.Combine(tempRootPath, "SourceBadBms");
@@ -209,7 +211,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             var package = ChartPackage.FromChartEntries([pendingChart]);
             package.path = sourceDir;
             package.delete_parent = false;
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeInstallChartPackages(library, [package], installDir);
 
@@ -228,7 +230,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     [TestMethod]
     public void ChartInfoParseFailedChartFiles_ProjectsCurrentFailuresAsWarningShims()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             ChartFile bmsFile = ChartTestValues.Empty() with
@@ -261,7 +263,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                 CreateChartInfoParseFailureRow(new string('c', 32), string.Empty, Path.Combine(tempRootPath, "missing.bms"), BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "missing", null),
                 CreateChartInfoParseFailureRow(staleBmsFile.Md5, staleBmsFile.Sha256, staleBmsFile.Path, 0, "parse_failed", "InvalidDataException", "old", null)
             ]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
                 BmsCharts = [bmsFile, staleBmsFile],
                 BmsonCharts = [bmsonSong]
@@ -309,7 +311,7 @@ public sealed class ChartInfoInstallFailureRetryTests
     [TestMethod]
     public async Task RemoveChartInfoParseFailuresByMd5_RemovesFailureRowsAndPublishesWarningRefresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string sharedMd5 = new('a', 32);
@@ -341,7 +343,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             [
                 CreateChartInfoParseFailureRow(sharedMd5, sharedSha256, bmsFile.Path, BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad", null)
             ]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
                 BmsCharts = [bmsFile],
                 BmsonCharts = [bmsonSong]
@@ -361,6 +363,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                 "parse_failure_remove_current_info",
                 queueFullBackfillAfterHydration: false);
             await AwaitChartInfoHydrationAsync(library);
+            await library.OperationAdmission.WaitForIdleAsync();
             int hydrationRequestedVersion = library.ChartInfoHydrationRequestedVersion;
             int backfillRequestedVersion = library.ChartInfoBackfillRequestedVersion;
             refreshNotificationChanged = 0;
@@ -411,17 +414,19 @@ public sealed class ChartInfoInstallFailureRetryTests
                     "retry me",
                     null)
             ]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
                 BmsCharts = [file]
             };
-            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            bool originalOperationMode = testSettings.OperationModeLR2DB;
             try
             {
-                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
+                testSettings.OperationModeLR2DB = operationModeLr2Db;
                 InvokeDeferredChartInfoHydration(library, "failure_is_current", queueFullBackfillAfterHydration: true);
                 await AwaitChartInfoBackfillAsync(library);
-                using (var beforeDelete = new LR2SongDBExtended(songDbPath))
+                // 完了版の通知と、受理済み背景処理の受付解放は別の終端である。
+                await library.OperationAdmission.WaitForIdleAsync();
+                using (LR2SongDBExtended beforeDelete = gateway.OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(0L, beforeDelete.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
                 }
@@ -435,7 +440,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                 ChartFile nextStartupFile = (ChartTestValues.Empty() with { Path = chartPath });
                 nextStartupFile = nextStartupFile with { Md5 = parsed.Md5 };
                 nextStartupFile = nextStartupFile with { Sha256 = parsed.Sha256 };
-                var nextStartupLibrary = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                var nextStartupLibrary = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
                     BmsCharts = [nextStartupFile]
                 };
@@ -447,7 +452,8 @@ public sealed class ChartInfoInstallFailureRetryTests
                     queueFullBackfillAfterHydration: true);
                 await AwaitChartInfoHydrationAsync(nextStartupLibrary);
                 await AwaitChartInfoBackfillAsync(nextStartupLibrary);
-                using var verify = new LR2SongDBExtended(songDbPath);
+                await nextStartupLibrary.OperationAdmission.WaitForIdleAsync();
+                using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
                 Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", file.Sha256));
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure WHERE md5 = ?;", file.Md5));
                 Assert.AreEqual(8, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
@@ -459,7 +465,7 @@ public sealed class ChartInfoInstallFailureRetryTests
             }
             finally
             {
-                Settings.Default.OperationModeLR2DB = originalOperationMode;
+                testSettings.OperationModeLR2DB = originalOperationMode;
             }
         });
     }

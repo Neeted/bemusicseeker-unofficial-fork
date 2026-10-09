@@ -1120,11 +1120,11 @@ public sealed class BassNativeRuntimeTests
     public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
     {
         string wavePath = CreateNativeSmokeWaveFile();
-        var playbackSettings = new Settings
-        {
-            PlayerResamplingQuality = 2,
-            PlayerMixerThreadCount = 4
-        };
+        Settings playbackSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.PlayerResamplingQuality = 2;
+                values.PlayerMixerThreadCount = 4;
+            });
         PlayerSettingsSnapshot playbackSnapshot = new SettingsPlayerSettingsGateway(() => playbackSettings).CaptureSnapshot();
         BassAudioSession? session = null;
         BassAudioPlayer? player = null;

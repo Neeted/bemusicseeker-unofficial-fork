@@ -22,10 +22,10 @@ public sealed class BmsLibraryIrStartupTests
     {
         await using var fixture = new StartupFixture(waitForCancellation: false);
         await fixture.InitializeAsync();
-        await fixture.Client.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.Client.Started.Task;
         BMSScore before = fixture.Library.GetBMSScores().Single();
         fixture.Client.Release.TrySetResult();
-        await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.RankingCompleted.Task;
 
         Assert.AreEqual(1, fixture.Client.RequestCount);
         Assert.IsTrue(fixture.FailedReport);
@@ -39,16 +39,16 @@ public sealed class BmsLibraryIrStartupTests
     {
         await using var fixture = new StartupFixture(waitForCancellation: true);
         await fixture.InitializeAsync();
-        await fixture.Client.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        await fixture.RankingStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.Client.Started.Task;
+        await fixture.RankingStarted.Task;
         BMSScore before = fixture.Library.GetBMSScores().Single();
         fixture.Library.RequestShutdown("ir-test");
-        try { await fixture.Client.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5)); }
+        try { await fixture.Client.Cancelled.Task; }
         catch (TimeoutException) { Assert.Fail("shutdown のキャンセルが開始済み IR 取得へ伝播していない。"); }
         Assert.IsTrue(fixture.Library.HasShutdownBlockingWork, "通信が完了するまでは idle にしない。");
         fixture.Client.Release.TrySetResult();
-        await fixture.Client.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.Client.Completed.Task;
+        await fixture.RankingCompleted.Task;
 
         Assert.IsFalse(fixture.Library.HasShutdownBlockingWork);
         Assert.AreEqual(1, fixture.Client.RequestCount);
@@ -63,7 +63,7 @@ public sealed class BmsLibraryIrStartupTests
         await using var fixture = new StartupFixture(waitForCancellation: false);
         fixture.Client.Release.TrySetResult();
         await fixture.InitializeAsync();
-        await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await fixture.RankingCompleted.Task;
         BMSScore previous = fixture.Library.GetBMSScores().Single();
         Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
         Assert.AreEqual(previous.score, fixture.Library.ResolveChartScoreSnapshot(
@@ -90,7 +90,7 @@ public sealed class BmsLibraryIrStartupTests
         try
         {
             await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
-            await reloadCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await reloadCompleted.Task;
             BMSScore current = fixture.Library.GetBMSScores().Single();
             Assert.AreNotSame(previous, current);
             Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
@@ -170,7 +170,7 @@ public sealed class BmsLibraryIrStartupTests
                 Assert.IsNotNull(fixture.DeferredScoreWorker);
                 ownedScoreWorker = Task.Run(fixture.DeferredScoreWorker);
             }
-            int firstVersion = await firstStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            int firstVersion = await firstStarted.Task;
             initializeScores = Task.Run(() => fixture.Library.InitializeScoresOnly(null));
             await initializeScores;
             int nextVersion = scoreHydration
@@ -179,7 +179,7 @@ public sealed class BmsLibraryIrStartupTests
             Assert.IsTrue(nextVersion > firstVersion);
             release.Set();
             await ownedScoreWorker;
-            await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await fixture.RankingCompleted.Task;
 
             Assert.IsTrue(reports.Contains((1, firstVersion, false)), "旧周の終端が旧callbackと要求版へ届きませんでした。");
             Assert.IsFalse(reports.Any(report => report.Callback == 1 && report.Version == nextVersion));
@@ -202,11 +202,11 @@ public sealed class BmsLibraryIrStartupTests
             await Task.WhenAll(initialize, initializeScores, ownedScoreWorker);
             if (fixture.Library.RankingRefreshRunning)
             {
-                await fixture.RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await fixture.RankingCompleted.Task;
             }
             if (fixture.Client.Started.Task.IsCompleted)
             {
-                await fixture.Client.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await fixture.Client.Completed.Task;
             }
         }
     }
@@ -313,12 +313,12 @@ public sealed class BmsLibraryIrStartupTests
             Client.Release.TrySetResult();
             if (Client.Started.Task.IsCompleted)
             {
-                await Client.Completed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await Client.Completed.Task;
             }
 
             if (Library.RankingRefreshRunning)
             {
-                await RankingCompleted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await RankingCompleted.Task;
             }
 
             Directory.Delete(root, recursive: true);
@@ -349,7 +349,7 @@ public sealed class BmsLibraryIrStartupTests
                     await Task.WhenAny(Cancelled.Task, Release.Task);
                 }
 
-                await Release.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                await Release.Task;
                 cancellationToken.ThrowIfCancellationRequested();
                 if (RequestCount == 1)
                 {

@@ -50,10 +50,10 @@ public sealed class RightClickActionSettingsStoreTests
     [TestMethod]
     public void StoreLoadsAndSavesThroughTheProvidedSettingsOwnerWithoutFallback()
     {
-        Settings settings = new()
-        {
-            RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
+            });
         var store = new RightClickActionSettingsStore(() => settings);
 
         RightClickActionSettingsParseResult loaded = store.Load();

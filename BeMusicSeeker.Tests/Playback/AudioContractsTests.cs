@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -20,7 +21,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class AudioContractsTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     [DataTestMethod]
     [DataRow(false)]
@@ -1211,7 +1212,7 @@ public sealed class AudioContractsTests
     [TestMethod]
     public void AudioResamplingQualityAndMixerThreads_UseTheMissingSettingDefaults()
     {
-        var settings = new BeMusicSeeker.Properties.Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
         Assert.AreEqual(2, settings.PlayerResamplingQuality);
         Assert.AreEqual(1, settings.PlayerMixerThreadCount);

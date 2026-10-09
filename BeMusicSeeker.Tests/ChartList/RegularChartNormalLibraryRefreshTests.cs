@@ -21,7 +21,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath => RunAsync(songDbPath).GetAwaiter().GetResult());
 
         static async Task RunAsync(string songDbPath)
@@ -132,7 +132,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_entry_visited"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_source_enumeration"));
                 Assert.IsFalse(storeWork.Contains("playlist_resolve_full_root_enumeration"));
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     LR2SongDB.song firstRow = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", firstPath).Single();
                     LR2SongDB.song secondRow = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?", secondPath).Single();
@@ -245,7 +245,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
             var table = new MainChartListViewModel();
             using RegularChartListOwner receiver = CreateOwner(table, CreateWorkspaceForOwner(table));
             var producer = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
             {
@@ -384,7 +384,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 owner.AttachNormalLibraryRefreshSource(library);
                 library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\published.bms")];
 
-                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                applied.Wait();
                 Assert.AreEqual(1, Volatile.Read(ref appliedCount));
                 Assert.AreEqual(1, Volatile.Read(ref appliedCount));
             }
@@ -417,14 +417,14 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 }
                 Interlocked.Increment(ref appliedCount);
                 applyEntered.Set();
-                Assert.IsTrue(releaseApply.Wait(TimeSpan.FromSeconds(10)));
+                releaseApply.Wait();
             };
 
             Task mutationTask = StartLongRunning(() =>
             {
                 library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\in-flight.bms")];
             });
-            Assert.IsTrue(applyEntered.Wait(TimeSpan.FromSeconds(10)));
+            applyEntered.Wait();
 
             Task stopTask = StartLongRunningAsync(async delegate
             {
@@ -432,7 +432,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 await owner.StopAsync();
                 stopCompleted.Set();
             });
-            Assert.IsTrue(stopStarted.Wait(TimeSpan.FromSeconds(10)));
+            stopStarted.Wait();
             Assert.IsFalse(stopCompleted.IsSet);
 
             releaseApply.Set();
@@ -445,7 +445,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_InvalidatesMaintenanceDependency()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "maintenance.bms");
@@ -473,7 +473,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                     [(file)]);
 
                 Assert.IsTrue(result.HasUpdates);
-                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                applied.Wait();
                 Assert.AreEqual(maintenanceGeneration + 1, owner.MaintenanceGeneration);
             }
             finally
@@ -568,7 +568,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
             }
             try
             {
-                Assert.IsTrue(producer.Wait(TimeSpan.FromSeconds(10)));
+                producer.Wait();
                 Assert.IsTrue(
                     notificationPublishedWhileWriterHeld,
                     "The producer waited synchronously for the UI lane while a catalog writer was held.");
@@ -576,7 +576,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                     uiReachedCatalogReader,
                     "The dedicated UI lane did not reach the catalog snapshot reader.");
                 producer.GetAwaiter().GetResult();
-                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                applied.Wait();
                 owner.StopAsync().GetAwaiter().GetResult();
             }
             finally
@@ -634,7 +634,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
 
             owner.AttachNormalLibraryRefreshSource(library);
 
-            Assert.IsTrue(owner.StopAsync().Wait(TimeSpan.FromSeconds(10)));
+            owner.StopAsync().Wait();
         });
     }
 

@@ -23,12 +23,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 {
     public TestContext TestContext { get; set; } = null!;
 
-    [TestInitialize]
-    public void TestInitialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-    }
-
     [TestMethod]
     public void BuildDetailSourceRows_FiltersFolderAndRemovedEntriesInsideWorkspace()
     {
@@ -325,7 +319,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1278,7 +1271,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.IsFalse(firstOutcome.HasError);
             Assert.IsFalse(secondOutcome.HasError);
 
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1341,7 +1334,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
-    public void QueueExternalPlaylistSync_SchedulerRejectionPublishesSkippedLifecycle()
+    public async Task ExternalPlaylistSync_PlaylistBusySkipsWithoutSchedulerReservationAndFreshRequestSucceeds()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1355,7 +1348,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -1374,21 +1367,37 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
             workspace.RefreshPlaylistTreeTables(playlist);
 
-            workspace.QueueExternalPlaylistSync(
-                "test_rejection",
-                fromReloadTables: true,
-                publishReferenceReceipt: false,
-                operationToken: 11L);
-
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable held));
+            try
+            {
+                await workspace.RunExternalPlaylistSyncAsync("test_rejection", true, false, 11L);
+                Assert.AreEqual(0, schedulerCalls);
+                Assert.AreEqual(0, queued.Count);
+                Assert.AreEqual(1, completed.Count);
+                Assert.IsTrue(completed[0].WasSkipped);
+                Assert.IsFalse(completed[0].Succeeded);
+                Assert.IsFalse(completed[0].PublishesReferenceReceipt);
+            }
+            finally { held.Dispose(); }
+            Assert.AreEqual(1, completed.Count, "拒否要求を解放後に予約実行しません。");
+            await workspace.RunExternalPlaylistSyncAsync("fresh_request", true, false, 12L);
+            Assert.AreEqual(0, schedulerCalls);
+            Assert.AreEqual(1, queued.Count);
+            Assert.AreEqual("fresh_request", queued[0].Reason);
+            Assert.AreEqual(12L, queued[0].OperationToken);
+            Assert.AreEqual(2, completed.Count);
+            Assert.IsTrue(completed[1].Succeeded);
+            Assert.IsFalse(completed[1].WasSkipped);
+            // 初回起動の任意同期は外側scheduler登録を維持し、登録拒否も見送り結果を発行します。
+            workspace.QueueExternalPlaylistSync("optional_initialize", false, false, 13L);
             Assert.AreEqual(1, schedulerCalls);
             Assert.AreEqual(1, queued.Count);
-            Assert.AreEqual("test_rejection", queued[0].Reason);
-            Assert.AreEqual(11L, queued[0].OperationToken);
-            Assert.AreEqual(1, completed.Count);
-            Assert.IsTrue(completed[0].WasSkipped);
-            Assert.IsFalse(completed[0].Succeeded);
-            Assert.IsFalse(completed[0].PublishesReferenceReceipt);
-            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+            Assert.AreEqual(3, completed.Count);
+            Assert.IsTrue(completed[2].WasSkipped);
+            Assert.IsFalse(completed[2].Succeeded);
+            Assert.AreEqual(13L, completed[2].OperationToken);
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
         }
         finally
         {
@@ -1431,13 +1440,13 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first\",\"symbol\":\"F\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
             File.WriteAllText(secondHeaderPath, "{\"name\":\"second\",\"symbol\":\"S\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
 
-            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath);
+            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             BMSTable firstTable = await firstPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
             firstTable.playlist_id = 8101;
             firstPlaylist.BMSTables = new ObservableCollection<BMSTable>([firstTable]);
             PersistPlaylistAggregate(firstSongDbPath, firstTable);
 
-            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath);
+            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             BMSTable secondTable = await secondPlaylist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(secondHeaderPath));
             secondTable.playlist_id = 8102;
             secondPlaylist.BMSTables = new ObservableCollection<BMSTable>([secondTable]);
@@ -1480,7 +1489,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
             Assert.IsTrue(currentResults.Single().Succeeded);
             Assert.AreEqual(1, sortInvalidationCount, "The active store receipt must reach the workspace.");
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.AreEqual("second-updated", secondPlaylist.BMSTables.Single().entries.Single().title);
         }
         finally
@@ -1500,6 +1509,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        List<Task> independentWork = [];
         Task? apply = null;
         Task? replacement = null;
         Task? hydration = null;
@@ -1520,12 +1530,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             }
             PlaylistPersistenceRepository.EnsureSchema(firstSongDbPath);
             PlaylistPersistenceRepository.EnsureSchema(secondSongDbPath);
-            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath)
+            var firstPlaylist = new TestBmsPlaylist(firstSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([
                     new BMSTable { playlist_id = 8301, name = "first" }])
             };
-            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath)
+            var secondPlaylist = new TestBmsPlaylist(secondSongDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([
                     new BMSTable { playlist_id = 8302, name = "second" }])
@@ -1533,16 +1543,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             firstPlaylist.BMSTables[0].MarkEntriesNotLoaded();
             var applyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var replacementStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Func<Task>? scheduledHydration = null;
+            var requestCaptured = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             PlaylistHydrationCompletionReceipt? requestReceipt = null;
             ObservableCollection<BMSTable>? requestTables = null;
             long requestGeneration = 0L;
             int requestedVersion = 0;
-            firstPlaylist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
-            {
-                scheduledHydration = work;
-                return true;
-            };
             var firstLibrary = new TestBmsLibrary(firstSongDbPath);
             var secondLibrary = new TestBmsLibrary(secondSongDbPath);
             BMSLibrary currentLibrary = firstLibrary;
@@ -1598,6 +1603,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     request.Generation,
                     request.CompletionReceipt,
                     () => { });
+                requestCaptured.TrySetResult(true);
             };
             workspace.PlaylistPresentationRefreshRequested += (_, request) =>
             {
@@ -1607,8 +1613,14 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 }
             };
             workspace.RefreshPlaylistTreeTables(firstPlaylist);
-            firstPlaylist.QueueDeferredPlaylistEntriesHydration("typed_replacement_barrier");
-            Assert.IsNotNull(scheduledHydration);
+            firstPlaylist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                independentWork.Add(Task.Run(work));
+                return true;
+            };
+            hydration = Task.Run(() => firstPlaylist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false));
+            if (await Task.WhenAny(requestCaptured.Task, hydration).ConfigureAwait(false) == hydration) { await hydration.ConfigureAwait(false); }
+            await requestCaptured.Task.ConfigureAwait(false);
             Assert.IsTrue(requestedVersion > 0);
             Assert.IsNotNull(requestReceipt);
             Assert.IsTrue(requestReceipt!.IsRequestPublished);
@@ -1661,7 +1673,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.IsFalse(replacement.IsCompleted, "Store replacement must wait for the active terminal hydration apply.");
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             releaseReplacementNotification.TrySetResult(true);
-            hydration = Task.Run(scheduledHydration!);
             await Task.WhenAll(apply, replacement, hydration).ConfigureAwait(false);
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             Assert.AreEqual(
@@ -1678,6 +1689,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             releaseApply.TrySetResult(true);
             releaseReplacementNotification.TrySetResult(true);
             Task[] pendingTasks = [
+                .. independentWork,
                 .. new[] { apply, replacement, hydration }
                     .Where(task => task != null)
                     .Cast<Task>()];
@@ -1700,192 +1712,46 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
-    public void DiscardDeferredExternalPlaylistSyncForShutdown_PublishesSkippedLifecycle()
+    public async Task ExternalPlaylistSync_ConcurrentRequestIsSkippedWithoutReplayAndFreshRequestSucceeds()
     {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceDetailRefreshTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
         try
         {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
+            string songDbPath = Path.Combine(directory, "song.db");
+            using (var db = new LR2SongDBExtended(songDbPath)) { }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            Func<Task>? scheduledWork = null;
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist);
             var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                externalSyncScheduler: (_, work) =>
+            var execution = new List<(OperationProgressRequest Request, bool Running)>();
+            workspace.PlaylistExternalSyncCompleted += (_, fact) => completed.Add(fact);
+            workspace.ProgressRequestFactory = (name, version) => new(7, 0, name, version);
+            Task? rejected = null;
+            workspace.RequestProgressReporter = (request, running) =>
+            {
+                execution.Add((request, running));
+                if (running && request.Version == 1)
                 {
-                    scheduledWork = work;
-                    return true;
-                });
-            workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
-            workspace.RefreshPlaylistTreeTables(playlist);
-
-            workspace.QueueExternalPlaylistSync(
-                "test_shutdown_discard",
-                fromReloadTables: false,
-                publishReferenceReceipt: true,
-                operationToken: 17L);
-
-            Assert.IsNotNull(scheduledWork);
-            workspace.DiscardDeferredExternalPlaylistSyncForShutdown("test_shutdown");
-
-            Assert.AreEqual(1, completed.Count);
-            Assert.AreEqual("test_shutdown_discard", completed[0].Reason);
-            Assert.AreEqual(1, completed[0].Version);
-            Assert.AreEqual(17L, completed[0].OperationToken);
-            Assert.IsTrue(completed[0].PublishesReferenceReceipt);
-            Assert.IsTrue(completed[0].WasSkipped);
-            Assert.IsFalse(completed[0].Succeeded);
-            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    public void QueueExternalPlaylistSync_CoalescesAndRunsLatestRequestSnapshot()
-    {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
+                    Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _));
+                    rejected = workspace.RunExternalPlaylistSyncAsync("rejected", false, true, 22);
+                    Assert.IsTrue(rejected.IsCompleted, "An unaccepted request never waits for P.");
+                }
             };
-            int schedulerCalls = 0;
-            Func<Task>? scheduledWork = null;
-            var queued = new List<PlaylistExternalSyncRequestEventArgs>();
-            var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                externalSyncScheduler: (_, work) =>
-                {
-                    schedulerCalls++;
-                    scheduledWork = work;
-                    return true;
-                });
-            var progress = new List<(OperationProgressRequest Request, bool Running)>();
-            workspace.ProgressRequestFactory = (name, version) => new(9, 0, name, version);
-            workspace.RequestProgressReporter = (request, running) => progress.Add((request, running));
-            workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
-            workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
-            workspace.RefreshPlaylistTreeTables(playlist);
-
-            workspace.QueueExternalPlaylistSync(
-                "first_request",
-                fromReloadTables: false,
-                publishReferenceReceipt: false,
-                operationToken: 1L);
-            workspace.QueueExternalPlaylistSync(
-                "latest_request",
-                fromReloadTables: false,
-                publishReferenceReceipt: true,
-                operationToken: 2L);
-
-            Assert.AreEqual(1, schedulerCalls);
-            Assert.IsNotNull(scheduledWork);
-            Assert.AreEqual(2, queued.Count);
-            Assert.AreEqual("latest_request", queued[1].Reason);
-            Assert.AreEqual(2L, queued[1].OperationToken);
-            Assert.AreEqual(new OperationProgressRequest(9, 2, "external_playlist_sync", 2), queued[1].ProgressRequest);
-            Assert.IsTrue(queued[1].PublishesReferenceReceipt);
-
-            scheduledWork!().GetAwaiter().GetResult();
-            CollectionAssert.AreEqual(new[] { (queued[1].ProgressRequest, true), (queued[1].ProgressRequest, false) }, progress.ToArray());
-
-            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
-            Assert.IsTrue(completed.Any(request =>
-                request.Version == 2
-                && request.Succeeded
-                && request.PublishesReferenceReceipt));
+            await workspace.RunExternalPlaylistSyncAsync("first", false, true, 11);
+            Assert.IsNotNull(rejected);
+            await rejected;
+            Assert.AreEqual(2, completed.Count);
+            Assert.IsTrue(completed.Single(fact => fact.Reason == "rejected").WasSkipped);
+            Assert.IsTrue(completed.Single(fact => fact.Reason == "first").Succeeded);
+            Assert.AreEqual(2, execution.Count, "A rejected request has no execution or automatic replay.");
+            await workspace.RunExternalPlaylistSyncAsync("fresh", false, true, 33);
+            Assert.IsTrue(completed.Single(fact => fact.Reason == "fresh").Succeeded);
+            Assert.AreEqual(4, execution.Count);
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
         }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    public void QueuePlaylistReferenceApply_SchedulerRejectionPublishesSkippedLifecycle()
-    {
-        string tempDirectory = Path.Combine(
-            Path.GetTempPath(),
-            nameof(PlaylistWorkspaceViewModelTests),
-            Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
-            using (var _ = new LR2SongDBExtended(songDbPath))
-            {
-            }
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
-            {
-                BMSTables = new ObservableCollection<BMSTable>()
-            };
-            int schedulerCalls = 0;
-            var queued = new List<PlaylistReferenceApplyQueuedEventArgs>();
-            var completed = new List<PlaylistReferenceApplyCompletedEventArgs>();
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-                out _,
-                playlistStoreProvider: () => playlist,
-                referenceApplyScheduler: (_, _) =>
-                {
-                    schedulerCalls++;
-                    return false;
-                });
-            workspace.PlaylistReferenceApplyWorkflow.Queued += (_, request) => queued.Add(request);
-            workspace.PlaylistReferenceApplyWorkflow.Completed += (_, request) => completed.Add(request);
-
-            workspace.PlaylistReferenceApplyWorkflow.Queue("test_rejection", 11L);
-
-            Assert.AreEqual(1, schedulerCalls);
-            Assert.AreEqual(1, queued.Count);
-            Assert.AreEqual("test_rejection", queued[0].Reason);
-            Assert.AreEqual(11L, queued[0].OperationToken);
-            Assert.AreEqual(1, completed.Count);
-            Assert.IsTrue(completed[0].WasSkipped);
-            Assert.IsFalse(completed[0].Succeeded);
-            Assert.AreEqual(1, workspace.PlaylistReferenceApplyWorkflow.LastCompletedVersion);
-            Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
+        finally { Directory.Delete(directory, recursive: true); }
     }
 
     [TestMethod]
@@ -1896,6 +1762,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        List<Task> independentWork = [];
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -1903,15 +1770,19 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             var hydrationTable = new BMSTable { name = "Hydration" };
             hydrationTable.MarkEntriesNotLoaded();
             playlist.BMSTables.Add(hydrationTable);
-            playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
-            playlist.QueueDeferredPlaylistEntriesHydration("queued_before_reference");
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                independentWork.Add(Task.Run(work));
+                return true;
+            };
+            playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false).GetAwaiter().GetResult();
             var library = new TestBmsLibrary(songDbPath);
             int schedulerCalls = 0;
             Func<Task>? scheduledWork = null;
@@ -1919,7 +1790,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             var completed = new List<PlaylistReferenceApplyCompletedEventArgs>();
             var presentation = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
             var lifecycle = new List<string>();
-            bool hydrationArbitrationObservedAfterLifecycle = false;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
@@ -1930,14 +1800,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     scheduledWork = work;
                     return true;
                 },
-                presentationRefreshDeferredProvider: request =>
-                {
-                    if (request.Kind == PlaylistPresentationRefreshKind.HydrationCompleted)
-                    {
-                        hydrationArbitrationObservedAfterLifecycle = lifecycle.Contains("hydration");
-                    }
-                    return false;
-                });
+                presentationRefreshDeferredProvider: _ => false);
             var progress = new List<(OperationProgressRequest Request, bool Running)>();
             workspace.PlaylistReferenceApplyWorkflow.ProgressRequestFactory = (name, version) => new(9, 0, name, version);
             workspace.PlaylistReferenceApplyWorkflow.RequestProgressReporter = (request, running) => progress.Add((request, running));
@@ -1973,13 +1836,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.AreEqual(1, presentation.Count);
             Assert.AreEqual(2, presentation[0].Version);
             Assert.AreEqual(2L, presentation[0].OperationToken);
-            Assert.IsTrue(
-                hydrationArbitrationObservedAfterLifecycle,
-                "Hydration lifecycle must be published before presentation arbitration.");
-            CollectionAssert.AreEqual(new[] { "hydration", "presentation" }, lifecycle);
+            CollectionAssert.AreEqual(new[] { "presentation" }, lifecycle);
         }
         finally
         {
+            Task.WhenAll(independentWork).GetAwaiter().GetResult();
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1987,129 +1848,53 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
-    [DataTestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public async Task DeferredPlaylistWork_AcceptanceAfterCaptureKeepsEachCycleOrigin(bool externalSync)
+    [TestMethod]
+    public async Task ReferenceApply_AcceptanceAfterCaptureKeepsEachCycleOrigin()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceDetailRefreshTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        var bmtTasks = new List<Task>();
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceDetailRefreshTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
         try
         {
-            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            string songDbPath = Path.Combine(directory, "song.db");
             using (var db = new LR2SongDBExtended(songDbPath)) { }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot { KeepBeatorajaBmtFilesWhenOutputDisabled = true },
-                () => new CustomFolderOutputSettingsSnapshot(),
-                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
-            { BMSTables = [] };
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }) { BMSTables = [] };
             var library = new TestBmsLibrary(songDbPath);
-            Func<Task>? scheduledWork = null;
-            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
-                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
-                externalSyncScheduler: (_, work) => { scheduledWork = work; return true; },
-                referenceApplyScheduler: (_, work) => { scheduledWork = work; return true; });
+            Func<Task>? scheduled = null;
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library, referenceApplyScheduler: (_, work) => { scheduled = work; return true; });
             workspace.RefreshPlaylistTreeTables(playlist);
             var execution = new List<(OperationProgressRequest Request, bool Running)>();
-            var bmtWork = new List<Func<Task>>();
-            var bmtExecution = new List<(OperationProgressRequest Request, bool Running)>();
-            var bmtDisplays = new List<(long OperationToken, bool Visible, string Parent)>();
-            var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
-            hub.BeginBackgroundProgressGeneration(7);
-            hub.BeginStartupBackgroundInitializationPresentation(22, 7);
-            var scheduler = new StartupBackgroundTaskSchedulerOwner(() => false, _ => { }, _ => { }, _ => { },
-                value => value, (_, _) => { }, new object());
-            scheduler.ProgressChanged += hub.UpdateBackgroundTaskProgress;
-            long bmtVersion = 30;
-            playlist.StartupBackgroundTaskScheduler = (name, _, _, work) =>
-            {
-                Assert.AreEqual("beatoraja_bmt_export_all", name);
-                bmtWork.Add(work);
-                return true;
-            };
-            playlist.BmtOutput.ExecutionProgressRequestProvider = () => new(6, 11, "scheduler:beatoraja_bmt_export_all", ++bmtVersion);
-            playlist.BmtOutput.RequestProgressReporter = (request, running) =>
-            {
-                bmtExecution.Add((request, running));
-                scheduler.ReportRequestProgress(request, running);
-                if (running)
-                {
-                    OperationProgressRow? row = hub.Rows.SingleOrDefault(value => value.Key.StartsWith("background:beatoraja_bmt_export_all:", StringComparison.Ordinal));
-                    bmtDisplays.Add((request.OperationToken, row != null, row?.ParentKey ?? string.Empty));
-                }
-            };
-            long displayGeneration = 6;
-            Action queueNext = () =>
-            {
-                if (externalSync)
-                {
-                    displayGeneration = 7;
-                    workspace.QueueExternalPlaylistSync("second_request", false, true, 22);
-                }
-                else { workspace.PlaylistReferenceApplyWorkflow.Queue("second_request", 22); }
-            };
-            Action<OperationProgressRequest, bool> reporter = (request, running) =>
+            workspace.PlaylistReferenceApplyWorkflow.ProgressRequestFactory = (name, version) => new(6, 0, name, version);
+            workspace.PlaylistReferenceApplyWorkflow.RequestProgressReporter = (request, running) =>
             {
                 execution.Add((request, running));
-                if (running && request.Version == 1) { queueNext(); }
+                if (running && request.Version == 1) { workspace.PlaylistReferenceApplyWorkflow.Queue("second", 22); }
             };
-            if (externalSync)
-            {
-                workspace.ProgressRequestFactory = (name, version) => new(displayGeneration, 0, name, version);
-                workspace.RequestProgressReporter = reporter;
-                workspace.QueueExternalPlaylistSync("first_request", false, true, 11);
-            }
-            else
-            {
-                workspace.PlaylistReferenceApplyWorkflow.ProgressRequestFactory = (name, version) => new(6, 0, name, version);
-                workspace.PlaylistReferenceApplyWorkflow.RequestProgressReporter = reporter;
-                workspace.PlaylistReferenceApplyWorkflow.Queue("first_request", 11);
-            }
-            Assert.IsNotNull(scheduledWork);
-            await scheduledWork();
-            string source = externalSync ? "external_playlist_sync" : "playlist_ref_apply";
+            workspace.PlaylistReferenceApplyWorkflow.Queue("first", 11);
+            Assert.IsNotNull(scheduled);
+            await scheduled();
             CollectionAssert.AreEqual(new[]
             {
-                (new OperationProgressRequest(6, 11, source, 1), true),
-                (new OperationProgressRequest(6, 11, source, 1), false),
-                (new OperationProgressRequest(externalSync ? 7 : 6, 22, source, 2), true),
-                (new OperationProgressRequest(externalSync ? 7 : 6, 22, source, 2), false)
+                (new OperationProgressRequest(6, 11, "playlist_ref_apply", 1), true),
+                (new OperationProgressRequest(6, 11, "playlist_ref_apply", 1), false),
+                (new OperationProgressRequest(6, 22, "playlist_ref_apply", 2), true),
+                (new OperationProgressRequest(6, 22, "playlist_ref_apply", 2), false)
             }, execution.ToArray());
-            Assert.IsTrue(externalSync ? workspace.IsDeferredExternalPlaylistSyncIdle : workspace.PlaylistReferenceApplyWorkflow.IsIdle);
-            Assert.AreEqual(externalSync ? 2 : 0, bmtWork.Count);
-            foreach (Func<Task> work in bmtWork)
-            {
-                Task task = work();
-                bmtTasks.Add(task);
-                await task;
-            }
-            if (externalSync)
-            {
-                var first = new OperationProgressRequest(6, 11, "scheduler:beatoraja_bmt_export_all", 31);
-                var second = new OperationProgressRequest(7, 22, "scheduler:beatoraja_bmt_export_all", 32);
-                CollectionAssert.AreEqual(new[] { (first, true), (first, false), (second, true), (second, false) }, bmtExecution.ToArray());
-                CollectionAssert.AreEqual(new[] { (11L, false, string.Empty), (22L, true, "startup_background") }, bmtDisplays.ToArray());
-                Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:beatoraja_bmt_export_all:", StringComparison.Ordinal)));
-            }
+            Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
         }
-        finally
-        {
-            await Task.WhenAll(bmtTasks);
-            Directory.Delete(tempDirectory, recursive: true);
-        }
+        finally { Directory.Delete(directory, recursive: true); }
     }
 
     [TestMethod]
-    public void PlaylistTreeHydrationReceipt_RequestsPresentationRefreshAfterSnapshotApply()
+    public async Task PlaylistTreeHydrationReceipt_RequestsPresentationRefreshAfterSnapshotApply()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        List<Task> independentWork = [];
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -2117,7 +1902,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[]
                     {
@@ -2129,12 +1914,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     })
             };
             playlist.BMSTables[0].MarkEntriesNotLoaded();
-            Task scheduledWork = null!;
-            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
-            {
-                scheduledWork = work();
-                return true;
-            };
             var library = new TestBmsLibrary(songDbPath);
             Func<Task>? referenceApplyWork = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
@@ -2150,19 +1929,22 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             workspace.PlaylistReferenceApplyWorkflow.PresentationRequested += (_, request) => presentations.Add(request);
 
             workspace.RefreshPlaylistTreeTables(playlist);
-            playlist.QueueDeferredPlaylistEntriesHydration("receipt_presentation");
-
-            Assert.IsNotNull(scheduledWork);
-            scheduledWork.GetAwaiter().GetResult();
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                independentWork.Add(Task.Run(work));
+                return true;
+            };
+            await playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false);
             Assert.IsNotNull(referenceApplyWork);
-            referenceApplyWork!().GetAwaiter().GetResult();
+            await referenceApplyWork!();
             Assert.AreEqual(1, presentations.Count);
-            Assert.AreEqual("receipt_presentation", presentations[0].Reason);
+            Assert.AreEqual("Initialize", presentations[0].Reason);
             Assert.AreEqual(1, presentations[0].Version);
             Assert.AreEqual(0L, presentations[0].OperationToken);
         }
         finally
         {
+            await Task.WhenAll(independentWork).ConfigureAwait(false);
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2171,13 +1953,14 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
     }
 
     [TestMethod]
-    public void PlaylistTreeHydrationReceipt_DoesNotApplySnapshotInvalidatedBeforeWorkspaceConsumption()
+    public async Task PlaylistTreeHydrationReceipt_DoesNotApplySnapshotInvalidatedBeforeWorkspaceConsumption()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistWorkspaceViewModelTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        List<Task> independentWork = [];
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -2191,15 +1974,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 name = "StaleReceipt"
             };
             table.MarkEntriesNotLoaded();
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
-            };
-            Task hydrationWork = null!;
-            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
-            {
-                hydrationWork = work();
-                return true;
             };
             playlist.PlaylistEntriesHydrationReceiptPublished += (_, _) =>
             {
@@ -2221,10 +1998,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 });
             workspace.RefreshPlaylistTreeTables(playlist);
 
-            playlist.QueueDeferredPlaylistEntriesHydration("stale_receipt");
-
-            Assert.IsNotNull(hydrationWork);
-            hydrationWork.GetAwaiter().GetResult();
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                independentWork.Add(Task.Run(work));
+                return true;
+            };
+            await playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false);
             Assert.AreEqual(
                 0,
                 referenceApplyScheduleCount,
@@ -2232,6 +2011,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
         finally
         {
+            await Task.WhenAll(independentWork).ConfigureAwait(false);
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2254,7 +2034,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false })
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };

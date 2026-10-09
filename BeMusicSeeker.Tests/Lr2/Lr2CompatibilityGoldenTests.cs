@@ -57,7 +57,7 @@ public sealed class Lr2CompatibilityGoldenTests
     [TestMethod]
     public void UnsupportedPathClearsFolderParentAndMarksWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty() with
         {
             Path = @"D:\BMS\emoji_😀\chart.bms",

@@ -9,7 +9,6 @@ using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 using Ribbit.Windows;
@@ -19,6 +18,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExternalPlayerProcessGatewayTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void WindowsProcessSessionPublishesItselfAsExitSender()
     {
@@ -122,7 +123,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var player = new LR2body(
                 executablePath,
                 new LR2Config(configPath),
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
@@ -146,7 +147,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             var player = new BMIIDXView2015(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new Win32ExternalPlayerWindowHost(IntPtr.Zero));
 
@@ -172,7 +173,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(17));
             var player = new BMIIDXView2015(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99))));
             object? observedSender = null;
@@ -224,7 +225,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             gateway.Session.KeepRunning = true;
             var player = new BMIIDXView2015(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(
@@ -254,7 +255,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new BMIIDXView2015(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
@@ -280,7 +281,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
             var player = new BMIIDXView2015(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
@@ -750,7 +751,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new uBMplay(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
@@ -808,7 +809,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new uBMplay(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 
@@ -860,7 +861,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new uBMplay(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
@@ -908,7 +909,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new uBMplay(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
                 new ExternalPlayerWaitPolicy(TimeSpan.FromMilliseconds(40)));
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
@@ -960,7 +961,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             };
             var player = new uBMplay(
                 executablePath,
-                new SettingsPlayerSettingsGateway(() => Settings.Default),
+                new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway);
             ((IExternalWindowPlayer)player).AttachWindowHost(windowHost);
 

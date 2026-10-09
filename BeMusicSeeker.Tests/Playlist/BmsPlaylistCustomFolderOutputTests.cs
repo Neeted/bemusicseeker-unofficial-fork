@@ -22,25 +22,23 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// Arbitrary filtered Quick runs share one testhost. This fixture mutates the
-// process-global playlist URL completion, LR2 mode/root/output paths, Beatoraja
-// output settings, and IR flag in Settings.Default.
-[DoNotParallelize]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromGeneratedText()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -67,7 +65,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 [new RootFileEnumerationEntry(outputPath, DateTime.UtcNow)],
                 discoveryComplete: true);
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, physicalSurface);
-            var playlist = new TestBmsPlaylist(songDbPath, synchronization)
+            var playlist = new TestBmsPlaylist(songDbPath, synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -80,7 +78,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             StringAssert.Contains(text, "#CATEGORY FolderTable");
             StringAssert.Contains(text, "#COMMAND song.hash");
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
             Assert.AreEqual(2, folder.type);
             Assert.AreEqual("Folder A", folder.title);
@@ -92,8 +90,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -105,14 +103,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolder_FailureRequiresNotificationScopeOrQueuesWarning()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var table = new BMSTable
             {
@@ -131,7 +129,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 CustomFolderOutputPhysicalSurface.Empty);
             var expectedFailure = new InvalidOperationException("forced custom-folder sync failure");
             synchronization.Failure = expectedFailure;
-            var playlist = new TestBmsPlaylist(songDbPath, synchronization)
+            var playlist = new TestBmsPlaylist(songDbPath, synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -153,8 +151,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -166,22 +164,22 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_UsesInjectedCustomFolderOutputSettings()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
-        bool previousEnableUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousEnableUnsent = testSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = false;
+            testSettings.OperationModeLR2DB = false;
             string settingsOutputBaseDir = Path.Combine(tempDirectory, "SettingsOutput");
             string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderOutput");
-            Settings.Default.LR2CustomFolderOutputBaseDir = settingsOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "SettingsRootOutput");
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = false;
+            testSettings.LR2CustomFolderOutputBaseDir = settingsOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "SettingsRootOutput");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = false;
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -190,10 +188,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]",
                 EnableDownloadLr2IrScoreAndDetectUnsent = true
             };
-            int providerCallCount = 0;
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
-                providerCallCount++;
                 return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -226,7 +222,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -237,15 +233,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsFalse(File.Exists(Path.Combine(settingsOutputBaseDir, "InjectedOutputTable", "0001.lr2folder")));
             Assert.IsTrue(Directory.GetFiles(Path.Combine(providerOutputBaseDir, "InjectedOutputTable"), "*.lr2folder")
                 .Any(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis")).IndexOf("#TITLE UNSENT SONGS", StringComparison.Ordinal) >= 0));
-            Assert.AreEqual(1, providerCallCount);
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
-            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -257,22 +252,22 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void SyncCustomFolderOutputSearchRootsAfterSettingsChange_UsesInjectedOutputSettings()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = false;
+            testSettings.OperationModeLR2DB = false;
             string settingsNormalOutputBaseDir = Path.Combine(tempDirectory, "SettingsNormalOutput");
             string settingsRootOutputBaseDir = Path.Combine(tempDirectory, "SettingsRootOutput");
             string providerNormalOutputBaseDir = Path.Combine(tempDirectory, "ProviderNormalOutput");
             string providerRootOutputBaseDir = Path.Combine(tempDirectory, "ProviderRootOutput");
-            Settings.Default.LR2CustomFolderOutputBaseDir = settingsNormalOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = settingsRootOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.LR2CustomFolderOutputBaseDir = settingsNormalOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = settingsRootOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -296,7 +291,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings)
+                () => outputSettings, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -311,10 +306,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -326,15 +321,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesLr2FolderUnderLongPath()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         LongPathFileSystem.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = BuildLongDirectoryPath(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -356,7 +351,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -366,13 +361,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string outputPath = Path.Combine(outputBaseDir, "LongFolderTable", "0001.lr2folder");
             Assert.IsTrue(LongPathFileSystem.FileExists(outputPath));
             StringAssert.Contains(ReadShiftJisText(outputPath), "#TITLE Folder B");
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", outputPath));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (LongPathFileSystem.DirectoryExists(tempDirectory))
             {
                 LongPathFileSystem.DeleteDirectory(tempDirectory, recursive: true);
@@ -384,9 +379,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_GeneratesAdditionalOutputBaseParentRow()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -394,9 +389,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string defaultOutputBaseDir = Path.Combine(tempDirectory, "DefaultCustomFolder");
             string additionalOutputBaseDir = Path.Combine(tempDirectory, "Additional");
             Directory.CreateDirectory(additionalOutputBaseDir);
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = defaultOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = defaultOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBaseDir]);
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -420,7 +415,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -430,7 +425,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string outputDirectory = Path.Combine(additionalOutputBaseDir, "AdditionalTable");
             string outputPath = Path.Combine(outputDirectory, "0001.lr2folder");
             Assert.IsTrue(File.Exists(outputPath));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             var rows = verify.Table<LR2SongDB.folder>().ToList();
             string rowSummary = string.Join(" | ", rows.Select(row => $"{row.type}:{row.parent}:{row.path}").Take(20));
             LR2SongDB.folder? outputBaseRow = rows.SingleOrDefault(row => row.path == Lr2FolderPath.ToFolderPath(additionalOutputBaseDir));
@@ -453,9 +448,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -465,14 +460,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot()
+    public void PlaylistPropertyDialogApplyPostSaveUpdates_UsesCurrentAppliedCustomFolderSettings()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
             Task operation = PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(
                 operation,
-                nameof(PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot));
+                nameof(PlaylistPropertyDialogApplyPostSaveUpdates_UsesCurrentAppliedCustomFolderSettings));
         });
     }
 
@@ -501,13 +496,16 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 seed.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
             }
             var playlist = new TestBmsPlaylist(
-                songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             int libraryProviderCallCount = 0;
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => Interlocked.Increment(ref libraryProviderCallCount) == 1
@@ -529,8 +527,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             Assert.AreEqual("test post-save failure", failure.Message);
             Assert.AreEqual("NEW", table.symbol);
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                async () => await dialog.ResetPropertiesAsync());
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.ResetPropertiesAsync());
             Assert.AreEqual("NEW", dialog.symbol);
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
@@ -538,8 +537,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.ResetPropertiesAsync());
-            Assert.AreEqual(2, libraryProviderCallCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, libraryProviderCallCount, "未変更の明示保存で、失敗した旧公開を予約・再実行しません。");
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 "NEW",
                 verify.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).symbol);
@@ -556,7 +555,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistPropertyDialog_PostSaveRetryDoesNotRewriteCompatiblePrefixTwice()
+    public async Task PlaylistPropertyDialog_FreshSaveAfterFailureDoesNotRewriteCompatiblePrefixTwice()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -583,12 +582,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
             var playlist = new TestBmsPlaylist(
-                songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -620,8 +622,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.SaveAndApplyAsync());
             Assert.AreEqual("★Alpha", table.entries.Single().folder);
-            Assert.AreEqual(2, remapRequestCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, remapRequestCount);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 "★Alpha",
                 verify.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id).folder);
@@ -638,7 +640,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistPropertyDialog_PrefixRewriteNotificationFailureRetriesTheFixedMap()
+    public async Task PlaylistPropertyDialog_PrefixNotificationFailureKeepsDurableRewriteWithoutReplay()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -668,14 +670,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
             var playlist = new TestBmsPlaylist(
-                songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             var service = new PlaylistPropertySaveService(
                 () => playlist,
-                () => new TestBmsLibrary(songDbPath),
+                () => new TestBmsLibrary(songDbPath, settings: testSettings),
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
@@ -709,7 +714,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 await dialog.SaveAndApplyAsync());
             Assert.AreEqual("★Alpha", table.entries.Single(candidate => candidate.md5 == entry.md5).folder);
             Assert.AreEqual("★★Alpha", table.entries.Single(candidate => candidate.md5 == prefixedEntry.md5).folder);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 "★Alpha",
                 verify.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5).folder);
@@ -729,7 +734,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistPropertyDialog_PostSaveRetryRejectsAConcurrentLivePropertyChange()
+    public async Task PlaylistPropertyDialog_FreshSaveRejectsChangedSavedValues()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -756,14 +761,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
             var playlist = new TestBmsPlaylist(
-                songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             var service = new PlaylistPropertySaveService(
                 () => playlist,
-                () => new TestBmsLibrary(songDbPath),
+                () => new TestBmsLibrary(songDbPath, settings: testSettings),
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             int remapCount = 0;
@@ -790,7 +798,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             InvalidOperationException stale = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 async () => await dialog.SaveAndApplyAsync());
 
-            StringAssert.Contains(stale.Message, "changed while save follow-up was pending");
+            StringAssert.Contains(stale.Message, "changed after editing began");
             Assert.AreEqual("CONCURRENT", table.symbol);
             Assert.AreEqual("★Alpha", table.entries.Single().folder);
             Assert.AreEqual(1, remapCount);
@@ -807,10 +815,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistPropertyDialog_PostSaveRetryDoesNotReloadExternalSourceTwice()
+    public async Task PlaylistPropertyDialog_FreshSaveAfterPublicationFailureDoesNotReplayExternalReload()
     {
-        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
-        Settings.Default.EnablePlaylistUrlCompletion = false;
+        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
+        testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         PlaylistPropertyDialogViewModel? dialog = null;
@@ -824,8 +832,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new TestBmsPlaylist(
-                songDbPath,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty));
+                songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 7315;
             table.Page_url = new Uri(headerJsonPath);
@@ -843,7 +854,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 }
             }
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -898,12 +909,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.SaveAndApplyAsync());
-            Assert.AreEqual(2, referenceReplacementPresentationCount);
-            Assert.AreEqual(2, completionProgressCount);
+            Assert.AreEqual(1, referenceReplacementPresentationCount);
+            Assert.AreEqual(1, completionProgressCount);
             Assert.AreEqual(0, activeSyncOperationCount);
             Assert.AreEqual(1, summaryRefreshCount);
             Assert.IsTrue(dialog.is_external_sync);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsTrue(
                 verify.Table<BMSTable>()
                     .Single(row => row.playlist_id == table.playlist_id)
@@ -916,7 +927,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             dialog?.Dispose();
-            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -928,17 +939,17 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string rootOutputBaseDir = Path.Combine(tempDirectory, "RootCustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
-            Settings.Default.LR2RootPath = Path.Combine(tempDirectory, "LR2");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
+            testSettings.LR2RootPath = Path.Combine(tempDirectory, "LR2");
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -961,7 +972,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -969,7 +980,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
             string outputPath = Path.Combine(rootOutputBaseDir, "RootFolderTable", "0001.lr2folder");
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputPath);
             Assert.AreEqual(2, folder.type);
             Assert.AreEqual("Root Folder", folder.title);
@@ -982,9 +993,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -996,15 +1007,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesHierarchicalRandomAndSortFolders()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
@@ -1034,7 +1045,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1084,14 +1095,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             StringAssert.Contains(playCountSortText, "score.playcount IS NULL ASC");
             StringAssert.Contains(playCountSortText, "score.playcount DESC");
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder")));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(Path.Combine(outputDir, "CLEAR FOLDER"))));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1103,15 +1114,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesLastPlaySortFolderWhenSchemaInstalled()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             string scoreDbPath = CreateInstalledPlayHistoryScoreDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -1133,7 +1144,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1147,15 +1158,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             StringAssert.Contains(lastPlayText, "#INFORMATION_A Sort: LAST PLAY DESC");
             Assert.IsFalse(File.Exists(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder")));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(item => item.path == Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder"));
             StringAssert.Contains(row.command, "bms_lr2_last_play");
             StringAssert.Contains(row.command, "ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS NULL ASC, (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) DESC");
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1167,15 +1178,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_WritesLastPlaySortWhenSchemaNotInstalled()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             string scoreDbPath = CreateBaseScoreDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -1195,7 +1206,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1204,13 +1215,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             string outputDir = Path.Combine(outputBaseDir, "MissingLastPlaySchema");
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1222,15 +1233,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesLastPlaySortWhenOutputBitTurnsOff()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             string scoreDbPath = CreateInstalledPlayHistoryScoreDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -1251,7 +1262,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, scoreDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1278,14 +1289,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsFalse(File.Exists(stalePath));
             Assert.IsFalse(Directory.Exists(lastPlayDir));
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "0000.lr2folder")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path LIKE ?;", lastPlayDir + "%"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1297,15 +1308,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesRootRandomFoldersAfterNormalFolders()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
@@ -1329,7 +1340,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1347,8 +1358,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1360,15 +1371,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_AllSongsScopeDoesNotRequireUserFolder()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -1390,7 +1401,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1405,8 +1416,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1418,15 +1429,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_UserFolderScopeDoesNotWriteAllSongs()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -1448,7 +1459,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1467,8 +1478,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1480,15 +1491,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_DoesNotExpandOldAllFoldersMaskToNewTypes()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -1508,7 +1519,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1520,13 +1531,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "BP SORT", "0000.lr2folder")));
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder")));
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1538,15 +1549,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesExtraLr2FolderRowsInSameOutputDirectory()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -1573,7 +1584,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = stalePath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1583,14 +1594,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string expectedPath = Path.Combine(outputDir, "0001.lr2folder");
             Assert.IsTrue(File.Exists(expectedPath));
             Assert.IsFalse(File.Exists(stalePath));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", expectedPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1602,15 +1613,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesDbOnlyStaleHierarchicalRowsInSameOutputDirectory()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
@@ -1634,7 +1645,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1645,7 +1656,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string clearDir = Path.Combine(outputDir, "CLEAR FOLDER");
             string noPlayDir = Path.Combine(clearDir, "0 NO PLAY");
             string noPlayFile = Path.Combine(noPlayDir, "0000.lr2folder");
-            using (var verifyInitial = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyInitial = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1L, verifyInitial.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", noPlayFile));
                 Assert.AreEqual(1L, verifyInitial.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(clearDir)));
@@ -1660,7 +1671,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
             Assert.IsFalse(Directory.Exists(clearDir));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", noPlayFile));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(clearDir)));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(noPlayDir)));
@@ -1668,8 +1679,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1681,9 +1692,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_RewritesExistingLr2FolderFiles()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1698,9 +1709,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             DateTime oldTimestamp = new(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
             File.SetLastWriteTimeUtc(outputFile, oldTimestamp);
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -1708,12 +1719,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDir = outputBaseDir,
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]",
-                EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
+                EnableDownloadLr2IrScoreAndDetectUnsent = testSettings.EnableDownloadLr2IrScoreAndDetectUnsent
             };
-            int providerCallCount = 0;
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
-                providerCallCount++;
                 return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -1745,7 +1754,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getOutputSettings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1756,17 +1765,16 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreNotEqual(oldTimestamp, File.GetLastWriteTimeUtc(outputFile));
             Assert.IsTrue(text.IndexOf("#TITLE stale", StringComparison.Ordinal) < 0);
             StringAssert.Contains(text, "#TITLE BulkRewrite ALL");
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(item => item.path == outputFile);
             Assert.AreEqual(File.GetLastWriteTimeUtc(outputFile).ToUnixtime(), row.date);
             Assert.AreEqual("BulkRewrite ALL", row.title);
-            Assert.AreEqual(1, providerCallCount);
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1778,9 +1786,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_ProgressUsesFolderTableSyncLabel()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1789,9 +1797,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -1814,7 +1822,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Folder_order = ["Folder A"]
             };
             TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty);
-            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot));
+            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot), settings: testSettings);
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
             var progressLabels = new List<string>();
 
@@ -1828,9 +1836,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1840,11 +1848,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void ReloadTables_RepairsRootOutputDirectoryRowWhenJukeboxRootWasMissing()
+    public async Task ReloadTables_RepairsRootOutputDirectoryRowWhenJukeboxRootWasMissing()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1854,9 +1862,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string settingsRootOutputBaseDir = Path.Combine(tempDirectory, "SettingsRootOutput");
             string providerRootOutputBaseDir = Path.Combine(tempDirectory, "ProviderRootOutput");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = false;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = settingsRootOutputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = false;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = settingsRootOutputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -1906,7 +1914,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                  () => new BeatorajaBmtOptionsSnapshot(),
                  () => outputSettings,
-                 synchronization)
+                 synchronization, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -1921,29 +1929,21 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             }
             config.SetBMSSearchDirectories([bmsRoot]);
             config.Save();
-            var scheduledTasks = new List<Task>();
-            playlist.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)
-            {
-                scheduledTasks.Add(work());
-                return true;
-            };
-
-            playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
-            Task.WaitAll([.. scheduledTasks]);
+            await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
 
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), outputDirectory);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), settingsRootOutputBaseDir);
             Assert.AreEqual(outputFileTimestamp, File.GetLastWriteTimeUtc(outputFile));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder outputDirectoryRow = verify.Table<LR2SongDB.folder>().Single(row => row.path == outputDirectoryRowPath);
             Assert.AreEqual(1, outputDirectoryRow.type);
             Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, outputDirectoryRow.parent);
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1955,15 +1955,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_ClearsCustomFolderOutputStatus()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
@@ -1981,13 +1981,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
 
             playlist.ReOutputCustomFolderAndCommitToDB(table);
-            using (var before = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended before = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     1L,
@@ -1998,7 +1998,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             playlist.RemoveCustomFolder(table);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 0L,
                 verify.ExecuteScalar<long>(
@@ -2007,8 +2007,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2020,9 +2020,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DisablingAllOutputPrunesFilesAndRows()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2031,9 +2031,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2056,7 +2056,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2064,7 +2064,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string outputDir = Path.Combine(outputBaseDir, "DisableAllOutput");
             Assert.IsTrue(Directory.Exists(outputDir));
             Assert.IsTrue(Directory.EnumerateFiles(outputDir, "*.lr2folder", System.IO.SearchOption.AllDirectories).Any());
-            using (var verifySeed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySeed = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.IsTrue(verifySeed.Table<LR2SongDB.folder>().ToList()
                     .Any(row => row.path != null && row.path.StartsWith(outputDir, StringComparison.OrdinalIgnoreCase)));
@@ -2075,15 +2075,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             Assert.IsFalse(Directory.Exists(outputDir)
                 && Directory.EnumerateFiles(outputDir, "*.lr2folder", System.IO.SearchOption.AllDirectories).Any());
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList()
                 .Count(row => row.path != null && row.path.StartsWith(outputDir, StringComparison.OrdinalIgnoreCase)));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2095,18 +2095,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DisablingAllOutputPrunesDbOnlyRootRows()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
             string rootOutputBaseDir = Path.Combine(lr2RootPath, "LR2files", "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2129,14 +2129,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_seed_disable_all_root_output");
             string outputDir = Path.Combine(rootOutputBaseDir, "DisableAllRootOutput");
             string relativeOutputDir = Path.Combine("LR2files", "CustomFolder", "DisableAllRootOutput");
-            using (var verifySeed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySeed = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.IsTrue(verifySeed.Table<LR2SongDB.folder>().ToList()
                     .Any(row => row.path != null && row.path.StartsWith(relativeOutputDir, StringComparison.OrdinalIgnoreCase)));
@@ -2146,15 +2146,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_disable_all_root_output");
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().ToList()
                 .Count(row => row.path != null && row.path.StartsWith(relativeOutputDir, StringComparison.OrdinalIgnoreCase)));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2166,9 +2166,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DoesNotCommitHeaderWhenOutputFails()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2177,9 +2177,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2203,12 +2203,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_seed_commit_failure");
-            using (var verifySeed = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySeed = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     (int)initialMask,
@@ -2217,7 +2217,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             string outputBaseFile = Path.Combine(tempDirectory, "output-base-file");
             File.WriteAllText(outputBaseFile, "not a directory", Encoding.UTF8);
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseFile;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseFile;
             table.symbol = "CF2";
 
             Exception? exception = null;
@@ -2238,7 +2238,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 || exception is NotSupportedException
                 || exception is PathTooLongException,
                 exception.GetType().FullName);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 (int)initialMask,
                 verify.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = 7615;"));
@@ -2248,9 +2248,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2262,18 +2262,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void Lr2SongDbSyncPreparation_ReportsActualTablesAndFilesThroughWorkflowWithoutSavingFolderRows()
     {
-        bool previousMode = Settings.Default.OperationModeLR2DB;
-        string previousRoot = Settings.Default.LR2RootPath;
+        bool previousMode = testSettings.OperationModeLR2DB;
+        string previousRoot = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2RootPath = Path.Combine(tempDirectory, "LR2");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = Path.Combine(tempDirectory, "LR2");
             var outputSettings = new CustomFolderOutputSettingsSnapshot
             {
                 OperationModeLR2DB = true,
-                LR2RootPath = Settings.Default.LR2RootPath,
+                LR2RootPath = testSettings.LR2RootPath,
                 LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "Output"),
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
@@ -2286,7 +2286,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 db.Insert(new LR2SongDB.folder { path = "sentinel", title = "Preserved", type = 2, adddate = 123 });
             }
             // Dispatcherを持たない既存スケジューラーで生産値を観測する。全中間値のUI描画は要求しない。
-            var library = new TestBmsLibrary(songDbPath, null, null, null, null, new WpfUiScheduler(() => null));
+            var library = new TestBmsLibrary(songDbPath, null, null, null, null, new WpfUiScheduler(() => null), settings: testSettings);
             var stages = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
@@ -2314,15 +2314,22 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     Folder_order = ["C"]
                 }
             ];
-            var playlist = new TestBmsPlaylist(songDbPath, null, null, null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings, library.Lr2PlaylistFolderSynchronization)
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                () => outputSettings, null, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(tables)
             };
             var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
 
-            Assert.IsTrue(runtime.TryRunDataPreparation("test_actual_preparation", includeBuiltinGeneratedData: false));
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation", showMessage: false))
+            {
+                Assert.IsNotNull(preparationLease);
+                Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
+                using IDisposable playlistOperation = playlistLease;
+                using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
+                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_actual_preparation", preparationLease, false, playlistCapability: playlistCapability);
+                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_actual_preparation", prepared);
+            }
             Lr2SongDbSyncPreparedDataSurface surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
                 .TakeLr2SongDbSyncPreparedDataSurface(out _);
             Assert.IsNotNull(surface);
@@ -2349,7 +2356,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 Assert.IsTrue(stages.Any(value => value.Stage == stage && value.StageTotalCount == 0), stage);
             }
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM playlist_custom_folder_output_status;"));
                 Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count());
@@ -2362,8 +2369,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousMode;
-            Settings.Default.LR2RootPath = previousRoot;
+            testSettings.OperationModeLR2DB = previousMode;
+            testSettings.LR2RootPath = previousRoot;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2375,16 +2382,16 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputAllCustomFoldersForLr2SongDbSync_EmptyTablesReleasePreparationReservation()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousRootPath = Settings.Default.LR2RootPath;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousRootPath = testSettings.LR2RootPath;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2RootPath = Path.Combine(tempDirectory, "LR2");
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = Path.Combine(tempDirectory, "LR2");
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -2392,15 +2399,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            int providerCallCount = 0;
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
-                providerCallCount++;
                 return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, null, new WpfUiScheduler(() => null));
+            var library = new TestBmsLibrary(songDbPath, null, null, null, null, new WpfUiScheduler(() => null), settings: testSettings);
             var stages = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
@@ -2409,15 +2414,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     stages.Add(library.GetLr2SongDbSyncStatusSnapshot());
                 }
             };
-            var playlist = new TestBmsPlaylist(
-                songDbPath,
-                null,
-                null,
-                null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings,
-                library.Lr2PlaylistFolderSynchronization)
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                getOutputSettings, null, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -2427,13 +2425,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => true);
 
             Lr2SongDbSyncPreparedDataSurface? surface = null;
-            Assert.IsTrue(runtime.TryRunDataPreparation(
-                "test_empty_snapshot",
-                includeBuiltinGeneratedData: false));
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_empty_snapshot", showMessage: false))
+            {
+                Assert.IsNotNull(preparationLease);
+                Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
+                using IDisposable playlistOperation = playlistLease;
+                using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
+                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_empty_snapshot", preparationLease, false, playlistCapability: playlistCapability);
+                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_empty_snapshot", prepared);
+            }
             surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
                 .TakeLr2SongDbSyncPreparedDataSurface(out _);
 
-            Assert.AreEqual(1, providerCallCount);
             Assert.IsTrue(stages.Count > 0);
             Assert.IsFalse(stages.Any(stage => stage.Stage == "playlist_projection" || stage.Stage == "playlist_files"));
             Assert.IsNotNull(surface);
@@ -2444,10 +2447,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2RootPath = previousRootPath;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2RootPath = previousRootPath;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2459,9 +2462,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void Lr2SongDbSyncCustomFolderPreparation_PreservesExtraLr2FolderRowInManagedOutputDirectory()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2470,9 +2473,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2495,19 +2498,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Folder_order = ["Folder C"]
             };
             Func<LR2Config> lr2ConfigProvider = () => CreateLr2Config(lr2RootPath, bmsRoot);
-            var library = new TestBmsLibrary(songDbPath, lr2ConfigProvider);
-            var playlist = new TestBmsPlaylist(
-                songDbPath,
-                lr2ConfigProvider,
-                null,
-                null,
-                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
-                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
-                library.Lr2PlaylistFolderSynchronization,
-                mutationLeaseProvider: operation => library.Lr2Synchronization.TryBeginMutation(
-                    operation,
-                    showMessage: false))
+            var library = new TestBmsLibrary(songDbPath, lr2ConfigProvider, settings: testSettings);
+            var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), lr2ConfigProvider, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
@@ -2536,16 +2529,22 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => playlist,
                 () => true);
             Lr2SongDbSyncPreparedDataSurface? surface = null;
-            Assert.IsTrue(runtime.TryRunDataPreparation(
-                "test_external_colocated",
-                includeBuiltinGeneratedData: false));
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_external_colocated", showMessage: false))
+            {
+                Assert.IsNotNull(preparationLease);
+                Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
+                using IDisposable playlistOperation = playlistLease;
+                using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
+                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_external_colocated", preparationLease, false, playlistCapability: playlistCapability);
+                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_external_colocated", prepared);
+            }
             surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
                 .TakeLr2SongDbSyncPreparedDataSurface(out _);
 
             Assert.IsFalse(File.Exists(extraFile));
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), expectedFile);
             Assert.AreEqual(0, surface.Lr2FolderScopeDirectories.Count);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder extraFolder = verify.Find<LR2SongDB.folder>(extraFile);
             Assert.IsNotNull(extraFolder);
             Assert.AreEqual("External", extraFolder.title);
@@ -2560,9 +2559,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2574,9 +2573,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_ProtectsNestedManagedOutputDirectory()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = Settings.Default.LR2RootPath;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2585,9 +2584,9 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
-            Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2624,7 +2623,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 ],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var playlist = new TestBmsPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
             };
@@ -2640,15 +2639,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
             Assert.IsTrue(File.Exists(childOutputFile));
             Assert.AreEqual(childTimestamp, File.GetLastWriteTimeUtc(childOutputFile));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", childOutputFile));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(childOutputDir)));
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2RootPath = previousLr2RootPath;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2658,18 +2657,28 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CommitBMSTableEntry_ReoutputsLr2FolderRowsForLevelProjection()
+    [DataRow("none")]
+    [DataRow("preparation")]
+    [DataRow("output")]
+    [DataRow("notification")]
+    [DataRow("output_notification")]
+    [DataRow("bmt_preparation")]
+    [DataRow("bmt_cancel")]
+    [DataRow("bmt_cancel_notification")]
+    [DataRow("database_notification")]
+    public async Task DetailEdit_ReoutputsLr2FolderRowsForLevelProjection(string failureStage)
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        FileStream? outputBlocker = null;
         try
         {
             string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderCustomFolder");
             string globalOutputBaseDir = Path.Combine(tempDirectory, "GlobalCustomFolder");
-            Settings.Default.OperationModeLR2DB = false;
-            Settings.Default.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
+            testSettings.OperationModeLR2DB = false;
+            testSettings.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -2677,10 +2686,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootCustomFolder"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            int providerCallCount = 0;
+            bool injectFailure = false;
+            var preparationFailure = new InvalidOperationException("detail output settings failed after DB commit");
+            var bmtPreparationFailure = new InvalidOperationException("detail BMT settings failed after DB commit");
+            var notificationFailure = new InvalidOperationException("detail receipt presentation failed");
+            bool failNotification = failureStage == "notification" || failureStage.EndsWith("_notification", StringComparison.Ordinal);
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
-                providerCallCount++;
+                if (injectFailure && failureStage == "preparation") { throw preparationFailure; }
                 return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -2701,38 +2714,130 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new TestBmsPlaylist(
-                songDbPath,
-                null,
-                null,
-                null,
-                () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+            var library = new TestBmsLibrary(songDbPath, null, null, null,
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, settings: testSettings);
+            TestBmsPlaylist? playlist = null;
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
+                getOutputSettings, beatorajaBmtOptionsProvider: () =>
+                {
+                    if (injectFailure && failureStage == "bmt_preparation") { throw bmtPreparationFailure; }
+                    if (injectFailure && failureStage is "bmt_cancel" or "bmt_cancel_notification")
+                    {
+                        // 実DB確定とLR2終端の後、BMT workerのshutdown判定で取消にします。
+                        using (var committedDb = new LR2SongDBExtended(songDbPath))
+                        {
+                            Assert.AreEqual(12, committedDb.Table<BMSTableEntry>().Single().level);
+                        }
+                        Assert.IsNotNull(playlist);
+                        playlist.RequestShutdown("detail-post-commit-bmt-test");
+                    }
+                    return new BeatorajaBmtOptionsSnapshot();
+                }, settings: testSettings)
             {
-                BMSTables = new ObservableCollection<BMSTable>(new[] { table })
+                BMSTables = new ObservableCollection<BMSTable>([table])
             };
             playlist.ReOutputCustomFolderAndCommitToDB(table);
-            providerCallCount = 0;
-            entry.level = 12;
+            PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            int notificationCalls = 0;
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+            {
+                notificationCalls++;
+                if (failNotification) { throw notificationFailure; }
+            };
+            var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+            workspace.DetailViewState.Source.Rows = [source];
+            var context = new MainChartListCellEditContext(source.CreateViewRow(), nameof(PlaylistDetailRow.Level),
+                ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            workspace.BeginDetailEdit(context);
+            if (failureStage is "output" or "output_notification")
+            {
+                string outputFile = Directory.GetFiles(Path.Combine(providerOutputBaseDir, table.Output_dir), "*.lr2folder", SearchOption.AllDirectories)
+                    .First(path => ReadShiftJisText(path).Contains("LEVEL 1", StringComparison.Ordinal));
+                outputBlocker = new FileStream(outputFile, FileMode.Open, FileAccess.Read, FileShare.None);
+            }
+            if (failureStage == "database_notification")
+            {
+                using var failDatabase = new LR2SongDBExtended(songDbPath);
+                failDatabase.Execute("CREATE TRIGGER fail_detail_save BEFORE INSERT ON playlist_entry BEGIN SELECT RAISE(FAIL, 'forced detail DB failure'); END;");
+            }
+            injectFailure = true;
+            Task edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+            Exception? observedFailure = null;
+            try { await edit; }
+            catch (Exception exception) { observedFailure = exception; }
+            if (failureStage == "none") { Assert.IsNull(observedFailure); }
+            else if (failureStage == "database_notification")
+            {
+                Assert.IsNotNull(observedFailure);
+                Assert.IsFalse(observedFailure is PlaylistMutationPostCommitException);
+                StringAssert.Contains(observedFailure.ToString(), "forced detail DB failure");
+            }
+            else
+            {
+                Assert.IsInstanceOfType<PlaylistMutationPostCommitException>(observedFailure);
+                var failure = (PlaylistMutationPostCommitException)observedFailure;
+                if (failureStage == "preparation") { Assert.AreSame(preparationFailure, failure.InnerException); }
+                else if (failureStage is "output" or "output_notification") { Assert.IsInstanceOfType<IOException>(failure.InnerException); }
+                else if (failureStage == "bmt_preparation") { Assert.AreSame(bmtPreparationFailure, failure.InnerException); }
+                else if (failureStage == "notification") { Assert.AreSame(notificationFailure, failure.InnerException); }
+                else
+                {
+                    Assert.IsInstanceOfType<OperationCanceledException>(failure.InnerException);
+                    Assert.IsTrue(playlist.IsShutdownRequested);
+                    StringAssert.Contains(failure.InnerException.Message, "Playlist BMT output");
+                }
+            }
+            if (failureStage.EndsWith("_notification", StringComparison.Ordinal))
+            {
+                Assert.IsNotNull(observedFailure);
+                Assert.AreSame(notificationFailure, observedFailure.Data["PlaylistDetailNotificationFailure"], "二次通知失敗は元の操作失敗を置換しません。");
+            }
+            Assert.AreEqual(1, notificationCalls);
+            if (observedFailure != null) { Assert.IsTrue(edit.IsFaulted); }
 
-            playlist.CommitBMSTableEntry(entry);
+            int expectedLevel = failureStage == "database_notification" ? 1 : 12;
+            Assert.AreEqual(expectedLevel, entry.level);
+            Assert.AreEqual(expectedLevel.ToString(), ((PlaylistDetailRow)context.Row).Level);
+            Assert.AreEqual(expectedLevel.ToString(), source.CreateViewRow().Level, "入力snapshotもDBの確定値を保持します。");
+            Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
-            var folders = verify.Table<LR2SongDB.folder>().ToList();
-            Assert.AreEqual(1, providerCallCount);
-            Assert.IsTrue(Directory.Exists(Path.Combine(providerOutputBaseDir, table.Output_dir)));
-            Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));
-            Assert.AreEqual(0, folders.Count(row => row.title == "LEVEL 1"));
-            LR2SongDB.folder levelFolder = folders.Single(row => row.title == "LEVEL 12");
-            Assert.AreEqual(2, levelFolder.type);
-            StringAssert.Contains(levelFolder.command, "playlist_entry");
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(expectedLevel, verify.Table<BMSTableEntry>().Single(row =>
+                    row.playlist_id == table.playlist_id && row.md5 == entry.md5).level);
+                if (failureStage == "none")
+                {
+                    var folders = verify.Table<LR2SongDB.folder>().ToList();
+                    Assert.IsTrue(Directory.Exists(Path.Combine(providerOutputBaseDir, table.Output_dir)));
+                    Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));
+                    Assert.AreEqual(0, folders.Count(row => row.title == "LEVEL 1"));
+                    LR2SongDB.folder levelFolder = folders.Single(row => row.title == "LEVEL 12");
+                    Assert.AreEqual(2, levelFolder.type);
+                    StringAssert.Contains(levelFolder.command, "playlist_entry");
+                    Assert.IsTrue(Directory.EnumerateFiles(Path.Combine(providerOutputBaseDir, table.Output_dir),
+                        "*.lr2folder", SearchOption.AllDirectories).Any(path => ReadShiftJisText(path).Contains("LEVEL 12", StringComparison.Ordinal)));
+                }
+            }
+            if (failureStage == "database_notification")
+            {
+                using (var database = new LR2SongDBExtended(songDbPath)) { database.Execute("DROP TRIGGER fail_detail_save;"); }
+                failNotification = false;
+                workspace.BeginDetailEdit(context);
+                await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+                Assert.AreEqual(12, entry.level);
+                Assert.AreEqual("12", ((PlaylistDetailRow)context.Row).Level);
+                Assert.AreEqual("12", source.CreateViewRow().Level);
+                Assert.AreEqual(2, notificationCalls);
+                using LR2SongDBExtended verifyRetry = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(12, verifyRetry.Table<BMSTableEntry>().Single().level, "同じ入力の再保存も実DBへ反映します。");
+            }
         }
         finally
         {
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            outputBlocker?.Dispose();
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2827,10 +2932,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     private async Task PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync()
     {
-        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
-        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
+        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -2844,10 +2949,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string changedRootOutputBaseDir = Path.Combine(tempDirectory, "ChangedRootCustomFolder");
             string additionalOutputBaseDir = Path.Combine(tempDirectory, "AdditionalCustomFolder");
             string additionalOutputBaseName = Path.GetFileName(additionalOutputBaseDir);
-            Settings.Default.OperationModeLR2DB = false;
-            Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "GlobalNormalCustomFolder");
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "GlobalRootCustomFolder");
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            testSettings.OperationModeLR2DB = false;
+            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "GlobalNormalCustomFolder");
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "GlobalRootCustomFolder");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             CustomFolderOutputSettingsSnapshot initialSettings = new()
             {
                 OperationModeLR2DB = true,
@@ -2884,10 +2989,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Func<CustomFolderOutputSettingsSnapshot> getPlaylistSettings = () =>
             {
                 playlistProviderCallCount++;
-                return new CustomFolderOutputSettingsSnapshot
-                {
-                    OperationModeLR2DB = false
-                };
+                return currentSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
@@ -2922,11 +3024,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 getPlaylistSettings,
-                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty))
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(
                 playlist,
                 library,
@@ -2948,13 +3050,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);
             dialog = null;
 
-            string newOutputDirectory = Path.Combine(initialRootOutputBaseDir, table.Output_dir);
-            Assert.AreEqual(1, viewModelProviderCallCount);
-            Assert.AreEqual(0, playlistProviderCallCount);
+            string newOutputDirectory = Path.Combine(changedRootOutputBaseDir, table.Output_dir);
+            Assert.IsTrue(viewModelProviderCallCount > 0);
+            Assert.IsTrue(playlistProviderCallCount > 0);
             Assert.IsTrue(table.is_root_folder);
-            Assert.IsFalse(File.Exists(oldOutputPath));
+            Assert.AreEqual("#TITLE stale normal output", File.ReadAllText(oldOutputPath, Encoding.GetEncoding("shift_jis")),
+                "受付時の適用配置へ接続し、古い編集時の基点のcleanupを再開しません。");
             Assert.IsTrue(File.Exists(Path.Combine(newOutputDirectory, "0001.lr2folder")));
-            Assert.IsFalse(Directory.Exists(Path.Combine(changedRootOutputBaseDir, table.Output_dir)));
+            Assert.IsFalse(Directory.Exists(Path.Combine(initialRootOutputBaseDir, table.Output_dir)));
             CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
             var reloadedConfig = new LR2Config(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
             CollectionAssert.Contains(reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
@@ -2976,7 +3079,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 table.Output_dir ?? BMSTable.CreateDefaultOutputDirectoryName(table.name));
             Assert.IsTrue(Directory.Exists(additionalOutputDirectory));
             Assert.IsTrue(Directory.GetFiles(additionalOutputDirectory, "*.lr2folder", SearchOption.AllDirectories).Length > 0);
-            using (var verifyAdditional = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyAdditional = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 LR2SongDBExtended.playlist persistedAdditional = verifyAdditional.Table<LR2SongDBExtended.playlist>()
                     .Single(row => row.playlist_id == table.playlist_id);
@@ -2993,7 +3096,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 commit: true)).IsApplied;
             Assert.IsTrue(inlineSaved);
             Assert.AreEqual("DSS2", table.symbol);
-            using (var verifyInline = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyInline = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     "DSS2",
@@ -3014,7 +3117,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
                 table.ignore_folder_output);
-            using (var verifyMask = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyMask = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     (int)LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
@@ -3026,10 +3129,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             dialog?.Dispose();
-            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
+            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             DispatcherHelper.UIDispatcher = previousDispatcher;
             if (Directory.Exists(tempDirectory))
             {

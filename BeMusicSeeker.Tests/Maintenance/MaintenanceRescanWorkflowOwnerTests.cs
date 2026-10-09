@@ -25,7 +25,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
         };
         var owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token) =>
+            (current, progress, token, capability) =>
             {
                 executionCalls++;
                 return new MaintenanceWorkflowResult();
@@ -53,7 +53,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog unavailable"))
         };
         var owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token) => new MaintenanceWorkflowResult(),
+            (current, progress, token, capability) => new MaintenanceWorkflowResult(),
             action =>
             {
                 action();
@@ -77,7 +77,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             ConfirmationResult = UiDialogResult.ClosedByUser(MessageBoxResult.Cancel)
         };
         var owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token) => new MaintenanceWorkflowResult(),
+            (current, progress, token, capability) => new MaintenanceWorkflowResult(),
             action =>
             {
                 action();
@@ -106,7 +106,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             ConfirmationResult = UiDialogResult.NotShown(UiDialogStatus.DispatcherUnavailable)
         };
         var owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token) => new MaintenanceWorkflowResult(),
+            (current, progress, token, capability) => new MaintenanceWorkflowResult(),
             action =>
             {
                 action();
@@ -129,7 +129,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         string root = CreateRoot();
         var owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token) =>
+            (current, progress, token, capability) =>
             {
                 started.TrySetResult(true);
                 release.Wait();
@@ -152,7 +152,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 owner.AttachLibrary(CreateLibrary(root, "song.db"));
                 MaintenanceRescanStartResult startedResult = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.Started, startedResult.Status);
-                await started.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.started");
                 MaintenanceRescanStartResult active = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.NotStarted, active.Status);
                 release.Set();
@@ -161,6 +161,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             finally
             {
                 release.Set();
+                if (owner != null) { await owner.WaitForIdleAsync(); }
                 DeleteRoot(root);
             }
         }
@@ -173,16 +174,17 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task Start_PublishesTerminalProgressBeforeCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var events = new List<string>();
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             MaintenanceRescanCompletionReceipt receipt = null!;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) =>
                 {
                     progress(new MaintenanceWorkflowProgress
                     {
@@ -225,7 +227,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             };
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await completion.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completion");
             await owner.WaitForIdleAsync();
             CollectionAssert.AreEqual(
                 new[] { "initial", "progress", "terminal", "completion" },
@@ -237,6 +239,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -244,19 +247,20 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task Start_RejectsDuplicateWhileTheCurrentRunIsActive()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         var release = new ManualResetEventSlim(false);
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) =>
                 {
                     started.TrySetResult(true);
-                    release.Wait(TimeSpan.FromSeconds(5));
+                    release.Wait();
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
                 action => Task.Factory.StartNew(
@@ -270,15 +274,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += _ => completed.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.started");
             Assert.IsFalse(await StartConfirmed(owner), "A second request must not overlap the active rescan.");
             release.Set();
-            await completed.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completed");
             await owner.WaitForIdleAsync();
         }
         finally
         {
             release.Set();
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -286,9 +291,10 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task Cancel_CancelsLiveRunAndPublishesCanceledCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         var release = new ManualResetEventSlim(false);
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -298,8 +304,8 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             bool tokenWasCanceled = false;
             bool receiptWasCanceled = false;
             bool uncanceledProgressAfterCancel = false;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
@@ -338,11 +344,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             };
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.started");
             owner.Cancel();
             Assert.IsTrue(canceledProgress.IsSet, "Cancel must immediately disable the active progress state.");
             release.Set();
-            await completed.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completed");
             Assert.IsTrue(tokenWasCanceled);
             Assert.IsTrue(receiptWasCanceled);
             Assert.IsFalse(uncanceledProgressAfterCancel);
@@ -351,6 +357,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         finally
         {
             release.Set();
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -358,7 +365,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task CancelDuringExecutorReturn_PublishesCanceledReceipt()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         try
         {
@@ -367,7 +374,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             bool receiptWasCanceled = false;
             MaintenanceRescanWorkflowOwner owner = null!;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+                (current, progress, token, capability) =>
                 {
                     owner.Cancel();
                     return new MaintenanceWorkflowResult();
@@ -387,7 +394,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             };
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await completion.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completion");
             Assert.IsTrue(receiptWasCanceled);
             await owner.WaitForIdleAsync();
         }
@@ -400,9 +407,10 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task AttachLibrary_DropsStaleGenerationAndAllowsTheReplacementToRun()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         var releaseFirst = new ManualResetEventSlim(false);
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             string firstRoot = Path.Combine(root, "first");
@@ -415,13 +423,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var secondStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) =>
                 {
                     if (ReferenceEquals(current, first))
                     {
                         firstStarted.TrySetResult(true);
-                        releaseFirst.Wait(TimeSpan.FromSeconds(5));
+                        releaseFirst.Wait();
                     }
                     else
                     {
@@ -444,21 +452,22 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             };
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await firstStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstStarted.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.firstStarted");
             owner.AttachLibrary(second);
             releaseFirst.Set();
             await owner.WaitForIdleAsync();
             Assert.AreEqual(0, completionCount, "A replaced generation must not publish completion.");
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await secondStarted.Task;
-            await completion.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondStarted.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.secondStarted");
+            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completion");
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
         finally
         {
             releaseFirst.Set();
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -466,18 +475,19 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task RequestShutdown_CancelsActiveRunAndBlocksLaterStart()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         var release = new ManualResetEventSlim(false);
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) =>
                 {
                     started.TrySetResult(true);
-                    release.Wait(TimeSpan.FromSeconds(5));
+                    release.Wait();
                     return new MaintenanceWorkflowResult { Canceled = token.IsCancellationRequested };
                 },
                 action => Task.Factory.StartNew(
@@ -490,7 +500,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.AttachLibrary(library);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.started");
             owner.RequestShutdown();
             Assert.IsFalse(await StartConfirmed(owner), "Shutdown must prevent a new rescan.");
             release.Set();
@@ -499,6 +509,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         finally
         {
             release.Set();
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -506,15 +517,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task SchedulerFailure_PublishesFailureAndLeavesOwnerIdle()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => new MaintenanceWorkflowResult(),
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
                 action => throw new InvalidOperationException("scheduler failed"),
                 action => action(),
                 dialogs: new AcceptedDialogService());
@@ -526,12 +538,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             };
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await failure.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.failure");
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -539,14 +552,15 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task CanceledSchedulerTask_DoesNotLeaveOwnerActive()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => new MaintenanceWorkflowResult(),
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
                 action => Task.FromCanceled(new CancellationToken(true)),
                 action => action(),
                 dialogs: new AcceptedDialogService());
@@ -554,11 +568,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.FailurePublished += _ => failure.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await failure.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.failure");
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -566,15 +581,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => throw new InvalidOperationException("executor failed"),
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => throw new InvalidOperationException("executor failed"),
                 action =>
                 {
                     action();
@@ -587,12 +603,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.FailurePublished += _ => failure.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await failure.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.failure");
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -600,15 +617,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task NullExecutorResult_PublishesFailureInsteadOfSuccessfulCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => null!,
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => null!,
                 action =>
                 {
                     action();
@@ -621,12 +639,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += _ => completion.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await failure.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.failure");
             Assert.IsFalse(completion.Task.IsCompleted);
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -634,15 +653,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task UnrequestedOperationCanceledException_PublishesFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => throw new OperationCanceledException("unexpected cancellation"),
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => throw new OperationCanceledException("unexpected cancellation"),
                 action =>
                 {
                     action();
@@ -655,12 +675,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += _ => completion.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await failure.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.failure");
             Assert.IsFalse(completion.Task.IsCompleted);
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }
@@ -668,7 +689,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task ExecutorFailure_IsReportedEvenWhenUiDispatchFails()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         try
         {
@@ -676,7 +697,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             int workflowFailures = 0;
             int notificationFailures = 0;
             var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => throw new InvalidOperationException("executor failed"),
+                (current, progress, token, capability) => throw new InvalidOperationException("executor failed"),
                 action =>
                 {
                     action();
@@ -702,14 +723,14 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task DispatcherFailure_IsReportedWithoutLeavingOwnerActive()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             int notificationFailures = 0;
             var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => new MaintenanceWorkflowResult(),
+                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
                 action =>
                 {
                     action();
@@ -733,15 +754,16 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     [TestMethod]
     public async Task ObserverFailure_DoesNotSuppressFollowingCompletionNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
+        MaintenanceRescanWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int notificationFailures = 0;
-            var owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) => new MaintenanceWorkflowResult(),
+            owner = new MaintenanceRescanWorkflowOwner(
+                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
                 action =>
                 {
                     action();
@@ -755,12 +777,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             owner.CompletionPublished += _ => completion.TrySetResult(true);
 
             Assert.IsTrue(await StartConfirmed(owner));
-            await completion.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.completion");
             Assert.IsTrue(notificationFailures > 0);
             await owner.WaitForIdleAsync();
         }
         finally
         {
+            if (owner != null) { await owner.WaitForIdleAsync(); }
             DeleteRoot(root);
         }
     }

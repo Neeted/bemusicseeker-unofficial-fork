@@ -69,51 +69,18 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         return row?.TableRef == null
             ? null
-            : ResolveActivePlaylistTable(row.TableRef, row.Name);
+            : ResolveActivePlaylistTable(row.TableRef);
     }
 
-    internal BMSTable ResolveActivePlaylistTable(BMSTable previousTable, string fallbackName = null)
+    /// <summary>同じ正本の参照または永続IDで表示対象を解決します。名前・URLから別対象を作りません。</summary>
+    internal BMSTable ResolveActivePlaylistTable(BMSTable previousTable)
     {
         if (previousTable == null)
         {
             return null;
         }
 
-        IEnumerable<BMSTable> activeTables = GetPlaylistStore().BMSTables?.Cast<BMSTable>()
-            ?? Enumerable.Empty<BMSTable>();
-        if (previousTable.playlist_id.HasValue)
-        {
-            BMSTable byId = activeTables.FirstOrDefault(candidate =>
-                candidate?.playlist_id == previousTable.playlist_id);
-            return byId;
-        }
-
-        string pageUrl = previousTable.Page_url?.AbsoluteUri ?? string.Empty;
-        string headerUrl = previousTable.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
-        if (!string.IsNullOrEmpty(pageUrl) || !string.IsNullOrEmpty(headerUrl))
-        {
-            BMSTable byUrl = activeTables.FirstOrDefault(candidate =>
-                candidate != null
-                && string.Equals(
-                    candidate.Page_url?.AbsoluteUri ?? string.Empty,
-                    pageUrl,
-                    StringComparison.OrdinalIgnoreCase)
-                && string.Equals(
-                    candidate.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty,
-                    headerUrl,
-                    StringComparison.OrdinalIgnoreCase));
-            if (byUrl != null)
-            {
-                return byUrl;
-            }
-        }
-
-        string name = string.IsNullOrWhiteSpace(fallbackName)
-            ? previousTable.name
-            : fallbackName;
-        return activeTables.FirstOrDefault(candidate =>
-            candidate != null
-            && string.Equals(candidate.name, name, StringComparison.Ordinal));
+        return GetPlaylistStore().ResolveActivePlaylistTableForMutation(previousTable);
     }
 
     internal async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
@@ -160,6 +127,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = null;
+            using LibraryFileMutationCapability capability = playlists.CreatePlaylistMutationCapability(admission);
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
             try
             {
@@ -180,8 +148,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
-                    publishReferenceReceipts: true);
-                playlists.BmtOutput.QueueBeatorajaBmtExportAll("manual_resync");
+                    publishReferenceReceipts: true, capability: capability);
                 RequestPlaylistSummaryDataRefresh(
                     "manual_playlist_resync");
                 RequestPlaylistDetailReloadRefresh();

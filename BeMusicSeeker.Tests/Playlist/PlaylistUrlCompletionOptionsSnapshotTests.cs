@@ -6,7 +6,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistUrlCompletionOptionsSnapshotTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void CreateCurrentCapturesAllUrlCompletionSettings()
     {

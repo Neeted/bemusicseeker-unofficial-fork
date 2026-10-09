@@ -417,7 +417,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 []);
         }
 
-        return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, everythingNative);
+        return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, everythingNative, rootFileEnumerator);
     }
 
     private static void ApplyLr2SyncRequestSurfaceToFileCheckResult(

@@ -446,12 +446,6 @@ internal sealed class PlaylistPersistenceRepository
         }
     }
 
-    internal bool HasPlaylistHeader(int playlistId)
-    {
-        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-        return db.Table<BMSTable>().Any(table => table?.playlist_id == playlistId);
-    }
-
     internal void DeleteTables(IEnumerable<BMSTable> tables)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];

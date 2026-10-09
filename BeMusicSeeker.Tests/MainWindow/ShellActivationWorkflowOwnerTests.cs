@@ -23,9 +23,7 @@ public sealed class ShellActivationWorkflowOwnerTests
 
         Assert.IsTrue(owner.ActivateConstructedShell());
         Assert.IsFalse(owner.ActivateConstructedShell());
-        Assert.IsTrue(
-            Task.WhenAll(startupUpdate.WaitForIdleAsync(), startupUpdate.WaitForTerminalAsync())
-                .Wait(TimeSpan.FromSeconds(5)));
+        Task.WhenAll(startupUpdate.WaitForIdleAsync(), startupUpdate.WaitForTerminalAsync()).GetAwaiter().GetResult();
     }
 
     [TestMethod]

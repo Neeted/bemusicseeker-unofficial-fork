@@ -7,15 +7,23 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class ChartLibraryMoveRequest
 {
-    private ChartLibraryMoveRequest(IReadOnlyList<LibraryChartRef> charts, string newParentDirectory)
+    private ChartLibraryMoveRequest(IReadOnlyList<LibraryChartRef> charts, string newParentDirectory, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
     {
         Charts = charts ?? throw new ArgumentNullException(nameof(charts));
         NewParentDirectory = newParentDirectory;
+        PreparedPlans = preparedPlans;
     }
 
     internal IReadOnlyList<LibraryChartRef> Charts { get; }
 
     internal string NewParentDirectory { get; }
+
+    /// <summary>同じL内でモデルが固定した実source/destination。未準備の入力要求ではnullです。</summary>
+    internal IReadOnlyList<FolderAutoRenamePlan> PreparedPlans { get; }
+
+    /// <summary>入力を変えず、停止前に確定した物理計画を持つ要求を返します。</summary>
+    internal ChartLibraryMoveRequest WithPreparedPlans(IEnumerable<FolderAutoRenamePlan> plans)
+        => new(Charts, NewParentDirectory, (plans ?? []).ToArray());
 
     internal bool HasTargets => Charts.Count > 0;
 

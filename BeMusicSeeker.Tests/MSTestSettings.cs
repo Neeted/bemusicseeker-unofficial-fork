@@ -22,6 +22,7 @@ public sealed class MSTestSettings
     public static void Initialize(TestContext context)
     {
         RuntimeBootstrap.Initialize();
+        TestResourceInitializer.EnsureJapaneseResources();
 
         ThreadPool.GetMinThreads(
             out int existingWorkerThreads,

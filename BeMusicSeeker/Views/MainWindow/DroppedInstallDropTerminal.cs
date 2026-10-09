@@ -10,7 +10,6 @@ namespace BeMusicSeeker.Views;
 internal enum DroppedInstallDropWarningKind
 {
     None,
-    PlaylistDownloadBlocked,
     UnsupportedFormat,
     IngressFailed,
     QueueUnavailable
@@ -96,19 +95,12 @@ internal sealed class DroppedInstallDropDecision
 internal static class DroppedInstallDropTerminal
 {
     /// <summary>
-    /// Returns the complete terminal decision for a FileDrop event without directly showing UI.
+    /// FileDrop の形式と共通 L 受付での入力確保結果を、画面効果と警告へ変換する。
     /// </summary>
     internal static DroppedInstallDropDecision Evaluate(
         IDataObject data,
-        bool playlistDownloadBlocked,
         Func<string[], DroppedInstallIngressAcquisitionResult> acquireAndEnqueue)
     {
-        if (playlistDownloadBlocked)
-        {
-            return DroppedInstallDropDecision.Rejected(
-                DroppedInstallDropWarningKind.PlaylistDownloadBlocked);
-        }
-
         string[] pathSnapshot;
         try
         {

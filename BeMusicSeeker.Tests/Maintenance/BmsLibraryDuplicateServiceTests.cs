@@ -25,7 +25,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void Analyze_GroupsDirectoriesConnectedByDuplicateHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         List<ChartFile> files =
         [
@@ -47,7 +47,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void ApplyDuplicateWarnings_SetsStructuredWarningWithoutDuplicates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
 
@@ -62,7 +62,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void ClearDuplicateState_RemovesStructuredDuplicateWarningsOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
@@ -78,7 +78,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void Analyze_BuildSnapshotIncludesBmsonAndUsesMd5PrimaryLookupHash()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         List<ChartFile> bmsFiles =
         [
@@ -125,7 +125,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void Analyze_DuplicateWarningTargetsOnlyRowsWithDuplicateHash()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         ChartFile duplicateBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         ChartFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirA", "unique.bms"));
@@ -153,7 +153,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void Analyze_OwnedCollectionSnapshotMaterializesOnlyGroupedRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         ChartFile duplicateBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         ChartFile uniqueSibling = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\BMS", "DirA", "unique.bms"));
@@ -192,7 +192,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void Analyze_DuplicateConnectedDirectoryMatchingIgnoresPathCasing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryDuplicateService();
         ChartFile duplicateLower = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
         ChartFile duplicateUpper = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DIRA", "b.bms"));
@@ -304,7 +304,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            TestResourceInitializer.EnsureJapaneseResources();
+
             ChartFile staleWarningFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
             staleWarningFile = staleWarningFile with { Warnings = [.. staleWarningFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
@@ -406,19 +406,20 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// merge 予約解放後の maintenance は BMS/BMSON の移動先 resource を反映します。
-    /// DB 拒否・予約競合でも確定済み merge を戻さず、同じ session 終端へ必須処理失敗を残します。
+    /// 統合と同じ受付で必須保守を行い、BMS/BMSONの移動先リソースを反映します。
+    /// 実storeへの外側権限転送と単独入口を分担し、DB拒否でも確定済み統合と元失敗を保持します。
     /// </summary>
     /// <param name="bmson">BMSON と BMS の双方で同じ確定・失敗境界を確認します。</param>
-    /// <param name="maintenanceOutcome">0: 正常、1: maintenance DB 書込拒否、2: 予約競合。</param>
+    /// <param name="maintenanceOutcome">0: 正常、1: 必須保守のDB書込み拒否。</param>
+    /// <param name="useOuterAdmission">実storeへ同じ受付の生存権限を渡すか。</param>
     [DataTestMethod]
-    [DataRow(false, 0)]
-    [DataRow(true, 0)]
-    [DataRow(false, 1)]
-    [DataRow(true, 2)]
-    public void MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation(bool bmson, int maintenanceOutcome)
+    [DataRow(false, 0, false)]
+    [DataRow(true, 0, true)]
+    [DataRow(false, 1, false)]
+    [DataRow(true, 1, true)]
+    public void MergeChartDirectory_RechecksResourcesWithinAcceptedOperation(bool bmson, int maintenanceOutcome, bool useOuterAdmission)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -477,8 +478,6 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.AreEqual(1, beforeSnapshot.TargetCount);
             bool notifiedWithCurrentHealth = false;
             bool notifiedWhileReserved = false;
-            LibraryFileMutationLease? competingReservation = null;
-            bool competingReservationAcquired = false;
             library.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
@@ -491,22 +490,22 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
                 notifiedWithCurrentHealth |= (bmson ? library.BmsonCharts : library.BmsCharts)
                     .SingleOrDefault(chart => chart.Path == destinationPath)?.ResourceHealthMaintenanceSnapshot?.WavFilesExisting == 1;
-                if (maintenanceOutcome == 2 && competingReservation == null)
-                {
-                    // merge 公開後に別操作が受理される本番経路で、maintenance の予約再取得を拒否させます。
-                    competingReservation = library.TryBeginLibraryFileMutation("competing_after_merge");
-                    competingReservationAcquired = competingReservation != null;
-                }
             };
 
             DuplicateMergeMaintenanceReceipt receipt;
-            try
+            using (LibraryFileMutationLease? operationLease = useOuterAdmission
+                ? library.TryBeginLibraryFileMutation("duplicate_merge_workflow") : null)
+            using (LibraryFileMutationCapability? capability = operationLease?.CreateMutationCapability())
             {
-                receipt = library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1, reportAtTerminal: true);
-            }
-            finally
-            {
-                competingReservation?.Dispose();
+                receipt = useOuterAdmission
+                    ? new BmsLibraryDuplicateMaintenanceStore(capability).MergeFolderWithReceipt(
+                        library, sourceDirectory, destinationDirectory, operationId: 1)
+                    : library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1, reportAtTerminal: true);
+                if (useOuterAdmission)
+                {
+                    Assert.IsNotNull(operationLease);
+                    Assert.IsNull(library.TryBeginLibraryFileMutation("duplicate_merge_terminal_probe"));
+                }
             }
 
             Assert.IsTrue(receipt.MergeApplied);
@@ -523,13 +522,13 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.AreEqual(1, receipt.SessionReceipt.CatalogChartPathChangeCount);
             Assert.AreEqual(sourceDirectory, receipt.SessionReceipt.ConfirmedTargets.Single().SourcePath);
             Assert.AreEqual(destinationDirectory, receipt.SessionReceipt.ConfirmedTargets.Single().DestinationPath);
-            Assert.IsFalse(notifiedWhileReserved);
+            Assert.AreEqual(useOuterAdmission, notifiedWhileReserved);
             Assert.AreEqual(sourcePath, bmsonSong?.Path ?? bmsFile!.Path);
             Assert.IsTrue((bmson ? library.BmsonCharts : library.BmsCharts).Any(chart => chart.Path == destinationPath));
             Assert.IsFalse(Directory.Exists(sourceDirectory));
             Assert.IsTrue(File.Exists(destinationPath));
             Assert.AreEqual("destination resource", File.ReadAllText(resourcePath));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
             Assert.AreEqual(1, persisted.wav_files_defined);
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
@@ -545,8 +544,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsFalse(receipt.MaintenanceHadUpdates);
                 Assert.IsFalse(notifiedWithCurrentHealth);
                 Assert.AreEqual(0, persisted.wav_files_existing);
-                Assert.AreEqual(maintenanceOutcome == 2, receipt.MaintenanceResult.Canceled);
-                Assert.AreEqual(maintenanceOutcome == 2, competingReservationAcquired);
+                Assert.IsFalse(receipt.MaintenanceResult.Canceled);
                 return;
             }
             Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
@@ -608,7 +606,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow(true, true, true)]
     public void MergeChartDirectory_ConsumesEveryConfirmedExactSourceKey(bool bmson, bool caseVariant, bool destinationExists)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -769,7 +767,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeChartDirectory_MixedKindsNotifiesChangedCommonTargets()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -856,7 +854,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     public void MergeChartDirectory_AfterStartupWithoutFileScanRejectsUntilReloadFileDiffConverges(
         bool bmson, bool includePlainRow, bool dotFirst)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1174,7 +1172,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeChartDirectory_Lr2FinalizationFailureReturnsDurableNonSuccessWithoutMaintenancePublication()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -1256,7 +1254,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual(0, normalRefreshPublicationCount);
                 Assert.IsFalse(File.Exists(sourceChartPath));
                 Assert.IsTrue(File.Exists(destinationChartPath));
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
             }
@@ -1357,7 +1355,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsNotNull(receipt.SessionReceipt.PhysicalFailure);
                 Assert.IsTrue(File.Exists(srcChartPath));
                 Assert.IsFalse(File.Exists(Path.Combine(dstDir, "chart.bmson")));
-                using var verify = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.IsNotNull(verify.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                 Assert.IsNull(verify.Find<LR2SongDBExtended.bmson_song>(Path.Combine(dstDir, "chart.bmson")));
                 Assert.IsNotNull(verify.Find<LR2SongDBExtended.bmson_song>(Path.Combine(reentryDstDir, "reentry.bmson")));
@@ -1375,7 +1373,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeChartDirectory_BmsChartPreservesExistingLr2SongUserColumns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateMergeBms_" + System.Guid.NewGuid().ToString("N"));
@@ -1416,7 +1414,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(File.Exists(dstChartPath));
                 Assert.AreEqual(1, library.BmsCharts.Count);
                 Assert.AreEqual(dstChartPath, library.BmsCharts[0].Path);
-                using var verify = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.IsNull(verify.Find<LR2SongDB.song>(srcChartPath));
                 LR2SongDB.song row = verify.Find<LR2SongDB.song>(dstChartPath);
                 Assert.IsNotNull(row);
@@ -1446,7 +1444,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeChartDirectory_DifferentContentCollisionUsesActualDestinationEverywhere()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -1509,7 +1507,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsNotNull(library.BmsCharts.SingleOrDefault(file =>
                     string.Equals(file.Path, actualDestinationPath, StringComparison.Ordinal)));
 
-                using var verify = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 LR2SongDB.song existingRow = verify.Find<LR2SongDB.song>(collisionPath);
                 Assert.IsNotNull(existingRow);
                 Assert.AreEqual(existingFile.Md5, existingRow.hash);
@@ -1539,7 +1537,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [TestMethod]
     public void MergeChartDirectory_RejectsTypeConflictAndPreservesSourceRegistration()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -1601,7 +1599,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual("destination sentinel", File.ReadAllText(destinationSentinelPath));
                 Assert.AreEqual(1, library.BmsCharts.Count);
                 Assert.AreEqual(sourceChartPath, library.BmsCharts.Single().Path);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(destinationDirectoryPath, "chart.bms")));
             }
@@ -1695,7 +1693,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow(true)]
     public void MergeChartDirectory_NoSourceChartsDoesNotBuildLookups(bool sourceExists)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1814,7 +1812,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     [DataRow(16)]
     public void MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild(int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;

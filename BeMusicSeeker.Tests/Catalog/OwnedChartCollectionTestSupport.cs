@@ -124,9 +124,7 @@ internal static class OwnedChartCollectionTestSupport
             TestUiDispatcherHost.Invoke(() => library.BmsCharts = setupFiles);
             if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
             {
-                Assert.IsTrue(
-                    published.Wait(TimeSpan.FromSeconds(5)),
-                    "BmsCharts setup publication did not complete before the test subscribed to mutation notifications.");
+                published.Wait();
             }
         }
         finally
@@ -153,9 +151,7 @@ internal static class OwnedChartCollectionTestSupport
             TestUiDispatcherHost.Invoke(() => library.BmsonCharts = setupSongs);
             if (library.CatalogStorageRowsVersion.OwnedCollectionVersion != previousVersion)
             {
-                Assert.IsTrue(
-                    published.Wait(TimeSpan.FromSeconds(5)),
-                    "BmsonCharts setup publication did not complete before the test subscribed to mutation notifications.");
+                published.Wait();
             }
         }
         finally

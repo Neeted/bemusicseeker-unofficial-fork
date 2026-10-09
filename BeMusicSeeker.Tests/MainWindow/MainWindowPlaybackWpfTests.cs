@@ -7,10 +7,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -35,10 +33,10 @@ public sealed class MainWindowPlaybackWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlaybackWpfTests");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var panel = (PlaybackPanelView)window.FindName("playbackPanelView");
                 Assert.IsNotNull(panel);
                 Assert.AreSame(viewModel.PlaybackPanel, panel.DataContext);
@@ -83,7 +81,7 @@ public sealed class MainWindowPlaybackWpfTests
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (viewModel, window) => TestUiDispatcherHost.RunWindowTest(scope =>
+                (scope, viewModel, window) =>
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "replace-player");
                     ChartFile chart = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, RawTitle = "Bmson" });
@@ -124,7 +122,7 @@ public sealed class MainWindowPlaybackWpfTests
                         window.Content = null;
                         var host = new Window { Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
                         scope.ShowAndWaitForContentRendered(host);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "initial-table-render");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "initial-table-render");
                         table.HandleKeyDown(Key.Down, ModifierKeys.None);
                         Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                         TextBox editor = FindVisualChildren<TextBox>(table).Single();
@@ -134,32 +132,43 @@ public sealed class MainWindowPlaybackWpfTests
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         start = viewModel.PlaybackPanel.StartAtIndex(0);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(player.StartObserved.Task, "preparing-start");
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "loading-table-render");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "loading-table-render");
                         expected = ChartFileStatus.PLAY;
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         ready.TrySetResult();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "ready-start");
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "playing-table-render");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "playing-table-render");
                         foreach (ChartFileStatus status in new[] { ChartFileStatus.PAUSE, ChartFileStatus.PLAY })
                         {
                             expected = status;
                             rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                             viewModel.PlaybackPanel.TogglePause();
-                            TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "pause-resume-table-render");
+                            TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "pause-resume-table-render");
                             Assert.AreEqual(status, duplicate.status & ChartFileStatus.PLAYALL);
                         }
-                        TestUiDispatcherHost.Drain();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         int evaluationsBeforeTime = evaluationCount;
                         int refreshesBeforeTime = refreshCount;
-                        player.CurrentTime = TimeSpan.FromSeconds(1);
-                        player.Raise(nameof(IBMSPlayer.CurrentTime));
-                        TestUiDispatcherHost.Drain();
+                        var timeApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        System.ComponentModel.PropertyChangedEventHandler timeChanged = (_, args) =>
+                        {
+                            if (args.PropertyName == nameof(PlaybackPanelViewModel.CurrentlyPlayingTime)) { timeApplied.TrySetResult(); }
+                        };
+                        viewModel.PlaybackPanel.PropertyChanged += timeChanged;
+                        try
+                        {
+                            player.CurrentTime = TimeSpan.FromSeconds(1);
+                            player.Raise(nameof(IBMSPlayer.CurrentTime));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(timeApplied.Task, "player-time-consumer-applied");
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                        }
+                        finally { viewModel.PlaybackPanel.PropertyChanged -= timeChanged; }
                         Assert.AreEqual(evaluationsBeforeTime, evaluationCount);
                         Assert.AreEqual(refreshesBeforeTime, refreshCount);
                         expected = ChartFileStatus.NONE;
                         rendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.StopPlayback(), "stop-playback");
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(rendered.Task, "stopped-table-render");
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(rendered.Task, "stopped-table-render");
                         Assert.AreSame(rows, viewModel.MainChartList.Rows);
                         Assert.AreSame(rows, table.ItemsSource);
                         Assert.AreEqual(212, first.score);
@@ -185,7 +194,7 @@ public sealed class MainWindowPlaybackWpfTests
                         viewModel.MainChartList.DisplayRefreshRequested -= refresh;
                         viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
                     }
-                }));
+                });
         }
         finally
         {
@@ -222,22 +231,6 @@ public sealed class MainWindowPlaybackWpfTests
         {
             Visit(VisualTreeHelper.GetChild(current, index), result, visited);
         }
-    }
-
-    private static HwndSource CreateVisualHost(MainWindow window, string name)
-    {
-        var source = new HwndSource(new HwndSourceParameters(name)
-        {
-            Width = 1000,
-            Height = 700,
-            PositionX = 0,
-            PositionY = 0
-        });
-        source.RootVisual = (Visual)window.Content;
-        window.Measure(new Size(1000d, 700d));
-        window.Arrange(new Rect(0d, 0d, 1000d, 700d));
-        window.UpdateLayout();
-        return source;
     }
 
     private static void RaiseKey(CustomTableView table, Key key)

@@ -10,7 +10,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    /// <summary>バックアップを読み込み、DB と UI 適用の成功後だけ出力と成功通知へ進みます。</summary>
+    /// <summary>L/Pを副作用前に非待機取得し、バックアップの読込み・DB・UI適用から必要出力・通知の実終端まで保持します。Busyでは読み込みを開始せず、成功後だけ成功通知へ進みます。</summary>
     internal async Task RestorePlaylistBackupAsync(string fileName)
     {
         if (fileName == null)
@@ -18,15 +18,28 @@ public sealed partial class PlaylistWorkspaceViewModel
             throw new ArgumentNullException(nameof(fileName));
         }
 
-        string playlistDump = await Task.Run(() => File.ReadAllText(fileName, Encoding.UTF8));
+        BMSLibrary library = getPlaylistLibrary();
         BMSPlaylist tables = GetPlaylistStore();
+        if (library == null || !library.OperationAdmission.TryEnter(out IDisposable libraryLease))
+        {
+            RaiseMutationRejected(PlaylistWorkspaceMutationKind.Restore, isBusy: true, isStale: false);
+            return;
+        }
+        using IDisposable acceptedLibrary = libraryLease;
+        if (!tables.TryEnterPlaylistMutation(out IDisposable playlistLease))
+        {
+            RaiseMutationRejected(PlaylistWorkspaceMutationKind.Restore, isBusy: true, isStale: false);
+            return;
+        }
+        using IDisposable acceptedPlaylist = playlistLease;
+        using LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(acceptedPlaylist);
+        string playlistDump = await Task.Run(() => File.ReadAllText(fileName, Encoding.UTF8));
         using PlaylistOperationNotificationOwner.OperationNotificationSession session =
             tables.OperationNotificationOwner.BeginSession();
         ExceptionDispatchInfo failure = null;
         try
         {
-            await tables.RestorePlaylistDumpAsync(playlistDump);
-            tables.BmtOutput.QueueBeatorajaBmtExportAll("RestoreBMSTables");
+            await tables.RestorePlaylistDumpAsync(playlistDump, authority);
             tables.OperationNotificationOwner.QueueInformation(
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore,
                 BeMusicSeeker.Properties.Resources.Success);

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -18,6 +19,17 @@ namespace BeMusicSeeker.Models;
 
 public partial class BMSLibrary
 {
+    /// <summary>受理済みL内で自動改名の実src/dstを一回固定します。モデル保護は戻る前に解放し、呼出元が必要なPを取得して停止します。</summary>
+    internal IReadOnlyList<FolderAutoRenamePlan> PrepareAutoRenamePlans(
+        IEnumerable<ChartFile> charts, string parentDirectory, bool allFolders)
+    {
+        List<FolderAutoRenamePlan> plans = null;
+        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(() => plans = allFolders
+            ? libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDirectory)
+            : libraryMutationOwner.BuildAutoRenamePlans(charts.Where(chart => chart != null), getBMSDirectories(), false));
+        return plans.ToArray();
+    }
+
     /// <summary>
     /// 選択した譜面のフォルダ名変更を一つの変更セッションで実行します。
     /// 進捗は処理中に通知し、変更結果はセッションの確定結果として返します。
@@ -26,19 +38,21 @@ public partial class BMSLibrary
     /// <param name="renameRootFolder">ライブラリのルートフォルダも変更対象に含める場合は true。</param>
     /// <param name="progressWriter">進捗の通知先。</param>
     /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
+    /// <param name="capability">同ownerの生存L/P権限。外側は必要通知・回収まで所有します。</param>
+    /// <param name="preparedPlans">停止前に一回捕捉した実移動計画。省略時は従来入口で捕捉します。</param>
     /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithProgress(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder,
         IFolderAutoRenameProgressWriter progressWriter,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
     {
         if (chartFiles == null)
         {
             throw new ArgumentNullException(nameof(chartFiles));
         }
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFoldersWithProgress)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameChartFoldersWithProgress), capability: capability))
         {
             return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
@@ -51,19 +65,20 @@ public partial class BMSLibrary
             libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
-                    List<FolderAutoRenamePlan> plans = null;
-                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = libraryMutationOwner.BuildAutoRenamePlans(
-                            chartFiles.Where(chart => chart != null),
-                            getBMSDirectories(),
-                            renameRootFolder));
+                    IReadOnlyList<FolderAutoRenamePlan> plans = preparedPlans;
+                    if (plans == null)
+                    {
+                        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
+                            () => plans = libraryMutationOwner.BuildAutoRenamePlans(
+                                chartFiles.Where(chart => chart != null), getBMSDirectories(), renameRootFolder));
+                    }
                     result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
                         plans,
                         mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
                             new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                         postLeaseNotifications);
-                });
+                }, capability);
         }
         catch (Exception exception)
         {
@@ -84,14 +99,16 @@ public partial class BMSLibrary
     /// <param name="parentDir">変更対象を絞る親ディレクトリ。</param>
     /// <param name="progressWriter">進捗の通知先。</param>
     /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
+    /// <param name="capability">同ownerの生存L/P権限。外側は必要通知・回収まで所有します。</param>
+    /// <param name="preparedPlans">停止前に一回捕捉した実移動計画。省略時は従来入口で捕捉します。</param>
     /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithProgress(
         string parentDir,
         IFolderAutoRenameProgressWriter progressWriter,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
-        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFoldersWithProgress)))
+        if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFoldersWithProgress), capability: capability))
         {
             return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         }
@@ -104,9 +121,12 @@ public partial class BMSLibrary
             libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
-                    List<FolderAutoRenamePlan> plans = null;
-                    libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                        () => plans = libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
+                    IReadOnlyList<FolderAutoRenamePlan> plans = preparedPlans;
+                    if (plans == null)
+                    {
+                        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
+                            () => plans = libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
+                    }
                     if (HasActionableAutoRenamePlan(plans))
                     {
                         result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
@@ -116,7 +136,7 @@ public partial class BMSLibrary
                                 new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
                             postLeaseNotifications);
                     }
-                });
+                }, capability);
         }
         catch (Exception exception)
         {
@@ -131,7 +151,8 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// 指定されたパス群を一つの変更操作として導入し、登録パッケージと確定結果を返します。
+    /// 呼出元が共通論理受付を保持したまま取り込みを確定し、同じ操作の直接推定の終端を待ちます。
+    /// 推定の取消・失敗でも確定済み登録・導入は保持し、実失敗を結果に含めます。
     /// 進捗通知の配送結果は永続的な変更結果に影響しません。
     /// 終端を呼出元が所有する場合、確定結果に含む失敗の個別ダイアログは抑止します。
     /// </summary>
@@ -139,15 +160,187 @@ public partial class BMSLibrary
     /// <param name="token">取消要求。</param>
     /// <param name="progressWriter">進捗の通知先。</param>
     /// <param name="reportAtTerminal">確定結果を呼出元の終端で報告する場合は true。</param>
-    /// <returns>登録パッケージと変更セッションの結果。</returns>
-    internal PackageInstallCommandResult InstallChartPackagesAutoWithProgress(
+    /// <param name="capability">受理済みLと既保有Pの生存権限。内部継続は借用し自己再取得しません。</param>
+    /// <param name="beforePhysicalMutation">実scopeのP取得後に待つ再生停止。交差Busyだけでは開始しません。</param>
+    /// <param name="retainPlaylistLease">追加Pを全worker・入力回収終端まで所有する外側。省略時は本Taskが所有します。</param>
+    /// <returns>確定済み登録・導入と実失敗、Busy未処理の部分結果。取消も全開始Taskと回収終端を待って返します。</returns>
+    internal async Task<PackageInstallCommandResult> InstallChartPackagesAutoWithProgressAsync(
         IEnumerable<string> installPaths,
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null,
+        Func<Task> beforePhysicalMutation = null, Action<LibraryFileMutationLease> retainPlaylistLease = null)
     {
-        ArgumentNullException.ThrowIfNull(progressWriter);
+        using LibraryFileMutationLease admission = lr2SynchronizationOwner.TryBeginMutation(nameof(InstallChartPackagesAutoWithProgressAsync), capability: capability);
+        if (admission == null) { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        string[] paths = installPaths == null ? null : [.. installPaths];
+        AutoInstallWorkflowResult workflow = null;
+        List<OperationDialogMessage> messages = [];
+        LibraryFileMutationLease playlistLease = null;
+        LibraryFileMutationCapability playlistCapability = null;
+        LibraryFileMutationCapability combinedAuthority = null;
+        bool callerOwnsPlaylistLease = false;
+        try
+        {
+            if (paths?.Length > 0 && paths.All(LongPathFileSystem.EntryExists) && !token.IsCancellationRequested)
+            {
+                (AutoInstallWorkflowResult prepared, Exception preparationFailure, IReadOnlyList<OperationDialogMessage> preparationMessages) = await Task.Run(() =>
+                {
+                    using OperationDialogScope scope = BeginOperationDialogScope();
+                    AutoInstallWorkflowResult preparation = null;
+                    Exception failure = null;
+                    try { preparation = PrepareAutoInstallWorkflow(paths, token, progressWriter, options); }
+                    catch (Exception exception) { failure = exception; }
+                    return (preparation, failure, scope.Messages);
+                }).ConfigureAwait(false);
+                messages.AddRange(preparationMessages);
+                if (preparationFailure != null) { return new PackageInstallCommandResult([], null, preparationFailure, messages); }
+                workflow = prepared;
+                bool canInstall = !options.KeepInstallablePackagesPending && SearchTargets?.Any() == true
+                    && LongPathFileSystem.DirectoryExists(SearchTargets.First()) && catalogFileMutationAdmissionOwner.IsConverged;
+                bool hasPermittedPhysicalMutation = false;
+                if (canInstall && !token.IsCancellationRequested)
+                {
+                    HashSet<string> reservedDestinations = new(StringComparer.OrdinalIgnoreCase);
+                    foreach (ChartPackage package in workflow.AutoInstallCandidates)
+                    {
+                        string destination = packageInstallService.PrepareInstallDestination(package, null, options,
+                            (charts, root) => CreateChartFolderPathFromCharts(charts, root, options), reservedDestinations);
+                        workflow.PreparedDestinations[package] = destination;
+                        string[] scope = package.delete_parent
+                            ? [package.path, destination, System.IO.Path.GetDirectoryName(package.path)] : [package.path, destination];
+                        if (!TryEnterManagedOutputMutation(scope, true, out LibraryFileMutationLease acquired, combinedAuthority ?? authority))
+                        {
+                            workflow.BusyPackages.Add(package);
+                            continue;
+                        }
+                        if (acquired != null)
+                        {
+                            if (playlistLease != null) { acquired.Dispose(); }
+                            else
+                            {
+                                playlistLease = acquired;
+                                playlistCapability = acquired.CreateMutationCapability();
+                                combinedAuthority = authority.WithPlaylistCapability(playlistCapability);
+                                if (retainPlaylistLease != null)
+                                {
+                                    retainPlaylistLease(acquired);
+                                    callerOwnsPlaylistLease = true;
+                                }
+                            }
+                        }
+                        hasPermittedPhysicalMutation = true;
+                    }
+                }
+                if (hasPermittedPhysicalMutation && beforePhysicalMutation != null && !token.IsCancellationRequested)
+                { await beforePhysicalMutation().ConfigureAwait(false); }
+            }
+            PendingInstallEstimateBatchRequest estimateRequest = null;
+            PackageInstallCommandResult result = await Task.Run(() =>
+            {
+                using OperationDialogScope scope = BeginOperationDialogScope();
+                PackageInstallCommandResult committedResult = null;
+                try
+                {
+                    PackageInstallCommandResult command = InstallChartPackagesAutoCore(paths, token, progressWriter,
+                        out estimateRequest, reportAtTerminal, combinedAuthority ?? authority, workflow,
+                        committed => committedResult = committed);
+                    return new PackageInstallCommandResult(command.RegisteredPackages, command.SessionReceipt,
+                        command.EstimationFailure, messages.Concat(command.OperationMessages).Concat(scope.Messages));
+                }
+                catch (Exception exception)
+                {
+                    estimateRequest = null;
+                    return new PackageInstallCommandResult(committedResult?.RegisteredPackages ?? [],
+                        committedResult?.SessionReceipt, exception, messages.Concat(scope.Messages));
+                }
+            }).ConfigureAwait(false);
+            if (result.HasDurableCommit && !result.HasRequiredFailure && options.OperationModeLR2DB)
+            {
+                try { await QueueLr2SongDbSyncAsync("package_install", allowCommittedPathReceipt: true, capability: combinedAuthority ?? authority).ConfigureAwait(false); }
+                catch (Exception failure) { return new PackageInstallCommandResult(result.RegisteredPackages, result.SessionReceipt, failure, result.OperationMessages); }
+            }
+            if (estimateRequest != null)
+            {
+                return await Task.Run(() =>
+                {
+                    using OperationDialogScope scope = BeginOperationDialogScope();
+                    Exception failure = null;
+                    try { ProcessPendingInstallEstimateBatch(estimateRequest, token); }
+                    catch (Exception exception) { failure = exception; }
+                    return new PackageInstallCommandResult(result.RegisteredPackages, result.SessionReceipt, failure, result.OperationMessages.Concat(scope.Messages));
+                }).ConfigureAwait(false);
+            }
+            return token.IsCancellationRequested && !result.HasRequiredFailure
+                ? new PackageInstallCommandResult(result.RegisteredPackages, result.SessionReceipt, new OperationCanceledException(token), result.OperationMessages)
+                : result;
+        }
+        finally
+        {
+            combinedAuthority?.Dispose();
+            playlistCapability?.Dispose();
+            if (!callerOwnsPlaylistLease) { playlistLease?.Dispose(); }
+        }
+    }
+
+    /// <summary>同じ受理Lで入力展開と候補・索引を一回準備します。物理作用と停止は行わず、短いモデル保護を解放して返します。</summary>
+    private AutoInstallWorkflowResult PrepareAutoInstallWorkflow(IEnumerable<string> installPaths, CancellationToken token,
+        IPackageInstallProgressWriter progressWriter, BmsLibraryOptionsSnapshot options)
+    {
+        IReadOnlyList<string> registeredBmsRoots = lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
+        List<Action> diagnostics = [];
+        List<string> expandedPaths = packageInstallService.ExpandInstallSourcesWithProgress(installPaths,
+            fileMutationService, targetOnlyFileMutationOptions, info => NLogWrapper.FileLogger?.Info(info),
+            scopedOperationDialogService, progressWriter, token, diagnostics.Add);
+        List<ChartPackage> pending;
+        InstalledChartLookupIndexSnapshot installed;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (rwlockPendingInstallCharts.GetReaderGuard())
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            pending = [.. ChartPackagesPending.Where(package => package != null)];
+            installed = CreateInstalledChartLookupSnapshotUnsafe();
+        }
+        bool IsInstalled(ChartFile chart)
+        {
+            string hash = ChartLookupKey.GetPrimaryHash(chart);
+            return !string.IsNullOrWhiteSpace(hash) && installed.ContainsPrimaryHash(hash);
+        }
+        AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(expandedPaths, pending,
+            registeredBmsRoots, IsInstalled, dupRateThreshInOnePkg, installed, token);
+        workflow.OptionsSnapshot = options;
+        workflow.PendingPackageSnapshot = pending;
+        workflow.InstalledChartLookup = installed;
+        workflow.ExpandedInstallPaths = expandedPaths;
+        workflow.PreparationDiagnostics.AddRange(diagnostics);
+        return workflow;
+    }
+
+    /// <summary>物理処理と一括確定を終え、呼出元の同じ共通受付内で後続推定に使う準備済み入力を返します。</summary>
+    /// <param name="installPaths">導入元のファイルまたはディレクトリ。</param>
+    /// <param name="token">取り込みと推定準備の取消要求。</param>
+    /// <param name="progressWriter">取り込み進捗の通知先。</param>
+    /// <param name="estimateRequest">直接実行する推定入力。対象なし、または準備失敗ではnullです。</param>
+    /// <param name="reportAtTerminal">失敗通知を外側の操作終端へ集約する場合はtrue。</param>
+    /// <param name="capability">同ownerの生存L/P権限。省略時は本入口が取得します。</param>
+    /// <param name="preparedWorkflow">同じ受理操作で一回準備した入力・設定・実宛先。外側の非同期停止の前に固定します。</param>
+    /// <param name="committedResultObserver">確定直後の登録・receiptを受け取る外側。後続公開や回収の例外でも確定事実を終端結果へ保持します。</param>
+    /// <returns>登録対象と確定receipt。確定後の準備失敗も元例外を含め、確定済み変更を保持します。</returns>
+    /// <remarks>この境界では推定を開始しません。呼出元は推定・cleanupの実終端まで論理受付を保持します。内部検証は物理変更の境界を独立して確認します。</remarks>
+    internal PackageInstallCommandResult InstallChartPackagesAutoCore(
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        IPackageInstallProgressWriter progressWriter,
+        out PendingInstallEstimateBatchRequest estimateRequest,
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null,
+        AutoInstallWorkflowResult preparedWorkflow = null,
+        Action<PackageInstallCommandResult> committedResultObserver = null)
+    {
+        estimateRequest = null;
+        ArgumentNullException.ThrowIfNull(progressWriter);
+        BmsLibraryOptionsSnapshot options = preparedWorkflow?.OptionsSnapshot ?? CurrentOptionsSnapshot;
         List<ChartPackage> pendingPackagesToEstimate = [];
         List<ChartPackage> deferredPendingEstimatePackages = [];
         Dictionary<ChartPackage, int> deferredPendingEstimateHealthByPackage = [];
@@ -167,8 +360,8 @@ public partial class BMSLibrary
             return CreatePackageInstallCommandResult(registeredPackages, null);
         }
         LibraryFileMutationLease lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(InstallChartPackagesAutoWithProgress),
-            showMessage: true);
+            nameof(InstallChartPackagesAutoCore),
+            showMessage: true, capability: capability);
         if (lr2SongDbSyncMutation == null)
         {
             throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
@@ -180,55 +373,12 @@ public partial class BMSLibrary
             {
                 using LibraryFileMutationCapability mutationCapability =
                     lr2SongDbSyncMutation.CreateMutationCapability();
-                // Ingress protection uses configured roots, even when the chart
-                // index is empty or a root is excluded from resource scanning.
-                IReadOnlyList<string> registeredBmsRoots =
-                    lr2SearchRootSnapshotOwner.CaptureForUpdate(options).RequestedRoots;
-                List<string> expandedInstallPaths = packageInstallService.ExpandInstallSourcesWithProgress(
-                    installPaths,
-                    fileMutationService,
-                    targetOnlyFileMutationOptions,
-                    info => NLogWrapper.FileLogger?.Info(info),
-                    scopedOperationDialogService,
-                    progressWriter,
-                    token,
-                    action => diagnosticEffects.Add(action));
-                installPaths = expandedInstallPaths;
-                if (token.IsCancellationRequested)
-                {
-                    CleanupManagedInstallSources(expandedInstallPaths, "auto_install_canceled_after_expand");
-                    return CreatePackageInstallCommandResult(registeredPackages, null);
-                }
-                AutoInstallWorkflowResult workflow;
-                List<ChartPackage> pendingPackageSnapshot;
-                InstalledChartLookupIndexSnapshot installedChartLookup;
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                {
-                    using (rwlockPendingInstallCharts.GetReaderGuard())
-                    {
-                        using (rwlockBMSFiles.GetReaderGuard())
-                        {
-                            pendingPackageSnapshot = [.. ChartPackagesPending.Where(package => package != null)];
-                            installedChartLookup = CreateInstalledChartLookupSnapshotUnsafe();
-                        }
-                    }
-                }
-
-                bool IsInstalledFromSnapshot(ChartFile chart)
-                {
-                    string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
-                    return !string.IsNullOrWhiteSpace(lookupKey)
-                        && installedChartLookup.ContainsPrimaryHash(lookupKey);
-                }
-
-                workflow = packageInstallService.PrepareAutoInstallWorkflow(
-                    installPaths,
-                    pendingPackageSnapshot,
-                    registeredBmsRoots,
-                    IsInstalledFromSnapshot,
-                    dupRateThreshInOnePkg,
-                    installedChartLookup,
-                    token);
+                AutoInstallWorkflowResult workflow = preparedWorkflow
+                    ?? PrepareAutoInstallWorkflow(installPaths, token, progressWriter, options);
+                List<string> expandedInstallPaths = workflow.ExpandedInstallPaths;
+                List<ChartPackage> pendingPackageSnapshot = workflow.PendingPackageSnapshot;
+                InstalledChartLookupIndexSnapshot installedChartLookup = workflow.InstalledChartLookup;
+                diagnosticEffects.AddRange(workflow.PreparationDiagnostics);
                 List<ChartPackage> discoveredPackages = [.. workflow.DiscoveredPackages];
                 LogInstallPerformance("auto_install_prepare discovered=" + discoveredPackages.Count + " autoInstall=" + workflow.AutoInstallCandidates.Count + " pendingAdd=" + workflow.PendingPackagesToAdd.Count + " pendingRemove=" + workflow.PendingPackagesToRemove.Count + " discoveryMs=" + workflow.DiscoveryMs + " installedCheckMs=" + workflow.InstalledCheckMs + " warningClassifyMs=" + workflow.WarningClassificationMs + " classificationMs=" + workflow.ClassificationMs + " totalMs=" + workflow.TotalMs);
                 if (discoveredPackages.Count == 0 || token.IsCancellationRequested)
@@ -267,7 +417,7 @@ public partial class BMSLibrary
                     CatalogPathConvergenceBlockReason blockReason = catalogFileMutationAdmissionOwner.BlockReason;
                     diagnosticEffects.Add(() => ShowCatalogFileMutationRequiresFileDiffWarning(blockReason));
                 }
-                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                using LibraryMutationOwner.LibraryMutationSession mutationSession =
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
@@ -301,7 +451,8 @@ public partial class BMSLibrary
                                 reportAtTerminal: reportAtTerminal,
                                 existingHashes: sessionSuccessLookup,
                                 independentOwnershipLookup: sessionSuccessLookup,
-                                optionsSnapshot: options);
+                                optionsSnapshot: options, preparedDestinations: workflow.PreparedDestinations,
+                                busyPackages: workflow.BusyPackages);
                         return new AutoInstallCandidateApplyResult(
                             installExecutionResult.FailedPackages,
                             installExecutionResult.StoppedByPhysicalFailure,
@@ -358,6 +509,10 @@ public partial class BMSLibrary
                 registeredPackages = publishInstalledSuccess
                     ? [.. deferredInstalledPackages]
                     : [];
+                if (sessionReceipt.DurableCommit)
+                {
+                    committedResultObserver?.Invoke(new PackageInstallCommandResult(registeredPackages, sessionReceipt));
+                }
 
                 if (sessionReceipt.HasRequiredFailure)
                 {
@@ -366,7 +521,7 @@ public partial class BMSLibrary
                         sessionReceipt);
                 }
 
-                BackgroundPendingEstimatePreparationResult estimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall);
+                PendingInstallEstimatePreparationResult estimatePreparation = PreparePendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall, options);
                 pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
                 deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
                 deferredPendingEstimateHealthByPackage = estimatePreparation.DeferredSourceHealthByPackage;
@@ -380,14 +535,14 @@ public partial class BMSLibrary
                 if (!token.IsCancellationRequested && pendingPackagesToEstimate.Count > 0)
                 {
                     string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(pendingPackagesToEstimate.FirstOrDefault()?.path);
-                    PendingInstallEstimateBatchRequest estimateRequest = new(
+                    estimateRequest = new(
                             PendingInstallEstimateBatchSource.AutoInstall,
                             pendingPackagesToEstimate,
                             displayName,
                             regroupEligibleSourceDirectories,
                             deferredPendingEstimatePackages.Count,
-                            pendingBatchSourceSnapshot);
-                    diagnosticEffects.Add(() => QueuePendingInstallEstimateBatch(estimateRequest));
+                            pendingBatchSourceSnapshot,
+                            optionsSnapshot: options);
                 }
                 return CreatePackageInstallCommandResult(
                     registeredPackages,
@@ -396,6 +551,12 @@ public partial class BMSLibrary
             catch (Exception exception)
             {
                 primaryFailure = exception;
+                if (autoInstallSessionReceipt?.DurableCommit == true)
+                {
+                    // 確定後の推定準備失敗でも、成功した登録・導入と元の失敗を終端へ渡す。
+                    estimateRequest = null;
+                    return new PackageInstallCommandResult(registeredPackages, autoInstallSessionReceipt, exception);
+                }
             }
         }
         finally
@@ -414,9 +575,7 @@ public partial class BMSLibrary
             }
             if (primaryFailure != null && terminalFailure != null)
             {
-                NLogWrapper.FileLogger?.Warn(
-                    terminalFailure,
-                    "auto_install_post_lease_terminalization_failed_after_primary_failure");
+                throw new AggregateException(primaryFailure, terminalFailure);
             }
             else if (primaryFailure == null && terminalFailure != null)
             {
@@ -577,7 +736,9 @@ public partial class BMSLibrary
         EstimatedInstallDeferredFeedback estimatedInstallDeferredFeedback = null,
         Action<Action> diagnosticEffectObserver = null,
         bool reportAtTerminal = false,
-        BmsLibraryOptionsSnapshot optionsSnapshot = null)
+        BmsLibraryOptionsSnapshot optionsSnapshot = null,
+        IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null,
+        ISet<ChartPackage> busyPackages = null)
     {
         ArgumentNullException.ThrowIfNull(mutationSession);
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
@@ -595,11 +756,22 @@ public partial class BMSLibrary
             installPackageList,
             installationDirectory,
             (package, destinationDirectory, cleanupPolicy, hashSnapshot, ownershipLookup, excludedComponentPaths) =>
-                packageInstallService.MovePackageFilesForInstallSession(
+            {
+                if (busyPackages?.Contains(package) == true)
+                {
+                    preparedDestinations.TryGetValue(package, out string rejectedDestination);
+                    return new PackageInstallSessionMoveResult(null, null,
+                        new FileDbMutationReceipt(Guid.NewGuid(), FileDbMutationTerminalState.Failed, false, 0, 0,
+                            [package.path], [rejectedDestination], [], [], [],
+                            new InvalidOperationException(Resources.Warn_LibraryOperationBusy)), isPreflightRefusal: true);
+                }
+                string preparedDestination = null;
+                preparedDestinations?.TryGetValue(package, out preparedDestination);
+                return packageInstallService.MovePackageFilesForInstallSession(
                     package,
                     destinationDirectory,
                     optionsSnapshot,
-                    CreateChartFolderPathFromCharts,
+                    (charts, root) => CreateChartFolderPathFromCharts(charts, root, optionsSnapshot),
                     GetDisplayedExceptionMessage,
                     fileMutationService,
                     installDialogService ?? scopedOperationDialogService,
@@ -611,7 +783,11 @@ public partial class BMSLibrary
                     existingHashes: hashSnapshot,
                     independentOwnershipLookup: ownershipLookup,
                     excludedComponentPaths: excludedComponentPaths,
-                    enqueueDiagnosticEffect: diagnosticEffectObserver),
+                    enqueueDiagnosticEffect: diagnosticEffectObserver,
+                    onMutationScopePrepared: (source, destination) => mutationSession.TryProtectManagedOutput(
+                        package.delete_parent ? [source, destination, System.IO.Path.GetDirectoryName(source)] : [source, destination], recursive: true),
+                    preparedDestinationDirectory: preparedDestination);
+            },
             mutationSession,
             sourceCleanupPolicy,
             excludedComponentPathsByPackage,
@@ -1012,6 +1188,13 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>一つの保留パッケージの導入先を推定して反映し、進捗の終端まで実行します。</summary>
+    /// <param name="package">推定対象の保留パッケージ。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="package"/>がnullです。</exception>
+    /// <remarks>
+    /// 呼出元は共通論理受付を取得し、既存試聴の停止終端を確認してから、復帰または例外終端まで受付を保持します。
+    /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
+    /// </remarks>
     public void SearchEstimatedInstallationDirectory(ChartPackage package)
     {
         if (package == null)
@@ -1024,10 +1207,9 @@ public partial class BMSLibrary
         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
         try
         {
-            RunPendingEstimateExclusive(delegate
             {
                 SearchEstimatedInstallationDirectoryCore(package);
-            });
+            }
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
         }
         finally
@@ -1038,6 +1220,15 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>指定した保留パッケージの導入先を推定して反映し、開始済み評価と進捗の終端まで待ちます。</summary>
+    /// <param name="packages">推定対象。null要素は除外し、空の場合は変更しません。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="packages"/>がnullです。</exception>
+    /// <remarks>
+    /// 呼出元は共通論理受付と既存試聴の停止を所有し、復帰または例外終端まで受付を保持します。
+    /// 単一対象は候補内並列、複数対象はパッケージ外側並列で処理します。取消トークンは受け取りません。
+    /// 最初の評価例外を観測すると追加評価と未適用結果の反映を停止し、開始済み評価を全て待って例外を伝播します。
+    /// 適用済み結果は保持し、未適用結果は次の明示推定対象として残します。
+    /// </remarks>
     public void SearchEstimatedInstallationDirectory(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
@@ -1057,10 +1248,9 @@ public partial class BMSLibrary
             {
                 string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(packageList[0].path);
                 SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
-                RunPendingEstimateExclusive(delegate
                 {
                     SearchEstimatedInstallationDirectoryCore(packageList[0]);
-                });
+                }
                 SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
             }
             else
@@ -1093,7 +1283,6 @@ public partial class BMSLibrary
         var executionPolicy = InstallEstimationExecutionPolicy.ForManualBatch();
         var stopwatch = Stopwatch.StartNew();
         LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
-        RunPendingEstimateExclusive(delegate
         {
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, request.PackageCount, 0, request.DisplayName ?? string.Empty);
             PendingInstallEstimateBatchCapture evaluationCapture =
@@ -1108,7 +1297,7 @@ public partial class BMSLibrary
                 ref completed,
                 ref lowConfidenceCount,
                 ref firstVisibleInteraction);
-        });
+        }
         stopwatch.Stop();
         LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + completed + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
     }
@@ -1152,6 +1341,15 @@ public partial class BMSLibrary
         SearchEstimatedInstallationDirectoryForChartsCore(null, [chartEntry], asParallel, fixMode ? ChartInstallationEstimateMode.ReinstallCorrection : ChartInstallationEstimateMode.Normal);
     }
 
+    /// <summary>一つの保留譜面の導入先を推定して反映し、評価と進捗の終端まで実行します。</summary>
+    /// <param name="chartEntry">推定対象の保留譜面。</param>
+    /// <param name="asParallel">候補評価の並列化を許可する場合はtrue。</param>
+    /// <param name="fixMode">再導入補正の候補規則を使う場合はtrue。</param>
+    /// <exception cref="ArgumentNullException">対象または対象譜面がnullです。</exception>
+    /// <remarks>
+    /// 呼出元は共通論理受付を取得し、既存試聴の停止終端を確認してから、復帰または例外終端まで受付を保持します。
+    /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
+    /// </remarks>
     internal void SearchEstimatedInstallationDirectory(PackageChartEntry chartEntry, bool asParallel = true, bool fixMode = false)
     {
         if (chartEntry?.Chart == null)
@@ -1164,10 +1362,9 @@ public partial class BMSLibrary
         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 0, displayName);
         try
         {
-            RunPendingEstimateExclusive(delegate
             {
                 SearchEstimatedInstallationDirectoryCore(chartEntry, asParallel, fixMode);
-            });
+            }
             SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, 1, 1, displayName);
         }
         finally
@@ -1178,6 +1375,15 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>保留譜面を所属パッケージと独立譜面へまとめ、推定結果の反映と全評価終端まで実行します。</summary>
+    /// <param name="chartEntries">推定対象。null譜面は除外し、空の場合は変更しません。</param>
+    /// <param name="asParallel">独立譜面の候補評価の並列化を許可する場合はtrue。</param>
+    /// <param name="fixMode">再導入補正の候補規則を使う場合はtrue。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="chartEntries"/>がnullです。</exception>
+    /// <remarks>
+    /// 呼出元は共通論理受付を取得し、既存試聴の停止終端を確認してから、復帰または例外終端まで受付を保持します。
+    /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
+    /// </remarks>
     internal void SearchEstimatedInstallationDirectory(IEnumerable<PackageChartEntry> chartEntries, bool asParallel = true, bool fixMode = false)
     {
         if (chartEntries == null)
@@ -1209,7 +1415,6 @@ public partial class BMSLibrary
                 List<object> workItems = [.. packageTargets.Cast<object>()
 , .. looseEntries.Cast<object>()];
                 int totalWorkCount = workItems.Count;
-                RunPendingEstimateExclusive(delegate
                 {
                     for (int i = 0; i < totalWorkCount; i++)
                     {
@@ -1228,7 +1433,7 @@ public partial class BMSLibrary
                         }
                         SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                     }
-                });
+                }
             }
         }
         finally
@@ -1239,6 +1444,14 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>パッケージ再評価を行わず、指定した独立保留譜面の導入先を順に推定して反映します。</summary>
+    /// <param name="chartEntries">推定対象。null譜面は除外し、空の場合は変更しません。</param>
+    /// <param name="asParallel">各譜面の候補評価の並列化を許可する場合はtrue。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="chartEntries"/>がnullです。</exception>
+    /// <remarks>
+    /// 呼出元は共通論理受付を取得し、既存試聴の停止終端を確認してから、復帰または例外終端まで受付を保持します。
+    /// このAPIは受付を取り直さず、取消トークンも受け取りません。評価失敗は元例外で伝播し、適用済み結果を巻き戻しません。
+    /// </remarks>
     internal void SearchEstimatedInstallationDirectoryForLooseCharts(IEnumerable<PackageChartEntry> chartEntries, bool asParallel = true)
     {
         if (chartEntries == null)
@@ -1254,7 +1467,6 @@ public partial class BMSLibrary
         LogInstallPerformance("manual_estimate_progress start kind=loose_files total=" + targetEntries.Count);
         try
         {
-            RunPendingEstimateExclusive(delegate
             {
                 int totalWorkCount = targetEntries.Count;
                 for (int i = 0; i < totalWorkCount; i++)
@@ -1265,7 +1477,7 @@ public partial class BMSLibrary
                     SearchEstimatedInstallationDirectoryCore(targetEntry, asParallel);
                     SetInstallEstimationProgress(InstallEstimationProgressSource.ManualReestimate, totalWorkCount, i + 1, displayName);
                 }
-            });
+            }
         }
         finally
         {
@@ -1379,27 +1591,63 @@ public partial class BMSLibrary
             approvedNormalInstallOverridePackages);
     }
 
+    /// <summary>保留導入の固定対象から実物理scopeを準備します。短い索引保護を解放し、停止より先に条件付きPを取得できる入力を返します。</summary>
+    internal (IReadOnlyList<string> Paths, IReadOnlyDictionary<ChartPackage, string> Destinations, BmsLibraryOptionsSnapshot Options)
+        PreparePendingPackagePhysicalScope(IReadOnlyList<ChartPackage> packages, bool forceInstall, bool overwriteResources)
+    {
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        Dictionary<ChartPackage, string> destinations = [];
+        List<string> paths = [];
+        InstalledChartLookupIndexSnapshot installed = null;
+        if (overwriteResources)
+        {
+            using (rwlockBMSFiles.GetReaderGuard()) { installed = CreateInstalledChartLookupSnapshotUnsafe(); }
+        }
+        HashSet<string> reserved = new(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartPackage package in packages)
+        {
+            paths.Add(package.path);
+            if (package.delete_parent) { paths.Add(System.IO.Path.GetDirectoryName(package.path)); }
+            if (forceInstall)
+            {
+                string destination = packageInstallService.PrepareInstallDestination(package, null, options,
+                    (charts, root) => CreateChartFolderPathFromCharts(charts, root, options), reserved);
+                destinations[package] = destination;
+                paths.Add(destination);
+            }
+            else if (overwriteResources)
+            {
+                InstalledOnlyPackageResolutionResult resolution = CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(package, installed);
+                if (resolution.Success) { paths.Add(resolution.DestinationDirectory); }
+            }
+            else { paths.AddRange(package.ChartEntries.Select(entry => entry.Chart?.InstallDestination)); }
+        }
+        return (paths.ToArray(), destinations, options);
+    }
+
     /// <summary>
     /// 保留パッケージを新規として導入し、変更結果と必要に応じて呼出元で通知する情報を返します。
     /// true は全対象の事前承認、false は承認集合だけの導入を表し、null は設定に従って確認します。
-    /// 導入先設定済みの対象は確認設定によらず承認が必要です。確認は変更リース取得前に行います。
+    /// 導入先設定済みの対象は確認設定によらず承認が必要です。外側の受理済み操作は同じL/Pと準備宛先を借用します。
     /// 確認の既定値は No とし、未選択で閉じた場合は承認せず保留を保持します。
+    /// 準備済み設定・宛先は同じ操作で消費し、確定済み成功を後続失敗で戻しません。
     /// </summary>
     internal LibraryMutationSessionReceipt ForceInstallPendingPackagesWithReceipt(
         IEnumerable<ChartPackage> packages,
         bool? approveNormalInstallOverride,
         ISet<ChartPackage> approvedNormalInstallOverridePackages,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null,
+        IReadOnlyDictionary<ChartPackage, string> preparedDestinations = null, BmsLibraryOptionsSnapshot preparedOptions = null)
     {
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        if (TryBlockCatalogFileMutation(nameof(ForceInstallPendingPackages)))
+        if (TryBlockCatalogFileMutation(nameof(ForceInstallPendingPackages), capability: capability))
         {
             return LibraryMutationSessionReceipt.Empty;
         }
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        BmsLibraryOptionsSnapshot options = preparedOptions ?? CurrentOptionsSnapshot;
         bool hasInitializedBmsFiles;
         List<ChartPackage> pendingPackageSnapshot;
         List<ChartPackage> installedPackageSnapshot;
@@ -1460,7 +1708,7 @@ public partial class BMSLibrary
         }
         LibraryFileMutationLease mutationReservation = TryBeginCatalogFileMutationPreservingBusyFailure(
             nameof(ForceInstallPendingPackages),
-            showMessage: true);
+            showMessage: true, capability: capability);
         if (mutationReservation == null)
         {
             return LibraryMutationSessionReceipt.Empty;
@@ -1487,7 +1735,7 @@ public partial class BMSLibrary
             {
                 using LibraryFileMutationCapability mutationCapability =
                     mutationReservation.CreateMutationCapability();
-                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                using LibraryMutationOwner.LibraryMutationSession mutationSession =
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
@@ -1512,7 +1760,7 @@ public partial class BMSLibrary
                         reportAtTerminal: reportAtTerminal,
                         existingHashes: sessionSuccessLookup,
                         independentOwnershipLookup: sessionSuccessLookup,
-                        optionsSnapshot: options),
+                        optionsSnapshot: options, preparedDestinations: preparedDestinations),
                     mutationSession,
                     installedChartHashSnapshot,
                     installedChartHashSnapshot,
@@ -1816,10 +2064,6 @@ public partial class BMSLibrary
         EstimatedInstallDeferredFeedback deferredFeedback = executionContext.DeferredFeedback;
         BmsLibraryOptionsSnapshot options;
         PendingInstallBatchPlan installPlan;
-        // 推定実行ゲートは route 固有の plan 構築だけを保護する。
-        // 論理ファイル予約を保持したまま filesystem executor と durable mutation が
-        // このゲートを待たずに model へ再入できる必要がある。
-        using (packageLifecycleOwner.EnterPendingEstimateExecutionScope())
         using (PendingEstimatedInstallMutationLease.Acquire(
             rwlockBMSFilesInitializedAll.GetReaderGuard,
             rwlockPendingInstallCharts.GetReaderGuard,
@@ -2197,13 +2441,13 @@ public partial class BMSLibrary
     /// 推定導入の確定結果を返します。受付拒否または推定先のない正常スキップでは、変更なしのセッション結果を返します。
     /// 呼出元は通常の拒否やスキップを実行失敗として扱わずに済みます。
     /// </summary>
-    internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false)
+    internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        if (TryBlockCatalogFileMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
+        if (TryBlockCatalogFileMutation(nameof(InstallPendingPackagesToEstimatedDestinations), capability: capability))
         {
             return new PendingInstallBatchResult { SessionReceipt = LibraryMutationSessionReceipt.Empty };
         }
@@ -2216,7 +2460,7 @@ public partial class BMSLibrary
             using (LibraryFileMutationLease mutationReservation =
                 TryBeginCatalogFileMutationPreservingBusyFailure(
                     nameof(InstallPendingPackagesToEstimatedDestinations),
-                    showMessage: true))
+                    showMessage: true, capability: capability))
             {
                 if (mutationReservation == null)
                 {
@@ -2269,7 +2513,7 @@ public partial class BMSLibrary
 
         try
         {
-            LibraryMutationOwner.LibraryMutationSession mutationSession =
+            using LibraryMutationOwner.LibraryMutationSession mutationSession =
                 libraryMutationOwner.BeginLibraryMutationSession(
                     mutationCapability,
                     "install_package",
@@ -2351,12 +2595,16 @@ public partial class BMSLibrary
     /// 指定された pending package 群を pending リストから削除します。
     /// </summary>
     public void RemovePendingPackages(IEnumerable<ChartPackage> packages)
+    { RemovePendingPackages(packages, capability: null); }
+
+    /// <summary>受理済み共通権限を借用し、確定・後片付けまで同じ操作で実行します。</summary>
+    internal void RemovePendingPackages(IEnumerable<ChartPackage> packages, LibraryFileMutationCapability capability = null)
     {
         Action pendingEffect = null;
         List<ChartPackage> managedPackagesToCleanup = [];
         using (LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(RemovePendingPackages),
-            showMessage: true))
+            showMessage: true, capability: capability))
         {
             if (mutationReservation == null)
             {
@@ -2727,12 +2975,16 @@ public partial class BMSLibrary
     /// <param name="onEachProcessed">lease 解放後に発行する処理済み package の進捗通知。</param>
     /// <returns>確定済み成功件数と、失敗・確認候補を保持する session terminal を含む結果。</returns>
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
+    { return OverwritePendingInstalledOnlyPackagesResources(packages, token, onEachProcessed, capability: null); }
+
+    /// <summary>受理済み共通権限を借用し、確定・後片付けまで同じ操作で実行します。</summary>
+    internal PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token, Action onEachProcessed, LibraryFileMutationCapability capability)
     {
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
         }
-        if (TryBlockCatalogFileMutation(nameof(OverwritePendingInstalledOnlyPackagesResources)))
+        if (TryBlockCatalogFileMutation(nameof(OverwritePendingInstalledOnlyPackagesResources), capability: capability))
         {
             return new PendingInstalledOnlyResourceOverwriteResult();
         }
@@ -2753,7 +3005,7 @@ public partial class BMSLibrary
         {
             using (LibraryFileMutationLease mutationReservation = TryBeginCatalogFileMutationPreservingBusyFailure(
                 nameof(OverwritePendingInstalledOnlyPackagesResources),
-                showMessage: true))
+                showMessage: true, capability: capability))
             {
                 if (mutationReservation == null)
                 {
@@ -2791,7 +3043,7 @@ public partial class BMSLibrary
                 }
                 logInfo("advanced_pending_resource_overwrite scan pendingTotal=" + pendingPackageSnapshot.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
                 logInfo("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
-                LibraryMutationOwner.LibraryMutationSession mutationSession =
+                using LibraryMutationOwner.LibraryMutationSession mutationSession =
                     libraryMutationOwner.BeginLibraryMutationSession(
                         mutationCapability,
                         "install_package",
@@ -2937,7 +3189,8 @@ public partial class BMSLibrary
         }
     }
 
-    internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
+    /// <summary>対象保留の拡張子変更を生存権限で実行します。取消後も開始済み処理・後片付けの終端を呼出元が所有します。</summary>
+    internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null, LibraryFileMutationCapability capability = null)
     {
         Action<string> logInfo = info => NLogWrapper.FileLogger?.Info(info);
         List<ChartFile> chartSnapshot = targetCharts == null
@@ -2947,11 +3200,12 @@ public partial class BMSLibrary
         List<Action> diagnosticEffects = [];
         int deferredProcessedCount = 0;
         Exception primaryFailure = null;
+        LibraryFileMutationLease playlistLease = null;
         try
         {
             using (LibraryFileMutationLease mutationScope = TryBeginLr2SongDbSyncBlockedMutation(
                 nameof(RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions),
-                showMessage: true))
+                showMessage: true, capability: capability))
             {
                 if (mutationScope == null)
                 {
@@ -2961,7 +3215,13 @@ public partial class BMSLibrary
                     mutationScope.CreateMutationCapability();
                 PendingZeroNoteRenameResult result = libraryMutationOwner.RenamePendingZeroNoteBmsFormatChartsAfterAdmission(
                     chartSnapshot,
-                    (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
+                    (file, requestedPath) =>
+                    {
+                        if (playlistLease == null && !libraryMutationOwner.TryEnterManagedOutputMutation(
+                            [file.Path, requestedPath], recursive: false, out playlistLease, mutationCapability))
+                        { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
+                        return ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false);
+                    },
                     token,
                     () => deferredProcessedCount++,
                     info => diagnosticEffects.Add(() => logInfo(info)));
@@ -2995,7 +3255,8 @@ public partial class BMSLibrary
         {
             primaryFailure = exception;
         }
-        FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects);
+        try { FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects); }
+        finally { playlistLease?.Dispose(); }
         if (primaryFailure != null)
         {
             ExceptionDispatchInfo.Capture(primaryFailure).Throw();
@@ -3006,6 +3267,10 @@ public partial class BMSLibrary
     /// Pending パッケージのソースファイル群を削除（またはゴミ箱へ移動）します。
     /// </summary>
     public void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default, Action onEachProcessed = null)
+    { DeletePendingPackageSources(packages, sendToRecycleBin, token, onEachProcessed, capability: null); }
+
+    /// <summary>受理済み共通権限を借用し、確定・後片付けまで同じ操作で実行します。</summary>
+    internal void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default, Action onEachProcessed = null, LibraryFileMutationCapability capability = null)
     {
         if (packages == null)
         {
@@ -3025,16 +3290,20 @@ public partial class BMSLibrary
         List<Action> diagnosticEffects = [];
         int deferredProcessedCount = 0;
         Exception primaryFailure = null;
+        LibraryFileMutationLease playlistLease = null;
         try
         {
             using (LibraryFileMutationLease mutationScope = TryBeginLr2SongDbSyncBlockedMutation(
                 nameof(DeletePendingPackageSources),
-                showMessage: true))
+                showMessage: true, capability: capability))
             {
                 if (mutationScope == null)
                 {
                     return;
                 }
+                using LibraryFileMutationCapability mutationCapability = mutationScope.CreateMutationCapability();
+                if (!libraryMutationOwner.TryEnterManagedOutputMutation(requestedTargets.Select(target => target.Path),
+                    recursive: true, out playlistLease, mutationCapability)) { return; }
                 diagnosticEffects.Add(() => logInfo("advanced_pending_cleanup start requested=" + requestedTargets.Count + " permanent=" + !sendToRecycleBin));
 
                 PendingPackageSourceDeletionResult result = new()
@@ -3090,7 +3359,8 @@ public partial class BMSLibrary
         {
             primaryFailure = exception;
         }
-        FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects);
+        try { FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects); }
+        finally { playlistLease?.Dispose(); }
         if (primaryFailure != null)
         {
             ExceptionDispatchInfo.Capture(primaryFailure).Throw();

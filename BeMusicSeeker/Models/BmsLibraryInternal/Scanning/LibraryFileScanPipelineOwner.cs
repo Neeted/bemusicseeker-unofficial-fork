@@ -284,7 +284,7 @@ internal sealed class LibraryFileScanPipelineOwner
         long generation,
         bool trackLibraryFileCheckProgress,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -322,7 +322,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 trackLibraryFileCheckProgress,
                 scan.Reason,
                 installDestinationCleanupSnapshot,
-                postLeaseEffectObserver);
+                postLeaseEffectObserver, capability);
             CompleteFileScan(scan);
             return result;
         }
@@ -554,7 +554,7 @@ internal sealed class LibraryFileScanPipelineOwner
         bool trackLibraryFileCheckProgress,
         string reason,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -775,7 +775,15 @@ internal sealed class LibraryFileScanPipelineOwner
             lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
                 ? initialAppManagedOutputScope.Directories
                 : [],
-            catalogProjectionApplied: null);
+            catalogProjectionApplied: null,
+            enterNormalFolderMutation: (scope, targets) =>
+            {
+                if (!lr2Synchronization.TryEnterManagedOutputMutation(targets.Concat(scope.PruneExactDirectories),
+                    recursive: false, out LibraryFileMutationLease playlistLease, capability,
+                    recursivePaths: scope.PruneScopeDirectories))
+                { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+                return playlistLease;
+            });
         if (fileCheckResult.EmptyScanWithExistingDbSkipped)
         {
             string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)

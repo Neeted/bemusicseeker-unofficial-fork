@@ -16,14 +16,18 @@ internal sealed class LibraryFileOperationMutationBoundary : ILibraryFileOperati
         this.lr2SynchronizationOwner = lr2SynchronizationOwner ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
     }
 
-    public LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage)
+    /// <summary>新要求は共通受付を非待機で取得し、受理済み権限は生存ownerを検査して借用します。Busyはnullです。</summary>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
+    public LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage);
+        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage, capability);
     }
 
-    public bool TryBlockMutation(string operation, bool showMessage)
+    /// <summary>受理済み権限を検査し、新要求の共通受付Busyを副作用前に判定します。</summary>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
+    public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage);
+        return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage, capability);
     }
 }
 
@@ -48,46 +52,47 @@ internal sealed class CatalogFileOperationMutationBoundary : ILibraryFileOperati
     }
 
     /// <summary>
-    /// Acquires the shared exclusive mutation lease and, while it is held,
-    /// admits the operation only when catalog-path convergence is current.
+    /// 共通受付を取得または借用し、カタログのパス収束が現在である場合だけ変更を受理します。
+    /// 呼出元が実変更・必須反映・後片付けの終端まで受付を保持します。
     /// </summary>
-    /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether a convergence rejection should show its warning.</param>
-    /// <returns>The owned mutation lease, or <see langword="null"/> when convergence is not current.</returns>
-    public LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage)
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="showMessage">パス収束による拒否の警告を表示するか。</param>
+    /// <returns>取得または借用したlease。競合またはパス未収束の場合はnull。</returns>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
+    public LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return mutationAdmissionOwner.TryBeginFileOperationMutation(operation, showMessage);
+        return mutationAdmissionOwner.TryBeginFileOperationMutation(operation, showMessage, capability: capability);
     }
 
     /// <summary>
-    /// Acquires the catalog-gated lease while retaining callers whose legacy
-    /// busy-race terminal is a null/non-applied result rather than an exception.
-    /// Readiness is still checked only after the raw exclusive lease is owned.
+    /// 共通受付を取得または借用し、パス収束を検査します。
+    /// 競合時に例外でなくnull・未適用を返す既存の終端契約を維持します。
     /// </summary>
-    /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether busy or convergence rejection should show its warning.</param>
-    /// <returns>The owned mutation lease, or <see langword="null"/> when busy or not converged.</returns>
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="showMessage">競合またはパス収束による拒否の警告を表示するか。</param>
+    /// <returns>取得または借用したlease。競合またはパス未収束の場合はnull。</returns>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     internal LibraryFileMutationLease TryBeginMutationPreservingBusyNull(
         string operation,
-        bool showMessage)
+        bool showMessage, LibraryFileMutationCapability capability = null)
     {
         return mutationAdmissionOwner.TryBeginFileOperationMutation(
             operation,
             showMessage,
             showBusyMessage: showMessage,
-            throwOnBusyRace: false);
+            throwOnBusyRace: false, capability: capability);
     }
 
     /// <summary>
-    /// Performs the non-reserving catalog-path admission preflight used before
-    /// expensive or interactive work; authoritative admission is still repeated
-    /// after the exclusive lease is acquired.
+    /// 受付を予約せず、準備や確認の前に競合とパス収束を検査します。
+    /// 本受付後にも収束状態を検査し、この事前検査だけで変更を許可しません。
     /// </summary>
-    /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether a rejection should show its warning.</param>
-    /// <returns><see langword="true"/> when the operation must be blocked.</returns>
-    public bool TryBlockMutation(string operation, bool showMessage)
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="showMessage">拒否の警告を表示するか。</param>
+    /// <returns>変更を拒否する場合はtrue。</returns>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
+    public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return mutationAdmissionOwner.TryBlockMutation(operation, showMessage);
+        return mutationAdmissionOwner.TryBlockMutation(operation, showMessage, capability);
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -39,12 +40,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
         StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
         StringAssert.Contains(notification.Message, "sharing-denied");
-    }
-
-    [TestInitialize]
-    public void TestInitialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
     }
 
     [TestMethod]
@@ -104,7 +99,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
             PlaylistPersistenceRepository.EnsureSchema(roundTripDbPath);
             new PlaylistPersistenceRepository(roundTripDbPath).LoadPlaylistDump(backupDump);
-            using (var verifyRoundTrip = new LR2SongDBExtended(roundTripDbPath))
+            using (LR2SongDBExtended verifyRoundTrip = new BmsLibraryDbGateway(roundTripDbPath).OpenSongDbReadOnly())
             {
                 BMSTable restored = verifyRoundTrip.Table<BMSTable>().Single();
                 Assert.AreEqual("バックアップ", restored.name);
@@ -267,7 +262,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
                 notifications[0].Receipt.Notifications.Single().Severity);
             Assert.AreEqual("After restore", playlist.BMSTables.Single().name);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 BMSTable restored = verify.Table<BMSTable>().Single();
                 Assert.AreEqual(2, restored.playlist_id);
@@ -331,7 +326,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string file = Path.Combine(directory, "restore.sql");
             File.WriteAllText(file, CreatePlaylistRestoreDump(22, "Restored live", "R"), Encoding.UTF8);
             restore = workspace.RestorePlaylistBackupAsync(file);
-            await accepted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await accepted.Task;
             Assert.IsFalse(restore.IsCompleted);
             Assert.AreSame(oldTable, playlist.BMSTables.Single());
             Assert.AreEqual(0, notifications.Count);
@@ -348,17 +343,17 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
             Assert.ThrowsException<InvalidOperationException>(() => playlist.CommitBMSTableHeaderToDB(oldTable));
             Assert.ThrowsException<InvalidOperationException>(() => playlist.RemoveBMSTable(oldTable));
-            Assert.ThrowsException<InvalidOperationException>(() => playlist.ReloadTables());
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ReloadTablesAsync());
             registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(
                 new BMSTable { name = "Rejected registration", Output_dir = "RejectedRegistration" },
                 renameDuplicateName: false, reason: "restore_exclusion");
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-                registration.WaitAsync(TimeSpan.FromSeconds(5)));
+                registration);
             competingRestore = playlist.RestorePlaylistDumpAsync(CreatePlaylistRestoreDump(33, "Rejected", "X"));
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-                competingRestore.WaitAsync(TimeSpan.FromSeconds(5)));
+                competingRestore);
             execute.TrySetResult();
-            await executed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await executed.Task;
             Assert.AreEqual("Restored live", playlist.BMSTables.Single().name);
             Assert.IsTrue(collectionOnUi);
             Assert.IsFalse(restore.IsCompleted);
@@ -380,7 +375,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             // 誤実装が競合 request を受理しても、先に全 gate を開き、その operation と callback を回収する。
             foreach (Task task in new[] { restore, registration, competingRestore }.OfType<Task>())
             {
-                try { await task.WaitAsync(TimeSpan.FromSeconds(10)); }
+                try { await task; }
                 catch (InvalidOperationException) when (task == registration || task == competingRestore) { }
                 catch when (!assertionsCompleted) { }
             }
@@ -388,7 +383,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             lock (scheduledApplies) { applies = scheduledApplies.ToArray(); }
             foreach (Task apply in applies)
             {
-                try { await apply.WaitAsync(TimeSpan.FromSeconds(10)); }
+                try { await apply; }
                 catch when (!assertionsCompleted) { }
             }
             Directory.Delete(directory, recursive: true);
@@ -419,20 +414,20 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 {
                     if (!acquired) { throw new TimeoutException("Test lock acquisition failed."); }
                     lockEntered.TrySetResult();
-                    if (!releaseLock.Wait(TimeSpan.FromSeconds(15))) { throw new TimeoutException("Test lock cleanup watchdog."); }
+                    releaseLock.Wait();
                 }
                 finally { if (acquired) { LR2SongDBExtended.Unlock(); } }
             });
-            await lockEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await TestUiDispatcherHost.AwaitNotificationAsync(lockEntered.Task, lockOwner, "playlist-restore.lock-owner");
             // 新 async owner API は admission を含む同期 DB 前半を worker へ渡す。
             dispatch = TestUiDispatcherHost.Dispatcher.InvokeAsync(() =>
             {
                 restore = playlist.RestorePlaylistDumpAsync(CreatePlaylistRestoreDump(44, "Worker DB", "W"));
                 Assert.IsFalse(restore.IsCompleted);
             }).Task;
-            await dispatch.WaitAsync(TimeSpan.FromSeconds(5));
+            await dispatch;
             bool marker = false;
-            await TestUiDispatcherHost.Dispatcher.InvokeAsync(() => marker = true).Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await TestUiDispatcherHost.Dispatcher.InvokeAsync(() => marker = true).Task;
             Assert.IsTrue(marker);
             Assert.IsFalse(restore!.IsCompleted);
             releaseLock.Set();
@@ -443,10 +438,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         finally
         {
             releaseLock.Set();
-            if (lockOwner != null) { await lockOwner.WaitAsync(TimeSpan.FromSeconds(10)); }
-            if (dispatch != null) { await dispatch.WaitAsync(TimeSpan.FromSeconds(10)); }
-            if (restore != null) { await restore.WaitAsync(TimeSpan.FromSeconds(10)); }
-            Directory.Delete(directory, recursive: true);
+            try
+            {
+                await Task.WhenAll(lockOwner ?? Task.CompletedTask, dispatch ?? Task.CompletedTask, restore ?? Task.CompletedTask);
+            }
+            finally { Directory.Delete(directory, recursive: true); }
         }
     }
 
@@ -483,7 +479,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 BMSTable existing = verify.Table<BMSTable>().Single();
                 Assert.AreEqual(2, existing.playlist_id);
@@ -551,7 +547,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
             StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
             StringAssert.Contains(failure.Message, restoreFailure!.Message);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);
                 Assert.AreEqual("Old entry", verify.Table<LR2SongDBExtended.playlist_entry>().Single().title);
@@ -573,7 +569,13 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_PropagatesFileReadFailureWithoutReceipt()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(owned.SongDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            }));
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
+            playlistLibraryProvider: () => library);
         List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
         workspace.PlaylistOperationNotificationPresentationRequested +=
             (_, request) => notifications.Add(request);
@@ -592,7 +594,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            var table = new BMSTable
+            var table = new SerializationObservedTable
             {
                 name = "Export",
                 symbol = "EX",
@@ -607,11 +609,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(tempDirectory, "data.json");
-            Uri originalDataUrl = table.Data_url;
-            table.Data_url = new Uri(Path.GetFileName(dataPath), UriKind.Relative);
-            string expectedHeader = table.HeaderToJson();
-            string expectedData = (string)table.DataToJson();
-            table.Data_url = originalDataUrl;
+            string expectedHeader = table.HeaderToJson(Path.GetFileName(dataPath));
+            string expectedData = table.DataToJson();
+            table.DataUrlReadObserver = () => Assert.IsNull(table.Data_url,
+                "serializerが正本Data_urlを読む時点でも一時値へ書換えません。");
 
             dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, headerPath));
             dialogs.SaveFilePickerResults.Enqueue(new UiSaveFilePickerResult(UiDialogStatus.Accepted, dataPath));
@@ -636,6 +637,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Json_file_exts, dialogs.SaveFilePickerRequests[1].Filter);
             Assert.IsTrue(dialogs.SaveFilePickerRequests[1].AddExtension);
 
+            table.DataUrlReadObserver = null;
             var persistedHeaderUrl = new Uri("https://example.test/export-header.json");
             var persistedDataUrl = new Uri("https://example.test/export-data.json");
             table.Header_url = persistedHeaderUrl;
@@ -839,7 +841,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -894,7 +895,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -969,7 +969,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1036,7 +1035,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1100,7 +1098,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1159,7 +1156,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1219,7 +1215,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1276,7 +1271,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1378,7 +1372,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1743,7 +1736,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 1,
                 historyTable.entries.Count(entry => entry.md5 == historyHash && entry.is_removed));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1L,
                 verify.ExecuteScalar<long>(
@@ -1767,8 +1760,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     [TestMethod]
-    public async Task PlaylistDropAdmission_IsAtomicAndConvergesAfterLeaseRelease()
+    public async Task PlaylistDropAdmission_AwaitsRequiredOutputsAndPreservesCommittedFactsAcrossFailures()
     {
+        static string ReadBmtText(string path)
+        {
+            using FileStream file = File.OpenRead(path);
+            using var gzip = new GZipStream(file, CompressionMode.Decompress);
+            using var reader = new StreamReader(gzip, Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistWorkspaceViewModelTests),
@@ -1788,7 +1789,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string songDbPath = BmsPlaylistTestSupport.CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var library = new TestBmsLibrary(songDbPath);
-            int leaseAttemptCount = 0;
+            var outputAdmission = new ChartFileOperationSynchronizer();
             int lr2SyncProbeCount = 0;
             int lr2SyncProbeLeaseUnavailableCount = 0;
             TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
@@ -1798,11 +1799,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 lr2SyncProbeCount++;
                 Assert.IsNotNull(mutationCapability);
-                using (LibraryFileMutationLease competingLease = library.TryBeginLibraryFileMutation(
-                           "playlist_drop_lr2_sync_probe_conflict",
-                           showMessage: false))
+                bool acquired = outputAdmission.TryEnter(out IDisposable competingLease);
+                using (competingLease)
                 {
-                    Assert.IsNull(competingLease);
+                    Assert.IsFalse(acquired);
                     lr2SyncProbeLeaseUnavailableCount++;
                 }
             };
@@ -1827,11 +1827,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 },
                 () => outputSettings,
                 synchronization,
-                mutationLeaseProviderWithMessage: (operation, showMessage) =>
-                {
-                    leaseAttemptCount++;
-                    return library.TryBeginLibraryFileMutation(operation, showMessage);
-                })
+                mutationAdmission: outputAdmission)
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
@@ -1847,9 +1843,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             int notificationEffectOutsideLeaseCount = 0;
             bool notificationCallbackFailure = false;
             List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            int bmtScheduleCount = 0;
-            int bmtEffectOutsideLeaseCount = 0;
-            List<Func<Task>> scheduledBmtWork = [];
+            int legacyBmtScheduleCount = 0;
             workspace.PlaylistReferenceSortInvalidationRequested +=
                 (_, _) =>
                 {
@@ -1900,25 +1894,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                         }
                     }
                 };
-            playlist.StartupBackgroundTaskScheduler = (owner, _, _, work) =>
-            {
-                if (owner == "beatoraja_bmt_export")
-                {
-                    using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
-                               "playlist_drop_bmt_effect_probe",
-                               showMessage: false))
-                    {
-                        if (callbackLease != null)
-                        {
-                            bmtEffectOutsideLeaseCount++;
-                        }
-                    }
-                    bmtScheduleCount++;
-                    scheduledBmtWork.Add(work);
-                    return true;
-                }
-                return false;
-            };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => { legacyBmtScheduleCount++; return false; };
             const string md5 = "ffffffffffffffffffffffffffffffff";
             ChartFile chart = (
                 ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(md5, Path.Combine(tempDirectory, "drop-chart.bms")))));
@@ -1934,19 +1910,17 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Imported"));
             workspace.IsPlaylistDetailViewActive = true;
 
-            using (LibraryFileMutationLease incumbent = library.TryBeginLibraryFileMutation(
-                       "playlist_drop_incumbent",
-                       showMessage: false))
+            Assert.IsTrue(outputAdmission.TryEnter(out IDisposable incumbent));
+            using (incumbent)
             {
                 Assert.IsNotNull(incumbent);
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-                    workspace.AddRowsToFolderAsync(
+                await workspace.AddRowsToFolderAsync(
                         [libraryRow],
                         table,
-                        PlaylistFolderNode.CreateFolder("Imported")));
+                        PlaylistFolderNode.CreateFolder("Imported"));
 
                 Assert.AreEqual(0, table.GetEntriesExceptDummy().Count());
-                using (var verifyBusy = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended verifyBusy = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(0, verifyBusy.Table<LR2SongDBExtended.playlist_entry>().Count());
                 }
@@ -1956,16 +1930,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.AreEqual(0, uiInvalidationCount);
                 Assert.AreEqual(0, uiEffectOutsideLeaseCount);
                 Assert.AreEqual(0, notificationEffectOutsideLeaseCount);
-                Assert.AreEqual(0, bmtScheduleCount);
-                Assert.AreEqual(0, bmtEffectOutsideLeaseCount);
+                Assert.AreEqual(0, legacyBmtScheduleCount);
                 Assert.AreEqual(0, lr2SyncProbeCount);
                 Assert.AreEqual(0, lr2SyncProbeLeaseUnavailableCount);
             }
-            Assert.AreEqual(1, leaseAttemptCount);
+
 
             notificationCallbackFailure = true;
             int notificationCountBeforeFreshRequest = notificationCount;
-            int leaseAttemptsBeforeFreshRequest = leaseAttemptCount;
+
             await workspace.AddRowsToFolderAsync(
                 [libraryRow],
                 table,
@@ -1978,7 +1951,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 "*.lr2folder",
                 SearchOption.AllDirectories);
             Assert.IsTrue(generatedFiles.Length > 0);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
                 Assert.IsTrue(verify.Table<LR2SongDB.folder>().Any(folder =>
@@ -1990,17 +1963,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(1, uiEffectOutsideLeaseCount);
             Assert.AreEqual(notificationCountBeforeFreshRequest + 1, notificationCount);
             Assert.AreEqual(1, notificationEffectOutsideLeaseCount);
-            Assert.AreEqual(leaseAttemptsBeforeFreshRequest + 1, leaseAttemptCount);
-            Assert.AreEqual(1, bmtScheduleCount);
-            Assert.AreEqual(1, bmtEffectOutsideLeaseCount);
+
             Assert.AreEqual(1, lr2SyncProbeCount);
             Assert.AreEqual(1, lr2SyncProbeLeaseUnavailableCount);
-            Assert.AreEqual(1, scheduledBmtWork.Count);
-            await scheduledBmtWork[0]();
+            Assert.AreEqual(0, legacyBmtScheduleCount);
+            string bmt = Directory.GetFiles(bmtTablePath, "*.bmt").Single();
+            StringAssert.Contains(ReadBmtText(bmt), md5);
 
             synchronization.Failure = new InvalidOperationException("playlist drop output failure");
             int notificationCountBeforeOutputFailure = notificationCount;
-            int leaseAttemptsBeforeOutputFailure = leaseAttemptCount;
+
             InvalidOperationException outputFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
                 workspace.AddRowsToFolderAsync(
                     [outputFailureLibraryRow],
@@ -2009,12 +1981,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.AreEqual("playlist drop output failure", outputFailure.Message);
             Assert.AreSame(synchronization.Failure, outputFailure);
-            Assert.AreEqual(leaseAttemptsBeforeOutputFailure + 1, leaseAttemptCount);
-            Assert.AreEqual(2, bmtScheduleCount);
-            Assert.AreEqual(2, bmtEffectOutsideLeaseCount);
+
             Assert.AreEqual(2, lr2SyncProbeCount);
             Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
-            Assert.AreEqual(2, scheduledBmtWork.Count);
             using (LibraryFileMutationLease releasedLease = library.TryBeginLibraryFileMutation(
                        "playlist_drop_output_failure_release_probe",
                        showMessage: false))
@@ -2022,7 +1991,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.IsNotNull(releasedLease);
             }
             Assert.AreEqual(2, table.GetEntriesExceptDummy().Count());
-            using (var verifyOutputFailure = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyOutputFailure = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(2, verifyOutputFailure.Table<LR2SongDBExtended.playlist_entry>().Count());
             }
@@ -2043,13 +2012,14 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 outputFailureNotification.Receipt.Notifications.Single().Severity);
             Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(outputFailureChart).Symbols);
             Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(outputFailureChart).Names);
-            await scheduledBmtWork[1]();
+            Assert.AreEqual(0, legacyBmtScheduleCount);
+            StringAssert.Contains(ReadBmtText(bmt), outputFailureMd5);
 
             synchronization.Failure = null!;
             NotSupportedException preparationFailure = new("playlist drop preparation failure");
             synchronization.PhysicalSurfaceFactory = () => throw preparationFailure;
             int notificationCountBeforePreparationFailure = notificationCount;
-            int leaseAttemptsBeforePreparationFailure = leaseAttemptCount;
+
             NotSupportedException caughtPreparationFailure = await Assert.ThrowsExceptionAsync<NotSupportedException>(() =>
                 workspace.AddRowsToFolderAsync(
                     [preparationFailureLibraryRow],
@@ -2058,9 +2028,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.AreEqual("playlist drop preparation failure", caughtPreparationFailure.Message);
             Assert.AreSame(preparationFailure, caughtPreparationFailure);
-            Assert.AreEqual(leaseAttemptsBeforePreparationFailure + 1, leaseAttemptCount);
+
             Assert.AreEqual(3, table.GetEntriesExceptDummy().Count());
-            using (var verifyPreparationFailure = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifyPreparationFailure = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(3, verifyPreparationFailure.Table<LR2SongDBExtended.playlist_entry>().Count());
             }
@@ -2070,11 +2040,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(3, uiEffectOutsideLeaseCount);
             Assert.AreEqual(notificationCountBeforePreparationFailure + 1, notificationCount);
             Assert.AreEqual(3, notificationEffectOutsideLeaseCount);
-            Assert.AreEqual(3, bmtScheduleCount);
-            Assert.AreEqual(3, bmtEffectOutsideLeaseCount);
             Assert.AreEqual(2, lr2SyncProbeCount);
             Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
-            Assert.AreEqual(3, scheduledBmtWork.Count);
             using (LibraryFileMutationLease releasedPreparationLease = library.TryBeginLibraryFileMutation(
                        "playlist_drop_preparation_failure_release_probe",
                        showMessage: false))
@@ -2083,7 +2050,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
             Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(preparationFailureChart).Symbols);
             Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(preparationFailureChart).Names);
-            await scheduledBmtWork[2]();
+            Assert.AreEqual(0, legacyBmtScheduleCount);
+            StringAssert.Contains(ReadBmtText(bmt), preparationFailureMd5);
 
             // DB 書込み拒否は出力側の warning を生成しないため、drop の終端が generic error を一度だけ補う。
             notificationCallbackFailure = false;
@@ -2161,11 +2129,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             TestLr2PlaylistFolderSynchronizationPort synchronization = BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                 songDbPath,
                 CustomFolderOutputPhysicalSurface.Empty);
-            synchronization.SynchronizationStartProbe = _ =>
-            {
-                synchronizationStarted.TrySetResult(true);
-                releaseSynchronization.Wait();
-            };
             var playlist = new TestBmsPlaylist(
                 songDbPath,
                 null,
@@ -2194,6 +2157,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 playlist,
                 library,
                 () => outputSettings);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                if (request.RouteName != "playlist drop custom folder output notification") { return; }
+                synchronizationStarted.TrySetResult(true);
+                releaseSynchronization.Wait();
+            };
             PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
             workspace.MutationRejected += (_, request) => rejected = request;
             ChartFile chart = (
@@ -2201,10 +2170,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                     CreateSongTableRow(
                         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(tempDirectory, "admission-chart.bms")))));
 
-            dropTask = workspace.AddRowsToFolderAsync(
+            dropTask = Task.Run(() => workspace.AddRowsToFolderAsync(
                 [LibraryChartRow.FromChartFile(chart)],
                 table,
-                PlaylistFolderNode.CreateFolder("Imported"));
+                PlaylistFolderNode.CreateFolder("Imported")));
             // 到達前に導入が失敗した場合も観測し、実時間の制限では同期順序を判定しない。
             Task reached = await Task.WhenAny(synchronizationStarted.Task, dropTask);
             if (reached == dropTask)
@@ -2367,7 +2336,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2419,7 +2387,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2488,7 +2455,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2619,6 +2585,17 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             .Select(entry => entry.md5 + "|" + entry.folder)
             .OrderBy(value => value, StringComparer.Ordinal)];
         CollectionAssert.AreEqual(expectedEntries.ToArray(), persistedEntries);
+    }
+
+    private sealed class SerializationObservedTable : BMSTable
+    {
+        internal Action? DataUrlReadObserver { get; set; }
+
+        public override string data_url
+        {
+            get { DataUrlReadObserver?.Invoke(); return base.data_url; }
+            set { base.data_url = value; }
+        }
     }
 
 }

@@ -18,7 +18,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsAndPersistsInlineChartInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineInfo");
@@ -79,7 +79,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPersistsInlineMaintenanceAndClearsResourceRefs()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineMaintenance");
@@ -137,7 +137,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_ReloadsDetectedEncodingDuringInlineMaintenance()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineEncoding");
@@ -204,7 +204,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_TracksInlineEncodingOutcomesForMixedBmsBatch()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineEncodingMixed");
@@ -279,7 +279,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_CachesFolderParentHashesForChartsInSameDirectory()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "FolderParentCache");
@@ -338,7 +338,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_DeletesBmsAndMaintenanceInSameChunk()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "DeleteMaintenance");
@@ -390,7 +390,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_BulkDeleteKeepsExactPathKeys()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = " " + Path.Combine(lr2RootPath, "Whitespace", "deleted.bms");
@@ -435,7 +435,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_BulkDeleteHandlesMultipleCommitChunks()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             ChartFile[] bmsFiles = [.. Enumerable.Range(0, 3)
@@ -530,7 +530,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsPublishesGeneratedInlineChartInfoToCallback()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineInfoCallback");
@@ -585,7 +585,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_ChartInfoParseFailureDoesNotBlockSongRegistration()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineFailure");
@@ -638,7 +638,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_CurrentParseFailureSkipsInlineChartInfoParse()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineFailureSkip");
@@ -693,7 +693,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_CurrentInlineChartInfoRowSkipsParseAndReturnsAppliedRow()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineCurrent");
@@ -754,7 +754,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_CurrentInlineChartInfoRowsDoNotPublishToCallback()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InlineCurrentCallback");
@@ -814,7 +814,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_FileDiffParserDegree_UsesDefaultAndNormalizesOverrides()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             int expectedDefault = FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(Environment.ProcessorCount);
@@ -840,7 +840,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_FileDiffCommitChunkSize_UsesDefaultAndNormalizesOverrides()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             Assert.AreEqual(10000, FileScanParseCommitOwner.ResolveDefaultFileDiffCommitChunkSize());
@@ -856,7 +856,7 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
     [TestMethod]
     public void ApplyFileScanDiff_InlineChartInfoBatchSize_UsesDefaultAndNormalizesOverrides()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             Assert.AreEqual(2048, FileScanParseCommitOwner.ResolveDefaultInlineChartInfoBatchSize());

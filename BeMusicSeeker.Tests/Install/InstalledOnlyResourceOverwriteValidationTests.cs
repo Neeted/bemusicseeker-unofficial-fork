@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -13,11 +12,12 @@ namespace BeMusicSeeker.Tests;
 /// installed-only resource overwrite の導入先確認が、既存配置の厳密確認として動作することを検証します。
 /// </summary>
 [TestClass]
-// The production options snapshot uses process-wide Settings.Default, and the shared fixture
+// The production options snapshot uses process-wide testSettings, and the shared fixture
 // initializes process-wide App.AvailableCultures and Resources.Culture localization state.
-[DoNotParallelize]
 public sealed class InstalledOnlyResourceOverwriteValidationTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_AllChartsUnderOneDirectory_Succeeds()
     {
@@ -243,14 +243,14 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
-    private static void WithWorkspace(Action<BmsLibraryInstallEstimationService, string> testAction)
+    private void WithWorkspace(Action<BmsLibraryInstallEstimationService, string> testAction)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstalledDirIndexTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRoot);
         try
         {
-            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default), 70);
+            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), 70);
             testAction(service, tempRoot);
         }
         finally

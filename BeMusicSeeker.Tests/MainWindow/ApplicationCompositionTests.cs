@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -18,9 +19,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class ApplicationCompositionTests
+public sealed partial class ApplicationCompositionTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void CompositionKeepsTheConfiguredLibraryOptionsProvider()
     {
@@ -37,6 +38,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesPlaylistWithTypedLibraryBindings()
     {
         string tempDirectory = Path.Combine(
@@ -77,6 +79,50 @@ public sealed class ApplicationCompositionTests
             Assert.AreSame(
                 library.Lr2PlaylistFolderSynchronization,
                 bindings.Lr2PlaylistFolderSynchronization);
+
+            string secondDbPath = Path.Combine(tempDirectory, "Second", "song.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(secondDbPath)!);
+            using (var initialize = new LR2SongDBExtended(secondDbPath)) { }
+            LibraryProfile secondProfile = StartupLibraryConstructionTestSupport.CreateProfile(tempDirectory, secondDbPath);
+            BMSLibrary secondLibrary = composition.CreateBmsLibrary(secondProfile);
+            BMSPlaylist secondPlaylist = composition.CreateBmsPlaylist(secondProfile, secondLibrary);
+            Assert.AreSame(composition.PlaylistOperationAdmission, library.Lr2Synchronization.PlaylistOperationAdmission);
+            Assert.AreSame(library.Lr2Synchronization.PlaylistOperationAdmission, secondLibrary.Lr2Synchronization.PlaylistOperationAdmission);
+            Assert.AreNotSame(composition.OperationAdmission, composition.PlaylistOperationAdmission);
+            Assert.AreNotSame(library.Lr2Synchronization, secondLibrary.Lr2Synchronization);
+            Assert.AreNotSame(playlist, secondPlaylist);
+            Assert.AreSame(secondLibrary, secondPlaylist.LibraryBindings.SourceLibrary);
+            Assert.AreNotEqual(songDbPath, secondProfile.SongDbPath);
+            using (LibraryFileMutationLease outer = playlist.AcquirePlaylistMutationLease("reconstruction-outer"))
+            using (LibraryFileMutationCapability authority = outer.CreateMutationCapability())
+            {
+                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                Assert.ThrowsException<InvalidOperationException>(() => secondPlaylist.AcquirePlaylistMutationLease("new-store-busy"));
+                using (LibraryFileMutationLease borrowed = secondPlaylist.AcquirePlaylistMutationLease("same-operation", capability: authority))
+                {
+                    Assert.IsNotNull(borrowed);
+                }
+                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive, "借用終端は外側Pを解放しません。");
+                var otherComposition = new ApplicationComposition(
+                    bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
+                    settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                BMSLibrary otherLibrary = otherComposition.CreateBmsLibrary(secondProfile);
+                BMSPlaylist otherPlaylist = otherComposition.CreateBmsPlaylist(secondProfile, otherLibrary);
+                try
+                {
+                    Assert.ThrowsException<InvalidOperationException>(() => otherPlaylist.AcquirePlaylistMutationLease("different-owner", capability: authority));
+                }
+                finally { otherPlaylist.RequestShutdown("isolated-cleanup"); otherLibrary.RequestShutdown("isolated-cleanup"); }
+            }
+            using (LibraryFileMutationLease next = secondPlaylist.AcquirePlaylistMutationLease("fresh-operation"))
+            {
+                Assert.IsNotNull(next);
+            }
+            secondPlaylist.RequestShutdown("reconstructed-cleanup");
+            secondLibrary.RequestShutdown("reconstructed-cleanup");
 
             var request = new BmtSongHashResolveRequest
             {
@@ -121,7 +167,8 @@ public sealed class ApplicationCompositionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistWorkspaceCreatesNewPlaylistThroughConfiguredStore()
+    [DoNotParallelize]
+    public async Task PlaylistWorkspaceCreatesNewPlaylistDraftThroughConfiguredStore()
     {
         int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         testSettings.PlaylistDefaultIgnoreFolderOutput =
@@ -148,7 +195,6 @@ public sealed class ApplicationCompositionTests
                 () => [],
                 _ => { },
                 _ => { },
-                () => false,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
@@ -166,7 +212,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(missingProviderWorkspace);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
@@ -179,7 +225,6 @@ public sealed class ApplicationCompositionTests
                 () => playlist.BMSTables,
                 _ => { },
                 _ => { },
-                () => false,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
@@ -197,14 +242,14 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(workspace);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
 
             Assert.IsNotNull(created);
-            Assert.AreSame(created, playlist.BMSTables.Single());
+            Assert.AreEqual(0, playlist.BMSTables.Count, "新規draftは保存前に正本へ登録しません。");
             Assert.IsTrue(created.last_update >= startedAt && created.last_update <= completedAt);
             Assert.AreEqual(
                 LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
@@ -215,14 +260,14 @@ public sealed class ApplicationCompositionTests
                 await workspace.CreatePlaylistPropertyDialogAsync();
             Assert.IsNotNull(dialog);
             Assert.AreEqual(testSettings.OperationModeLR2DB, dialog.OperationModeLR2DB);
-            Assert.AreEqual(2, playlist.BMSTables.Count);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
             Assert.AreSame(dialog, workspace.ActivePropertyDialog);
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.ResetPropertiesAsync());
             dialog.Dispose();
             workspace.ClosePropertyDialog(dialog);
-            Assert.AreEqual(1, playlist.BMSTables.Count);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
         }
         finally
         {
@@ -235,6 +280,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionKeepsTheConfiguredStartupSettingsProvider()
     {
         var snapshot = new StartupSettingsSnapshot
@@ -251,6 +297,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesTheDefaultInternalBmsPlayer()
     {
         var composition = new ApplicationComposition(
@@ -260,6 +307,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredUbMplayPlayer()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -288,6 +336,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredBmiIdxViewPlayer()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -316,6 +365,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredLr2Player()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -348,6 +398,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesConfiguredLr2PlayerWhenLibraryOperationModeIsStandalone()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -356,13 +407,13 @@ public sealed class ApplicationCompositionTests
         Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
         File.WriteAllBytes(executablePath, []);
         File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            OperationModeLR2DB = false,
-            UsePlayerLR2body = true,
-            LR2RootPath = root,
-            LR2ConfigXmlPath = configPath
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.UsePlayerLR2body = true;
+                values.LR2RootPath = root;
+                values.LR2ConfigXmlPath = configPath;
+            });
         int defaultFactoryCalls = 0;
         try
         {
@@ -393,6 +444,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionPropagatesConfiguredLr2PlayerConfigFailureWithoutDefaultFallback()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -400,13 +452,13 @@ public sealed class ApplicationCompositionTests
         Directory.CreateDirectory(root);
         File.WriteAllBytes(executablePath, []);
         string missingConfigPath = Path.Combine(root, "missing-config.xml");
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            OperationModeLR2DB = false,
-            UsePlayerLR2body = true,
-            LR2RootPath = root,
-            LR2ConfigXmlPath = missingConfigPath
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.UsePlayerLR2body = true;
+                values.LR2RootPath = root;
+                values.LR2ConfigXmlPath = missingConfigPath;
+            });
         int defaultFactoryCalls = 0;
         try
         {
@@ -435,6 +487,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionUsesInjectedDefaultWhenNoExternalPlayerIsSelected()
     {
         bool originalUbMplay = testSettings.UsePlayeruBMplay;
@@ -466,6 +519,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionRejectsConfiguredLr2PlayerWhenExecutableIsMissing()
     {
         bool originalUbMplay = testSettings.UsePlayeruBMplay;
@@ -501,6 +555,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionKeepsTheConfiguredPlaylistUrlCompletionOptionsProvider()
     {
         var snapshot = new PlaylistUrlCompletionOptionsSnapshot
@@ -517,6 +572,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionKeepsTheConfiguredBeatorajaBmtOptionsProvider()
     {
         var snapshot = new BeatorajaBmtOptionsSnapshot
@@ -534,6 +590,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionKeepsTheConfiguredCustomFolderOutputSettingsProvider()
     {
         var snapshot = new CustomFolderOutputSettingsSnapshot
@@ -549,6 +606,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionKeepsTheConfiguredFirstStartupLifecycleBoundary()
     {
         var composition = new ApplicationComposition(
@@ -563,6 +621,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesMainTableOwnersFromOneBoundary()
     {
         var composition = new ApplicationComposition(
@@ -586,7 +645,6 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            () => false,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             (_, _) => { },
@@ -604,7 +662,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
         AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
 
         Assert.IsNotNull(mainChartList);
@@ -615,6 +673,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionCreatesMainWindowChildOwnersFromOneBoundary()
     {
         var composition = new ApplicationComposition(
@@ -636,7 +695,6 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            () => false,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             (_, _) => { },
@@ -654,7 +712,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
         AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
@@ -738,6 +796,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task CompositionScoreViewerWorkflowUsesInjectedDialogService()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -746,11 +805,11 @@ public sealed class ApplicationCompositionTests
         File.WriteAllText(chartPath, "#PLAYER 1\n");
         try
         {
-            var values = new BeMusicSeeker.Properties.Settings
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                ShowScoreViewerRegisterConfirmMsg = true
-            };
+                values.OperationModeLR2DB = false;
+                values.ShowScoreViewerRegisterConfirmMsg = true;
+            });
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
@@ -795,6 +854,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -821,7 +881,6 @@ public sealed class ApplicationCompositionTests
                 () => playlist.BMSTables,
                 _ => { },
                 _ => { },
-                () => false,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
@@ -840,7 +899,7 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
             workspace.IsPlaylistSummaryMode = true;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -889,7 +948,7 @@ public sealed class ApplicationCompositionTests
                 Assert.AreEqual(
                     PlaylistSummaryDeferredRefreshKind.Data,
                     workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
-                using (var verify = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
                     Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
@@ -920,6 +979,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task ComposedPlaylistWorkspaceRestoresBmtDropSelectionAfterMatchingSummaryApply()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -948,7 +1008,6 @@ public sealed class ApplicationCompositionTests
                 () => playlist.BMSTables,
                 _ => { },
                 _ => { },
-                () => false,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 (_, _) => { },
@@ -967,7 +1026,7 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachPlaylistPresentationRouter(workspace, deferSummaryData: true);
             workspace.PlaylistSummarySelectionRestoreRequested += restoreRequests.Add;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -1151,7 +1210,6 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1175,13 +1233,12 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
             AttachImmediatePlaylistPresentationRouter(workspace);
-            var queuedReasons = new List<string>();
-            playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
+            int completedOutputCount = 0;
+            playlist.BmtOutput.RequestProgressReporter = (_, running) =>
             {
-                queuedReasons.Add(reason);
-                return true;
+                if (!running) { completedOutputCount++; }
             };
 
             long generationBeforeFirstAction = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -1199,15 +1256,16 @@ public sealed class ApplicationCompositionTests
             Assert.AreEqual(true, second.is_bmt_output);
             Assert.AreEqual(true, third.is_bmt_output);
             Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > generationBeforeFirstAction);
-            CollectionAssert.AreEqual(new[] { "playlist_summary_bmt_output_changed" }, queuedReasons);
+            Assert.AreEqual(1, completedOutputCount, "必要出力の実終端後に変更Taskを完了します。");
             long generationBeforeNoOp = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.ApplyPlaylistSummaryCellActionAsync(
                 [new PlaylistSummaryRow { TableRef = third }],
                 "IsBmtOutput",
                 value: true).GetAwaiter().GetResult();
             Assert.AreEqual(generationBeforeNoOp, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            Assert.AreEqual(1, completedOutputCount, "変更のない再要求は必要出力を再実行しません。");
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist persistedFirst = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == first.playlist_id);
             LR2SongDBExtended.playlist persistedSecond = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == second.playlist_id);
             LR2SongDBExtended.playlist persistedThird = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == third.playlist_id);
@@ -1225,6 +1283,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -1246,6 +1305,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -1306,6 +1366,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowSettingDialogUsesInjectedEditSessionForOpenAndRestartSave()
     {
         bool operationMode = testSettings.OperationModeLR2DB;
@@ -1334,13 +1395,14 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionDefaultStartupSettingsProviderUsesInjectedEditSessionValues()
     {
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            OperationModeLR2DB = false,
-            LR2RootPath = "injected-lr2-root"
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.LR2RootPath = "injected-lr2-root";
+            });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
@@ -1354,19 +1416,20 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionDefaultWorkflowSnapshotProvidersUseInjectedEditSessionValues()
     {
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            PendingInstallEstimateMaxParallelPackages = 11,
-            LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-output\"]",
-            EnablePlaylistUrlCompletion = true,
-            EnableBeatorajaBmtOutput = true,
-            LR2CustomFolderOutputBaseDir = "session-output-base",
-            ShowDiffBMSInstallConfirmMsg = true,
-            ShowNewPackageInstallConfirmMsg = false,
-            DeletePendingPackageSourceAfterInstall = true
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.PendingInstallEstimateMaxParallelPackages = 11;
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-output\"]";
+                values.EnablePlaylistUrlCompletion = true;
+                values.EnableBeatorajaBmtOutput = true;
+                values.LR2CustomFolderOutputBaseDir = "session-output-base";
+                values.ShowDiffBMSInstallConfirmMsg = true;
+                values.ShowNewPackageInstallConfirmMsg = false;
+                values.DeletePendingPackageSourceAfterInstall = true;
+            });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             settingsEditSession: session,
@@ -1400,15 +1463,16 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionDefaultColumnSettingsStoreUsesInjectedEditSessionValues()
     {
         var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var summaryColumns = new PlaylistSummaryColumnSettings();
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            StandardCustomTableColumnSettings = columns,
-            PlaylistSummaryColumnsSettings = summaryColumns
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.StandardCustomTableColumnSettings = columns;
+                values.PlaylistSummaryColumnsSettings = summaryColumns;
+            });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             settingsEditSession: session,
@@ -1423,15 +1487,16 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompositionDefaultSerializedSettingsStoresUseInjectedEditSessionValues()
     {
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            KeywordSearchHistory = "keyword-history",
-            PlaylistSummaryKeywordSearchHistory = "playlist-keyword-history",
-            PlayHistorySelectedDisplayTargetIdentity = "set:session",
-            PlayHistoryDisplayTargetSetsJson = "display-target-sets"
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.KeywordSearchHistory = "keyword-history";
+                values.PlaylistSummaryKeywordSearchHistory = "playlist-keyword-history";
+                values.PlayHistorySelectedDisplayTargetIdentity = "set:session";
+                values.PlayHistoryDisplayTargetSetsJson = "display-target-sets";
+            });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             settingsEditSession: session,
@@ -1454,11 +1519,11 @@ public sealed class ApplicationCompositionTests
     [DoNotParallelize]
     public async Task CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
     {
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            OperationModeLR2DB = true,
-            PlayHistorySelectedDisplayTargetIdentity = "all"
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+                values.PlayHistorySelectedDisplayTargetIdentity = "all";
+            });
         var session = new FakeSettingsEditSession { Values = values };
         var composition = new ApplicationComposition(
             settingsEditSession: session,
@@ -1502,10 +1567,10 @@ public sealed class ApplicationCompositionTests
         string previousGlobalPaths = BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
         string sessionPath = Path.GetFullPath("session-additional-output");
         string globalPath = Path.GetFullPath("global-additional-output");
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([sessionPath])
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([sessionPath]);
+            });
         BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
             CustomFolderOutputBaseRegistry.SerializeBaseDirectories([globalPath]);
         try
@@ -1525,13 +1590,14 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowPlaylistOutputOptionsUseCompositionCustomFolderSettings()
     {
-        var values = new BeMusicSeeker.Properties.Settings
-        {
-            LR2CustomFolderOutputBaseDir = "session-output-base",
-            LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]"
-        };
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.LR2CustomFolderOutputBaseDir = "session-output-base";
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]";
+            });
         var composition = new ApplicationComposition(
             settingsEditSession: new FakeSettingsEditSession { Values = values },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
@@ -1545,6 +1611,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -1567,9 +1634,10 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowKeywordSearchFavoritesDefaultUsesCompositionSettingsSession()
     {
-        var values = new BeMusicSeeker.Properties.Settings();
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             settingsEditSession: new FakeSettingsEditSession { Values = values },
@@ -1592,6 +1660,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowKeywordSearchFavoritesUseCompositionSettingsStore()
     {
         var historyStore = new FakeKeywordSearchHistorySettingsStore();
@@ -1622,6 +1691,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspaceOwnsSummaryKeywordSearchAssistanceAndHistoryScope()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -1668,6 +1738,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowPlayHistoryDisplaySettingsUseCompositionStore()
     {
         var store = new FakePlayHistoryDisplaySettingsStore
@@ -1841,6 +1912,9 @@ public sealed class ApplicationCompositionTests
 
         public List<string> Calls { get; } = [];
 
+        /// <summary>標準接続の保存拒否検証だけで、fixtureが所有するXMLへ実保存・再読込みを接続します。</summary>
+        public bool PersistOwnedValues { get; init; }
+
         public int ReloadCount { get; private set; }
 
         public int SaveCount { get; private set; }
@@ -1849,12 +1923,14 @@ public sealed class ApplicationCompositionTests
         {
             ReloadCount++;
             Calls.Add("reload");
+            if (PersistOwnedValues) { Values.Reload(); }
         }
 
         public void Save()
         {
             SaveCount++;
             Calls.Add("save");
+            if (PersistOwnedValues) { Values.Save(); }
         }
     }
 

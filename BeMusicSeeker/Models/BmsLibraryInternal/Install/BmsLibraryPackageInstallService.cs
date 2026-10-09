@@ -1085,10 +1085,30 @@ internal sealed class BmsLibraryPackageInstallService
             isPreflightRefusal: out _);
     }
 
+    /// <summary>候補の読取り入力から実宛先を固定します。移動はせず、同一要求の宛先衝突と既存実体を避けます。</summary>
+    internal string PrepareInstallDestination(ChartPackage package, string installationDirectory,
+        BmsLibraryOptionsSnapshot options, Func<IEnumerable<ChartFile>, string, string> createFolderPath,
+        ISet<string> reservedDestinations)
+    {
+        if (!LongPathFileSystem.DirectoryExists(package.path) || !string.IsNullOrWhiteSpace(installationDirectory))
+        { return installationDirectory; }
+        List<PackageChartEntry> entries = SelectInstallTargetEntries(package,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase), package.path, false);
+        string baseDirectory = createFolderPath(entries.Select(entry => entry.Chart), options.BMSInstallDir);
+        string destination = baseDirectory;
+        int suffix = 1;
+        while (LongPathFileSystem.EntryExists(destination) || reservedDestinations.Contains(destination))
+        { destination = baseDirectory + "(" + ++suffix + ")"; }
+        reservedDestinations.Add(destination);
+        return destination;
+    }
+
     /// <summary>
     /// 導入・フォルダ統合の session 向けに filesystem promotion までを実行します。
     /// canonical durable apply と source cleanup は outer session が所有し、ここでは実行しません。
     /// </summary>
+    /// <param name="onMutationScopePrepared">読み取りpreflightで実src/dstを確定した後、最初の物理副作用前に条件付きPを取得します。falseはBusyの継続可能な未処理、trueはcleanup終端まで保持する受理を表します。</param>
+    /// <param name="preparedDestinationDirectory">同じ受理操作で停止前に固定した実宛先。指定時は名前計算を繰り返しません。</param>
     internal PackageInstallSessionMoveResult MovePackageFilesForInstallSession(
         ChartPackage package,
         string installationDirectory,
@@ -1106,7 +1126,9 @@ internal sealed class BmsLibraryPackageInstallService
         IInstalledChartLookupIndex independentOwnershipLookup = null,
         ISet<string> excludedComponentPaths = null,
         Action<PackageInstallExecutionResult> onPreflightPrepared = null,
-        Action<Action> enqueueDiagnosticEffect = null)
+        Action<Action> enqueueDiagnosticEffect = null,
+        Func<string, string, bool> onMutationScopePrepared = null,
+        string preparedDestinationDirectory = null)
     {
         PackageInstallExecutionResult executionResult = null;
         PackageInstallSessionPhysicalMutation physicalMutation = null;
@@ -1135,7 +1157,9 @@ internal sealed class BmsLibraryPackageInstallService
                 executionResult = result;
                 physicalMutation = mutation;
             },
-            isPreflightRefusal: out bool isPreflightRefusal);
+            isPreflightRefusal: out bool isPreflightRefusal,
+            onMutationScopePrepared: onMutationScopePrepared,
+            preparedDestinationDirectory: preparedDestinationDirectory);
         return new PackageInstallSessionMoveResult(executionResult, physicalMutation, failureReceipt, isPreflightRefusal);
     }
 
@@ -1160,7 +1184,9 @@ internal sealed class BmsLibraryPackageInstallService
         Action<Action> enqueueDiagnosticEffect,
         bool deferDurableCommitToSession,
         Action<PackageInstallExecutionResult, PackageInstallSessionPhysicalMutation> sessionPreparedObserver,
-        out bool isPreflightRefusal)
+        out bool isPreflightRefusal,
+        Func<string, string, bool> onMutationScopePrepared = null,
+        string preparedDestinationDirectory = null)
     {
         isPreflightRefusal = false;
         if (package == null)
@@ -1246,16 +1272,19 @@ internal sealed class BmsLibraryPackageInstallService
             string destinationDirectory;
             if (isAutoNaming)
             {
-                destinationDirectory = createFolderPath?.Invoke(
-                    installTargetEntries.Select(entry => entry.Chart),
-                    options?.BMSInstallDir);
+                destinationDirectory = preparedDestinationDirectory ?? createFolderPath?.Invoke(
+                    installTargetEntries.Select(entry => entry.Chart), options?.BMSInstallDir);
                 if (string.IsNullOrWhiteSpace(destinationDirectory))
                 {
                     throw new IOException("The package destination could not be determined.");
                 }
                 string baseDirectory = destinationDirectory;
                 int suffix = 1;
-                while (LongPathFileSystem.EntryExists(destinationDirectory))
+                if (preparedDestinationDirectory != null && LongPathFileSystem.EntryExists(destinationDirectory))
+                {
+                    throw new IOException(string.Format(Resources.Warn_MoveDestAlreadyExists, sourcePath, destinationDirectory));
+                }
+                while (preparedDestinationDirectory == null && LongPathFileSystem.EntryExists(destinationDirectory))
                 {
                     suffix++;
                     destinationDirectory = baseDirectory + "(" + suffix + ")";
@@ -1297,6 +1326,14 @@ internal sealed class BmsLibraryPackageInstallService
                     sourcePath,
                     destinationDirectory,
                     exception);
+            }
+
+            if (onMutationScopePrepared != null && !onMutationScopePrepared(sourcePath, destinationDirectory))
+            {
+                isPreflightRefusal = true;
+                return new FileDbMutationReceipt(emptyPlan.OperationId, FileDbMutationTerminalState.Failed,
+                    false, 0, 0, [sourcePath], [destinationDirectory], [], [], [],
+                    new InvalidOperationException(Resources.Warn_LibraryOperationBusy));
             }
 
             var reservedDestinationPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

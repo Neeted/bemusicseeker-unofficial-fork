@@ -47,12 +47,15 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// Collects immutable mutation facts for one accepted user operation and applies them once.
+    /// 一つの受理操作の変更事実を集約して一回反映します。管理出力と交差する物理処理では局所受付も取得し、後片付け後のDisposeまで保持します。
     /// </summary>
-    internal sealed class LibraryMutationSession
+    internal sealed class LibraryMutationSession : IDisposable
     {
         private readonly LibraryMutationOwner owner;
-        private readonly LibraryFileMutationCapability mutationCapability;
+        private LibraryFileMutationCapability mutationCapability;
+        private LibraryFileMutationLease managedOutputLease;
+        private LibraryFileMutationCapability managedOutputCapability;
+        private LibraryFileMutationCapability combinedCapability;
         private readonly string reason;
         private readonly ICollection<Action> postLeaseNotifications;
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
@@ -97,6 +100,38 @@ internal sealed partial class LibraryMutationOwner
             this.mutationCapability = mutationCapability ?? throw new ArgumentNullException(nameof(mutationCapability));
             this.reason = reason ?? string.Empty;
             this.postLeaseNotifications = postLeaseNotifications ?? throw new ArgumentNullException(nameof(postLeaseNotifications));
+        }
+
+        /// <summary>実対象が保存済み管理領域と交差する場合だけPを追加取得し、セッションの物理処理・反映・cleanup終端まで保持します。</summary>
+        /// <param name="paths">変更計画が実際に触る移動元・先とcleanup対象。</param>
+        /// <param name="recursive">指定領域全体を移動・削除するか。</param>
+        internal void ProtectManagedOutput(IEnumerable<string> paths, bool recursive)
+        {
+            if (!TryProtectManagedOutput(paths, recursive))
+            { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        }
+
+        /// <summary>実scopeのPを非待機取得します。Busyはfalseで返し、物理未処理の部分結果に集約できます。</summary>
+        internal bool TryProtectManagedOutput(IEnumerable<string> paths, bool recursive)
+        {
+            EnsureOpen();
+            if (managedOutputLease != null) { return true; }
+            if (!owner.TryEnterManagedOutputMutation(paths, recursive, out LibraryFileMutationLease lease, mutationCapability))
+            { return false; }
+            if (lease == null) { return true; }
+            managedOutputLease = lease;
+            managedOutputCapability = lease.CreateMutationCapability();
+            combinedCapability = mutationCapability.WithPlaylistCapability(managedOutputCapability);
+            mutationCapability = combinedCapability;
+            return true;
+        }
+
+        /// <summary>追加取得したPと借用用権限を失効させます。外側のLは解放しません。</summary>
+        public void Dispose()
+        {
+            combinedCapability?.Dispose();
+            managedOutputCapability?.Dispose();
+            managedOutputLease?.Dispose();
         }
 
         /// <summary>

@@ -14,8 +14,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private const string BeatorajaTableUrlImportProgressSource = "beatoraja_table_url_import";
 
-    private int beatorajaTableUrlImportRunning;
-
     internal event EventHandler<BeatorajaTableUrlImportConfirmationRequestedEventArgs> BeatorajaTableUrlImportConfirmationRequested;
 
     internal event EventHandler<BeatorajaTableUrlImportNotificationRequestedEventArgs> BeatorajaTableUrlImportNotificationRequested;
@@ -24,17 +22,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void StartBeatorajaTableUrlImport(string rootPath)
     {
-        if (Interlocked.CompareExchange(ref beatorajaTableUrlImportRunning, 1, 0) != 0)
-        {
-            RequestBeatorajaTableUrlImportNotification(
-                BeatorajaTableUrlImportNotificationKind.Warning,
-                BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_already_running,
-                BeMusicSeeker.Properties.Resources.Warning,
-                "beatoraja Table URL import already running notification");
-            return;
-        }
-
         bool started = false;
+        LibraryFileMutationLease admission = null;
         try
         {
             BMSPlaylist playlistStore = getPlaylistStore();
@@ -58,6 +47,15 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
+            if (!RequestBeatorajaTableUrlImportConfirmation()) { return; }
+            if (!playlistStore.TryEnterPlaylistMutation(out IDisposable accepted))
+            {
+                RequestBeatorajaTableUrlImportNotification(BeatorajaTableUrlImportNotificationKind.Warning,
+                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                    BeMusicSeeker.Properties.Resources.Warning, "beatoraja Table URL import Busy");
+                return;
+            }
+            admission = (LibraryFileMutationLease)accepted;
             IReadOnlyList<string> rawUrls = BeatorajaConfigService.ReadTableUrls(rootPath);
             if (rawUrls.Count == 0)
             {
@@ -79,14 +77,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            if (!RequestBeatorajaTableUrlImportConfirmation())
-            {
-                return;
-            }
-
             string tablePath = BeatorajaConfigService.GetTablePath(rootPath);
             started = true;
-            Task.Run(() => ImportBeatorajaTableUrlsAsync(rootPath, tablePath, targets)).ObserveFault("ImportBeatorajaTableUrlsAsync");
+            Task.Run(() => ImportBeatorajaTableUrlsAsync(playlistStore, rootPath, tablePath, targets, admission)).ObserveFault("ImportBeatorajaTableUrlsAsync");
         }
         catch (Exception ex)
         {
@@ -101,7 +94,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (!started)
             {
-                Interlocked.Exchange(ref beatorajaTableUrlImportRunning, 0);
+                admission?.Dispose();
             }
         }
     }
@@ -135,7 +128,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
-    private async Task ImportBeatorajaTableUrlsAsync(string rootPath, string tablePath, IReadOnlyList<BeatorajaTableUrlImportTarget> targets)
+    private async Task ImportBeatorajaTableUrlsAsync(BMSPlaylist tables, string rootPath, string tablePath, IReadOnlyList<BeatorajaTableUrlImportTarget> targets, LibraryFileMutationLease admission)
     {
         const int BeatorajaTableUrlImportPostProgressStepCount = 4;
         List<BeatorajaTableUrlImportOutcome> outcomes = [];
@@ -145,206 +138,219 @@ public sealed partial class PlaylistWorkspaceViewModel
         int progressTotalCount = totalCount + BeatorajaTableUrlImportPostProgressStepCount;
         int postProgressCompletedCount = totalCount;
         var totalStopwatch = Stopwatch.StartNew();
-        BMSPlaylist tables = GetPlaylistStore();
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
-        BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
         try
         {
-            UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
-            List<BMSTable> rawUrlChangedTables = [];
-            List<BeatorajaTableUrlImportWorkItem> loadItems = [];
-            foreach (BeatorajaTableUrlImportTarget target in targets ?? [])
+            BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
+            try
             {
-                var item = new BeatorajaTableUrlImportWorkItem(target);
-                if (target == null)
+                UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                List<BeatorajaTableUrlImportTarget> pendingRawUrlChanges = [];
+                List<BeatorajaTableUrlImportWorkItem> loadItems = [];
+                async Task ApplyPendingRawUrlsAsync()
                 {
-                    completedCount++;
-                    UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
-                    continue;
-                }
-                if (target.Uri == null)
-                {
-                    outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(target.RawUrl, target.Exception ?? new ArgumentException(BeMusicSeeker.Properties.Resources.Error_URIMustBeAbsolute)));
-                    completedCount++;
-                    UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
-                    continue;
-                }
-                BMSTable existingTable = FindBMSTableByConfigTableUrl(target.RawUrl, target.Uri);
-                if (existingTable != null)
-                {
-                    if (ApplyBeatorajaTableUrlImportRawUrl(existingTable, target.RawUrl, target.Uri))
+                    List<BMSTable> changed = [];
+                    foreach (BeatorajaTableUrlImportTarget target in pendingRawUrlChanges)
                     {
-                        rawUrlChangedTables.Add(existingTable);
+                        BMSTable current = FindBMSTableByConfigTableUrl(target.RawUrl, target.Uri);
+                        if (current == null) { continue; }
+                        if (ApplyBeatorajaTableUrlImportRawUrl(current, target.RawUrl, target.Uri)) { changed.Add(current); }
                     }
-                    outcomes.Add(BeatorajaTableUrlImportOutcome.Existing(target.Uri, existingTable.name));
-                    orderedImportedTables.Add(existingTable);
-                    completedCount++;
-                    UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, target.Uri, existingTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
-                    continue;
+                    if (changed.Count == 0) { return; }
+                    tables.CommitBMSTableHeadersToDB(changed, capability: authority);
+                    await tables.BmtOutput.ExportTablesAsync(changed, "beatoraja_table_url_import_raw_url_changed", authority);
                 }
-                loadItems.Add(item);
-            }
-            if (rawUrlChangedTables.Count > 0)
-            {
-                tables.CommitBMSTableHeadersToDB(rawUrlChangedTables);
-                tables.BmtOutput.QueueBeatorajaBmtExportForTables(rawUrlChangedTables, "beatoraja_table_url_import_raw_url_changed");
-            }
-
-            if (loadItems.Count > 0)
-            {
-                int completedBeforeLoad = completedCount;
-                List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
-                    loadItems.Select(item => item.SourceTable),
-                    inheritLocalTableProperties: false,
-                    snapshot => UpdateBeatorajaTableUrlImportProgress(
-                        completedBeforeLoad + Math.Max(0, snapshot?.CompletedTableCount ?? 0),
-                        progressTotalCount,
-                        snapshot?.CurrentUri,
-                        snapshot?.CurrentTableName ?? string.Empty,
-                        BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_load_tables),
-                    "beatoraja_table_url_import",
-                    CancellationToken.None,
-                    schedulePlaylistUrlCompletionRefresh: false).ConfigureAwait(false);
-                var itemBySourceTable = loadItems.ToDictionary(item => item.SourceTable);
-                completedCount = totalCount;
-                if (loadResults.Any(result => result?.Succeeded != true))
+                foreach (BeatorajaTableUrlImportTarget target in targets ?? [])
                 {
-                    UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
-                }
-                foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult loadResult in loadResults)
-                {
-                    if (loadResult == null || !itemBySourceTable.TryGetValue(loadResult.SourceTable, out BeatorajaTableUrlImportWorkItem item))
+                    var item = new BeatorajaTableUrlImportWorkItem(target);
+                    if (target == null)
                     {
+                        completedCount++;
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
                         continue;
                     }
-                    if (loadResult.Succeeded)
+                    if (target.Uri == null)
                     {
-                        item.LoadedTable = loadResult.ExternalTable;
+                        outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(target.RawUrl, target.Exception ?? new ArgumentException(BeMusicSeeker.Properties.Resources.Error_URIMustBeAbsolute)));
+                        completedCount++;
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
                         continue;
                     }
-                    item.ExternalImportException = loadResult.Exception;
-                    WriteBeatorajaTableUrlImportWarning(loadResult.Exception, "beatoraja_table_url_external_import_failed uri=" + item.Target.Uri.AbsoluteUri);
-                    try
+                    BMSTable existingTable = FindBMSTableByConfigTableUrl(target.RawUrl, target.Uri);
+                    if (existingTable != null)
                     {
-                        item.LoadedTable = BeatorajaBmtTableImportService.LoadCachedTable(tablePath, item.Target.RawUrl);
-                        item.RestoredFromBmt = true;
+                        pendingRawUrlChanges.Add(target);
+                        outcomes.Add(BeatorajaTableUrlImportOutcome.Existing(target.Uri, existingTable.name));
+                        orderedImportedTables.Add(existingTable);
+                        completedCount++;
+                        UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, target.Uri, existingTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
+                        continue;
                     }
-                    catch (Exception restoreException)
-                    {
-                        Exception failure = new InvalidOperationException(
-                            string.Format(BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_failed_with_bmt_restore_format, restoreException.Message),
-                            item.ExternalImportException ?? restoreException);
-                        WriteBeatorajaTableUrlImportWarning(restoreException, "beatoraja_table_url_bmt_restore_failed uri=" + item.Target.Uri.AbsoluteUri);
-                        item.Failure = failure;
-                        outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, failure));
-                        RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, failure));
-                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
-                    }
+                    loadItems.Add(item);
                 }
 
-                List<BeatorajaTableUrlImportWorkItem> registrationItems = [.. loadItems
-                    .Where(item => item.LoadedTable != null && item.Failure == null)];
-                foreach (BeatorajaTableUrlImportWorkItem item in registrationItems.Where(item => string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir)))
+                if (loadItems.Count > 0)
                 {
-                    item.Failure = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
-                    outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));
-                    RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, item.Failure));
-                    UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, item.LoadedTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
-                }
-                registrationItems = [.. registrationItems.Where(item => item.Failure == null)];
-                if (registrationItems.Count > 0)
-                {
-                    bool registered = false;
-                    try
+                    int completedBeforeLoad = completedCount;
+                    List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
+                        loadItems.Select(item => item.SourceTable),
+                        inheritLocalTableProperties: false,
+                        snapshot => UpdateBeatorajaTableUrlImportProgress(
+                            completedBeforeLoad + Math.Max(0, snapshot?.CompletedTableCount ?? 0),
+                            progressTotalCount,
+                            snapshot?.CurrentUri,
+                            snapshot?.CurrentTableName ?? string.Empty,
+                            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_load_tables),
+                        "beatoraja_table_url_import",
+                        CancellationToken.None,
+                        schedulePlaylistUrlCompletionRefresh: false).ConfigureAwait(false);
+                    var itemBySourceTable = loadItems.ToDictionary(item => item.SourceTable);
+                    completedCount = totalCount;
+                    if (loadResults.Any(result => result?.Succeeded != true))
                     {
-                        UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_register_playlists);
-                        await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
+                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                    }
+                    foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult loadResult in loadResults)
+                    {
+                        if (loadResult == null || !itemBySourceTable.TryGetValue(loadResult.SourceTable, out BeatorajaTableUrlImportWorkItem item))
+                        {
+                            continue;
+                        }
+                        if (loadResult.Succeeded)
+                        {
+                            item.LoadedTable = loadResult.ExternalTable;
+                            continue;
+                        }
+                        item.ExternalImportException = loadResult.Exception;
+                        WriteBeatorajaTableUrlImportWarning(loadResult.Exception, "beatoraja_table_url_external_import_failed uri=" + item.Target.Uri.AbsoluteUri);
+                        try
+                        {
+                            item.LoadedTable = BeatorajaBmtTableImportService.LoadCachedTable(tablePath, item.Target.RawUrl);
+                            item.RestoredFromBmt = true;
+                        }
+                        catch (Exception restoreException)
+                        {
+                            Exception failure = new InvalidOperationException(
+                                string.Format(BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_failed_with_bmt_restore_format, restoreException.Message),
+                                item.ExternalImportException ?? restoreException);
+                            WriteBeatorajaTableUrlImportWarning(restoreException, "beatoraja_table_url_bmt_restore_failed uri=" + item.Target.Uri.AbsoluteUri);
+                            item.Failure = failure;
+                            outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, failure));
+                            RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, failure));
+                            UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                        }
+                    }
+
+                    List<BeatorajaTableUrlImportWorkItem> registrationItems = [.. loadItems
+                        .Where(item => item.LoadedTable != null && item.Failure == null)];
+                    foreach (BeatorajaTableUrlImportWorkItem item in registrationItems.Where(item => string.IsNullOrWhiteSpace(item.LoadedTable.Output_dir)))
+                    {
+                        item.Failure = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
+                        outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));
+                        RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, item.Failure));
+                        UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, item.LoadedTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
+                    }
+                    registrationItems = [.. registrationItems.Where(item => item.Failure == null)];
+                    await ApplyPendingRawUrlsAsync();
+                    if (registrationItems.Count > 0)
+                    {
+                        bool registered = false;
+                        try
+                        {
+                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_register_playlists);
+                            await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                             registrationItems.Select(item => item.LoadedTable),
                             renameDuplicateName: true,
                             "beatoraja_table_url_import",
-                            CancellationToken.None).ConfigureAwait(false);
-                        registered = true;
-                        postProgressCompletedCount++;
-                    }
-                    catch (Exception ex)
-                    {
-                        WriteBeatorajaTableUrlImportWarning(ex, "beatoraja_table_url_import_batch_registration_failed");
-                        foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
-                        {
-                            outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, ex));
-                            RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, ex));
-                        }
-                        postProgressCompletedCount += 2;
-                        UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
-                    }
-                    if (registered)
-                    {
-                        foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
-                        {
-                            BMSTable importedTable = item.LoadedTable;
-                            orderedImportedTables.Add(importedTable);
-                            RecordPlaylistSyncResult(CreateBeatorajaTableUrlImportSyncStatus(item, importedTable));
-                        }
-                        Exception referenceUpdateException = null;
-                        try
-                        {
-                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_update_references);
-                            CompleteImportedPlaylistRegistrations(
-                                [.. registrationItems.Select(item => item.LoadedTable)],
-                                "beatoraja_table_url_import");
+                            CancellationToken.None, authority).ConfigureAwait(false);
+                            registered = true;
                             postProgressCompletedCount++;
                         }
                         catch (Exception ex)
                         {
-                            referenceUpdateException = ex;
-                            WriteBeatorajaTableUrlImportWarning(ex, "beatoraja_table_url_import_reference_update_failed");
-                            postProgressCompletedCount++;
-                        }
-                        foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
-                        {
-                            BMSTable importedTable = item.LoadedTable;
-                            outcomes.Add(item.RestoredFromBmt
-                                ? BeatorajaTableUrlImportOutcome.RestoredFromBmt(item.Target.Uri, importedTable.name)
-                                : BeatorajaTableUrlImportOutcome.Imported(item.Target.Uri, importedTable.name));
-                            if (referenceUpdateException != null)
+                            WriteBeatorajaTableUrlImportWarning(ex, "beatoraja_table_url_import_batch_registration_failed");
+                            foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
                             {
-                                outcomes.Add(BeatorajaTableUrlImportOutcome.Warning(item.Target.Uri, importedTable.name, referenceUpdateException));
+                                outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, ex));
+                                RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, ex));
+                            }
+                            postProgressCompletedCount += 2;
+                            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
+                        }
+                        if (registered)
+                        {
+                            foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
+                            {
+                                BMSTable importedTable = item.LoadedTable;
+                                orderedImportedTables.Add(importedTable);
+                                RecordPlaylistSyncResult(CreateBeatorajaTableUrlImportSyncStatus(item, importedTable));
+                            }
+                            Exception referenceUpdateException = null;
+                            try
+                            {
+                                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_update_references);
+                                CompleteImportedPlaylistRegistrations(
+                                    [.. registrationItems.Select(item => item.LoadedTable)],
+                                    "beatoraja_table_url_import");
+                                postProgressCompletedCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                referenceUpdateException = ex;
+                                WriteBeatorajaTableUrlImportWarning(ex, "beatoraja_table_url_import_reference_update_failed");
+                                postProgressCompletedCount++;
+                            }
+                            foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
+                            {
+                                BMSTable importedTable = item.LoadedTable;
+                                outcomes.Add(item.RestoredFromBmt
+                                    ? BeatorajaTableUrlImportOutcome.RestoredFromBmt(item.Target.Uri, importedTable.name)
+                                    : BeatorajaTableUrlImportOutcome.Imported(item.Target.Uri, importedTable.name));
+                                if (referenceUpdateException != null)
+                                {
+                                    outcomes.Add(BeatorajaTableUrlImportOutcome.Warning(item.Target.Uri, importedTable.name, referenceUpdateException));
+                                }
                             }
                         }
+                    }
+                    else
+                    {
+                        postProgressCompletedCount += 2;
                     }
                 }
                 else
                 {
+                    await ApplyPendingRawUrlsAsync();
                     postProgressCompletedCount += 2;
                 }
-            }
-            else
-            {
-                postProgressCompletedCount += 2;
-            }
 
-            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
-            ApplyImportedTablesToBmtFront(orderedImportedTables);
-            postProgressCompletedCount++;
-            UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
-            UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
+                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
+                await ApplyImportedTablesToBmtFrontAsync(orderedImportedTables, authority);
+                postProgressCompletedCount++;
+                UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
+                UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
+            }
+            finally
+            {
+                totalStopwatch.Stop();
+                WriteBeatorajaTableUrlImportInfo("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
+                EndPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
+                PlaylistOperationNotificationPresentationRequested?.Invoke(
+                    this,
+                    new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                        notificationSession.TakeReceipt(),
+                        "beatoraja Table URL import notification"));
+            }
+            (BeatorajaTableUrlImportSummaryReady
+                ?? throw new InvalidOperationException("beatoraja Table URL import summary routing is not configured."))
+                (this, new BeatorajaTableUrlImportSummaryReadyEventArgs(
+                    new BeatorajaTableUrlImportSummary(outcomes)));
         }
         finally
         {
-            totalStopwatch.Stop();
-            WriteBeatorajaTableUrlImportInfo("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
-            EndPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
-            PlaylistOperationNotificationPresentationRequested?.Invoke(
-                this,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    notificationSession.TakeReceipt(),
-                    "beatoraja Table URL import notification"));
-            Interlocked.Exchange(ref beatorajaTableUrlImportRunning, 0);
+            admission?.Dispose();
         }
-        (BeatorajaTableUrlImportSummaryReady
-            ?? throw new InvalidOperationException("beatoraja Table URL import summary routing is not configured."))
-            (this, new BeatorajaTableUrlImportSummaryReadyEventArgs(
-                new BeatorajaTableUrlImportSummary(outcomes)));
     }
 
 

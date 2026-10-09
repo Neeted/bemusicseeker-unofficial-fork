@@ -16,7 +16,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void WarningDigestText_OrdersByPriorityAndDeduplicatesLabelsWhileCountingKinds()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "wav missing")] };
@@ -32,7 +32,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void ClearWarningsByCategory_RemovesOnlyMatchingStructuredWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "structured estimate")] };
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
@@ -48,7 +48,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void ResourceWarningDigest_IsHiddenWhenChartInstallDestinationIsSet()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, string.Format(Resources.Warning_WavFilesNotFound, 50, 1, 2))] };
         ChartFile chart = ChartFileProjection.WithPackageState(
@@ -66,7 +66,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void WarningCollection_UsesCallbackAndInstallDestinationWithoutBmsFileOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         int changedCount = 0;
         string installDestination = string.Empty;
         var warnings = new ChartWarningCollection(
@@ -87,7 +87,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void StructuredWarnings_DriveHighlightAndDigest()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
@@ -114,7 +114,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void StructuredWarningMutators_UpdateStructuredWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
@@ -137,7 +137,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void InstalledDestinationResolveFailed_IsNotLowConfidenceAlias()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed), ChartWarning.Create(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed)] };
@@ -149,7 +149,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void UnsupportedResourcePath_IsNotLowConfidenceAlias()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.UnsupportedResourcePath), ChartWarning.Create(ChartWarningKind.UnsupportedResourcePath, Resources.Warning_UnsupportedResourcePath)] };
@@ -164,7 +164,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void InstalledDestinationAmbiguous_IsLowConfidenceAlias()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationAmbiguous), ChartWarning.Create(ChartWarningKind.InstalledDestinationAmbiguous, Resources.Warning_InstalledDestinationAmbiguous)] };
@@ -178,7 +178,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void InstalledDestinationAutoAppliedAmbiguous_IsLowConfidenceAlias()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous), ChartWarning.Create(ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous, Resources.Warning_InstalledDestinationAutoAppliedAmbiguous)] };
@@ -193,7 +193,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ChartInfoParseFailure), ChartWarning.Create(ChartWarningKind.ChartInfoParseFailure, string.Format(Resources.Warning_ChartInfoParseFailure, "InvalidDataException", "開始BPM未定義"))] };
@@ -208,7 +208,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void Lr2PathEncodingUnsupported_HighlightsAndUsesDedicatedDigest()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
@@ -221,7 +221,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void Lr2CompatibilityWarnings_HighlightAndUseDedicatedDigests()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
 
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathTooLong), ChartWarning.Create(ChartWarningKind.Lr2PathTooLong, Resources.Warning_Lr2PathTooLong)] };
@@ -237,7 +237,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void ClearWarning_RemovesMatchingStructuredWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = ChartTestValues.Empty();
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
@@ -252,7 +252,7 @@ public sealed class ChartWarningCollectionTests
     [TestMethod]
     public void ReplaceAll_CopiesStructuredWarningsToSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var source = new ChartWarningCollection(() => { }, () => string.Empty);
         source.Set(ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage));
         source.Set(ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "wav missing"));

@@ -3,34 +3,38 @@ using System;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Receives typed diagnostics for one install-estimation execution without
-/// becoming part of the public library API.
+/// 推定の評価・適用・終端を、公開ライブラリAPIを増やさず型付き診断で観測します。
 /// </summary>
 internal interface IInstallEstimationExecutionObserver
 {
     /// <summary>
-    /// Starts observing one evaluation work item. The returned scope is
-    /// disposed when the evaluation finishes, including faulted evaluations.
+    /// 一評価の設定と寿命を観測します。返したscopeは評価の成功・失敗を問わず終端で破棄します。
     /// </summary>
-    /// <param name="observation">Immutable work-item configuration.</param>
-    /// <returns>A scope used to measure active work-item concurrency.</returns>
+    /// <param name="observation">変更不能な一評価の設定。</param>
+    /// <returns>同時評価の寿命を測るscope。</returns>
     IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation);
 
     /// <summary>
-    /// Observes one immutable progress snapshot.
+    /// 変更不能な進捗を観測します。
     /// </summary>
-    /// <param name="observation">The progress snapshot to publish.</param>
+    /// <param name="observation">公開する進捗。</param>
     void ObserveProgress(InstallEstimationProgressObservation observation);
 
     /// <summary>
-    /// Observes the currentness facts immediately before an attempt is applied.
+    /// 適用済みの評価結果を通知します。
     /// </summary>
-    /// <param name="observation">The attempt and currentness snapshot.</param>
-    void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation);
+    /// <param name="observation">同一操作内で適用した対象。</param>
+    void ObserveResultApplied(InstallEstimationAppliedObservation observation);
+
+    /// <summary>評価済み結果と適用の境界を観測し、評価Taskの寿命を診断します。</summary>
+    void ObserveEvaluationCompleted(InstallEstimationAppliedObservation observation) { }
+
+    /// <summary>取消・評価失敗を観測し、未適用兄弟の回収へ移ったことを通知します。</summary>
+    void ObserveDispatchStopped() { }
 }
 
 /// <summary>
-/// Describes the scheduling policy and identity of one install-estimation work item.
+/// 一評価の実行並列度と対象識別を示します。
 /// </summary>
 internal readonly record struct InstallEstimationWorkItemObservation(
     PendingInstallEstimateBatchSource Source,
@@ -40,7 +44,7 @@ internal readonly record struct InstallEstimationWorkItemObservation(
     int CandidateEvaluationDegree);
 
 /// <summary>
-/// Describes one install-estimation progress publication.
+/// 推定の進捗公開値を示します。
 /// </summary>
 internal readonly record struct InstallEstimationProgressObservation(
     bool IsActive,
@@ -49,12 +53,8 @@ internal readonly record struct InstallEstimationProgressObservation(
     int CompletedWorkCount,
     string CurrentDisplayName);
 
-/// <summary>
-/// Describes the currentness state observed immediately before one apply attempt.
-/// </summary>
-internal readonly record struct InstallEstimationAttemptEvaluatedObservation(
+/// <summary>一回の評価結果が同じ受付内で適用された対象を示します。</summary>
+internal readonly record struct InstallEstimationAppliedObservation(
     PendingInstallEstimateBatchSource Source,
     int OrderIndex,
-    string DisplayName,
-    int Attempt,
-    PendingInstallEstimateCurrentnessStamp CurrentnessStamp);
+    string DisplayName);

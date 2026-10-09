@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -26,6 +27,7 @@ internal enum ChartInfoParseFailureRemovalStatus
     Removed,
     Rejected,
     NotStarted,
+    Busy,
     Failed
 }
 
@@ -52,6 +54,8 @@ internal sealed class ChartInfoParseFailureRemovalResult
 
     internal static ChartInfoParseFailureRemovalResult Rejected { get; } =
         new(ChartInfoParseFailureRemovalStatus.Rejected, false, null);
+
+    internal static ChartInfoParseFailureRemovalResult Busy { get; } = new(ChartInfoParseFailureRemovalStatus.Busy, false, null);
 
     internal static ChartInfoParseFailureRemovalResult NotStarted { get; } =
         new(ChartInfoParseFailureRemovalStatus.NotStarted, false, null);
@@ -92,7 +96,8 @@ internal sealed class ChartInfoParseFailureRemovalOperation
 
 internal interface IChartInfoParseFailureRemovalStore
 {
-    void Remove(BMSLibrary library, IReadOnlyList<string> md5s);
+    /// <summary>親の生存L権限の下で確定対象の解析失敗記録を削除します。</summary>
+    void Remove(BMSLibrary library, IReadOnlyList<string> md5s, LibraryFileMutationCapability capability);
 }
 
 internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
@@ -171,16 +176,36 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
             }
 
             accepted = true;
-            acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
-            await Task.Yield();
             BMSLibrary library = libraryProvider()
                 ?? throw new InvalidOperationException("Chart-info parse-failure removal library is not available.");
-            Task scheduled = schedule(() => store.Remove(library, request.Md5s));
-            if (scheduled == null)
+            if (!library.OperationAdmission.TryEnter(out IDisposable admission))
             {
-                throw new InvalidOperationException("Chart-info parse-failure removal scheduler returned no task.");
+                accepted = false;
+                acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+                UiDialogResult warning = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK,
+                    MessageBoxImage.Exclamation, MessageBoxResult.OK));
+                if (warning?.IsAccepted != true)
+                {
+                    throw new InvalidOperationException("Chart-info removal busy warning could not be displayed.", warning?.Exception);
+                }
+                completion.TrySetResult(ChartInfoParseFailureRemovalResult.Busy);
+                return;
             }
-            await scheduled;
+            using (admission)
+            using (LibraryFileMutationCapability capability = library.OperationAdmission.CreateMutationCapability(admission))
+            {
+                accepted = true;
+                acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
+                await Task.Yield();
+                Task scheduled = schedule(() => store.Remove(library, request.Md5s, capability));
+                if (scheduled == null)
+                {
+                    throw new InvalidOperationException("Chart-info parse-failure removal scheduler returned no task.");
+                }
+                await scheduled;
+            }
             completion.TrySetResult(ChartInfoParseFailureRemovalResult.Removed);
         }
         catch (Exception exception)
@@ -193,8 +218,8 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
 
 internal sealed class BmsLibraryChartInfoParseFailureRemovalStore : IChartInfoParseFailureRemovalStore
 {
-    public void Remove(BMSLibrary library, IReadOnlyList<string> md5s)
+    public void Remove(BMSLibrary library, IReadOnlyList<string> md5s, LibraryFileMutationCapability capability)
     {
-        (library ?? throw new ArgumentNullException(nameof(library))).RemoveChartInfoParseFailuresByMd5(md5s);
+        (library ?? throw new ArgumentNullException(nameof(library))).RemoveChartInfoParseFailuresByMd5(md5s, capability);
     }
 }

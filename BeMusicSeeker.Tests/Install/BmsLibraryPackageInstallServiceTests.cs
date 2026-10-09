@@ -38,7 +38,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot(bool force)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string existingDirectory = Path.Combine(root, "Existing");
@@ -199,7 +199,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEqual(new[] { existingDirectory }, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByImageRelativeHash(image).Count);
             Assert.AreEqual(0, before.DirectoryLookupCache.GetDirectoriesByMovieRelativeHash(movie).Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(4, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", existingPath));
             foreach (string installedPath in installedPaths)
@@ -211,10 +211,70 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>一要求内の非交差導入を確定し、後続の実交差だけBusy未処理に残します。交差先へFS/DB作用を開始しません。</summary>
+    [TestMethod]
+    public void AutoInstall_ManagedIntersectionBusyPreservesNonIntersectingCommittedPackage()
+    {
+
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installRoot = Path.Combine(root, "Library");
+            string managed = Path.Combine(root, "Managed");
+            string firstSource = Path.Combine(root, "Incoming");
+            string crossingSource = Path.Combine(managed, "Crossing");
+            Directory.CreateDirectory(installRoot);
+            string firstPath = CreateBmsFile(firstSource, "first.bms", "#PLAYER 1\n#TITLE First");
+            string crossingPath = CreateBmsFile(crossingSource, "cross.bms", "#PLAYER 1\n#TITLE Crossing");
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                BMSInstallDir = installRoot,
+                LR2CustomFolderOutputBaseDir = managed,
+                FolderNameFormat = "%TITLE%",
+                KeepInstallablePackagesPending = false
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null!), () => options)
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+                SearchTargets = [installRoot],
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
+            try
+            {
+                PackageInstallCommandResult result = library.InstallChartPackagesAutoCore([firstSource, crossingSource],
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsTrue(result.HasRequiredFailure);
+                Assert.AreEqual(1, result.RegisteredPackages.Count);
+                Assert.AreEqual(1, result.SessionReceipt.ItemFailures.Count);
+                StringAssert.Contains(result.SessionReceipt.ItemFailures.Single().Failure.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                Assert.IsFalse(File.Exists(firstPath));
+                Assert.IsTrue(File.Exists(Path.Combine(installRoot, "First", "first.bms")));
+                Assert.IsTrue(File.Exists(crossingPath));
+                Assert.IsFalse(Directory.Exists(Path.Combine(installRoot, "Crossing")));
+                Assert.IsTrue(string.Equals(crossingSource, library.ChartPackagesPending.Single().path, StringComparison.OrdinalIgnoreCase));
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(installRoot, "First", "first.bms")));
+                    Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(installRoot, "Crossing", "cross.bms")));
+                    Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
+                }
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally { held.Dispose(); }
+            Assert.IsTrue(File.Exists(crossingPath), "Busy対象は自動再実行せず次の明示要求へ残します。");
+            Assert.AreEqual(1, library.ChartPackagesPending.Count);
+        });
+    }
+
     [TestMethod]
     public void RemovePendingPackages_DeletesManagedTemporaryPackageSource()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string packageDirectoryPath = TempDirectoryPublisher.Get("pending-remove-test");
@@ -246,7 +306,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             var dialogService = new RecordingDialogService();
@@ -273,7 +333,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string packageDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker", "session-manual-user-package-" + Guid.NewGuid().ToString("N"));
@@ -308,7 +368,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_PublishesAfterLeaseReleaseAndIsolatesSubscriberFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "pending-invalid-extension");
@@ -359,7 +419,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_FlushesEarlierEffectWhenPackageApplyFails()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string firstDirectoryPath = Path.Combine(tempRootPath, "pending-invalid-extension-first");
@@ -418,7 +478,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_FlushesEarlierFailureAfterCatalogApplyFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension");
@@ -472,7 +532,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_PropagatesDurableAfterCommitFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-durable-failure");
@@ -513,7 +573,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationChartPath));
             Assert.AreEqual(0, library.BmsCharts.Count(file => string.Equals(file.Path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
             Assert.AreEqual(1, library.BmsCharts.Count(file => string.Equals(file.Path, destinationChartPath, StringComparison.OrdinalIgnoreCase)));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", destinationChartPath));
         });
@@ -522,7 +582,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string failedDirectoryPath = Path.Combine(tempRootPath, "normal-invalid-extension-failed");
@@ -629,7 +689,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(library.BmsCharts.Any(file =>
                 string.Equals(file.Path, lastOwnerSourcePath, StringComparison.OrdinalIgnoreCase)));
 
-            using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", failedSourcePath));
                 Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", survivingSharedSourcePath));
@@ -694,7 +754,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_UsesPackageChartEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -719,7 +779,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_MatchesInstalledBmsonByChartEntryHash()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string packageDirectoryPath = Path.Combine(tempRootPath, "package");
@@ -755,7 +815,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         bool deletePendingPackageSourceAfterInstall,
         bool expectSourceCleanup)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "r5-01-installed");
@@ -811,7 +871,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "new.bms")));
             Assert.AreEqual(expectSourceCleanup, !File.Exists(sourceOwnedChartPath));
             Assert.AreEqual(expectSourceCleanup, !Directory.Exists(sourceDirectoryPath));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 installedChartPath));
@@ -828,7 +888,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(true, true)]
     public void EstimatedCleanupKeepsNormalAdviceButDefersMixedAbnormalAdviceToTerminal(bool reportAtTerminal, bool cleanupFails)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((dbPath, root) =>
         {
             string installedDirectory = Path.Combine(root, "installed");
@@ -881,7 +941,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_EmptyDestinationPackageDoesNotReserveHashForLaterPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-r2-02");
@@ -949,7 +1009,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string installedUniquePath = Path.Combine(destinationDirectoryPath, "unique.bms");
             Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedSharedPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(library.BmsCharts.Any(file => string.Equals(file.Path, installedUniquePath, StringComparison.OrdinalIgnoreCase)));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedSharedPath));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", installedUniquePath));
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
@@ -964,7 +1024,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string installRootPath = Path.Combine(tempRootPath, "estimated-prefix-installed");
@@ -1076,7 +1136,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
             Assert.IsTrue(File.Exists(thirdChartPath));
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 0,
                 verifySongDb.ExecuteScalar<int>(
@@ -1105,7 +1165,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPhysicalSuccessOverlayBeforeCanonicalApplyFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "estimated-retry-installed");
@@ -1175,7 +1235,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(secondChartPath));
             CollectionAssert.Contains(result.SessionReceipt.CandidatePaths.ToArray(), firstDestinationChartPath);
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", firstDestinationChartPath));
             Assert.AreEqual(0, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", secondDestinationChartPath));
         });
@@ -1184,7 +1244,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "installed");
@@ -1280,7 +1340,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void InstallPendingPackagesToEstimatedDestinations_ReevaluatesResourceOnlyAfterEarlierPhysicalSuccess(
         bool includeUniqueChart)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "estimated-resource-only-after-commit");
@@ -1421,7 +1481,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
             Assert.IsNotNull(result.SessionReceipt.CleanupFailure);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM bmson_song WHERE path = ?;",
                 installedBmsonPath));
@@ -1444,7 +1504,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void OverwritePendingInstalledOnlyPackagesResources_CanonicalFailureDoesNotPublishSuccessCounts(
         bool cleanupOnly)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installedDirectory = Path.Combine(root, "installed");
@@ -1511,7 +1571,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(installedResourcePath));
                 CollectionAssert.Contains(result.RecoveryPaths.ToArray(), installedResourcePath);
             }
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM install WHERE path = ?;", pendingDirectory));
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
@@ -1529,7 +1589,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     public void OverwritePendingInstalledOnlyPackagesResources_ReleasesOuterWritersBeforeEstimatedInstallPublication(
         bool subscriberThrows)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-overwrite");
@@ -1589,7 +1649,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
                     Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
                     Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
-                    using var notifiedSongDb = new LR2SongDBExtended(songDbPath);
+                    using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                     Assert.AreEqual(
                         1,
                         notifiedSongDb.ExecuteScalar<int>(
@@ -1626,7 +1686,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
             Assert.AreSame(installedBmson.Token, library.BmsonCharts.Single().Token);
             Assert.AreEqual(installedBmsonPath, library.BmsonCharts.Single().Path);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1,
                 verifySongDb.ExecuteScalar<int>(
@@ -1650,7 +1710,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(16)]
     public void OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta(int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string backgroundDirectoryPath = Path.Combine(tempRootPath, "resource-only-warm-background");
@@ -1836,7 +1896,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     try
                     {
                         Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
-                        using var notifiedSongDb = new LR2SongDBExtended(songDbPath);
+                        using LR2SongDBExtended notifiedSongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                         Assert.AreEqual(
                             1,
                             notifiedSongDb.ExecuteScalar<int>(
@@ -1901,7 +1961,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.IsFalse(installedFirstEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
                 Assert.IsTrue(installedSecondEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
 
-                using (var verifySongDb = new LR2SongDBExtended(songDbPath))
+                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(backgroundCount + 4, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count());
                     Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>("SELECT COUNT(1) FROM bmson_song WHERE path = ?;", step.FirstInstalledPath));
@@ -1973,7 +2033,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void OverwritePendingInstalledOnlyPackagesResources_CleanupOnlyUsesOuterLeaseAndExcludesReentry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-cleanup-only");
@@ -2056,7 +2116,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_SubscriberFailureDoesNotReclassifyCommittedInstall()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-subscriber-failure");
@@ -2133,62 +2193,12 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    [TestMethod]
-    public void InstallPendingPackagesToEstimatedDestinations_ReleasesEstimateGateBeforeFilesystemExecutor()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
-        {
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "installed-estimate-gate");
-            string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-estimate-gate");
-            Directory.CreateDirectory(destinationDirectoryPath);
-            Directory.CreateDirectory(pendingDirectoryPath);
-            string chartPath = CreateBmsFile(pendingDirectoryPath, "chart.bms", "#TITLE Pending");
-            ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([chart]);
-            pendingPackage.path = pendingDirectoryPath;
-            pendingPackage.ChartEntries.Single().ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
 
-            // The empty package only exercises the existing public estimate command's
-            // admission path. It must be able to re-enter while the outer package's
-            // filesystem executor is active; no package data needs to be mutated.
-            ChartPackage reentryPackage = new()
-            {
-                path = Path.Combine(tempRootPath, "pending-estimate-gate-reentry")
-            };
-            var fileMutationService = new ReentrantEstimateFileMutationService();
-            var library = new TestBmsLibrary(
-                songDbPath,
-                null,
-                null,
-                fileMutationService,
-                new RecordingDialogService());
-            library.BmsCharts = null;
-            library.ChartPackagesPending = CreatePackageCollection([pendingPackage, reentryPackage]);
-            fileMutationService.Configure(library, reentryPackage);
-
-            try
-            {
-                library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
-            }
-            finally
-            {
-                fileMutationService.WaitForReentryCompletion();
-            }
-
-            Assert.IsNull(
-                fileMutationService.ReentryFailure,
-                fileMutationService.ReentryFailure?.ToString());
-            Assert.IsTrue(
-                fileMutationService.ReentryCompletedDuringFilesystem,
-                "The estimate command remained serialized through the filesystem executor.");
-        });
-    }
 
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_LeavesPackageUnchangedWhenItIsNotPending()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-not-selected");
@@ -2217,7 +2227,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_NullStillThrowsWhenLr2SyncIsRunning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             var library = new TestBmsLibrary(songDbPath);
@@ -2247,7 +2257,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         bool useLr2,
         string sourceKind)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string registeredRoot = Path.Combine(tempRootPath, "Library");
@@ -2292,7 +2302,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 _ => nestedChartPath
             };
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoCore([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -2310,7 +2320,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_UpdatesPrimaryLookupThroughLibraryInstall()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
             string installRootPath = Path.Combine(tempRootPath, "PrimaryOnlyInstalled");
@@ -2390,7 +2400,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(source.Md5));
             Assert.IsTrue(oldPrimary.ContainsPrimaryHash(existing.Md5));
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(source.Md5));
-            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
@@ -2404,7 +2414,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(existing.Md5));
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(source.Md5));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 installed.Path));
@@ -2421,7 +2431,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_AddsExactTargetThroughLibraryInstall()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
             string installRootPath = Path.Combine(tempRootPath, "ExactInstalled");
@@ -2505,7 +2515,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(addedChart.Md5));
             Assert.IsTrue(oldPrimary.ContainsPrimaryHash(oldChart.Md5));
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.Md5));
-            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path = ?;",
@@ -2518,7 +2528,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(oldChart.Md5));
             Assert.IsTrue(installedLookup.ContainsPrimaryHash(addedChart.Md5));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM song WHERE path = ?;",
                 expectedInstalledPath));
@@ -2537,7 +2547,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_SameDigestAdditionKeepsHashVersionAndPlaylistSummaryCache()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
             string installRootPath = Path.Combine(tempRootPath, "SameDigestInstalled");
@@ -2640,7 +2650,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             IPrimaryHashLookup currentPrimary =
                 OwnedChartCollectionTestSupport.InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
             Assert.IsTrue(currentPrimary.ContainsPrimaryHash(initialChart.Md5));
-            using (var verifySongDbBeforeFull = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verifySongDbBeforeFull = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(2, verifySongDbBeforeFull.Table<LR2SongDB.song>().Count());
                 Assert.AreEqual(1, verifySongDbBeforeFull.ExecuteScalar<int>(
@@ -2714,7 +2724,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         bool resourceAlreadyExistsAtDestination,
         bool resourceHealthIndexStartsWarm)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, tempRootPath) =>
         {
             string pendingDirectoryPath = Path.Combine(tempRootPath, "pending-resource-projection");
@@ -3002,7 +3012,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         string route,
         int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             bool isAutoRoute = string.Equals(route, "auto", StringComparison.Ordinal);
@@ -3217,10 +3227,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     LibraryMutationSessionReceipt sessionReceipt;
                     if (isAutoRoute)
                     {
-                        PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgress(
+                        PackageInstallCommandResult command = library.InstallChartPackagesAutoCore(
                             [step.SourceDirectoryPath],
                             CancellationToken.None,
-                            new RecordingPackageInstallProgressWriter());
+                            new RecordingPackageInstallProgressWriter(), out _);
                         Assert.AreEqual(1, command.RegisteredPackages.Count);
                         sessionReceipt = command.SessionReceipt;
                     }
@@ -3408,7 +3418,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string installRoot = Path.Combine(tempRootPath, "Library");
@@ -3440,7 +3450,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoCore([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
@@ -3453,7 +3463,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectory = Path.Combine(tempRootPath, "busy-auto-install-source");
@@ -3464,7 +3474,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(incumbent);
 
             Assert.ThrowsException<InvalidOperationException>(
-                () => library.InstallChartPackagesAutoWithProgress([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()));
+                () => library.InstallChartPackagesAutoCore([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _));
         });
     }
 
@@ -3511,7 +3521,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow("different_md5_same_sha256")]
     public void InstallPendingPackagesToEstimatedDestinations_ClassifiesEntriesBeforeOneCanonicalApply(string scenario)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             bool hasBaseline = scenario is "installed_without_destination" or "different_md5_same_sha256";
@@ -3570,7 +3580,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.SessionReceipt.ApplyCounts.CatalogApplyCount);
             Assert.AreEqual(rejected ? 0 : 1, result.SessionReceipt.ApplyCounts.RequiredPublicationCount);
             Assert.AreEqual(rejected ? 1 : 0, library.ChartPackagesPending.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual((hasBaseline ? 1 : 0) + (rejected ? 0 : 1), readback.Table<LR2SongDB.song>().Count());
             if (rejected)
             {
@@ -3602,7 +3612,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_InstallsBmsonWithoutCompatibilityAdapter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string source = Path.Combine(root, "Pending");
@@ -3639,7 +3649,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             string installedPath = Path.Combine(target, "chart.bmson");
             Assert.AreEqual(installedPath, library.BmsonCharts.Single().Path);
             Assert.IsTrue(File.Exists(installedPath));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(installedPath, readback.Table<LR2SongDBExtended.bmson_song>().Single().path);
         });
@@ -3649,7 +3659,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAuto_OnlyPhysicalSuccessReservesHashesForLaterCandidates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installed = Path.Combine(root, "Installed");
@@ -3683,8 +3693,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
-            PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgress(
-                [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            PackageInstallCommandResult result = library.InstallChartPackagesAutoCore(
+                [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.HasRequiredFailure);
@@ -3698,7 +3708,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(unmatched.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "First", "first.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "Third", "third.bms")));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
         });
     }
@@ -3711,7 +3721,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(false, false)]
     public void ForceInstallPendingPackages_RejectsUnapprovedPackageWithoutMaterializingBmson(bool hasDestination, bool showNewConfirmation)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string source = Path.Combine(root, "Pending");
@@ -3753,7 +3763,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(target));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
         });
     }
@@ -3771,7 +3781,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         bool hasDestination, bool showNewConfirmation, int responseValue)
     {
         var response = (MessageBoxResult)responseValue;
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string source = Path.Combine(root, "Pending");
@@ -3874,7 +3884,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildComponentMovePlan_SkipsExcludedPaths()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -3899,7 +3909,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DecideComponentMove_PrefersOverwriteWhenSourceIsNewer()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -3919,7 +3929,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildPendingPackageMutationDelta_RemovesMatchedChartPathsAndDeletesEmptyPackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryPackageInstallService();
         ChartFile keepFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\keep.bms");
         ChartFile removeFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "C:\\Pending\\Pkg1\\remove.bms");
@@ -3948,7 +3958,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildPendingPackageMutationDelta_RemovesAdapterlessBmsonByChartPathWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryPackageInstallService();
         var keepEntry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -3985,7 +3995,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildEstimatedInstallBatchPlan_FiltersCandidatesWithoutReservingUncommittedHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryPackageInstallService();
         string destinationDirectory = "C:\\Installed\\Target";
         ChartFile installedFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Lib\\a.bms");
@@ -4023,7 +4033,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildEstimatedInstallBatchPlan_CountsDeferredManualHoldPackagesSeparately()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryPackageInstallService();
         ChartFile pendingFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\Pkg1\\a.bms");
         ChartPackage deferredPackage = ChartPackageTestExtensions.CreatePackage([pendingFile]);
@@ -4094,7 +4104,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ApplyPendingResourceHealthProjection_StoresWarningsAndHealthOnPackageEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
@@ -4122,7 +4132,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ApplyPendingResourceHealthProjection_BmsUsesChartProjectionWithoutMutatingMaintenance()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -4152,7 +4162,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void PrepareAutoInstallWorkflow_ExcludesRegisteredRootsButKeepsOutsideSibling(bool useRootAlias)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string registeredRoot = Path.Combine(tempDirectoryPath, "Library");
@@ -4188,7 +4198,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesBmsResourcesWithoutMutatingMaintenance()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMissingResource");
@@ -4221,7 +4231,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAllPackageEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMixedResource");
@@ -4261,7 +4271,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAlreadyInstalledEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsInstalledResource");
@@ -4292,7 +4302,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -4322,7 +4332,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
@@ -4341,7 +4351,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_MarksSplitDirectoryAsRegroupEligible()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
@@ -4360,7 +4370,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_MarksNestedSplitDirectoryAsRegroupEligible()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string rootDirectoryPath = Path.Combine(tempDirectoryPath, "Root");
@@ -4380,7 +4390,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_DetectsPureBmsonDirectoryPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonPkg");
@@ -4401,7 +4411,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
@@ -4424,7 +4434,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ApplyNestedChartFileWarnings_AddsNestedWarningWithoutMaterializingAdapterlessBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
@@ -4458,7 +4468,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonSingle");
@@ -4486,7 +4496,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsBmsonPackagePendingWhenResourcesAreMissing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonMissingResource");
@@ -4516,7 +4526,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonInstalled");
@@ -4595,7 +4605,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsChartPackagePendingWhenOnlySameStemChartFileExists()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsMissingSameStem");
@@ -4636,7 +4646,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotUseImageAsAudioOrMovieResource()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsImageOnlySameStem");
@@ -4677,7 +4687,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_UsesSameStemAudioAndMovieResourcesByCategory()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsCompleteSameStem");
@@ -4719,7 +4729,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_PrioritizesNestedChartWarningBeforeResourceWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Pkg");
@@ -4751,7 +4761,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "BmsonWithResource");
@@ -4784,7 +4794,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
@@ -4822,7 +4832,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
             {
                 string directoryPackagePath = Path.Combine(tempDirectoryPath, "DirPkg");
@@ -4879,7 +4889,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PackageChartEntry_FromBmsChartProjection_ProjectsBmsMode()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
         source = source with { Mode = 7 };
 
@@ -4891,7 +4901,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotMarkRegroupEligibleSourceDirectoryForPartialFileSelection()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "Partial");
@@ -4922,7 +4932,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
@@ -4999,7 +5009,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow("ancestor")]
     public void MovePackageFilesWithReceipt_RejectsOverlappingDirectoryDestinationBeforeMutation(string destinationShape)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "Pending", "Source");
@@ -5055,7 +5065,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_CollisionUsesReceiptDestinationForAllPackageState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourcePath = Path.Combine(tempDirectoryPath, "PendingPkg", "chart.bms");
@@ -5117,7 +5127,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow("directory-mixed")]
     public void MovePackageFilesWithReceipt_FormatShapesShareExactDestinationMap(string shape)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             bool isDirectoryPackage = string.Equals(shape, "directory-mixed", StringComparison.Ordinal);
@@ -5251,7 +5261,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(false)]
     public void MovePackageFilesWithReceipt_RejectsBundledFileWhenDestinationIsDirectory(bool enableSmartOverwrite)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
@@ -5321,7 +5331,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_RejectsConflictingPackageAndContinuesIndependentPackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string installRootPath = Path.Combine(tempRootPath, "pending-route-installed");
@@ -5412,7 +5422,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreSame(conflictPackage, library.ChartPackagesPending.Single());
             Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(
                 1,
                 verifySongDb.ExecuteScalar<int>(
@@ -5440,7 +5450,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DataRow(true)]
     public void InstallPendingPackages_RejectsMissingSourceAndContinuesIndependentPackages(bool force)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb((songDbPath, root) =>
         {
             string installationRoot = Path.Combine(root, "Installed");
@@ -5519,7 +5529,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(installationRoot, "Shared", "chart.bms")));
             Assert.IsFalse(Directory.Exists(sources[1]));
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(
                 new[]
                 {
@@ -5538,7 +5548,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_RejectsFileDestinationRootBeforeMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
@@ -5596,7 +5606,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void BuildComponentMovePlan_ExplicitOrderedCandidatesRejectWholePackageBeforePromotion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
@@ -5673,7 +5683,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DurableCommitFinalizesSourceAfterCanonicalFinalizer()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
@@ -5732,7 +5742,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void ForceInstallPendingPackages_PublishesEntryNotificationsAfterLeaseAndBestEffort()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "PendingNotification");
@@ -5841,7 +5851,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(File.Exists(entry.Chart.Path));
             }
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsTrue(package.ChartEntries.All(entry =>
                 installedRows.Any(row => string.Equals(row.path, entry.Chart.Path, StringComparison.OrdinalIgnoreCase))));
@@ -5855,7 +5865,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_CanonicalApplyFailurePublishesNoPartialPackageState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string installRootPath = Path.Combine(tempRootPath, "AutoInstalled");
@@ -5899,10 +5909,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(installRootPath);
             library.SearchTargets = [installRootPath];
 
-            PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgress(
+            PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoCore(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
                 CancellationToken.None,
-                new RecordingPackageInstallProgressWriter());
+                new RecordingPackageInstallProgressWriter(), out _);
 
             Assert.IsFalse(commandResult.HasDurableCommit);
             Assert.IsTrue(commandResult.HasRequiredFailure);
@@ -5927,7 +5937,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(secondDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(thirdDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsFalse(installedRows.Any(row => string.Equals(
                 row.path,
@@ -5958,7 +5968,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         bool reportAtTerminal,
         bool sourceFileMissingDuringCopy)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
         {
             string installRootPath = Path.Combine(tempRootPath, "Installed");
@@ -6083,7 +6093,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(firstDestinationDirectoryPath, "first-resource.mp4")));
             Assert.IsTrue(File.Exists(thirdChartPath));
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             List<LR2SongDB.song> installedRows = [.. verifySongDb.Table<LR2SongDB.song>()];
             Assert.IsTrue(installedRows.Any(row => string.Equals(
                 row.path,
@@ -6102,7 +6112,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingSame");
@@ -6158,7 +6168,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string sourcePath = Path.Combine(tempDirectoryPath, "single.bms");
@@ -6210,7 +6220,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingCharts_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6249,7 +6259,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryFromPackageSelectionWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6286,7 +6296,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingCharts_DeletesAdapterlessBmsonChartByPathWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6323,7 +6333,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryByPathWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6360,7 +6370,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void DeletePendingCharts_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6469,7 +6479,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_ReturnsRenamedDuplicateDeletedAndFailedFiles()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             var service = new BmsLibraryPackageInstallService();
@@ -6526,7 +6536,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenRemainingFilesAreEmpty()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6542,7 +6552,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenUninstalledChartRemains()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6560,7 +6570,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenOnlyInstalledChartsRemain()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6582,7 +6592,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenOwnedChartRemainsInsideCleanupBoundary()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6610,7 +6620,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenNonChartFileRemains()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6644,7 +6654,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenResidualMatchesPlanDestination()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6662,7 +6672,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenRemainingChartHashCannotBeMatched()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6697,7 +6707,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenNestedRemainingChartsAreAllInstalled()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6721,7 +6731,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenRemainingBmsonChartIsInstalled()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
@@ -6751,7 +6761,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public void ExpandInstallSources_ExtractsSupportedArchiveAndRestoresLastWriteTime(string archiveFileName)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
@@ -6799,7 +6809,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public void ExpandInstallSources_AbortsArchiveWhenRequiredLastWriteRestoreFails(string archiveFileName)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
@@ -6842,7 +6852,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public void ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string directoryPath = Path.Combine(tempDirectoryPath, "source-folder");
@@ -6885,7 +6895,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     [DoNotParallelize]
     public void ExpandInstallSources_RejectsArchiveFailureWithoutConsumingSource(string archiveFileName)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
             string archivePath = Path.Combine(tempDirectoryPath, archiveFileName);
@@ -7320,112 +7330,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private sealed class ReentrantEstimateFileMutationService : IFileMutationService
-    {
-        private readonly RealFileMutationService inner = new();
-        private BMSLibrary library = null!;
-        private ChartPackage reentryPackage = null!;
-        private Task reentryTask = null!;
-        private int executorEntryObserved;
 
-        internal bool ReentryCompletedDuringFilesystem { get; private set; }
-
-        internal Exception? ReentryFailure { get; private set; }
-
-        internal void Configure(BMSLibrary library, ChartPackage reentryPackage)
-        {
-            this.library = library ?? throw new ArgumentNullException(nameof(library));
-            this.reentryPackage = reentryPackage ?? throw new ArgumentNullException(nameof(reentryPackage));
-        }
-
-        internal void WaitForReentryCompletion()
-        {
-            reentryTask?.GetAwaiter().GetResult();
-        }
-
-        public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.EnsureDirectory(directoryPath, options);
-        }
-
-        public void MoveFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.MoveFile(sourcePath, destinationPath, overwrite, options);
-        }
-
-        public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.MoveDirectory(sourcePath, destinationPath, overwrite, options);
-        }
-
-        public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.CopyFile(sourcePath, destinationPath, overwrite, options);
-        }
-
-        public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.CopyDirectory(sourcePath, destinationPath, overwrite, options);
-        }
-
-        public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.DeleteFileDirect(filePath, options);
-        }
-
-        public void DeleteFileShell(string filePath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.DeleteFileShell(filePath, uiOption, recycleOption, options);
-        }
-
-        public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.DeleteDirectoryDirect(directoryPath, recursive, options);
-        }
-
-        public void DeleteDirectoryShell(string directoryPath, UIOption uiOption, RecycleOption recycleOption, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.DeleteDirectoryShell(directoryPath, uiOption, recycleOption, options);
-        }
-
-        public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
-        {
-            ObserveExecutorEntry();
-            inner.SetTimestamps(path, isDirectory, creationTime, lastWriteTime, options);
-        }
-
-        private void ObserveExecutorEntry()
-        {
-            if (Interlocked.Exchange(ref executorEntryObserved, 1) != 0)
-            {
-                return;
-            }
-
-            reentryTask = Task.Run(() =>
-            {
-                try
-                {
-                    library.SearchEstimatedInstallationDirectory(reentryPackage);
-                }
-                catch (Exception exception)
-                {
-                    ReentryFailure = exception;
-                }
-            });
-            // This is a deadlock watchdog only. The normal completion signal is
-            // the reentry task itself, which is awaited after the command.
-            ReentryCompletedDuringFilesystem = reentryTask.Wait(TimeSpan.FromSeconds(5));
-        }
-    }
 
     private sealed class ReentrantCleanupFileMutationService : IFileMutationService
     {

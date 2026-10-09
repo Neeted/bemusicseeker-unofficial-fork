@@ -28,7 +28,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void RenameChartFolder_FailureDialogRunsAfterFilesystemAndOnlyOnce(bool reportAtTerminal)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderFailureDeferred_" + Guid.NewGuid().ToString("N"));
@@ -108,7 +108,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.Combine(
@@ -205,7 +205,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RenameBMSFilesExtensionsWithReceipt_FilesystemFailuresStayInSessionForTerminalAggregation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.Combine(
@@ -263,7 +263,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task RenameChartFolder_UpdatesFolderCellWithoutStorageRowCollectionNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RenameRefresh_" + Guid.NewGuid().ToString("N"));
@@ -296,7 +296,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 library.BmsCharts = [file];
                 // 初期の共通通知を待ってから、操作の通知を捕捉します。
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsFilesPublished.Task;
                 file = library.BmsCharts.Single(chart => chart.Path == file.Path);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 library.DuplicateChartGroups = [];
@@ -349,7 +349,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
 
-                await Task.WhenAll(folderChanged.Task, pathChanged.Task).WaitAsync(TimeSpan.FromSeconds(5));
+                await Task.WhenAll(folderChanged.Task, pathChanged.Task);
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref folderChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref pathChangedCount));
@@ -376,7 +376,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RenameChartFolder_PublishesAfterDurableFinalizerAndLeaseRelease()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RenamePublicationBoundary_" + Guid.NewGuid().ToString("N"));
@@ -440,7 +440,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RenameChartFolder_Lr2FinalizationFailureKeepsDurableStateWithoutSuccessPublication()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -533,7 +533,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(16, true)]
     public void RenameIngress_CapturesOnlyLocalBmsRangeFacts(int backgroundChartCount, bool autoRename)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -769,7 +769,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameBatch_" + Guid.NewGuid().ToString("N"));
@@ -910,7 +910,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AutoRenameChartFolders_ResolvesBatchDestinationCollisionsWithSuffix()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameCollision_" + Guid.NewGuid().ToString("N"));
@@ -974,7 +974,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameLongName_" + Guid.NewGuid().ToString("N"));
@@ -1025,7 +1025,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -1127,7 +1127,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix(bool reportAtTerminal)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenamePartialBatch_" + Guid.NewGuid().ToString("N"));
@@ -1244,7 +1244,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AutoRenameChartFolders_PublicPublicationFailureIsBestEffortAfterLeaseRelease()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(
@@ -1346,7 +1346,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task MoveLibraryRootFolder_BmsChart_NotifiesBmsStorageRowsThroughRefreshNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MoveRefresh_" + Guid.NewGuid().ToString("N"));
@@ -1381,7 +1381,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsCharts = [file];
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsFilesPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1409,7 +1409,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task RenameBmsonFolder_UpdatesFolderWithoutRaisingCollectionRefresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonRenameRefresh_" + Guid.NewGuid().ToString("N"));
@@ -1445,7 +1445,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
@@ -1472,7 +1472,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves(bool reportAtTerminal)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderSessionDbFailure_" + Guid.NewGuid().ToString("N"));
@@ -1563,7 +1563,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void MoveLibraryRootFolder_PhysicalFailureCommitsConfirmedPrefixAndStopsSuffix(bool reportAtTerminal)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderSessionPartial_" + Guid.NewGuid().ToString("N"));
@@ -1667,7 +1667,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task MoveLibraryRootFolder_BmsonChart_NotifiesBmsonStorageRowsThroughRefreshNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonMoveRefresh_" + Guid.NewGuid().ToString("N"));
@@ -1710,7 +1710,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
@@ -1740,7 +1740,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MixedMoveRefresh_" + Guid.NewGuid().ToString("N"));
@@ -1793,10 +1793,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsCharts = [file];
-                await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsFilesPublished.Task;
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await bmsonSongsPublished.Task;
                 Interlocked.Exchange(ref ownedCollectionPublicationCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
@@ -1844,7 +1844,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void FixInstallationDirectoryCharts_BmsonChartUpdatesSongAndPersistedRow()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonRepair_" + Guid.NewGuid().ToString("N"));
@@ -1909,7 +1909,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void FixInstallationDirectoryCharts_CatalogApplyFailureKeepsPhysicalMoveAndReportsSession(bool bmson)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RepairDbFailure_" + Guid.NewGuid().ToString("N"));
@@ -2009,7 +2009,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RepairBatchDbFailure_" + Guid.NewGuid().ToString("N"));
@@ -2113,7 +2113,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true)]
     public void FixInstallationDirectoryCharts_UsesCollisionPathForOwnerAndDb(bool bmson)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RepairCollision_" + Guid.NewGuid().ToString("N"));
@@ -2214,7 +2214,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [DataRow(true, true)]
     public void FixInstallationDirectoryCharts_RechecksResourcesUnderExistingReservation(bool bmson, bool failMaintenance)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -2346,7 +2346,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void FixInstallationDirectoryCharts_BmsChartPreservesExistingLr2SongUserColumns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsRepair_" + Guid.NewGuid().ToString("N"));
@@ -2412,7 +2412,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RemoveLibraryCharts_DurableCatalogFailureLeavesConsumerStateUnchanged()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogFailure_" + Guid.NewGuid().ToString("N"));
@@ -2477,7 +2477,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Committed");
@@ -2534,7 +2534,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RemoveLibraryCharts_PublicNotificationFailureKeepsCatalogCommit()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "CommittedNotificationFailure");
@@ -2579,7 +2579,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RenameChartFolder_BuiltInstalledLookupMovesPathIncrementally()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_LookupMove_" + Guid.NewGuid().ToString("N"));
@@ -2630,7 +2630,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void BMSFilesReplacement_InvalidatesBuiltInstalledLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string firstDirectoryPath = Path.Combine("C:\\Installed", "First");
@@ -2669,7 +2669,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void FixInstallationDirectoryCharts_UsesSuccessfulRepairHashOverlayForLaterDuplicate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RepairHashOverlay_" + Guid.NewGuid().ToString("N"));
@@ -2742,7 +2742,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         bool catalogFailure,
         bool approveDuplicateRemoval)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BmsonRepairDup_" + Guid.NewGuid().ToString("N"));
@@ -2889,7 +2889,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutLibraryCollectionChanged()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_EncodingRefresh_" + Guid.NewGuid().ToString("N"));
@@ -2976,7 +2976,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public async Task RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutStorageRowCollectionNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3004,7 +3004,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
             };
             library.BmsCharts = [file];
-            await bmsFilesPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await bmsFilesPublished.Task;
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
             library.RefreshReferenceDisplayForTable(table);
             ChartFile chart = (file);
@@ -3026,7 +3026,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void SynchronizeReferenceBMSTables_ReplacesReloadedPlaylistReferenceWithoutAppending()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3055,7 +3055,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void PreparedReferenceSynchronizationCommitsAtomicallyAndRejectsStaleRevision()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3092,7 +3092,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3114,7 +3114,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTables_UsesPlaylistIndexForMatchedPendingBmsonWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3144,7 +3144,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTables_UsesPlaylistIndexForBmsonWithoutBmsOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3175,7 +3175,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTables_UsesPlaylistIndexForInstalledBmsonWithoutBmsOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3205,7 +3205,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsStorageOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3227,7 +3227,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsonWithoutBmsOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3255,7 +3255,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTablesToPackageCharts_DoesNotMaterializeUnmatchedBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3274,7 +3274,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void AddReferenceBMSTablesToPackageCharts_UsesPlaylistIndexForMatchedBmsonWithoutMaterializing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3302,7 +3302,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void ReplaceReferenceBMSTable_DoesNotAddNewTableToOldOnlyPendingBmsonEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3331,7 +3331,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void SynchronizeReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3353,7 +3353,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RemoveReferenceBMSTables_WithEntriesRemovesPendingReferenceMatchedBySha256()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
@@ -3383,7 +3383,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     [TestMethod]
     public void RemoveReferenceBMSTables_AllowsUnloadedTables()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());

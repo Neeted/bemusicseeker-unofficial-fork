@@ -132,11 +132,11 @@ public sealed class MainWindowProgressStatusBarWpfTests
             hub.StartupProgress.ApplyPresentation(true, new string('あ', 200), "phase", 2, 13);
             host.UpdateLayout();
             double oneRowHeight = statusBar.ActualHeight;
-            hub.UpdatePendingEstimateQueueStatus(new BeMusicSeeker.Models.PendingInstallEstimateQueueStatusSnapshot
+            hub.UpdateInstallEstimationProgress(new BeMusicSeeker.Models.InstallEstimationProgressSnapshot
             {
                 IsActive = true,
-                CurrentPackageCount = 8,
-                CompletedPackageCount = 3,
+                TotalWorkCount = 8,
+                CompletedWorkCount = 3,
                 CurrentDisplayName = new string('長', 200)
             });
             hub.BeginBackgroundProgressGeneration(1);
@@ -213,7 +213,10 @@ public sealed class MainWindowProgressStatusBarWpfTests
     [TestMethod]
     public async Task DefaultFactory_MapsEveryOwnerRouteAndKeepsCancellationIndependent()
     {
-        var settings = new Settings { OperationModeLR2DB = false };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            });
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         var composition = new ApplicationComposition(
@@ -225,7 +228,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
         TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(
             ownedPlaylistStore.SongDbPath,
-            settings);
+            settings,
+            viewModel);
         IStartupLibraryApplicationPort applicationPort = viewModel;
         applicationPort.AttachStartupLibrary(library);
         applicationPort.AttachStartupServices(
@@ -274,7 +278,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Task download = viewModel.PlaylistWorkspace.RunPlaylistUrlBatchAsync(
                 [server.DownloadUri],
                 isDiffUrl: false);
-            await server.RequestAccepted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await server.RequestAccepted.Task;
             Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
             Assert.AreEqual(1, Volatile.Read(ref playlistCancelableSnapshots));
 
@@ -283,7 +287,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
             terminals.Invoke(OperationProgressAction.CancelUrlDownload);
 
-            await download.WaitAsync(TimeSpan.FromSeconds(5));
+            await download;
             Assert.IsFalse(viewModel.PlaylistWorkspace.IsPlaylistUrlDownloadRunning);
             Assert.AreEqual(2, packageCancelRequests);
             Assert.AreEqual(1, Volatile.Read(ref playlistCanceledSnapshots));
@@ -301,26 +305,20 @@ public sealed class MainWindowProgressStatusBarWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            MainWindowViewModel? viewModel = null;
-            MainWindow? window = null;
-            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
-            try
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: lifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                .CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+            ownership.Run(() =>
             {
-                viewModel = new ApplicationComposition(
-                    settingsEditSession: new NoOpSettingsEditSession(new Settings()),
-                    uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
-                    .CreateMainWindowViewModelForTest();
+                MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(
+                MainWindow window = ownership.CreateWindow(() => new MainWindow(
                     viewModel,
                     settingsWindowCreated: null,
                     libraryReloadMenuTerminal: null,
@@ -342,9 +340,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     selectedChartContextMenuTerminals: null,
                     playbackTerminal: null,
                     playlistWorkspaceTerminals: null,
-                    progressStatusBarTerminals: terminals);
-                window.Closed += (_, _) => windowClosed.TrySetResult();
-                TestUiDispatcherHost.Drain();
+                    progressStatusBarTerminals: terminals));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 object content = window.Content;
                 window.Content = null;
                 var host = new Window { Width = 1100, Height = 700, Resources = window.Resources, Content = content, DataContext = viewModel };
@@ -353,46 +350,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
                     scope.ShowAndWaitForContentRendered(host);
                     test(viewModel, window, host);
                 }
-                finally
-                {
-                    host.Close();
-                }
-            }
-            finally
-            {
-                try
-                {
-                    if (window != null && !windowClosed.Task.IsCompleted)
-                    {
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            lifetime.ShutdownRequested.Task,
-                            "MainWindowProgressStatusBarWpfTests.terminal-shutdown");
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            windowClosed.Task,
-                            "MainWindowProgressStatusBarWpfTests.window-closed");
-                    }
-                }
-                finally
-                {
-                    try
-                    {
-                        viewModel?.SettingDialog.Dispose();
-                    }
-                    finally
-                    {
-                        if (hadPreviousViewModelResource)
-                        {
-                            Application.Current.Resources["vm"] = previousViewModelResource;
-                        }
-                        else
-                        {
-                            Application.Current.Resources.Remove("vm");
-                        }
-                    }
-                }
-            }
+                finally { host.Close(); }
+            });
         });
     }
 
@@ -421,16 +380,17 @@ public sealed class MainWindowProgressStatusBarWpfTests
     private sealed class HoldingTerminalUiScheduler : IUiScheduler
     {
         private readonly TestUiScheduler inner = new(() => TestUiDispatcherHost.Dispatcher);
-        private readonly ConcurrentQueue<Action> held = new();
+        private readonly ConcurrentQueue<Func<Task>> held = new();
         private int holdNextNormal;
         internal int HeldCount => held.Count;
         internal void HoldNextNormal() => Interlocked.Exchange(ref holdNextNormal, 1);
+        /// <summary>保持したUI反映を実行し、各scheduled operationの実終端を回収します。</summary>
         internal void ReleaseHeld()
         {
             Interlocked.Exchange(ref holdNextNormal, 0);
-            while (held.TryDequeue(out Action? action))
+            while (held.TryDequeue(out Func<Task>? apply))
             {
-                action();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(apply(), "startup-held-ui-apply-terminal");
             }
         }
         public bool IsAvailable => inner.IsAvailable;
@@ -441,7 +401,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             if (priority == UiSchedulePriority.Normal && Interlocked.Exchange(ref holdNextNormal, 0) == 1)
             {
                 var operation = new RegularChartListOwnerTestSupport.ActionQueueUiScheduledOperation();
-                held.Enqueue(() => operation.Execute(action));
+                held.Enqueue(() => { operation.Execute(action); return operation.Completion; });
                 return operation;
             }
             return inner.Schedule(action, priority);

@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -21,6 +20,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartCommitAndLifecycleTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
 
     [TestMethod]
     public void TryCommit_RowsReplacingNestedRequest_LatestRequestWins()
@@ -37,14 +38,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -108,14 +108,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -166,14 +165,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -235,14 +233,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -308,14 +305,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -374,14 +370,13 @@ public sealed class RegularChartCommitAndLifecycleTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                new SettingsMainChartColumnSettingsStore(() => testSettings),
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -429,7 +424,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             rows,
             "test");
 
-        Assert.IsTrue(uiActionQueued.Wait(TimeSpan.FromSeconds(5)));
+        uiActionQueued.Wait();
         pendingUiAction();
         Assert.AreEqual("[2" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]", table.SummaryText);
     }
@@ -454,14 +449,13 @@ public sealed class RegularChartCommitAndLifecycleTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                new SettingsMainChartColumnSettingsStore(() => testSettings),
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -502,7 +496,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             [0, 1],
             staleRows,
             "test");
-        Assert.IsTrue(uiActionQueued.Wait(TimeSpan.FromSeconds(5)));
+        uiActionQueued.Wait();
 
         RegularChartListRequestLease currentLease = owner.BeginRequest();
         var currentRows = new List<object> { new() };
@@ -530,14 +524,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -565,7 +558,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             var firstRows = new List<object> { new(), new() };
             Assert.IsTrue(owner.TryCommitVirtual(firstLease, CreateVirtualTerminalInput(firstRows)).WasCommitted);
             owner.ScheduleVirtualSummary(firstLease, key, sourceRows, [0, 1], firstRows, "first");
-            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
+            sourceRows.IndexReadStarted.Wait();
 
             RegularChartListRequestLease currentLease = owner.BeginRequest();
             var currentRows = new List<object> { new(), new() };
@@ -586,7 +579,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             try
             {
                 sourceRows.ReleaseIndexRead.Set();
-                Assert.IsTrue(summaryUpdated.Wait(TimeSpan.FromSeconds(5)));
+                summaryUpdated.Wait();
             }
             finally
             {
@@ -644,7 +637,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             var staleRows = new List<object> { new() };
             Assert.IsTrue(owner.TryCommitVirtual(staleLease, CreateVirtualTerminalInput(staleRows)).WasCommitted);
             owner.ScheduleVirtualSummary(staleLease, key, sourceRows, indexes, staleRows, "stale");
-            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
+            sourceRows.IndexReadStarted.Wait();
 
             latestLease = owner.BeginRequest();
             latestRows = Enumerable.Repeat<object>(new(), indexes.Count).ToList();
@@ -665,9 +658,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             try
             {
                 sourceRows.ReleaseIndexRead.Set();
-                Assert.IsTrue(summaryUpdated.Wait(TimeSpan.FromSeconds(5)),
-                    "Actual summary: " + table.SummaryText
-                    + Environment.NewLine + string.Join(Environment.NewLine, messages));
+                summaryUpdated.Wait();
             }
             finally
             {
@@ -766,13 +757,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             Assert.IsTrue(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(rows)).WasCommitted);
             var key = new MainViewSummaryCacheKey(1, 1, 2, includeBmsonRows: false, "shutdown");
             owner.ScheduleVirtualSummary(lease, key, sourceRows, [0, 1], rows, "shutdown");
-            Assert.IsTrue(sourceRows.IndexReadStarted.Wait(TimeSpan.FromSeconds(5)));
+            sourceRows.IndexReadStarted.Wait();
 
             Task stop = owner.StopAsync();
 
             Assert.IsFalse(stop.IsCompleted);
             sourceRows.ReleaseIndexRead.Set();
-            await stop.WaitAsync(TimeSpan.FromSeconds(5));
+            await stop;
         }
         finally
         {
@@ -796,14 +787,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -850,14 +840,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -901,14 +890,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -961,14 +949,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1032,14 +1019,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1113,14 +1099,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1200,14 +1185,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1250,14 +1234,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1309,14 +1292,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1361,14 +1343,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1410,14 +1391,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1471,14 +1451,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1551,14 +1530,13 @@ public sealed class RegularChartCommitAndLifecycleTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            new SettingsMainChartColumnSettingsStore(() => testSettings),
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1604,14 +1582,14 @@ public sealed class RegularChartCommitAndLifecycleTests
     [DoNotParallelize]
     public void MainChartListColumnPresentation_LoadCommitAndReuseOwnsMainAndWorkspacePresentation()
     {
-        CustomTableColumnSettings previousStandard = Settings.Default.StandardCustomTableColumnSettings;
-        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        CustomTableColumnSettings previousStandard = testSettings.StandardCustomTableColumnSettings;
+        PlaylistSummaryColumnSettings previousSummary = testSettings.PlaylistSummaryColumnsSettings;
         try
         {
             var table = new MainChartListViewModel(
                 action => action(),
                 _ => { },
-                new SettingsMainChartColumnSettingsStore(() => Settings.Default));
+                new SettingsMainChartColumnSettingsStore(() => testSettings));
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -1623,14 +1601,13 @@ public sealed class RegularChartCommitAndLifecycleTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                new SettingsMainChartColumnSettingsStore(() => testSettings),
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1648,8 +1625,8 @@ public sealed class RegularChartCommitAndLifecycleTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-            Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            testSettings.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+            testSettings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
             RegularChartListOwner owner = CreateOwner(table, workspace);
 
             owner.InitializeColumnPresentation(MainViewUpdateMode.FolderFilterSelected);
@@ -1660,20 +1637,20 @@ public sealed class RegularChartCommitAndLifecycleTests
             Assert.IsTrue(second.Reused);
             Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, second.AppliedMode);
             Assert.AreSame(table.ColumnsSettings, second.ColumnsSettings);
-            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            Assert.AreSame(testSettings.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
             Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
 
-            CustomTableColumnSettings beforeInit = Settings.Default.StandardCustomTableColumnSettings;
+            CustomTableColumnSettings beforeInit = testSettings.StandardCustomTableColumnSettings;
             owner.InitializeColumnPresentation(MainViewUpdateMode.FolderFilterSelected);
 
-            Assert.AreNotSame(beforeInit, Settings.Default.StandardCustomTableColumnSettings);
-            Assert.AreSame(Settings.Default.StandardCustomTableColumnSettings, table.ColumnsSettings);
+            Assert.AreNotSame(beforeInit, testSettings.StandardCustomTableColumnSettings);
+            Assert.AreSame(testSettings.StandardCustomTableColumnSettings, table.ColumnsSettings);
             owner.Dispose();
         }
         finally
         {
-            Settings.Default.StandardCustomTableColumnSettings = previousStandard;
-            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+            testSettings.StandardCustomTableColumnSettings = previousStandard;
+            testSettings.PlaylistSummaryColumnsSettings = previousSummary;
         }
     }
 
@@ -1682,16 +1659,16 @@ public sealed class RegularChartCommitAndLifecycleTests
     [DoNotParallelize]
     public void ResetCurrentColumnPresentation_ResetsAppliedModeAndPublishesRelatedState()
     {
-        CustomTableColumnSettings previousPlayHistory = Settings.Default.PlayHistoryCustomTableColumnSettings;
-        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        CustomTableColumnSettings previousPlayHistory = testSettings.PlayHistoryCustomTableColumnSettings;
+        PlaylistSummaryColumnSettings previousSummary = testSettings.PlaylistSummaryColumnsSettings;
         try
         {
-            Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            testSettings.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            testSettings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
             var table = new MainChartListViewModel(
                 action => action(),
                 _ => { },
-                new SettingsMainChartColumnSettingsStore(() => Settings.Default));
+                new SettingsMainChartColumnSettingsStore(() => testSettings));
             PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
             RegularChartListOwner owner = CreateOwner(table, workspace);
             var notifications = new List<string>();
@@ -1699,19 +1676,19 @@ public sealed class RegularChartCommitAndLifecycleTests
             workspace.PropertyChanged += (_, e) => notifications.Add("workspace:" + e.PropertyName!);
 
             owner.InitializeColumnPresentation(MainViewUpdateMode.PlayHistorySelected);
-            Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-            CustomTableColumnSettings persistedBeforeReset = Settings.Default.PlayHistoryCustomTableColumnSettings;
-            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+            testSettings.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+            CustomTableColumnSettings persistedBeforeReset = testSettings.PlayHistoryCustomTableColumnSettings;
+            testSettings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
             workspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
             notifications.Clear();
 
             owner.ResetCurrentColumnPresentation();
 
             Assert.AreNotSame(persistedBeforeReset, table.ColumnsSettings);
-            Assert.AreSame(Settings.Default.PlayHistoryCustomTableColumnSettings, table.ColumnsSettings);
+            Assert.AreSame(testSettings.PlayHistoryCustomTableColumnSettings, table.ColumnsSettings);
             Assert.AreEqual(MainViewUpdateMode.PlayHistorySelected, table.LastAppliedColumnMode);
             Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
-            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            Assert.AreSame(testSettings.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
             int tableColumnsIndex = notifications.IndexOf("table:ColumnsSettings");
             int visibilityIndex = notifications.IndexOf("workspace:ColumnSettingsVisibilityForPlaylist");
             int summaryIndex = notifications.IndexOf("workspace:PlaylistSummaryColumnsSettings");
@@ -1722,8 +1699,8 @@ public sealed class RegularChartCommitAndLifecycleTests
         }
         finally
         {
-            Settings.Default.PlayHistoryCustomTableColumnSettings = previousPlayHistory;
-            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+            testSettings.PlayHistoryCustomTableColumnSettings = previousPlayHistory;
+            testSettings.PlaylistSummaryColumnsSettings = previousSummary;
         }
     }
 
@@ -1752,7 +1729,7 @@ public sealed class RegularChartCommitAndLifecycleTests
     [DoNotParallelize]
     public async Task PlaylistSummaryColumnSettings_ResetCreatesDefaultSettingsAndPublishesWorkspace()
     {
-        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        PlaylistSummaryColumnSettings previousSummary = testSettings.PlaylistSummaryColumnsSettings;
         try
         {
             var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService
@@ -1770,14 +1747,13 @@ public sealed class RegularChartCommitAndLifecycleTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                new SettingsMainChartColumnSettingsStore(() => testSettings),
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
@@ -1796,7 +1772,7 @@ public sealed class RegularChartCommitAndLifecycleTests
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogs);
             var oldSettings = new PlaylistSummaryColumnSettings();
-            Settings.Default.PlaylistSummaryColumnsSettings = oldSettings;
+            testSettings.PlaylistSummaryColumnsSettings = oldSettings;
             workspace.CommitColumnPresentationWithoutNotification(
                 workspace.ColumnSettingsVisibilityForPlaylist,
                 oldSettings);
@@ -1811,13 +1787,13 @@ public sealed class RegularChartCommitAndLifecycleTests
 
             await workspace.ResetPlaylistSummaryColumnsToDefaultAsync();
 
-            Assert.AreNotSame(oldSettings, Settings.Default.PlaylistSummaryColumnsSettings);
-            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            Assert.AreNotSame(oldSettings, testSettings.PlaylistSummaryColumnsSettings);
+            Assert.AreSame(testSettings.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
             Assert.IsTrue(notificationCount > 0);
         }
         finally
         {
-            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+            testSettings.PlaylistSummaryColumnsSettings = previousSummary;
         }
     }
 }

@@ -8,7 +8,6 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
-using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -34,9 +33,9 @@ public sealed class MainWindowPlayHistoryWpfTests
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (viewModel, window) =>
+                (scope, viewModel, window) =>
                 {
-                    using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDropdown");
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                     var toolbar = (Border)window.FindName("mainTableToolbar");
                     ComboBox combo = FindVisualChildren<ComboBox>(toolbar).Single();
                     var dropdownContainer = (Border)combo.Parent;
@@ -222,6 +221,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
     {
         PlayHistoryWorkflowOwner? startupPlayHistory = null;
@@ -232,9 +232,9 @@ public sealed class MainWindowPlayHistoryWpfTests
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (viewModel, window) =>
+                (scope, viewModel, window) =>
                 {
-                    using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistorySummary");
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                     var summaryBar = (Border)window.FindName("playHistorySummaryBar");
 
                     VisibilityObservation startupCollapsed = ObserveVisibility(
@@ -271,7 +271,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
                             activatedVisible.Completion,
                             "play-history summary bar visible after activation");
-                        TestUiDispatcherHost.Drain();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
 
                         ItemsControl cards = FindVisualChildren<ItemsControl>(summaryBar).Single();
                         TextBlock diagnostic = FindVisualChildren<TextBlock>(summaryBar)
@@ -287,7 +287,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                         Assert.IsNotNull(filterButton.Command);
                         Assert.IsTrue(filterButton.Command.CanExecute(filterButton.CommandParameter));
                         filterButton.Command.Execute(filterButton.CommandParameter);
-                        TestUiDispatcherHost.Drain();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
 
                         Assert.IsTrue(viewModel.PlayHistory.SummaryCards.Single(card => card.FilterKey == "clear").IsSelected);
                     }
@@ -344,13 +344,14 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryMainTable_UsesBoundDragKindAndRejectsChartContextMenu()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryContext");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 Assert.AreEqual(viewModel.MainChartList.RowDragKind, table.RowDragKind);
 
@@ -376,7 +377,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 Assert.IsNotNull(contextRequest);
                 Assert.AreSame(resolved, contextRequest!.Row);
                 RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
                 var resolvedContext =
@@ -397,7 +398,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 Assert.AreEqual(2, contextRequests);
                 Assert.AreSame(unresolved, contextRequest!.Row);
                 RaiseMenuOpened(playHistoryMenu, table, unresolved, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsInstanceOfType(playHistoryMenu.Tag, typeof(CustomTableContextMenuContext));
                 Assert.AreSame(unresolved, ((CustomTableContextMenuContext)playHistoryMenu.Tag).Row);
@@ -409,13 +410,14 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryContextMenu_ShowsDateRangeOnlyForMultipleSelection()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRange");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow first = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
                 PlayHistoryRow second = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1001);
@@ -425,7 +427,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.SelectRowsByPredicate(_ => true);
 
                 RaiseMenuOpened(playHistoryMenu, table, first, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 MenuItem? dateRange = playHistoryMenu.Items
                     .OfType<MenuItem>()
@@ -438,7 +440,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 RaiseMenuClosed(playHistoryMenu);
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, first));
                 RaiseMenuOpened(playHistoryMenu, table, first, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(Visibility.Collapsed, dateRange.Visibility);
                 RaiseMenuClosed(playHistoryMenu);
@@ -446,13 +448,14 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangePrimary");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow primary = CreateUnresolvedPlayHistoryRow(hash: string.Empty, playedAt: 1000);
                 PlayHistoryRow secondary = CreateResolvedPlayHistoryRow(playedAt: 1001);
@@ -466,7 +469,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 Assert.IsFalse(viewModel.PlayHistory.TryCreateContextMenuState(primary, out _));
                 Assert.IsTrue(viewModel.PlayHistory.TryCreateContextMenuState(secondary, out _));
                 RaiseMenuOpened(playHistoryMenu, table, primary, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 MenuItem dateRange = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemAddDateRangeToSearch");
                 Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
@@ -479,6 +482,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryContextMenu_DateRangeUsesOpenSnapshotAndUpdatesKeywordOnce()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -487,9 +491,9 @@ public sealed class MainWindowPlayHistoryWpfTests
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryDateRangeSnapshot");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
                 var table = (CustomTableView)window.FindName("customTableView");
@@ -538,7 +542,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     // Drive the public menu events directly; the test never opens a real Popup.
                     RaiseMenuOpened(playHistoryMenu, table, first, 2);
                     RaiseMenuClosed(playHistoryMenu);
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                 }
                 finally
                 {
@@ -555,6 +559,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryBmsonRowOffersConfiguredMd5WebAction()
     {
         const string actionName = "Bmson MD5";
@@ -571,9 +576,9 @@ public sealed class MainWindowPlayHistoryWpfTests
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryBmsonMd5Action");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow resolved = CreateResolvedBmsonPlayHistoryRow();
                 var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
@@ -582,7 +587,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
 
                 RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 MenuItem webAction = FindMenuItem(playHistoryMenu, "configuredWebAction_bmson_md5");
                 Assert.AreEqual(actionName, webAction.Header);
@@ -592,6 +597,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
     {
         const string allKindsName = "All kinds";
@@ -622,9 +628,9 @@ public sealed class MainWindowPlayHistoryWpfTests
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryUnresolvedBeatorajaWebAction");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow unresolved = CreateUnresolvedBeatorajaPlayHistoryRow();
                 var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
@@ -633,7 +639,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, unresolved));
 
                 RaiseMenuOpened(playHistoryMenu, table, unresolved, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsFalse(playHistoryMenu.Items.OfType<MenuItem>().Any(item =>
                     string.Equals(item.Name, "configuredWebAction_bms_only", StringComparison.Ordinal)));
@@ -647,6 +653,7 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -662,9 +669,9 @@ public sealed class MainWindowPlayHistoryWpfTests
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
-            (viewModel, window) =>
+            (scope, viewModel, window) =>
             {
-                using HwndSource visualHost = CreateVisualHost(window, "MainWindowPlayHistoryConfiguredActions");
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
                 PlayHistoryRow resolved = CreateResolvedPlayHistoryRow(
                     typeof(MainWindow).Assembly.Location);
@@ -674,7 +681,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, resolved));
 
                 RaiseMenuOpened(playHistoryMenu, table, resolved, 0);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 MenuItem associated = FindMenuItem(
                     playHistoryMenu,
@@ -744,22 +751,6 @@ public sealed class MainWindowPlayHistoryWpfTests
 
     private static void RaiseMenuClosed(ContextMenu menu)
         => menu.RaiseEvent(new RoutedEventArgs(ContextMenu.ClosedEvent, menu));
-
-    private static HwndSource CreateVisualHost(MainWindow window, string name)
-    {
-        var source = new HwndSource(new HwndSourceParameters(name)
-        {
-            Width = 1000,
-            Height = 700,
-            PositionX = 0,
-            PositionY = 0
-        });
-        source.RootVisual = (Visual)window.Content;
-        window.Measure(new Size(1000d, 700d));
-        window.Arrange(new Rect(0d, 0d, 1000d, 700d));
-        window.UpdateLayout();
-        return source;
-    }
 
     private static MenuItem FindMenuItem(ContextMenu menu, string name)
     {

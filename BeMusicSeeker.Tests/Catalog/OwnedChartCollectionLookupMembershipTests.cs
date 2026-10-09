@@ -17,7 +17,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateOwnedHashIndexSnapshot_ReprojectsCurrentStorageOwnerHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
         bmsonSong = bmsonSong with { Sha256 = new string('d', 64) };
@@ -41,7 +41,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateLibraryChartRefsForHashes_ReturnsOnlyMatchingCurrentOwnerHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile md5Bms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Md5", "chart.bms"), new string('b', 64));
         ChartFile shaBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Sha", "chart.bms"), new string('d', 64));
         ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
@@ -67,7 +67,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateChartInfoHydrationOwnerSummary_ReprojectsCurrentStorageOwnerHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile currentChartInfoFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Info", "chart.bms"), new string('b', 64));
         ChartFile parseFailureSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Failure", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
         ChartFile backfillFile = CreateFile("dddddddddddddddddddddddddddddddd", Path.Combine("C:\\Installed", "Backfill", "chart.bms"), new string('e', 64));
@@ -91,7 +91,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateFullResourceMaintenanceTargetSnapshot_FiltersInvalidOwnedChartsBeforeProjection()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
         ChartFile pathlessBms = CreateFile("dddddddddddddddddddddddddddddddd", string.Empty);
         ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"));
@@ -114,7 +114,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreatePathSnapshot_ReprojectsCurrentStorageOwnerPaths()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "OldBms", "chart.bms"));
         ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "OldBmson", "chart.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], [bmsonSong]));
@@ -135,7 +135,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateInstallDestinationRuntimeStateKeySnapshot_ReprojectsCurrentStorageOwnerValues()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string oldBmsPath = Path.Combine("C:\\Installed", "OldBms", "chart.bms");
         string oldBmsonPath = Path.Combine("C:\\Installed", "OldBmson", "chart.bmson");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath, new string('b', 64));
@@ -171,7 +171,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void CreateChartRuntimeStatePrimaryKeySnapshot_ExcludesInstallDestinationPathAliases()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string oldBmsPath = Path.Combine("C:\\Installed", "OldBms", "chart.bms");
         string oldBmsonPath = Path.Combine("C:\\Installed", "OldBmson", "chart.bmson");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath, new string('b', 64));
@@ -201,7 +201,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void RemoveChartRequests_UpdateOwnedCollectionMembership()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
         ChartFile second = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Second", "chart.bms"));
         ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
@@ -225,7 +225,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void RemoveChartRequests_StaleOwnerReferenceDoesNotRemoveSamePathChart()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
         string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
@@ -251,7 +251,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void RemoveChartRequests_PathCleanupRemovesUniqueOwnedPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
         ChartFile other = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Other", "chart.bms"));
@@ -269,7 +269,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void RemoveChartRequests_OwnerReferenceRemovesOnlyRequestedOwnerWhenDuplicatePathWasSkipped()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
         ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
         ChartFile samePath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
@@ -287,7 +287,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void ContainsKnownChart_UsesOwnedReferenceAndKindPathExactLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
         string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath);
@@ -308,7 +308,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void ContainsKnownChart_PathExactLookupUsesOwnedUniquePath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string sharedPath = Path.Combine("C:\\Installed", "Shared", "chart.bms");
         ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath);
         ChartFile samePath = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath);
@@ -323,7 +323,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void ContainsKnownChart_DoesNotMatchPathlessOwnerBackedChart()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null);
         var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], []));
 
@@ -333,7 +333,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void ContainsKnownChart_DoesNotMatchOwnerWhoseCurrentPathDisappeared()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string oldPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
         string oldDirectory = Path.GetDirectoryName(oldPath)!;
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
@@ -350,7 +350,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void UpsertStorageRows_ReplacesExistingSameKindPathRowsAndPreservesStorageOrder()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string replacedBmsPath = Path.Combine("C:\\Installed", "Bms", "replace.bms");
         string replacedBmsonPath = Path.Combine("C:\\Installed", "Bmson", "replace.bmson");
         ChartFile keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
@@ -386,7 +386,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void UpsertStorageRows_BmsSurvivorsKeepRelativeOrderAndReplacementAppends()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "B0.bms"));
         ChartFile replaced = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "B1.bms"));
         ChartFile third = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "B2.bms"));
@@ -411,7 +411,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void UpsertStorageRows_CanonicalBmsonUsesCapturedPathAndReplacementAppends()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directory = Path.Combine("C:\\Installed", "Bmson");
         ChartFile z = CreateBmsonSong(Path.Combine(directory, "z.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         ChartFile upper = CreateBmsonSong(Path.Combine(directory, "A.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -444,7 +444,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void ApplyPathChanges_CanonicalBmsonKeepsCapturedSequencePosition()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directory = Path.Combine("C:\\Installed", "Bmson");
         ChartFile z = CreateBmsonSong(Path.Combine(directory, "z.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         ChartFile upper = CreateBmsonSong(Path.Combine(directory, "A.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -633,7 +633,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void DuplicateChartRowSnapshot_UsesCachedIndexWithoutCopyingRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
         ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], [bmsonSong]));
@@ -658,7 +658,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void DuplicateChartRowSnapshot_TracksRemovePathChangeAndUpsert()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string oldPath = Path.Combine("C:\\Installed", "Bms", "move.bms");
         string newPath = Path.Combine("C:\\Installed", "Moved", "move.bms");
         ChartFile movedBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldPath);
@@ -697,7 +697,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void DuplicateChartRowSnapshot_BmsonOnlyRemoveReusesBmsStorageRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
         ChartFile removedBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "removed.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         ChartFile keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "kept.bmson"), "cccccccccccccccccccccccccccccccc");
@@ -718,7 +718,7 @@ public sealed class OwnedChartCollectionLookupMembershipTests
     [TestMethod]
     public void DuplicateChartRowSnapshot_TracksMd5DigestChangesOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string path = Path.Combine("C:\\Installed", "Bms", "chart.bms");
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", path, new string('1', 64));
         var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], []));

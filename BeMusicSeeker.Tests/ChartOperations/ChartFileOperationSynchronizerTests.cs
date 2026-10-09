@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
-using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -51,4 +52,65 @@ public sealed class ChartFileOperationSynchronizerTests
         Assert.IsTrue(synchronizer.TryEnter(out IDisposable nextLease));
         nextLease.Dispose();
     }
+    [TestMethod]
+    public void MutationCapability_RejectsNullForeignAndReleasedAuthorityAndBorrowDoesNotReleaseOwner()
+    {
+        var owner = new ChartFileOperationSynchronizer();
+        var foreign = new ChartFileOperationSynchronizer();
+        Assert.IsTrue(owner.TryEnter(out IDisposable lease));
+        using LibraryFileMutationCapability capability = owner.CreateMutationCapability(lease);
+        try
+        {
+            Assert.ThrowsException<ArgumentNullException>(() => owner.Borrow(null));
+            Assert.ThrowsException<InvalidOperationException>(() => foreign.Borrow(capability));
+            using (owner.Borrow(capability)) { Assert.IsTrue(owner.IsActive); }
+            Assert.IsTrue(owner.IsActive, "借用した内側scopeは外側受付を解放しません。");
+            capability.Validate(owner);
+        }
+        finally { lease.Dispose(); }
+        Assert.ThrowsException<InvalidOperationException>(() => owner.Borrow(capability));
+        Assert.IsTrue(owner.TryEnter(out IDisposable next));
+        try { lease.Dispose(); Assert.IsTrue(owner.IsActive); }
+        finally { next.Dispose(); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ClosedAdmissionRejectsNewRequestsAndRetainsAcceptedContinuation(bool activeAtClose)
+    {
+        var owner = new ChartFileOperationSynchronizer();
+        IDisposable? initial = null;
+        Task<IDisposable>? continuation = null;
+        try
+        {
+            if (activeAtClose) { Assert.IsTrue(owner.TryEnter(out initial)); }
+            owner.CloseAdmission();
+            owner.CloseAdmission();
+            Assert.IsFalse(owner.TryEnter(out _), "Closeはidle/activeのどちらからも新規受付を閉じます。");
+            if (initial != null)
+            {
+                using LibraryFileMutationCapability capability = owner.CreateMutationCapability(initial);
+                using (owner.Borrow(capability)) { capability.Validate(owner); }
+                Assert.IsTrue(owner.IsActive, "閉鎖は受理済み権限を失効させません。");
+            }
+            continuation = owner.EnterAcceptedBackgroundAsync();
+            if (activeAtClose) { Assert.IsFalse(continuation.IsCompleted); }
+            initial?.Dispose();
+            using (IDisposable accepted = await continuation)
+            {
+                Assert.IsTrue(owner.IsActive);
+                Assert.IsFalse(owner.WaitForIdleAsync().IsCompleted);
+                Assert.IsFalse(owner.TryEnter(out _));
+            }
+            Assert.IsTrue(owner.WaitForIdleAsync().IsCompletedSuccessfully);
+            Assert.IsFalse(owner.TryEnter(out _), "受理済み処理の終端でも受付を再開しません。");
+        }
+        finally
+        {
+            initial?.Dispose();
+            if (continuation != null) { (await continuation).Dispose(); }
+        }
+    }
+
 }

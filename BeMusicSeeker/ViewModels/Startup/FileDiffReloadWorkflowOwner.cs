@@ -1,31 +1,35 @@
 using System;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Immutable input for one file-diff reload operation.
+/// 一回の差分再読込みと必須LR2継続が共有する変更不能な要求です。
 /// </summary>
 internal sealed class FileDiffReloadRequest
 {
     /// <summary>
-    /// Initializes a file-diff request with the reason and shell operation token that own every stage.
+    /// 各段階へ渡す理由・進捗番号と、呼出元が所有する生存中の共通変更権限を捕捉します。
     /// </summary>
-    /// <param name="reason">The stable reason recorded by downstream workflow owners.</param>
-    /// <param name="operationToken">The shell startup-progress operation token.</param>
-    internal FileDiffReloadRequest(string reason, long operationToken)
+    /// <param name="reason">必須LR2継続とプレイリスト参照更新へ同じ値で渡す理由。</param>
+    /// <param name="operationToken">画面の起動進捗操作を識別する番号。</param>
+    /// <param name="capability">同じownerが受理した操作の生存権限。実モデルを更新する呼出元は全必須継続の実終端まで所有します。</param>
+    internal FileDiffReloadRequest(string reason, long operationToken, LibraryFileMutationCapability capability = null)
     {
         Reason = reason ?? string.Empty;
         OperationToken = operationToken;
+        Capability = capability;
     }
 
-    /// <summary>
-    /// Gets the stable reason propagated to LR2 synchronization and playlist-reference queueing.
-    /// </summary>
+    /// <summary>受理済み差分と必須LR2継続に共通の生存権限。要求は所有元leaseを解放しません。</summary>
+    internal LibraryFileMutationCapability Capability { get; }
+
+    /// <summary>LR2継続とプレイリスト参照更新へ渡す共通の理由。</summary>
     internal string Reason { get; }
 
     /// <summary>
-    /// Gets the shell operation token propagated to every downstream stage.
+    /// 各段階へ渡す画面の進捗操作番号。
     /// </summary>
     internal long OperationToken { get; }
 }
@@ -100,12 +104,12 @@ internal sealed class FileDiffReloadWorkflowOwner
     }
 
     /// <summary>
-    /// Runs reload, LR2 queue, and playlist-reference queue in that exact order.
-    /// An unavailable LR2 route is represented by the typed skipped result and does not block
-    /// the playlist-reference stage; every exception otherwise stops later stages unchanged.
+    /// 受理済み差分更新と必須LR2継続を同じ生存権限で実終端まで待ち、その後プレイリスト参照更新を登録します。
+    /// LR2経路が利用不能の場合は型付きSkipped結果として後段へ進み、それ以外の例外・取消は後段を開始せず伝播します。
+    /// 共通受付の再取得や呼出元leaseの解放は行いません。
     /// </summary>
-    /// <param name="request">The immutable request shared by all stages.</param>
-    /// <returns>The exact downstream requests and LR2 queue disposition.</returns>
+    /// <param name="request">理由・進捗番号・同ownerの生存権限を共有する変更不能な要求。</param>
+    /// <returns>必須処理の実終端と後段登録までのTask。元要求、LR2結果と登録した参照更新要求を返します。</returns>
     internal async Task<FileDiffReloadWorkflowResult> ReloadAsync(FileDiffReloadRequest request)
     {
         if (request == null)
@@ -115,7 +119,7 @@ internal sealed class FileDiffReloadWorkflowOwner
 
         await reloadFileDiff(request).ConfigureAwait(false);
         Lr2SongDbSyncQueueResult lr2QueueResult =
-            lr2SongDbSyncWorkflow.QueueAfterReloadFileDiff(request);
+            await lr2SongDbSyncWorkflow.QueueAfterReloadFileDiffAsync(request, request.Capability).ConfigureAwait(false);
         PlaylistReferenceApplyQueueRequest playlistReferenceQueueRequest =
             new(request.Reason, request.OperationToken);
         queuePlaylistReference(playlistReferenceQueueRequest);

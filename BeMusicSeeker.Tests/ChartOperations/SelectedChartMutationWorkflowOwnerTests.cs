@@ -720,7 +720,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     [DataRow(3)]
     public async Task PreparedTargets_RealStorePreservesFirstConfirmationBoundary(int scenario)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDbAsync(async songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Pack");
@@ -751,7 +751,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.UpsertSongs(library.BmsCharts);
-            var gate = new ChartFileOperationSynchronizer();
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
             var activity = new ChartMutationActivityOwner();
             var presentation = new RecordingPresentation();
             var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -806,7 +806,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 probe.Dispose();
                 Assert.AreEqual(new string('a', 32), selected.Md5);
                 Assert.AreEqual(path, selected.Path);
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 if (scenario == 0)
                 {
                     Assert.IsTrue(result.Succeeded);
@@ -849,7 +849,6 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     owner.WorkflowChanged -= presentation.OnWorkflowChanged;
                     activity.ActivityChanged -= presentation.OnActivityChanged;
                     library.RequestShutdown("prepared-selected-test");
-                    TestUiDispatcherHost.Drain();
                 }
             }
         });
@@ -939,9 +938,63 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                     owner.WorkflowChanged -= presentation.OnWorkflowChanged;
                     activity.ActivityChanged -= presentation.OnActivityChanged;
                     library.RequestShutdown("selected-ui-prepare-test");
-                    TestUiDispatcherHost.Drain();
                 }
             }
+        });
+    }
+
+    /// <summary>実ownerから本番adapter・モデル・DBへ同じLを渡し、文字コードと修正印の保存、Busy、公開終端を確認します。</summary>
+    [TestMethod]
+    public async Task ApplyEncoding_RealStorePersistsEncodingAndFixedMarkUnderSameAdmission()
+    {
+        await WithTemporarySongDbAsync(songDbPath =>
+        {
+            string path = Path.Combine(Path.GetDirectoryName(songDbPath)!, "encoding.bms");
+            File.WriteAllText(path, "#TITLE encoding");
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [CreateFile(new string('c', 32), path)], BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(library.BmsCharts);
+            ChartFile chart = library.BmsCharts.Single();
+            var target = new ChartOperationTarget(chart, null, ChartOperationSourceScope.Library,
+                true, false, false, ChartOperationCapabilities.RunBmsEncodingFix);
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), AcceptedMessageDialogs(),
+                AcceptedMessageDialogs(), new BmsLibrarySelectedChartMutationStore());
+            int published = 0;
+            owner.WorkflowChanged += (_, eventArgs) =>
+            {
+                if (eventArgs is not SelectedChartMutationAppliedEventArgs) { return; }
+                ObservePublication();
+            };
+            void ObservePublication()
+            {
+                Assert.IsTrue(library.OperationAdmission.IsActive, "必須公開の実終端までLを保持します。");
+                published++;
+            }
+            try
+            {
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
+                using (busy)
+                {
+                    Assert.IsFalse(owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8")).Succeeded);
+                    using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                    Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == path));
+                }
+                Assert.IsTrue(owner.ApplyEncoding(new SelectedChartEncodingRequest([target], "utf-8")).Succeeded);
+                using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+                {
+                    LR2SongDBExtended.maintenance row = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path);
+                    Assert.AreEqual("utf-8", row.encoding);
+                    Assert.IsTrue(row.is_encoding_fixed);
+                }
+                Assert.AreEqual(1, published);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally { library.RequestShutdown("encoding-entry-test"); }
+            return Task.CompletedTask;
         });
     }
 

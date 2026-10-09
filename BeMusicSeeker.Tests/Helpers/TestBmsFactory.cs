@@ -39,25 +39,20 @@ internal static class TestBmsFactory
 
 internal sealed class TestBmsLibrary : BMSLibrary
 {
-    private static Func<BmsLibraryOptionsSnapshot> CurrentOptions =>
-        () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings.Default);
+    /// <summary>専用設定または固定の既定入力を捕捉し、利用者設定を読みません。</summary>
+    private static Func<BmsLibraryOptionsSnapshot> CreateOptions(Settings settings)
+    {
+        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        return () => BmsLibraryOptionsSnapshot.CreateCurrent(values);
+    }
 
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config = null,
         string _lr2ScoreDB = null,
-        string startupRequiredFileScanReason = null)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
-    {
-        MarkCatalogPathConvergenceCompleted();
-    }
-
-    internal TestBmsLibrary(
-        string songDbPath,
-        Func<LR2Config> getLR2Config,
-        string _lr2ScoreDB,
-        IFileMutationService fileMutationService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        string startupRequiredFileScanReason = null,
+        Settings settings = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
         MarkCatalogPathConvergenceCompleted();
     }
@@ -67,8 +62,20 @@ internal sealed class TestBmsLibrary : BMSLibrary
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        Settings settings = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+    {
+        MarkCatalogPathConvergenceCompleted();
+    }
+
+    internal TestBmsLibrary(
+        string songDbPath,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        Settings settings = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
     {
         MarkCatalogPathConvergenceCompleted();
     }
@@ -82,7 +89,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
-        IInstallEstimationExecutionObserver installEstimationExecutionObserver)
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver,
+        Settings settings = null)
         : base(
             songDbPath,
             getLR2Config,
@@ -90,7 +98,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             fileMutationService,
             dialogService,
             null,
-            CurrentOptions,
+            CreateOptions(settings),
             new TestUiScheduler(() => Dispatcher.CurrentDispatcher),
             TestBmsFactory.MissingEverythingBridge,
             installEstimationExecutionObserver)
@@ -104,19 +112,20 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         IBmsLibraryDialogService dialogService,
-        IUiScheduler uiScheduler)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CurrentOptions, uiScheduler, TestBmsFactory.MissingEverythingBridge)
+        IUiScheduler uiScheduler,
+        Settings settings = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, CreateOptions(settings), uiScheduler, TestBmsFactory.MissingEverythingBridge)
     {
         MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
-    /// Creates a package-lifecycle fixture with an explicit options snapshot
-    /// and UI scheduler, so cleanup and publication tests do not mutate the
-    /// process-wide settings singleton.
+    /// 明示設定とUI境界で実ライブラリを作り、後片付け・公開・推定を共有設定の変更なしで確認します。
     /// </summary>
-    /// <param name="chartFileScanner">Optional captured scanner for tests that exercise the production file-diff ingress.</param>
+    /// <param name="chartFileScanner">実差分読込みの入口へ渡す固定走査境界。</param>
     /// <param name="installEstimationExecutionObserver">起動復元から明示推定までの評価開始を観測します。</param>
+    /// <param name="operationAdmission">実ownerと共有する受付。省略時は独立受付。</param>
+    /// <param name="playlistOperationAdmission">実起動構成と共有するプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -126,7 +135,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IUiScheduler uiScheduler,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         IChartFileScanner chartFileScanner = null,
-        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null)
+        IInstallEstimationExecutionObserver installEstimationExecutionObserver = null,
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null,
+        Settings settings = null)
         : base(
             songDbPath,
             getLR2Config,
@@ -134,37 +146,47 @@ internal sealed class TestBmsLibrary : BMSLibrary
             fileMutationService,
             dialogService,
             null,
-            optionsSnapshotProvider ?? CurrentOptions,
+            optionsSnapshotProvider ?? CreateOptions(settings),
             uiScheduler,
             TestBmsFactory.MissingEverythingBridge,
             installEstimationExecutionObserver: installEstimationExecutionObserver,
-            chartFileScanner: chartFileScanner)
+            chartFileScanner: chartFileScanner,
+            operationAdmission: operationAdmission,
+            playlistOperationAdmission: playlistOperationAdmission)
     {
         MarkCatalogPathConvergenceCompleted();
     }
 
+    /// <summary>実起動fixtureの設定入力と同compositionのL/P受付を明示接続します。</summary>
+    /// <param name="operationAdmission">起動を接続する共通受付。独立fixtureでは省略できます。</param>
+    /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         string startupRequiredFileScanReason,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
-        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge)
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null,
+        Settings settings = null)
+        : base(songDbPath, getLR2Config, _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
+            new TestUiScheduler(() => Dispatcher.CurrentDispatcher), TestBmsFactory.MissingEverythingBridge,
+            operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
     {
         MarkCatalogPathConvergenceCompleted();
     }
 
     /// <summary>
-    /// Creates a production-shaped library with an explicitly selected native
-    /// bridge path for canonical file-scan route tests.  A captured scanner may
-    /// be supplied when the route must be independent of the local Everything
-    /// service and index.
+    /// 実走査経路に使うライブラリを、明示したnative bridge・固定scanner・UI境界で構成します。
+    /// 実起動へ接続するfixtureは同compositionのL/Pを転送し、独立fixtureは専用受付を持ちます。
     /// </summary>
-    /// <param name="chartFileScanner">Optional captured scanner for the test fixture; null keeps the selected bridge-backed scan.</param>
-    /// <param name="uiScheduler">Optional scheduler for deterministic progress publication in route tests.</param>
-    /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic LR2 file candidates.</param>
+    /// <param name="chartFileScanner">固定走査入力。nullでは選択したbridge経由の実走査を使います。</param>
+    /// <param name="uiScheduler">実進捗公開へ接続するUI境界。</param>
+    /// <param name="rootFileEnumerator">LR2候補を捕捉する既存の一括列挙境界。</param>
     /// <param name="irClient">startup から終了までの IR 通信を所有する明示的な境界。</param>
-    /// <param name="dialogService">Optional dialog recorder for production-ingress warning tests.</param>
+    /// <param name="dialogService">本番入口の元警告を観測する通知境界。</param>
+    /// <param name="operationAdmission">本番ownerと共有する論理受付。省略時は独立受付です。</param>
+    /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
         string songDbPath,
         Func<LR2Config> getLR2Config,
@@ -176,7 +198,10 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IUiScheduler uiScheduler = null,
         IRootFileEnumerator rootFileEnumerator = null,
         IBmsLibraryIrClient irClient = null,
-        IBmsLibraryDialogService dialogService = null)
+        IBmsLibraryDialogService dialogService = null,
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null,
+        Settings settings = null)
         : base(
             _lr2SongDB: songDbPath,
             getLR2Config: getLR2Config,
@@ -190,7 +215,9 @@ internal sealed class TestBmsLibrary : BMSLibrary
             installEstimationExecutionObserver: null,
             chartFileScanner: chartFileScanner,
             rootFileEnumerator: rootFileEnumerator,
-            irClient: irClient)
+            irClient: irClient,
+            operationAdmission: operationAdmission,
+            playlistOperationAdmission: playlistOperationAdmission)
     {
         MarkCatalogPathConvergenceCompleted();
     }
@@ -200,8 +227,9 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// </summary>
     internal TestBmsLibrary(
         string songDbPath,
-        ApplicationPathSnapshot applicationPathSnapshot)
-        : base(songDbPath, null, null, null, CurrentOptions, new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot)
+        ApplicationPathSnapshot applicationPathSnapshot,
+        Settings settings = null)
+        : base(songDbPath, null, null, null, CreateOptions(settings), new TestUiScheduler(() => Dispatcher.CurrentDispatcher), applicationPathSnapshot)
     {
         MarkCatalogPathConvergenceCompleted();
     }
@@ -209,20 +237,54 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
 internal sealed class TestBmsPlaylist : BMSPlaylist
 {
-    private static Func<PlaylistUrlCompletionOptionsSnapshot> CurrentPlaylistUrlOptions =>
-        () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default);
+    private static Func<PlaylistUrlCompletionOptionsSnapshot> CreatePlaylistUrlOptions(Settings settings)
+    {
+        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        return () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values);
+    }
 
-    private static Func<BeatorajaBmtOptionsSnapshot> CurrentBeatorajaOptions =>
-        () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default);
+    private static Func<BeatorajaBmtOptionsSnapshot> CreateBeatorajaOptions(Settings settings)
+    {
+        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        return () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values);
+    }
 
-    private static Func<CustomFolderOutputSettingsSnapshot> CurrentCustomFolderOptions =>
-        () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default);
+    private static Func<CustomFolderOutputSettingsSnapshot> CreateCustomFolderOptions(Settings settings)
+    {
+        Settings values = settings ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        return () => CustomFolderOutputSettingsSnapshot.CreateCurrent(values);
+    }
 
-    private static LibraryFileMutationLease CreateTestMutationLease(string _)
-        => new(new object(), static () => true, static () => { });
-
-    private static LibraryFileMutationLease CreateTestMutationLease(string _, bool __)
-        => CreateTestMutationLease(_);
+    /// <summary>所有ライブラリの共通受付と実LR2同期を接続し、注入した出力設定でプレイリストを構成します。</summary>
+    /// <param name="libraryBindings">同じライブラリが所有する生存権限と同期能力。</param>
+    /// <param name="songDbPath">テストが所有する曲DB。</param>
+    /// <param name="customFolderOutputSettingsProvider">操作開始時に捕捉する出力設定。</param>
+    /// <param name="getLr2Config">出力先登録・保存を行うテスト所有のLR2設定。</param>
+    /// <param name="playlistUrlCompletionOptionsProvider">専用設定からURL補完入力を捕捉する既存依存。</param>
+    /// <param name="beatorajaBmtOptionsProvider">専用設定からBMT入力を捕捉する既存依存。</param>
+    /// <param name="recommendationScoreReader">推薦だけの固定原観測読取り。省略時は実ライブラリを使います。</param>
+    internal TestBmsPlaylist(
+        BmsPlaylistLibraryBindings libraryBindings,
+        string songDbPath,
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        Func<LR2Config> getLr2Config = null,
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
+        Settings settings = null)
+        : base(
+            libraryBindings,
+            songDbPath,
+            getLr2Config,
+            null,
+            playlistUrlCompletionOptionsProvider ?? CreatePlaylistUrlOptions(settings),
+            beatorajaBmtOptionsProvider ?? CreateBeatorajaOptions(settings),
+            customFolderOutputSettingsProvider,
+            TestBmsFactory.MissingEverythingBridge,
+            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            recommendationScoreReader: recommendationScoreReader)
+    {
+    }
 
     internal new ObservableCollection<BMSTable> BMSTables
     {
@@ -235,38 +297,40 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<LR2Config> getLr2Config = null,
         string scoreDbPath = null,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null,
-        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
+        Settings settings = null)
         : base(
             songDbPath,
             getLr2Config,
             scoreDbPath,
             getBeatorajaBmtSongHashResolver,
-            CurrentPlaylistUrlOptions,
-            CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions,
+            CreatePlaylistUrlOptions(settings),
+            CreateBeatorajaOptions(settings),
+            CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
-            CreateTestMutationLease,
+            new ChartFileOperationSynchronizer(),
             recommendationScoreReader: recommendationScoreReader)
     {
     }
 
     internal TestBmsPlaylist(
         string songDbPath,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
+        Settings settings = null)
         : base(
             songDbPath,
             null,
             null,
             null,
-            CurrentPlaylistUrlOptions,
-            CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions,
+            CreatePlaylistUrlOptions(settings),
+            CreateBeatorajaOptions(settings),
+            CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            CreateTestMutationLease)
+            new ChartFileOperationSynchronizer())
     {
     }
 
@@ -279,57 +343,60 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
     internal TestBmsPlaylist(
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
-        IUiScheduler uiScheduler)
+        IUiScheduler uiScheduler,
+        Settings settings = null)
         : base(
             songDbPath,
             null,
             null,
             null,
-            CurrentPlaylistUrlOptions,
-            CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions,
+            CreatePlaylistUrlOptions(settings),
+            CreateBeatorajaOptions(settings),
+            CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler,
             lr2PlaylistFolderSynchronization,
-            CreateTestMutationLease)
+            new ChartFileOperationSynchronizer())
     {
     }
 
     internal TestBmsPlaylist(
         string songDbPath,
         Func<LR2Config> getLr2Config,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
+        Settings settings = null)
         : base(
             songDbPath,
             getLr2Config,
             null,
             null,
-            CurrentPlaylistUrlOptions,
-            CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions,
+            CreatePlaylistUrlOptions(settings),
+            CreateBeatorajaOptions(settings),
+            CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            CreateTestMutationLease)
+            new ChartFileOperationSynchronizer())
     {
     }
 
     internal TestBmsPlaylist(
         string songDbPath,
         string scoreDbPath,
-        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
+        Settings settings = null)
         : base(
             songDbPath,
             null,
             scoreDbPath,
             null,
-            CurrentPlaylistUrlOptions,
-            CurrentBeatorajaOptions,
-            CurrentCustomFolderOptions,
+            CreatePlaylistUrlOptions(settings),
+            CreateBeatorajaOptions(settings),
+            CreateCustomFolderOptions(settings),
             TestBmsFactory.MissingEverythingBridge,
             new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization,
-            CreateTestMutationLease)
+            new ChartFileOperationSynchronizer())
     {
     }
 
@@ -345,10 +412,10 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
-        Func<string, LibraryFileMutationLease> mutationLeaseProvider = null,
-        Func<string, bool, LibraryFileMutationLease> mutationLeaseProviderWithMessage = null,
+        ChartFileOperationSynchronizer mutationAdmission = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        IUiScheduler uiScheduler = null)
+        IUiScheduler uiScheduler = null,
+        Settings settings = null)
         : base(
             songDbPath,
             getLr2Config,
@@ -360,8 +427,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             TestBmsFactory.MissingEverythingBridge,
             uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             lr2PlaylistFolderSynchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
-            mutationLeaseProviderWithMessage
-                ?? ((operation, _) => (mutationLeaseProvider ?? CreateTestMutationLease)(operation)),
+            mutationAdmission ?? new ChartFileOperationSynchronizer(),
             playlistUrlCompletionTsvContentFetcher,
             playlistUrlCompletionStellaContentFetcher,
             recommendationScoreReader)

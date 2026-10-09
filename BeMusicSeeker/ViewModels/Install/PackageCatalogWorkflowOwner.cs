@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -29,6 +30,9 @@ internal sealed class PackageCatalogMutationPhaseEventArgs : EventArgs
 
 internal interface IPackageCatalogStore
 {
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    IPackageCatalogStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
+
     void RemoveAll(BMSLibrary library, PackageCatalogSection section);
 
     void RemovePackages(
@@ -149,7 +153,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(section, library => store.RemoveAll(library, section), operationGate));
+            () => Execute(section, (library, operationStore) => operationStore.RemoveAll(library, section), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
@@ -181,7 +185,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(section, library => store.RemovePackages(library, section, [package]), operationGate));
+            () => Execute(section, (library, operationStore) => operationStore.RemovePackages(library, section, [package]), operationGate));
     }
 
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
@@ -207,19 +211,19 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         return ScheduleWithAcquiredGate(
             operationGate,
-            () => Execute(request.Section, library =>
+            () => Execute(request.Section, (library, operationStore) =>
             {
                 IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
                     library,
                     request.Section,
                     request.Targets);
-                store.RemovePackages(library, request.Section, packages);
+                operationStore.RemovePackages(library, request.Section, packages);
             }, operationGate));
     }
 
     private PackageCatalogMutationResult Execute(
         PackageCatalogSection section,
-        Action<BMSLibrary> mutation,
+        Action<BMSLibrary, IPackageCatalogStore> mutation,
         IDisposable acquiredOperationGate = null)
     {
         IDisposable operationGate = acquiredOperationGate;
@@ -243,6 +247,8 @@ internal sealed class PackageCatalogWorkflowOwner
             operationGate.Dispose();
             return PackageCatalogMutationResult.Completed;
         }
+        using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+        IPackageCatalogStore operationStore = store.ForAcceptedOperation(capability);
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
@@ -258,7 +264,7 @@ internal sealed class PackageCatalogWorkflowOwner
             mutationAttempted = true;
             try
             {
-                mutation(library);
+                mutation(library, operationStore);
             }
             catch (Exception ex)
             {
@@ -346,12 +352,6 @@ internal sealed class PackageCatalogWorkflowOwner
         PackageCatalogSection section,
         out IDisposable operationGate)
     {
-        BMSLibrary library = libraryProvider();
-        if (section == PackageCatalogSection.Pending
-            && library?.IsPendingOperationAdmissionReady == true)
-        {
-            return library.TryEnterPendingOperation(out operationGate);
-        }
         return chartFileOperations.TryEnter(out operationGate);
     }
 
@@ -413,6 +413,14 @@ internal sealed class PackageCatalogWorkflowOwner
 
 internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
 {
+    private readonly LibraryFileMutationCapability capability;
+
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    internal BmsLibraryPackageCatalogStore(LibraryFileMutationCapability capability = null) { this.capability = capability; }
+
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    public IPackageCatalogStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryPackageCatalogStore(capability);
+
     public void RemoveAll(BMSLibrary library, PackageCatalogSection section)
     {
         if (section == PackageCatalogSection.Pending)
@@ -432,7 +440,7 @@ internal sealed class BmsLibraryPackageCatalogStore : IPackageCatalogStore
     {
         if (section == PackageCatalogSection.Pending)
         {
-            library.RemovePendingPackages(packages);
+            library.RemovePendingPackages(packages, capability);
         }
         else
         {

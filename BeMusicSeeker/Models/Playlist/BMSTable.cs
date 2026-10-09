@@ -653,12 +653,14 @@ public class BMSTable : LR2SongDBExtended.playlist
         return null;
     }
 
-    public string HeaderToJson()
+    /// <summary>正本を変更せず、ヘッダーJSONを生成します。Data_urlが空の場合だけ出力用の相対URLを使用します。</summary>
+    /// <param name="outputDataUrl">ファイル出力用のURL。正本の値があれば正本を優先し、省略時は従来の値をそのまま出力します。</param>
+    public string HeaderToJson(string outputDataUrl = null)
     {
-        return CreateHeaderJson().ToString(Formatting.Indented);
+        return CreateHeaderJson(outputDataUrl).ToString(Formatting.Indented);
     }
 
-    private JObject CreateHeaderJson()
+    private JObject CreateHeaderJson(string outputDataUrl = null)
     {
         var val = new JObject();
         val["name"] = base.name;
@@ -668,7 +670,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         val["folder_sort_key"] = base.folder_sort_key.ToColumnName();
         val["folder_sort_ascending"] = base.folder_sort_ascending;
         val["entry_type"] = base.entry_type.ToStringName();
-        val["data_url"] = data_url;
+        val["data_url"] = string.IsNullOrWhiteSpace(data_url) ? outputDataUrl ?? data_url : data_url;
         if (!string.IsNullOrWhiteSpace(base.tag))
         {
             val["tag"] = base.tag;
@@ -1110,6 +1112,9 @@ public class BMSTable : LR2SongDBExtended.playlist
         return new CompatibleFolderPrefixRewritePlan(folderMap, entryRewrites, rewrittenFolderOrder);
     }
 
+    /// <summary>固定したprefix変更を全対象へ適用します。通知失敗でも後続モデル反映を完了し、元失敗を呼出元の保存・終端処理へ返します。</summary>
+    /// <param name="rewritePlan">同じP内で一度捕捉・検証した有限の変更対象。</param>
+    /// <returns>変更対象がある場合true。通知例外は全モデル反映後に送出します。</returns>
     internal bool ApplyCompatibleFolderPrefixRewritePlan(CompatibleFolderPrefixRewritePlan rewritePlan)
     {
         if (rewritePlan == null)
@@ -1122,13 +1127,21 @@ public class BMSTable : LR2SongDBExtended.playlist
             return false;
         }
 
+        List<Exception> notificationFailures = [];
+        void Apply(Action mutation)
+        {
+            try { mutation(); }
+            catch (Exception failure) { notificationFailures.Add(failure); }
+        }
         foreach (CompatibleFolderPrefixEntryRewrite entryRewrite in rewritePlan.EntryRewrites)
         {
-            entryRewrite.Entry.folder = entryRewrite.RewrittenFolder;
+            Apply(() => entryRewrite.Entry.folder = entryRewrite.RewrittenFolder);
         }
-        Folder_order = [.. rewritePlan.RewrittenFolderOrder];
-        RebuildFolderState();
-        TouchPlaylistEntriesRevision();
+        Apply(() => Folder_order = [.. rewritePlan.RewrittenFolderOrder]);
+        Apply(() => RebuildFolderState());
+        Apply(() => TouchPlaylistEntriesRevision());
+        if (notificationFailures.Count == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(notificationFailures[0]).Throw(); }
+        if (notificationFailures.Count > 1) { throw new AggregateException(notificationFailures).Flatten(); }
         return true;
     }
 

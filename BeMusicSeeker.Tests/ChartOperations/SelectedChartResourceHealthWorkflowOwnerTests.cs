@@ -1,14 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static BeMusicSeeker.Tests.OwnedChartCollectionTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -119,6 +122,52 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { false, true, false }, store.UnsetValues);
     }
 
+    /// <summary>実警告無視・再検査を本番adapterとDBへ転送し、拒否要求が保存を始めないことを確認します。</summary>
+    [TestMethod]
+    public async Task RealStore_WarningIgnoreAndRescanBorrowAcceptedLibraryAuthority()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string path = Path.Combine(Path.GetDirectoryName(songDbPath)!, "health.bms");
+            File.WriteAllText(path, "#TITLE health\n#WAV01 missing.wav\n#00111:01");
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(),
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [CreateFile(new string('d', 32), path)], BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(library.BmsCharts);
+            ChartFile chart = library.BmsCharts.Single();
+            Assert.IsTrue(ChartResourceHealthRequest.TryCreate([new ChartOperationTarget(chart, null,
+                ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RunResourceHealthCheck)], out ChartResourceHealthRequest request));
+            var owner = new SelectedChartResourceHealthWorkflowOwner(() => library, new RecordingDialogService());
+            try
+            {
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
+                using (busy)
+                {
+                    Assert.IsTrue(owner.SetWarningsIgnored(request).Busy);
+                    Assert.IsTrue((await owner.RescanAsync(request)).Busy);
+                    using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                    Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == path));
+                }
+                Assert.IsTrue(owner.SetWarningsIgnored(request).Succeeded);
+                using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+                { Assert.IsTrue(read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path).is_files_warning_ignored); }
+                Assert.IsTrue(owner.SetWarningsIgnored(request, unset: true).Succeeded);
+                Assert.IsTrue((await owner.RescanAsync(request)).Succeeded);
+                using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+                {
+                    LR2SongDBExtended.maintenance row = read.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == path);
+                    Assert.IsFalse(row.is_files_warning_ignored);
+                    Assert.AreEqual(1, row.wav_files_defined);
+                    Assert.AreEqual(0, row.wav_files_existing);
+                }
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+            }
+            finally { library.RequestShutdown("health-entry-test"); }
+        });
+    }
+
     private static SelectedChartResourceHealthWorkflowOwner CreateOwner(
         RecordingStore store,
         RecordingDialogService dialogs)
@@ -126,7 +175,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         return new SelectedChartResourceHealthWorkflowOwner(
             () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
             dialogs,
-            store);
+            store, new ChartFileOperationSynchronizer());
     }
 
     private static ChartResourceHealthRequest CreateRequest()
@@ -161,7 +210,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 
         public MaintenanceWorkflowResult RescanResourceHealthCharts(
             BMSLibrary library,
-            IReadOnlyList<ChartFile> charts)
+            IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability)
         {
             RescanCalls++;
             ThrowIfConfigured();
@@ -171,7 +220,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         public void SetChartResourceWarningsIgnored(
             BMSLibrary library,
             IReadOnlyList<ChartFile> charts,
-            bool unset)
+            bool unset, LibraryFileMutationCapability capability)
         {
             UnsetValues.Add(unset);
             ThrowIfConfigured();

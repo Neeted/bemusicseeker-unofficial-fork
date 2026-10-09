@@ -578,6 +578,9 @@ internal sealed class CapturedChartFileScanner : IChartFileScanner
 {
     private readonly ChartScanExecutionResult capturedResult;
 
+    /// <summary>実Scanの到達と解放を所有fixtureで観測します。返却する固定入力や成功判定は変更しません。</summary>
+    internal Action? ScanObserved { get; set; }
+
     private CapturedChartFileScanner(ChartScanExecutionResult capturedResult)
     {
         this.capturedResult = capturedResult ?? throw new ArgumentNullException(nameof(capturedResult));
@@ -615,6 +618,7 @@ internal sealed class CapturedChartFileScanner : IChartFileScanner
         bool includeTextSurface = true,
         bool includeDirectorySurface = false)
     {
+        ScanObserved?.Invoke();
         return capturedResult;
     }
 }

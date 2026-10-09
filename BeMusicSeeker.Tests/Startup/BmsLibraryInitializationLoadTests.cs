@@ -18,7 +18,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_FixesRelativePathsWithoutMaintenanceHydration()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
@@ -84,7 +84,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [DoNotParallelize]
     public void LoadMaintenanceTable_LoadsMaintenanceMapAfterCatalogLoad()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string? previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", null);
         try
@@ -145,7 +145,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [DoNotParallelize]
     public void LoadMaintenanceTable_CanUseSqliteNetFallback()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string? previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", "sqlite_net");
         try
@@ -188,7 +188,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [DoNotParallelize]
     public void LoadSongTable_RawCatalogLoaderPreservesSongColumns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string? previousMode = Environment.GetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE");
         Environment.SetEnvironmentVariable("BMS_SONG_TABLE_LOAD_MODE", null);
         try
@@ -294,7 +294,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_DoesNotRegisterMaintenanceEncodingPropertyChangedHandler()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
@@ -343,7 +343,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_AppliesChartDigestMapToLoadedFiles()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
@@ -389,7 +389,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_PreservesShiftJisUnsupportedExistingSongAndWarns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Songs😀");
@@ -436,7 +436,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_StandalonePreservesShiftJisUnsupportedExistingSongAndWarns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryStandaloneSongDb(delegate (string rootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(rootPath, "Songs😀");
@@ -482,7 +482,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_DoesNotPartiallyFixRelativeShiftJisUnsupportedPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string relativePath = Path.Combine("Songs😀", "chart.bms");
@@ -528,7 +528,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_LoadsBmsonSongsFromCatalogTable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Songs", "chart.bmson");
@@ -565,7 +565,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [TestMethod]
     public void LoadSongTable_DoesNotHydrateChartInfoOnCriticalPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
@@ -614,7 +614,7 @@ public sealed class BmsLibraryInitializationLoadTests
     [DataRow(2024, 3, 2, 0, 0, 0)]
     public void LoadSongTable_DoesNotTreatNonTargetTimestampAsLeapYearBug(int year, int month, int day, int hour, int minute, int second)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "NormalFolder");

@@ -58,6 +58,8 @@ internal sealed class CatalogChartInfoOwner
 
     private readonly Action<string> logPerformance;
 
+    private readonly ChartFileOperationSynchronizer operationAdmission;
+
     private BmsLibraryDbGateway workflowDbGateway;
 
     private CatalogMutationOwner workflowMutationOwner;
@@ -105,7 +107,7 @@ internal sealed class CatalogChartInfoOwner
 
     private int chartInfoBackfillCompletedVersion;
 
-    private int chartInfoBackfillHydrationBypassUntilVersion;
+    private TaskCompletionSource<bool> hydrationCompletion;
 
     private ChartInfoHydrationAllCurrentSnapshot hydrationAllCurrentSnapshot;
 
@@ -149,18 +151,22 @@ internal sealed class CatalogChartInfoOwner
 
     private bool chartInfoIndexHydratedValue;
 
+    /// <summary>推定入力の必須背景更新を、構成が共有する論理受付へ接続します。</summary>
+    /// <param name="operationAdmission">先行操作の実終端を非同期で待つ共有受付。</param>
     internal CatalogChartInfoOwner(
         Action<string> propertyChanged,
         Func<bool> isShutdownRequested,
         Func<string, string, bool> trySkipForShutdown,
         Func<Func<string, string, string, Func<Task>, bool>> startupBackgroundTaskSchedulerProvider,
-        Action<string> logPerformance)
+        Action<string> logPerformance,
+        ChartFileOperationSynchronizer operationAdmission = null)
     {
         this.propertyChanged = propertyChanged;
         this.isShutdownRequested = isShutdownRequested ?? (() => false);
         this.trySkipForShutdown = trySkipForShutdown ?? ((_, _) => false);
         this.startupBackgroundTaskSchedulerProvider = startupBackgroundTaskSchedulerProvider;
         this.logPerformance = logPerformance;
+        this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
         inlineBuildService = new(
             buildService,
             FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree());
@@ -348,24 +354,6 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    internal int ChartInfoBackfillHydrationBypassUntilVersion
-    {
-        get
-        {
-            lock (backfillGate)
-            {
-                return chartInfoBackfillHydrationBypassUntilVersion;
-            }
-        }
-        set
-        {
-            lock (backfillGate)
-            {
-                chartInfoBackfillHydrationBypassUntilVersion = value;
-            }
-        }
-    }
-
     internal ChartInfoHydrationAllCurrentSnapshot HydrationAllCurrentSnapshot
     {
         get
@@ -549,6 +537,7 @@ internal sealed class CatalogChartInfoOwner
             hydrationPendingReason = null;
             hydrationPendingQueueBackfill = false;
             hydrationRunning = false;
+            hydrationCompletion?.TrySetResult(true);
         }
     }
 
@@ -608,7 +597,6 @@ internal sealed class CatalogChartInfoOwner
     internal void EnsureHydratedForLr2(string reason)
     {
         EnsureWorkflowConfigured();
-        WaitForHydrationIdle();
         if (IsIndexHydrated)
         {
             return;
@@ -627,26 +615,18 @@ internal sealed class CatalogChartInfoOwner
             + " indexBuildMs=" + result.IndexBuildMs);
     }
 
-    internal void WaitForHydrationIdle()
+    /// <summary>受理済み読込みの終端を、論理受付を取得する前に非同期で待ちます。</summary>
+    private async Task WaitForHydrationIdleAsync()
     {
-        EnsureWorkflowConfigured();
         while (true)
         {
+            Task completion;
             lock (hydrationGate)
             {
-                if (!hydrationRunning)
-                {
-                    return;
-                }
+                if (!hydrationRunning) { return; }
+                completion = hydrationCompletion.Task;
             }
-            lock (backfillGate)
-            {
-                if (chartInfoBackfillHydrationBypassUntilVersion > chartInfoBackfillCompletedVersion)
-                {
-                    return;
-                }
-            }
-            Thread.Sleep(50);
+            await completion.ConfigureAwait(false);
         }
     }
 
@@ -764,9 +744,13 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    internal void ProcessBackfillRequests(bool waitForHydrationIdle = true)
+    private void ProcessBackfillRequests()
     {
         EnsureWorkflowConfigured();
+        lock (backfillGate)
+        {
+            if (!ChartInfoBackfillRunning) { return; }
+        }
         while (true)
         {
             if (IsShutdownRequested)
@@ -777,7 +761,6 @@ internal sealed class CatalogChartInfoOwner
                     shutdownRequestVersion = chartInfoBackfillRequestedVersion;
                     backfillRequests.Clear();
                     chartInfoBackfillCompletedVersion = shutdownRequestVersion;
-                    chartInfoBackfillHydrationBypassUntilVersion = 0;
                     ChartInfoBackfillRunning = false;
                 }
                 ChartInfoBackfillCompletedVersion = shutdownRequestVersion;
@@ -787,10 +770,6 @@ internal sealed class CatalogChartInfoOwner
                 ChartInfoBackfillCurrentPath = string.Empty;
                 LogPerformance?.Invoke("chart_info_backfill skipped version=" + shutdownRequestVersion + " reason=shutdown_requested");
                 return;
-            }
-            if (waitForHydrationIdle)
-            {
-                WaitForHydrationIdle();
             }
             int requestVersion;
             OperationProgressRequest progressRequest;
@@ -1021,6 +1000,7 @@ internal sealed class CatalogChartInfoOwner
                         {
                             hydrationRunning = false;
                             ChartInfoHydrationRunning = false;
+                            hydrationCompletion?.TrySetResult(true);
                             shouldReturnAfterCompletion = true;
                         }
                     }
@@ -1126,7 +1106,6 @@ internal sealed class CatalogChartInfoOwner
         int requestVersion;
         OperationProgressRequest progressRequest;
         bool shouldStartWorker = false;
-        bool shouldWaitForCompletion = false;
         if (request == null)
         {
             return;
@@ -1148,13 +1127,7 @@ internal sealed class CatalogChartInfoOwner
                 shouldStartWorker = true;
                 ChartInfoBackfillRunning = true;
             }
-            shouldWaitForCompletion = processSynchronously && !shouldStartWorker;
-            if (shouldWaitForCompletion)
-            {
-                chartInfoBackfillHydrationBypassUntilVersion = Math.Max(
-                    chartInfoBackfillHydrationBypassUntilVersion,
-                    requestVersion);
-            }
+
         }
         ChartInfoBackfillRequestedVersion = requestVersion;
         PublishProgressSnapshot(ref backfillProgressSnapshot,
@@ -1168,48 +1141,20 @@ internal sealed class CatalogChartInfoOwner
             + " reason=" + (request.Reason ?? "unknown")
             + " mode=full"
             + " version=" + requestVersion);
+        if (processSynchronously)
+        {
+            // 同じ受理済み入力更新の継続として実行する。待機中の旧workerは終端後に完了済み要求を再実行しない。
+            ProcessBackfillRequests();
+            return;
+        }
         if (shouldStartWorker)
         {
-            if (processSynchronously)
+            Task.Run(async () =>
             {
-                ProcessBackfillRequests(waitForHydrationIdle: false);
-                return;
-            }
-            Task.Run(() => ProcessBackfillRequests()).ObserveFault("ProcessChartInfoBackfillRequests");
-        }
-        if (shouldWaitForCompletion)
-        {
-            WaitForBackfillVersion(requestVersion);
-        }
-    }
-
-    private void WaitForBackfillVersion(int requestVersion)
-    {
-        try
-        {
-            while (true)
-            {
-                bool completed;
-                lock (backfillGate)
-                {
-                    completed = chartInfoBackfillCompletedVersion >= requestVersion;
-                }
-                if (completed)
-                {
-                    return;
-                }
-                Thread.Sleep(50);
-            }
-        }
-        finally
-        {
-            lock (backfillGate)
-            {
-                if (chartInfoBackfillHydrationBypassUntilVersion <= requestVersion)
-                {
-                    chartInfoBackfillHydrationBypassUntilVersion = 0;
-                }
-            }
+                await WaitForHydrationIdleAsync().ConfigureAwait(false);
+                using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
+                ProcessBackfillRequests();
+            }).ObserveFault("ProcessChartInfoBackfillRequests");
         }
     }
 
@@ -1716,6 +1661,7 @@ internal sealed class CatalogChartInfoOwner
             if (!hydrationRunning)
             {
                 hydrationRunning = true;
+                hydrationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 shouldStartWorker = true;
             }
         }
@@ -1734,10 +1680,15 @@ internal sealed class CatalogChartInfoOwner
             return;
         }
 
+        Func<Task> acceptedWork = async () =>
+        {
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
+            await process().ConfigureAwait(false);
+        };
         Func<string, string, string, Func<Task>, bool> scheduler = SchedulerProvider?.Invoke();
         if (scheduler != null)
         {
-            if (scheduler("chart_info_hydration", reason ?? "queue", null, process))
+            if (scheduler("chart_info_hydration", reason ?? "queue", null, acceptedWork))
             {
                 return;
             }
@@ -1749,7 +1700,7 @@ internal sealed class CatalogChartInfoOwner
             CompleteHydrationForShutdown("shutdown_requested");
             return;
         }
-        Task.Run(process).ObserveFault("ProcessDeferredChartInfoHydrationRequests");
+        Task.Run(acceptedWork).ObserveFault("ProcessDeferredChartInfoHydrationRequests");
     }
 
     internal void CompleteHydrationForShutdown(string reason)
@@ -1762,6 +1713,7 @@ internal sealed class CatalogChartInfoOwner
             hydrationPendingReason = null;
             hydrationPendingQueueBackfill = false;
             hydrationRunning = false;
+            hydrationCompletion?.TrySetResult(true);
         }
         ChartInfoHydrationCompletedVersion = requestVersion;
         ChartInfoHydrationRunning = false;

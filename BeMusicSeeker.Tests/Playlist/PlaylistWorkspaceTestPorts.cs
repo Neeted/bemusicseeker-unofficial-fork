@@ -18,7 +18,6 @@ internal static class PlaylistWorkspaceTestPorts
         IUiDialogService? dialogService = null,
         Func<IReadOnlyList<string>, bool>? installSink = null,
         Action<Uri>? browserSink = null,
-        Func<bool>? installQueueActiveProvider = null,
         Func<Task>? reloadCleanupDispatcherIdleWaiter = null,
         Func<bool>? reloadCleanupShutdownRequestedProvider = null,
         Action? reloadCleanupGarbageCollector = null,
@@ -35,7 +34,6 @@ internal static class PlaylistWorkspaceTestPorts
             acquisitionWorkflow ?? CreateUrlAcquisitionWorkflow(),
             CreateExternalPackageLookupService(),
             UrlAcquisitionOptionsProvider,
-            installQueueActiveProvider ?? InactiveInstallQueueProvider,
             installSink ?? PlaylistUrlInstallSink,
             browserSink ?? PlaylistUrlBrowserOpenSink,
             ExternalPlaylistImportWarningLog,
@@ -155,7 +153,6 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Func<PlaylistUrlAcquisitionOptionsSnapshot> UrlAcquisitionOptionsProvider =>
         () => new PlaylistUrlAcquisitionOptionsSnapshot();
 
-    internal static Func<bool> InactiveInstallQueueProvider => () => false;
 
     internal static Func<IReadOnlyList<string>, bool> PlaylistUrlInstallSink => _ => true;
 
@@ -174,7 +171,7 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Action<string> BeatorajaTableUrlImportInfoLog => _ => { };
 
     internal static IMainChartColumnSettingsStore PlaylistSummaryColumnSettingsStore =>
-        new SettingsMainChartColumnSettingsStore(() => BeMusicSeeker.Properties.Settings.Default);
+        new InMemoryMainChartColumnSettingsStore();
 
     internal static PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSortCoordinator =>
         new PlaylistSummaryBmtSortCoordinator(() => null, () => []);

@@ -1727,16 +1727,17 @@ public sealed class PlayHistoryReadModelTests
     public async Task SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         PlayHistoryPeriodTreeItem[] archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
         viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(archive);
         viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
         viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
         viewModel.PlaylistWorkspace.RequestSummarySelection();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         await viewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync()
             .ConfigureAwait(false);
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
         Assert.AreEqual(string.Empty, viewModel.PlayHistory.SummaryDiagnosticText);
@@ -2104,6 +2105,7 @@ public sealed class PlayHistoryReadModelTests
     public async Task MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var regularSortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2153,6 +2155,7 @@ public sealed class PlayHistoryReadModelTests
     public async Task MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var playHistorySortChanged = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(
             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2210,6 +2213,7 @@ public sealed class PlayHistoryReadModelTests
     public void MainChartListSortRequest_RejectsStaleAndAbaOwnerRevisions()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         var regularRequests = new List<MainChartListSortRequestedEventArgs>();
         var playHistoryRequests = new List<MainChartListSortRequestedEventArgs>();
@@ -2245,6 +2249,7 @@ public sealed class PlayHistoryReadModelTests
     public void RegularSortMutation_CancelsTheInFlightRowRequestBeforeRefreshRuns()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner owner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         Assert.IsTrue(owner.TryBeginRequest(out RegularChartListRequestLease lease));
 
@@ -2353,6 +2358,7 @@ public sealed class PlayHistoryReadModelTests
     public void SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
         using var regularRefreshed = new ManualResetEventSlim();
         regularOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected regular notification failure");
@@ -3500,6 +3506,7 @@ public sealed class PlayHistoryReadModelTests
     public void MainViewSelectionKeepsExistingChartOperationContextWhenDeactivationRaises()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         PlayHistoryWorkflowOwner playHistory = viewModel.PlayHistory;
         viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
         playHistory.BeginRequest(
@@ -3957,7 +3964,6 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

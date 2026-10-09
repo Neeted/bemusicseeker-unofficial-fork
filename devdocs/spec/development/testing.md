@@ -118,9 +118,13 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 共有設定、リソース辞書、文化圏、テーマ、ウィンドウ一覧などを変更する場合は、準備から復元までの所有を確認します。`DoNotParallelize` は分離不能な共有資源とその復元方法を説明できる範囲に使い、独立した状態だけを扱うテストは並列実行します。この属性は他プロセスや利用者の操作を排他しません。外部入力の分離とテスト間の共有状態は別々に確認します。
 
+通常fixtureの設定入力は固定snapshot、専用pathのSettings、in-memory storeを使い、暗黙の `Settings.Default` や利用者設定providerへ戻しません。設定保存の保証には専用pathの実providerを使います。日本語リソースの通常基準はAssemblyInitializeで一回だけ準備します。実文化・テーマの切替と共有通知への購読は、準備から処理終端・購読解除・復元まで所有します。標準compositionはWindowがなくても共有通知を購読するため、その寿命も非並列にします。
+
 ### 非同期処理の待機
 
 通常完了は、対象のTask、イベント、状態遷移に直接結び付く通知で待ちます。通知より先に処理が失敗した場合も観測し、来ない通知だけを待ち続けません。テストが閉じた待合せは `finally` で解放し、所有する処理の終結と後片付けを待ちます。
+
+成功通知の到達待ちは、`TestUiDispatcherHost.AwaitNotificationAsync` で通知を生成する実Taskの失敗・取消にも接続します。通知なしで実処理が終わった場合は、その場で未到達として失敗します。生成元が失敗を結果通知へ変換する所有者では、その所有者の実終端を使います。別に予約されたUI受信は生成workerの完了で代用せず、受信処理自身を所有します。MainWindowの寿命は `CloseCompletion` で終了要求からDispatcherと終端処理まで待ち、通知前の失敗もClosed・共有Resourceの回収と併せて観測します。
 
 単なる到達・完了確認には局所期限を追加せず、停止は検証全体の期限で検出します。局所的な制限時間は、外部プロセス、画面表示、解放、ロックが成立しないこと、時間超過契約の失敗検出に限定します。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
 
@@ -136,9 +140,19 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 ### 画面テストの分離
 
-WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcherを共有します。最初の `Dispatcher` / `Invoke` / `Drain` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
+WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcherを共有します。最初の `Dispatcher` / `Invoke` / `ProcessQueuedPresentation` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
 
-Dispatcher上のTask待機は `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使います。テストごとの `Application`・STAスレッド・独自のDispatcher待機ループは作りません。直接の `Dispatcher.PushFrame` や `HwndSource` は共通基盤か明示された例外に限ります。
+表示入力の反映には共通の `ProcessQueuedPresentation` を使い、Loaded境界の後で実controlの値・選択・配置を確認します。この補助は機能処理、Background予約、閉鎖や全Dispatcherのidleを保証しません。実処理はconsumerのTaskまたは適用・終端通知を待ち、未完了の否定観測は到達gateを保持して行い、finallyで解放と開始済みTaskの回収を行います。入力TCSの完了だけをconsumer終端としません。成功後に追加作用を持たないイベントハンドラーは、compiled入口の引数・受理状態と委譲Taskの回収、委譲後に追加作用がない静的接続で分担します。
+
+Dispatcher上の通常機能Task待機は、局所期限を加えない `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使います。描画・閉鎖・native解放の通知欠落は同じDispatcher基盤の `AwaitPresentationOnDispatcher` で期限付きに観測します。テストごとの `Application`・STAスレッド・独自のDispatcher待機ループは作りません。直接の `Dispatcher.PushFrame` や `HwndSource` は共通基盤か明示された例外に限ります。
+
+実Window・Popupのscopeは共有Window/HWND一覧を観測するため、準備から処理終端・後片付けまで非並列にします。同一テストの親子Windowには同じscopeを渡し、独自の入れ子scopeを作りません。Windowを作らず共有状態を変えない `Invoke` はこの理由では直列化しません。実Dispatcherの終了を保証する専用STAと、共通基盤の意図的な入れ子scope検査は、それぞれの保証のために維持します。
+
+MainWindowの生成前からshutdown・Closed・設定購読解除・`Resources["vm"]` 復元までは `MainWindowTestLifetime` が所有します。機能入力と実処理の終端観測は機能側へ残します。compiled内容だけを描画する場合も共通scopeの実Windowを使い、Binding・値・選択・配置の表明を維持します。
+
+constructor-only harnessは `PrepareConstructorOnlyShell` で既存のshell activation境界へ完了済みの初期化を渡し、表示だけのfixtureから本番起動を開始しません。実起動・起動取消・終了の接続は `MainWindowViewHostTests` とPlaylistの `ActualMainWindowFixture` が本番のactivationで検証します。
+
+共有hostの要求は実DispatcherOperationと既存のhost終端通知を観測します。hostが既に終了した場合と、要求の受理後に終了した場合は、所有threadをjoinして元host例外を返します。Dispatcher停止の二次失敗でも終端通知・joinを失わず、二次失敗を元例外へ添付します。健全なhost上のAction自身の失敗は保持し、後続要求は受理します。
 
 `ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
 
@@ -150,7 +164,7 @@ Dispatcher上のTask待機は `TestUiDispatcherHost.AwaitTaskOnDispatcher` を�
 
 非公開WPFメソッドによるフォーカス偽装や、テスト専用の本番分岐、外部入力を無視する製品仕様の変更は行いません。実フォーカス移動・IME等のOS接続は[実機確認](#ユーザーに推奨する実機確認)と分担します。共有Dispatcherの待機中には別テストが再入し得るため、Dispatcherの利用だけで排他できると考えず、[資源の分離と共有](#資源の分離と共有)に従います。
 
-開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残処理、残留HWNDを片付けます。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
+開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残描画処理、残留HWNDを片付けます。開始時に存在して明示追跡していない別ownerのWindowは、後からHWNDを持っても当scopeの残留破棄へ含めません。そのWindowに属する実native ownerも、既訪問handleで停止する所有チェーンから導出して保護します。閉鎖前に `Closed` を購読し、実閉鎖を待ってから購読を解除します。未開・既閉の対象は区別し、閉鎖取消やWindow/HWNDの残留を成功にしません。機能処理の開始済みTaskは呼出側が回収し、一般的な `ApplicationIdle` はその終端や閉鎖の証明に使いません。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
 
 共有ホストは現在の `AppearanceTheme` を退避し、準備完了前に保存せずLightへ設定します。終了時は同じDispatcherで復元して `Application` とDispatcherを停止し、通知とスレッド結合で待ちます。未起動なら何もしません。既存Applicationとの競合、起動失敗、呼出し・終了失敗は表面化させ、`Application.ResourceAssembly` は変更しません。
 

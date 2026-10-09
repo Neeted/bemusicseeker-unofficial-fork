@@ -36,15 +36,16 @@ internal sealed class CatalogMutationOwner
 
     internal event EventHandler<CatalogWriteFailureFact> CatalogWriteFailurePublished;
 
+    /// <summary>現正本の管理出力先を固定し、物理競合の判定では読取失敗を元例外で伝播します。</summary>
     internal Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options)
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false)
     {
         if (options == null)
         {
             throw new InvalidOperationException("BMS library options snapshot provider returned null.");
         }
 
-        return managedPlaylistOutputScopeOwner?.Capture(options)
+        return managedPlaylistOutputScopeOwner?.Capture(options, throwOnFailure)
             ?? new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
     }
 

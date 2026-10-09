@@ -210,7 +210,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             return Task.CompletedTask;
         }, routeName);
 
-    /// <summary>曲開始を直列化し、開始に成功した曲についてだけ次の一件を準備します。</summary>
+    /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
     private async Task RunPlaybackSelectionAsync(Func<Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
@@ -292,15 +292,26 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         finally { playbackInputGate.Release(); }
     }
 
-    internal void AttachLibrary(BMSLibrary library)
+    /// <summary>
+    /// 一時導入試聴が参照するライブラリを接続します。再構築時の交換は、旧・新ライブラリに共通する
+    /// 生存中の論理受付権限の下で行い、再生セッションやプレイヤーの交換は行いません。
+    /// </summary>
+    /// <param name="library">接続する非nullのライブラリ。</param>
+    /// <param name="capability">受理済み再構築の共通受付権限。初回または同じライブラリの接続では省略できます。</param>
+    internal void AttachLibrary(BMSLibrary library, LibraryFileMutationCapability capability = null)
     {
         if (library == null)
         {
             throw new ArgumentNullException(nameof(library));
         }
+        capability?.Validate(library.OperationAdmission);
         if (this.library != null && !ReferenceEquals(this.library, library))
         {
-            throw new InvalidOperationException("Playback library is already attached.");
+            if (capability == null)
+            {
+                throw new InvalidOperationException("Playback library is already attached.");
+            }
+            capability.Validate(this.library.OperationAdmission);
         }
         this.library = library;
     }

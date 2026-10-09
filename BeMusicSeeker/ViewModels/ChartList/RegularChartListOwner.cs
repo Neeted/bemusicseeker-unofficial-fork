@@ -1000,66 +1000,60 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    /// <summary>
-    /// Queues a folder rename and returns its operation task; operation failures are observed for logging.
-    /// Invalid requests, disposed owners, and owners without a library are completed no-ops.
-    /// </summary>
+    /// <summary>改名を対象確定前にLへ非待機受付し、実変更・必要公開・通知・cleanupの終端まで保持します。Busyで予約しません。</summary>
     internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
     {
-        if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder))
-        {
-            return Task.CompletedTask;
-        }
-        BMSLibrary library;
-        Task renameTask;
+        if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder)) { return Task.CompletedTask; }
+        Task renameTask = null;
         lock (syncRoot)
         {
-            if (disposed)
+            if (disposed || normalLibraryRefreshSource == null) { return Task.CompletedTask; }
+            if (chartFileOperations.TryEnter(out IDisposable accepted))
             {
-                return Task.CompletedTask;
-            }
-            library = normalLibraryRefreshSource;
-            if (library == null)
-            {
-                return Task.CompletedTask;
-            }
-            Task previousRename = folderRenameTail;
-            var completion = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-            renameTask = Task.Run(async () =>
-            {
-                previousRename.GetAwaiter().GetResult();
-                try
+                BMSLibrary library = normalLibraryRefreshSource;
+                renameTask = Task.Run(async () =>
                 {
-                    await ExecuteFolderRenameAsync(library, request, newFolder).ConfigureAwait(false);
-                }
-                finally
-                {
-                    completion.TrySetResult(new object());
-                }
-            });
-            renameTask.ObserveFault("regularChartListFolderEditRequested");
-            folderRenameTail = completion.Task;
-            folderRenameTasks.Add(renameTask);
+                    using (accepted)
+                    {
+                        await ExecuteFolderRenameAsync(library, request, newFolder, accepted).ConfigureAwait(false);
+                    }
+                });
+                renameTask.ObserveFault("regularChartListFolderEditRequested");
+                folderRenameTasks.Add(renameTask);
+            }
         }
-        _ = renameTask.ContinueWith(
-            task =>
-            {
-                lock (syncRoot)
-                {
-                    folderRenameTasks.Remove(task);
-                }
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        if (renameTask == null) { return RejectFolderRenameBusyAsync(); }
+        _ = renameTask.ContinueWith(task =>
+        {
+            lock (syncRoot) { folderRenameTasks.Remove(task); }
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         return renameTask;
     }
 
-    private async Task ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder)
+    private async Task RejectFolderRenameBusyAsync()
     {
+        if (mutationDialogs != null)
+        {
+            UiDialogResult result = await mutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
+            UiDialogRoute.ThrowIfNotShown(result, "Folder rename Busy notification");
+        }
+    }
+
+    private async Task ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder, IDisposable operationGate)
+    {
+        using LibraryFileMutationCapability libraryCapability = chartFileOperations.CreateMutationCapability(operationGate);
+        string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
+        string parent = Path.GetDirectoryName(directoryName);
+        string destination = string.IsNullOrWhiteSpace(parent) ? directoryName : Path.Combine(parent, newFolder);
+        LibraryFileMutationLease playlistLease = null;
+        if (IsCurrentLibrary(library) && !library.TryEnterManagedOutputMutation([directoryName, destination], true, out playlistLease, libraryCapability))
+        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        using LibraryFileMutationLease acceptedPlaylist = playlistLease;
+        using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
+        using LibraryFileMutationCapability capability = libraryCapability.WithPlaylistCapability(playlistCapability);
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
-        IDisposable operationGate = null;
         bool suppressionStarted = false;
         bool normalRefreshApplySuppressed = false;
         bool operationAdmitted = false;
@@ -1067,10 +1061,6 @@ internal sealed class RegularChartListOwner : IDisposable
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            if (!chartFileOperations.TryEnter(out operationGate))
-            {
-                throw new InvalidOperationException("A chart-file operation is already active.");
-            }
             operationAdmitted = true;
             if (IsCurrentLibrary(library))
             {
@@ -1079,7 +1069,6 @@ internal sealed class RegularChartListOwner : IDisposable
                 dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = true;
                 PublishRefreshSuppressionChanged(isSuppressed: true);
-                string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
                 if (!string.IsNullOrWhiteSpace(directoryName)
                     && LongPathFileSystem.DirectoryExists(directoryName))
                 {
@@ -1089,7 +1078,7 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalRefreshApplySuppressed = true;
                     }
                     mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false,
-                        reportAtTerminal: mutationDialogs != null);
+                        reportAtTerminal: mutationDialogs != null, capability: capability);
                     lock (syncRoot)
                     {
                         normalLibraryRefreshApplySuppressed = false;
@@ -1112,8 +1101,6 @@ internal sealed class RegularChartListOwner : IDisposable
                     }
                     else
                     {
-                        CaptureCleanupFailure(operationGate.Dispose, failures);
-                        operationGate = null;
                         QueueLatestNormalLibraryRefreshNotification(
                             "library_charts_changed",
                             expectedLibrary: library);
@@ -1128,15 +1115,7 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         finally
         {
-            // Failure dialogs and all queued refresh callbacks must flush
-            // after the outer chart-operation gate has been released.  A
-            // dialog callback may re-enter this owner, so retaining the gate
-            // until the end of this cleanup block would deadlock that reentry.
-            if (operationGate != null)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
-                operationGate = null;
-            }
+            // 論理Lは外側が通知・cleanup終端まで保持し、短いmodel/DB保護だけを解放して公開します。
             if (normalRefreshApplySuppressed)
             {
                 lock (syncRoot)

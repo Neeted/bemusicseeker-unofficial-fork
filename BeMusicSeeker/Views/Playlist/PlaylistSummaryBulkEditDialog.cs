@@ -16,6 +16,8 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
 
     private Task applyTask = Task.CompletedTask;
 
+    private readonly IUiDialogService dialogService;
+
     private bool allowClose;
 
     private bool ownerShutdownCloseRequested;
@@ -25,21 +27,25 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
     /// <summary>Initializes an unbound bulk-edit window for XAML tooling.</summary>
     public PlaylistSummaryBulkEditDialog()
     {
+        dialogService = new UiDialogCoordinator();
         InitializeComponent();
     }
 
-    /// <summary>Initializes a bulk-edit window for one workspace-owned operation session.</summary>
-    /// <param name="viewModel">The bulk-edit session displayed by the window.</param>
-    internal PlaylistSummaryBulkEditDialog(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel viewModel)
+    /// <summary>所有workspaceの一括変更と同じcoordinatorで、必要な失敗通知まで待つ画面を作ります。</summary>
+    /// <param name="viewModel">画面が所有する一括変更session。</param>
+    /// <param name="dialogService">親画面と同じ所有者解決・表示窓口。省略時は既定coordinatorを使います。</param>
+    internal PlaylistSummaryBulkEditDialog(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel viewModel,
+        IUiDialogService dialogService = null)
         : this()
     {
         DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        this.dialogService = dialogService ?? this.dialogService;
     }
 
     /// <summary>Gets whether the owner forced this window closed for application shutdown.</summary>
     internal bool IsOwnerShutdownClose => ownerShutdownCloseRequested;
 
-    /// <summary>Gets the apply task that must settle before the workspace drops the session.</summary>
+    /// <summary>現在反映中なら実操作・必要通知・再有効化までのTaskを返します。開始前と終端後は完了済みTaskです。通知単独の失敗も反映中に取得したTaskへ伝えます。</summary>
     internal Task WaitForApplyCompletionAsync() => applyTask;
 
     /// <summary>
@@ -128,68 +134,56 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
         base.OnClosing(e);
     }
 
-    private async void ApplyCustomFolderOutput(object sender, RoutedEventArgs e)
+    private void ApplyCustomFolderOutput(object sender, RoutedEventArgs e)
     {
-        await RunApplyAsync(
-            viewModel => viewModel.ApplyCustomFolderOutputTypes(),
+        RunApplyAsync(
+            viewModel => viewModel.ApplyCustomFolderOutputTypesAsync(),
             viewModel => viewModel.ReloadCustomFolderOutputStates(),
-            "PlaylistSummaryBulkEditDialog.ApplyCustomFolderOutput");
+            "PlaylistSummaryBulkEditDialog.ApplyCustomFolderOutput").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyCustomFolderOutput");
     }
 
-    private async void ApplyRootFolder(object sender, RoutedEventArgs e)
+    private void ApplyRootFolder(object sender, RoutedEventArgs e)
     {
-        await RunApplyAsync(
-            viewModel => viewModel.ApplyRootFolder(),
+        RunApplyAsync(
+            viewModel => viewModel.ApplyRootFolderAsync(),
             viewModel => viewModel.ResetRootFolderOption(),
-            "PlaylistSummaryBulkEditDialog.ApplyRootFolder");
+            "PlaylistSummaryBulkEditDialog.ApplyRootFolder").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyRootFolder");
     }
 
-    private async void ApplyExternalSync(object sender, RoutedEventArgs e)
+    private void ApplyExternalSync(object sender, RoutedEventArgs e)
     {
         if (!ConfirmExternalSyncBulkApply())
         {
             return;
         }
-        await RunApplyAsync(
-            viewModel => viewModel.ApplyExternalSync(),
+        RunApplyAsync(
+            viewModel => viewModel.ApplyExternalSyncAsync(),
             viewModel => viewModel.ResetExternalSyncOption(),
-            "PlaylistSummaryBulkEditDialog.ApplyExternalSync");
+            "PlaylistSummaryBulkEditDialog.ApplyExternalSync").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalSync");
     }
 
-    private async void ApplyBmtOutput(object sender, RoutedEventArgs e)
+    private void ApplyBmtOutput(object sender, RoutedEventArgs e)
     {
-        await RunApplyAsync(
-            viewModel => viewModel.ApplyBmtOutput(),
+        RunApplyAsync(
+            viewModel => viewModel.ApplyBmtOutputAsync(),
             viewModel => viewModel.ResetBmtOutputOption(),
-            "PlaylistSummaryBulkEditDialog.ApplyBmtOutput");
+            "PlaylistSummaryBulkEditDialog.ApplyBmtOutput").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyBmtOutput");
     }
 
-    private async void ApplyOutputBase(object sender, RoutedEventArgs e)
+    private void ApplyOutputBase(object sender, RoutedEventArgs e)
     {
-        await RunApplyAsync(
-            viewModel => viewModel.ApplyOutputBase(),
+        RunApplyAsync(
+            viewModel => viewModel.ApplyOutputBaseAsync(),
             viewModel => viewModel.ResetOutputBaseOption(),
-            "PlaylistSummaryBulkEditDialog.ApplyOutputBase");
+            "PlaylistSummaryBulkEditDialog.ApplyOutputBase").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyOutputBase");
     }
 
-    private async void ApplyExternalPropertyInitialization(object sender, RoutedEventArgs e)
+    private void ApplyExternalPropertyInitialization(object sender, RoutedEventArgs e)
     {
-        await RunApplyAsync(
+        RunApplyAsync(
             viewModel => viewModel.ApplyExternalPropertyInitializationAsync(),
             viewModel => viewModel.ResetExternalPropertyInitializationOptions(),
-            "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
-    }
-
-    private Task RunApplyAsync(Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
-    {
-        return RunApplyAsync(
-            async viewModel =>
-            {
-                apply(viewModel);
-                await Task.CompletedTask;
-            },
-            afterApply,
-            logName);
+            "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
     }
 
     private Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
@@ -214,32 +208,46 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
         string logName,
         TaskCompletionSource<bool> completion)
     {
+        Exception failure = null;
         try
         {
-            await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).LoggingAndPropagate(logName);
-            afterApply?.Invoke(bulkEditDialogViewModel);
+            try
+            {
+                await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).LoggingAndPropagate(logName);
+                afterApply?.Invoke(bulkEditDialogViewModel);
+            }
+            catch (Exception ex) { await ShowOperationFailureAsync(ex); }
         }
-        catch (Exception ex)
-        {
-            ShowOperationFailure(ex);
-        }
+        catch (Exception ex) { failure = ex; }
         finally
         {
-            IsEnabled = true;
-            Interlocked.Exchange(ref applyInProgress, 0);
-            applyTask = Task.CompletedTask;
-            completion.TrySetResult(true);
+            try
+            {
+                IsEnabled = true;
+                Interlocked.Exchange(ref applyInProgress, 0);
+                applyTask = Task.CompletedTask;
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (failure == null) { failure = cleanupFailure; }
+                else { failure.Data["PlaylistBulkEditCleanupFailure"] = cleanupFailure; }
+            }
+            if (failure is OperationCanceledException cancelled) { completion.TrySetCanceled(cancelled.CancellationToken); }
+            else if (failure != null) { completion.TrySetException(failure); }
+            else { completion.TrySetResult(true); }
         }
     }
 
-    private void ShowOperationFailure(Exception exception)
+    private async Task ShowOperationFailureAsync(Exception exception)
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
+        if (ownerShutdownCloseRequested) { return; }
+        UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
             BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,
-            MessageBoxImage.Hand);
+            MessageBoxImage.Hand,
+            owner: this));
+        UiDialogRoute.ThrowIfNotShown(notification, "Playlist bulk edit failure notification");
     }
 
     private bool ConfirmExternalSyncBulkApply()

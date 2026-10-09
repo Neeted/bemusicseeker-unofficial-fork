@@ -19,7 +19,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void OperationDialogScope_QueuesOkMessagesUntilFlush()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
@@ -41,7 +41,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void OperationDialogScope_RejectsInteractivePromptWhenPreflightDecisionIsMissing()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService
@@ -71,7 +71,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         OwnedChartCollectionTestSupport.WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
@@ -107,7 +107,6 @@ public sealed class BmsLibraryMutationBoundaryTests
             finally
             {
                 library.RequestShutdown("prepared-dialog-boundary-test");
-                TestUiDispatcherHost.Drain();
             }
         });
     }
@@ -115,7 +114,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void ForceInstallPendingPackages_WithExplicitOverrideDecisionDoesNotPromptInsideMutationScope()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
@@ -142,6 +141,76 @@ public sealed class BmsLibraryMutationBoundaryTests
     private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
+    }
+
+    /// <summary>表が0でも保存済み管理基点の実src/dst/祖先再帰変更はP競合で無副作用、非交差の変更はP保持中にも確定します。</summary>
+    [DataTestMethod]
+    [DataRow("normal", "source")]
+    [DataRow("normal", "destination")]
+    [DataRow("normal", "ancestor")]
+    [DataRow("normal", "disjoint")]
+    [DataRow("root", "source")]
+    [DataRow("additional", "source")]
+    public void FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection(string role, string intersection)
+    {
+
+        OwnedChartCollectionTestSupport.WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string baseDirectory = Path.Combine(root, "Managed");
+            string sourceDirectory = intersection switch
+            {
+                "source" => Path.Combine(baseDirectory, "Pack"),
+                "ancestor" => Path.Combine(root, "Container"),
+                _ => Path.Combine(root, "Source")
+            };
+            if (intersection == "ancestor") { baseDirectory = Path.Combine(sourceDirectory, "Managed"); }
+            string newName = intersection == "destination" ? "Managed" : "Moved";
+            string destinationDirectory = Path.Combine(Path.GetDirectoryName(sourceDirectory) ?? root, newName);
+            Directory.CreateDirectory(sourceDirectory);
+            string path = Path.Combine(sourceDirectory, "chart.bms");
+            File.WriteAllText(path, "#PLAYER 1\n#TITLE Scope\n");
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = role == "normal" ? baseDirectory : Path.Combine(root, "OtherNormal"),
+                LR2CustomFolderOutputBaseDirRootType = role == "root" ? baseDirectory : Path.Combine(root, "OtherRoot"),
+                LR2CustomFolderAdditionalOutputBaseDirs = role == "additional" ? [baseDirectory] : []
+            };
+            var dialogs = new RecordingDialogService();
+            var library = new TestBmsLibrary(songDbPath, null, null, null, dialogs,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+            { BmsCharts = [OwnedChartCollectionTestSupport.CreateFile(new string('a', 32), path)], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(library.BmsCharts);
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));
+            try
+            {
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName);
+                if (intersection == "disjoint")
+                {
+                    Assert.AreEqual(1, receipt.ConfirmedChangeCount);
+                    Assert.IsFalse(File.Exists(path));
+                    Assert.IsTrue(File.Exists(Path.Combine(destinationDirectory, "chart.bms")));
+                }
+                else
+                {
+                    Assert.AreEqual(0, receipt.ConfirmedChangeCount);
+                    Assert.IsTrue(File.Exists(path));
+                    Assert.IsFalse(Directory.Exists(destinationDirectory));
+                    Assert.IsTrue(dialogs.CallCount > 0);
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                    { Assert.AreEqual(path, db.Table<LR2SongDB.song>().Single().path); }
+                    playlistLease.Dispose();
+                    receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName);
+                    Assert.AreEqual(1, receipt.ConfirmedChangeCount);
+                    Assert.IsFalse(File.Exists(path));
+                    Assert.IsTrue(File.Exists(Path.Combine(destinationDirectory, "chart.bms")));
+                }
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                { Assert.AreEqual(Path.Combine(destinationDirectory, "chart.bms"), db.Table<LR2SongDB.song>().Single().path); }
+            }
+            finally { playlistLease.Dispose(); library.RequestShutdown("managed-intersection-test"); }
+        });
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

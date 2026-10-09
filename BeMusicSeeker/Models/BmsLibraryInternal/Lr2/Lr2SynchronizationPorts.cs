@@ -44,7 +44,7 @@ internal interface ILr2SynchronizationDataPort
     LR2Config CreateCurrentLr2ConfigOrNull();
 
     Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options);
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false);
 
     Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(Lr2SongDbSyncRequest request);
 
@@ -576,8 +576,8 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
     public LR2Config CreateCurrentLr2ConfigOrNull() => configProvider.GetOrNull();
 
     public Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options) =>
-        catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options);
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false) =>
+        catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure);
 
     public Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(Lr2SongDbSyncRequest request) =>
         catalogMutationOwner.CaptureLr2FolderExistingRows(request);

@@ -31,10 +31,11 @@ internal interface IStartupLibraryFactory
 internal interface IStartupLibraryApplicationPort
 {
     /// <summary>
-    /// Attaches the library before playlist construction begins.
+    /// プレイリスト構築前にライブラリを接続し、受理済み初期化の権限を同じ操作へ渡します。
     /// </summary>
-    /// <param name="library">The exact library created for the startup profile.</param>
-    void AttachStartupLibrary(BMSLibrary library);
+    /// <param name="library">起動入力から構築したライブラリ。</param>
+    /// <param name="capability">受理済み設定・再初期化の生存権限。通常起動ではnullです。</param>
+    void AttachStartupLibrary(BMSLibrary library, LibraryFileMutationCapability capability = null);
 
     /// <summary>
     /// Applies the completed library and playlist services to the shell consumers.
@@ -60,14 +61,15 @@ internal sealed class StartupLibraryConstructionOwner
     }
 
     /// <summary>
-    /// Creates and applies the ordered startup library services.
+    /// 捕捉した起動入力でライブラリとプレイリストを順に構築・接続し、共通権限を初期化へ渡します。
     /// </summary>
     /// <param name="libraryProfile">The immutable profile captured for startup.</param>
-    /// <param name="applicationPort">The narrow shell application boundary.</param>
+    /// <param name="applicationPort">画面への接続境界。</param>
+    /// <param name="capability">受理済み設定・再初期化の生存権限。通常起動ではnullです。</param>
     /// <returns>The exact services applied to the shell consumers.</returns>
     internal StartupLibraryServices CreateAndApply(
         LibraryProfile libraryProfile,
-        IStartupLibraryApplicationPort applicationPort)
+        IStartupLibraryApplicationPort applicationPort, LibraryFileMutationCapability capability = null)
     {
         if (libraryProfile == null)
         {
@@ -81,7 +83,7 @@ internal sealed class StartupLibraryConstructionOwner
         BMSLibrary library = factory.CreateBmsLibrary(libraryProfile)
             ?? throw new InvalidOperationException("Startup library factory returned null.");
         StartupLibraryConstruction construction = new(libraryProfile, library);
-        applicationPort.AttachStartupLibrary(construction.Library);
+        applicationPort.AttachStartupLibrary(construction.Library, capability);
 
         BMSPlaylist playlist = factory.CreateBmsPlaylist(construction.Profile, construction.Library)
             ?? throw new InvalidOperationException("Startup playlist factory returned null.");

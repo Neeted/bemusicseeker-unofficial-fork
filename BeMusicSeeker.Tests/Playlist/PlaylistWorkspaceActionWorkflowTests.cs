@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -28,12 +27,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
-    [TestInitialize]
-    public void TestInitialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-    }
-
     [TestMethod]
     public void PlaylistTreeSnapshot_ReleasesReaderLockAfterCapture()
     {
@@ -86,7 +79,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 if (!writerCompleted)
                 {
-                    writerProbe.Wait(TimeSpan.FromSeconds(2));
+                    writerProbe.Wait();
                 }
             }
         }
@@ -348,7 +341,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 name = active.name,
                 Page_url = active.Page_url
             };
-            Assert.AreSame(active, workspace.ResolveActivePlaylistTable(transientTable));
+            Assert.IsNull(workspace.ResolveActivePlaylistTable(transientTable));
         }
         finally
         {
@@ -746,29 +739,29 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
                 PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
-                var settings = new Settings
-                {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = tempDirectory,
-                    StandaloneBmsRootPaths = tempDirectory,
-                    BMSInstallDir = tempDirectory,
-                    SkipInitPlaylistLoad = true,
-                    ScanBmsFilesOnStartup = false,
-                    UseBeatorajaScoreDb = false,
-                    EnableBeatorajaBmtOutput = false,
-                    UseExternalPanelImage = false,
-                    UsePlayeruBMplay = false,
-                    UsePlayerLR2body = false,
-                    UsePlayerBMIIDXView = false,
-                    IsLR2BackupEnabled = false
-                };
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = tempDirectory;
+                values.StandaloneBmsRootPaths = tempDirectory;
+                values.BMSInstallDir = tempDirectory;
+                values.SkipInitPlaylistLoad = true;
+                values.ScanBmsFilesOnStartup = false;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UseExternalPanelImage = false;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+                values.IsLR2BackupEnabled = false;
+            });
                 viewModel = MainWindowViewModelTestFactory.Create(settings);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
 
-                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, viewModel);
                 library.BmsCharts = [];
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
                 var noPlayEntry = new TestablePlaylistEntry(
                     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                     "empty-folder no-play")
@@ -860,7 +853,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     completion,
                     "playlist-lamp.empty-folder.consumer-detail-build");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreNotEqual(previousFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
                 ChartListFilterSnapshot appliedFilter =
@@ -923,29 +916,29 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
                 PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
-                var settings = new Settings
-                {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = tempDirectory,
-                    StandaloneBmsRootPaths = tempDirectory,
-                    BMSInstallDir = tempDirectory,
-                    SkipInitPlaylistLoad = true,
-                    ScanBmsFilesOnStartup = false,
-                    UseBeatorajaScoreDb = false,
-                    EnableBeatorajaBmtOutput = false,
-                    UseExternalPanelImage = false,
-                    UsePlayeruBMplay = false,
-                    UsePlayerLR2body = false,
-                    UsePlayerBMIIDXView = false,
-                    IsLR2BackupEnabled = false
-                };
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = tempDirectory;
+                values.StandaloneBmsRootPaths = tempDirectory;
+                values.BMSInstallDir = tempDirectory;
+                values.SkipInitPlaylistLoad = true;
+                values.ScanBmsFilesOnStartup = false;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UseExternalPanelImage = false;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+                values.IsLR2BackupEnabled = false;
+            });
                 viewModel = MainWindowViewModelTestFactory.Create(settings);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
 
-                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, viewModel);
                 library.BmsCharts = [];
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
                 var firstFolderNoPlay = new TestablePlaylistEntry(
                     "11111111111111111111111111111111",
                     "first folder no play")
@@ -1057,7 +1050,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.PlaylistWorkspace.WaitForDetailRequestCompletionAsync(requestVersion),
                     "playlist-lamp.overall.consumer-detail-build");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreNotEqual(previousFilter.KeywordFilter, viewModel.ChartFilters.KeywordFilter);
                 Assert.AreEqual(
@@ -1165,10 +1158,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSTable table = new() { name = "Edit target" };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = new ObservableCollection<BMSTable>([table])
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => null!,
@@ -1193,9 +1188,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     playlist.FreeWriterLockBMSTables();
                 }
             });
-            await writerAcquired.Task;
             try
             {
+                await TestUiDispatcherHost.AwaitNotificationAsync(writerAcquired.Task, writer, "playlist-property.writer");
                 Assert.IsTrue(playlist.IsWriteLockHeldAnyBMSTable);
                 Task<PlaylistPropertySaveCommit> saveTask =
                     service.TrySaveAsync(session, session.Values);
@@ -1239,10 +1234,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 name = "Initial name",
                 symbol = "OLD"
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = new ObservableCollection<BMSTable>([table])
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => null!,
@@ -1297,10 +1294,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 ],
                 Folder_order = ["B"]
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = new ObservableCollection<BMSTable>([table])
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => null!,
@@ -1340,7 +1339,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     [TestMethod]
-    public async Task CompleteSummaryPropertyEdit_RetriesPendingFollowUpWithoutReapplyingPrefixRewrite()
+    public async Task CompleteSummaryPropertyEdit_FreshSameValueSaveDoesNotReplayPrefixFollowUp()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1383,10 +1382,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = new ObservableCollection<BMSTable>([table])
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             var library = new TestBmsLibrary(songDbPath);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
@@ -1435,7 +1436,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 nameof(PlaylistSummaryRow.CompatPrefix),
                 "★",
                 commit: true)).IsApplied);
-            Assert.AreEqual(2, prefixPresentationCount);
+            Assert.AreEqual(1, prefixPresentationCount);
             CollectionAssert.AreEqual(
                 new[] { "★Alpha", "★★Alpha" },
                 table.entries.Select(candidate => candidate.folder).ToArray());
@@ -1468,7 +1469,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     commit: false);
             Assert.IsFalse(noOpCompletion.IsApplied);
             Assert.IsFalse(noOpCompletion.RefreshRequired);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEqual(
                 new[] { "★Alpha", "★★Alpha" },
                 new[]
@@ -1493,7 +1494,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
     [TestMethod]
-    public async Task CreatePlaylistPropertyDialog_RejectsConcurrentOpenWithoutLeavingAnOrphanTable()
+    public async Task CreatePlaylistPropertyDialog_RejectsConcurrentOpenWithoutCanonicalDraftRegistration()
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1501,6 +1502,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         PlaylistPropertyDialogViewModel? dialog = null;
+        Task<PlaylistPropertyDialogViewModel>? firstOpen = null;
+        var firstSettingsCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFirstCreation = new ManualResetEventSlim();
         try
         {
             string songDbPath = Path.Combine(tempDirectory, "song.db");
@@ -1509,34 +1513,31 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var visibleTables = new ObservableCollection<BMSTable>();
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = visibleTables
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = visibleTables;
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => null!,
                 () => null!,
-                () => new CustomFolderOutputSettingsSnapshot());
+                () =>
+                {
+                    firstSettingsCaptured.TrySetResult();
+                    releaseFirstCreation.Wait();
+                    return new CustomFolderOutputSettingsSnapshot();
+                });
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
                 propertySaveService: service);
-            var firstTableAdded = new TaskCompletionSource<bool>(
-                TaskCreationOptions.RunContinuationsAsynchronously);
-            using var releaseFirstCreation = new ManualResetEventSlim();
-            visibleTables.CollectionChanged += (_, change) =>
-            {
-                if (change.Action == NotifyCollectionChangedAction.Add)
-                {
-                    firstTableAdded.TrySetResult(true);
-                    releaseFirstCreation.Wait();
-                }
-            };
-
-            Task<PlaylistPropertyDialogViewModel> firstOpen =
-                workspace.CreatePlaylistPropertyDialogAsync();
-            await firstTableAdded.Task;
+            firstOpen = workspace.CreatePlaylistPropertyDialogAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstSettingsCaptured.Task, firstOpen, "playlist-property.creation-settings");
+            Assert.AreEqual(0, visibleTables.Count, "新規draftの準備は正本に登録しません。");
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            { Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist")); }
             PlaylistPropertyDialogViewModel secondDialog =
                 await workspace.CreatePlaylistPropertyDialogAsync();
             Assert.IsNull(secondDialog);
@@ -1544,7 +1545,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             dialog = await firstOpen;
 
             Assert.IsNotNull(dialog);
-            Assert.AreEqual(1, visibleTables.Count);
+            Assert.AreEqual(0, visibleTables.Count);
             Assert.AreEqual(
                 PlaylistPropertyDialogOperationResult.Completed,
                 await dialog.ResetPropertiesAsync());
@@ -1552,6 +1553,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
         finally
         {
+            releaseFirstCreation.Set();
+            if (firstOpen != null) { dialog ??= await firstOpen; }
             dialog?.Dispose();
             if (Directory.Exists(tempDirectory))
             {
@@ -1854,10 +1857,15 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     public async Task PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkflowOwner()
     {
         var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+        var table = new BMSTable { name = "Confirmed removal", playlist_id = 4201 };
+        owned.Store.BMSTables.Add(table);
+        owned.Store.CommitBMSTableHeaderToDB(table);
+        var library = new TestBmsLibrary(owned.SongDbPath);
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
-            out _,
-            playlistWorkspaceDialogService: dialogs);
-        var table = new BMSTable();
+            out _, playlistStoreProvider: () => owned.Store,
+            playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
         bool selectionApplied = false;
         await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(null, () => selectionApplied = true);
@@ -1867,9 +1875,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsNotNull(dialogs.LastConfirmationRequest);
 
         dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
-            workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(table, () => selectionApplied = true));
+        await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(table, () => selectionApplied = true);
         Assert.IsTrue(selectionApplied);
+        Assert.AreEqual(0, owned.Store.BMSTables.Count);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(owned.SongDbPath).OpenSongDbReadOnly();
+        Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist"));
     }
 
     [TestMethod]
@@ -1985,10 +1995,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
             completion = summaryReady.Task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
-            foreach (string query in new[] { "", "?base=failed", "?failed=noplay" })
-            {
-                Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended" + query));
-            }
+            playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            ExternalPlaylistUriSubmissionResult submission = workspace.SubmitExternalPlaylistUriText(
+                "bmseeker:table.recommended\nbmseeker:table.recommended?base=failed\nbmseeker:table.recommended?failed=noplay");
+            Assert.AreEqual(3, submission.ValidUriCount);
 
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.IsNull(dialogs.LastMessageRequest);
@@ -2004,10 +2014,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         finally
         {
             playlist?.StartupReadiness.MarkRequiredPlaylistReady();
-            if (completion != null)
-            {
-                try { await completion; } catch when (primaryFailure != null) { }
-            }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
 
             playlist?.RequestShutdown("test_cleanup");
             library?.RequestShutdown("test_cleanup");
@@ -2041,12 +2048,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
             completion = summaryReady.Task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
-            Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
+            Assert.IsFalse(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.AreEqual(0, reads);
             Assert.AreEqual(0, playlist.BMSTables.Count);
             Assert.IsFalse(completion.IsCompleted);
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
+            Assert.IsTrue(workspace.TryEnqueueBuiltInExternalPlaylistImport("bmseeker:table.recommended"));
             ExternalPlaylistImportQueueSummary summary = await completion;
             Assert.AreEqual(1, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);
@@ -2057,10 +2065,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         finally
         {
             playlist?.StartupReadiness.MarkRequiredPlaylistReady();
-            if (completion != null)
-            {
-                try { await completion; } catch when (primaryFailure != null) { }
-            }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
 
             playlist?.RequestShutdown("test_cleanup");
             library?.RequestShutdown("test_cleanup");
@@ -2177,7 +2182,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsFalse(cleanupIdle.IsCompleted);
         dispatcherRelease.TrySetResult(true);
 
-        await cleanupIdle.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        await cleanupIdle.ConfigureAwait(false);
 
         Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
         Assert.AreEqual(2, garbageCollectionCount);
@@ -2284,7 +2289,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

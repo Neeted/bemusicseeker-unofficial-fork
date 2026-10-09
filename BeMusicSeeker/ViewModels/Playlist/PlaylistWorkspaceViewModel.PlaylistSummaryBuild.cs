@@ -16,17 +16,20 @@ namespace BeMusicSeeker.ViewModels;
 public sealed partial class PlaylistWorkspaceViewModel
 {
     /// <summary>
-    /// Applies the playlist-summary BMT output selection and persists the changed playlist headers.
+    /// Pを対象確定前に取得し、BMT選択の一括保存と生成・削除・設定反映を同じ権限で待ちます。
     /// </summary>
     /// <param name="rows">Summary rows whose referenced playlists should be updated.</param>
     /// <param name="isBmtOutput">The requested persisted BMT output state.</param>
-    internal void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)
+    internal async Task ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)
     {
         if (rows == null)
         {
             return;
         }
 
+        BMSPlaylist playlists = GetPlaylistStore();
+        using LibraryFileMutationLease accepted = playlists.AcquirePlaylistMutationLease("playlist_summary_bmt_output_changed");
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         List<BMSTable> changedTables = [.. rows
             .Where(row => row?.TableRef != null)
             .Select(row => row.TableRef)
@@ -37,13 +40,15 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
 
-        BMSPlaylist playlists = GetPlaylistStore();
+        var previousValues = changedTables.ToDictionary(table => table, table => table.is_bmt_output);
         foreach (BMSTable table in changedTables)
         {
             table.is_bmt_output = isBmtOutput;
         }
-        playlists.CommitBMSTableHeadersToDB(changedTables);
-        playlists.BmtOutput.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
+        PersistPlaylistSummaryHeaderChanges(
+            () => playlists.CommitBMSTableHeadersToDB(changedTables, capability: authority),
+            () => { foreach (KeyValuePair<BMSTable, bool?> item in previousValues) { item.Key.is_bmt_output = item.Value; } });
+        await playlists.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_bmt_output_changed", authority);
         RequestPlaylistSummaryDataRefresh(
             "playlist_summary_bmt_output_changed");
     }

@@ -78,6 +78,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void StartupReadyOperable_StartsSchedulerAfterLatchingBackgroundPresentation()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -116,6 +117,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void NonStartupProgressOperation_ResetsBackgroundPresentationLatch()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -191,10 +193,11 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task StartupLibraryInitializationFailure_PreservesRootFailurePolicyAndStopsBeforeReadiness()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var settings = new Settings();
+
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -218,7 +221,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 () => throw failure,
                 operationToken,
                 startupCustomFolderSettings: null);
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
 
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
@@ -241,10 +244,11 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task StartupLibraryInitializationFailure_WhenPresenterThrows_PreservesPrimaryFailureAndCleanup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
-        var settings = new Settings();
+
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         var composition = new ApplicationComposition(
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -275,7 +279,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     operationToken,
                     startupCustomFolderSettings: null);
             }
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
 
             Assert.IsFalse(initialized);
             Assert.AreEqual(1, failurePresenter.Presentations.Count);
@@ -445,6 +449,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
+    [DoNotParallelize]
     public async Task StartupPostInitializationIdleRouteEnrollsWarmupOnceAfterPredecessors(
         bool enrollmentQueuesLr2)
     {
@@ -478,12 +483,13 @@ public sealed class MainWindowViewModelStartupProgressTests
         Task? independentRanking = null;
         try
         {
-            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, new Settings());
+            TestUiDispatcherHost.Invoke(() => owner = MainWindowViewModelTestFactory.Create());
+            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(), owner);
             library.BmsCharts = [];
             TestUiDispatcherHost.Invoke(() =>
             {
-                owner = MainWindowViewModelTestFactory.Create();
-                IStartupLibraryApplicationPort applicationPort = owner;
+                IStartupLibraryApplicationPort applicationPort = owner
+                    ?? throw new InvalidOperationException("Actual startup owner was not created.");
                 applicationPort.AttachStartupLibrary(library);
 
                 // 開始の表示反映を同期完了してから、起動進捗を消して背景表示へ進める。
@@ -516,8 +522,9 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsNotNull(owner);
             // AttachStartupLibrary が予約した行キャッシュの反映は BMS 読取りロックを使う。
             // その UI 処理を完了してから、ウォームアップを止める writer guard を取得する。
-            TestUiDispatcherHost.Drain();
-            await independentRankingStarted.Task;
+            await GetPrivateField<Task>(owner.RegularChartList, "normalLibraryRefreshDrainCompletion");
+            Assert.IsNotNull(independentRanking);
+            await TestUiDispatcherHost.AwaitNotificationAsync(independentRankingStarted.Task, independentRanking, "startup.independent-ranking");
             scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(
                 owner,
                 "startupBackgroundTaskScheduler");
@@ -657,7 +664,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsNotNull(independentRanking);
             releaseIndependentRanking.TrySetResult(true);
             await independentRanking;
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             TestUiDispatcherHost.Invoke(() =>
                 Assert.IsFalse(owner.ProgressHub.Rows.Any(row => row.Key.Contains("ranking_refresh_deferred"))));
         }
@@ -707,6 +714,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task StartupRequiredCompletionDoesNotEnrollWarmupBeforePostWorkIsIdle()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -970,7 +978,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void Lr2SongDbSyncWarningStatus_IsVisibleWhenStartupProgressFailed()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
@@ -1126,6 +1134,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void StartupServiceAttachmentRoutesCustomFolderRepairProgressToHub()
     {
         string tempDirectory = Path.Combine(
@@ -1144,10 +1153,10 @@ public sealed class MainWindowViewModelStartupProgressTests
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var settings = new Settings();
-            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
-            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
             owner = MainWindowViewModelTestFactory.Create(settings);
+            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, owner);
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
             var profile = new LibraryProfile(
                 operationModeLR2DB: false,
                 songDbPath,
@@ -1171,7 +1180,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 CurrentTableName = "repair target",
                 Source = "custom_folder_repair"
             });
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
 
             OperationProgressRow row = owner.ProgressHub.Rows.Single(value => value.Key == "playlist:custom_folder_repair:0");
             Assert.AreEqual(3d, row.Maximum);
@@ -1234,6 +1243,7 @@ public sealed class MainWindowViewModelStartupProgressTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task StartupReadiness_OperableAndRequiredSchedulerStartBeforeBlockedFolderReaderCompletes()
     {
         string tempRootPath = Path.Combine(
@@ -1390,7 +1400,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     private static StartupProgressWorkflowOwner Start(StartupProgressOperationKind operationKind)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
         owner.StartStartupProgressOperation(operationKind);
         return owner;
@@ -1454,7 +1464,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
     }
 
-    private sealed class RecordingStartupLibraryInitializationFailurePresenter
+    /// <summary>初期化失敗の実通知を記録し、実Window終了ケースでも新規提示を観測します。</summary>
+    internal sealed class RecordingStartupLibraryInitializationFailurePresenter
         : IStartupLibraryInitializationFailurePresenter
     {
         internal List<StartupLibraryInitializationFailurePresentation> Presentations { get; } = new();

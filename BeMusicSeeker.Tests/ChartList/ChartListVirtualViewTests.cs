@@ -20,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartListVirtualViewTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void Count_DoesNotRealizeRowsUntilIndexed()
     {
@@ -296,6 +296,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
@@ -1023,7 +1024,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1106,7 +1106,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1181,7 +1180,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1253,7 +1251,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1690,7 +1687,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1835,7 +1831,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2687,10 +2682,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 (CreateBmsonSong()),
@@ -2707,10 +2704,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2757,10 +2756,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2807,10 +2808,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2890,10 +2893,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_SearchPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -2976,10 +2981,12 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
@@ -3192,6 +3199,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
@@ -3200,6 +3208,7 @@ public sealed class ChartListVirtualViewTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = viewModel.RegularChartList;
         ChartFile zeta = CreateFile(Path.Combine(tempRootPath, "zeta.bms"), "Zeta", tempRootPath);
         ChartFile alpha = CreateFile(Path.Combine(tempRootPath, "alpha.bms"), "Alpha", tempRootPath, hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -3217,7 +3226,7 @@ public sealed class ChartListVirtualViewTests
             var sortRefresh = new TaskCompletionSource<MainChartListSortRequestedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
             regularOwner.SortRefreshRequested += (_, request) => sortRefresh.TrySetResult(request);
             viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
-            MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            MainChartListSortRequestedEventArgs sortRequest = await sortRefresh.Task;
 
             Assert.AreEqual(MainChartListSortTarget.Regular, sortRequest.Target);
             Assert.IsNull(regularOwner.CaptureSortParameters());
@@ -4290,7 +4299,6 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

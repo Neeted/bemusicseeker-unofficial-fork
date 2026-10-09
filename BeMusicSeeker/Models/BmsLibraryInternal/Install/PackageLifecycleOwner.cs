@@ -10,9 +10,8 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Owns the package collections and the installable lifecycle state used by the
-/// library facade. Package estimation evaluation remains a capability supplied by
-/// the composition root; queue, readiness, progress, and package state do not.
+/// パッケージの所属、準備状態、推定進捗と変更通知の寿命を所有します。
+/// 推定の受付と実行順は、共通受付を保持する機能Ownerが担当します。
 /// </summary>
 internal sealed partial class PackageLifecycleOwner
 {
@@ -117,24 +116,12 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    private readonly object queueStatusLock = new();
 
     private readonly object installableMaintenanceLock = new();
 
     private readonly object estimationProgressLock = new();
 
     private readonly object packageCollectionStateLock = new();
-
-    private readonly SemaphoreSlim estimationExecutionGate = new(1, 1);
-
-    // Pending filesystem mutations and pending-estimate publication must
-    // reserve the same owner-owned admission.  This is intentionally a
-    // fail-fast token rather than a waitable semaphore: UI operations hold it
-    // while resolving and confirming their target, so a background batch can
-    // report deferral instead of retaining a model or database lock.
-    private readonly PendingOperationAdmission pendingOperationAdmission = new();
-
-    private readonly PendingInstallEstimateQueueProcessor pendingEstimateQueueProcessor;
 
     private readonly BmsLibraryDbGateway dbGateway;
 
@@ -156,17 +143,14 @@ internal sealed partial class PackageLifecycleOwner
 
     private ObservableCollection<ChartPackage> installedPackages;
 
-    private PendingInstallEstimateQueueStatusSnapshot pendingEstimateQueueStatus = new();
 
     private readonly AsyncLocal<CollectionMutationDeferral> collectionMutationDeferral = new();
 
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
 
-    private int pendingEstimateQueueStatusVersion;
 
     private int installEstimationProgressVersion;
 
-    private long latestPendingEstimateQueueStatusSequence;
 
     private int installableMaintenanceRequestedVersion;
 
@@ -179,8 +163,6 @@ internal sealed partial class PackageLifecycleOwner
     internal PackageLifecycleOwner(
         BmsLibraryDbGateway dbGateway,
         IUiScheduler uiScheduler,
-        Action<PendingInstallEstimateBatchRequest, CancellationToken> processPendingEstimateBatch,
-        Action<Exception> pendingEstimateBatchFailed,
         Action<string> raisePropertyChanged,
         Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory,
         Action raiseInstalledPackagesChanged,
@@ -211,20 +193,13 @@ internal sealed partial class PackageLifecycleOwner
             this.uiScheduler,
             TryDeferCollectionMutation,
             RunPackageCollectionStateMutation);
-        pendingEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(
-            processPendingEstimateBatch ?? throw new ArgumentNullException(nameof(processPendingEstimateBatch)),
-            UpdatePendingEstimateQueueStatus,
-            pendingEstimateBatchFailed);
     }
 
     internal ObservableCollection<ChartPackage> PendingPackages => pendingPackages;
 
     internal ReadOnlyObservableCollection<ChartPackage> PendingPackagesView => pendingPackagesView;
 
-    internal bool TryEnterPendingOperation(out IDisposable lease)
-    {
-        return pendingOperationAdmission.TryEnter(out lease);
-    }
+
 
     internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
 
@@ -242,11 +217,9 @@ internal sealed partial class PackageLifecycleOwner
 
     internal StartupInstallReadinessState StartupReadiness => startupReadiness;
 
-    internal int PendingEstimateQueueStatusVersion => pendingEstimateQueueStatusVersion;
 
     internal int InstallEstimationProgressVersion => installEstimationProgressVersion;
 
-    internal bool IsPendingEstimateQueueIdle => pendingEstimateQueueProcessor.IsIdle;
 
     /// <summary>受付時の表示識別を要求版と一緒に捕捉します。</summary>
     internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
@@ -908,51 +881,6 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    private sealed class PendingEstimateExecutionScope(SemaphoreSlim gate) : IDisposable
-    {
-        private SemaphoreSlim gate = gate;
-
-        public void Dispose()
-        {
-            Interlocked.Exchange(ref gate, null)?.Release();
-        }
-    }
-
-    private sealed class PendingOperationAdmission
-    {
-        private object activeToken;
-
-        internal bool TryEnter(out IDisposable lease)
-        {
-            object token = new();
-            if (Interlocked.CompareExchange(ref activeToken, token, null) != null)
-            {
-                lease = null;
-                return false;
-            }
-
-            lease = new AdmissionLease(this, token);
-            return true;
-        }
-
-        private void Release(object token)
-        {
-            Interlocked.CompareExchange(ref activeToken, null, token);
-        }
-
-        private sealed class AdmissionLease(PendingOperationAdmission owner, object token) : IDisposable
-        {
-            private PendingOperationAdmission owner = owner;
-
-            private readonly object token = token;
-
-            public void Dispose()
-            {
-                Interlocked.Exchange(ref owner, null)?.Release(token);
-            }
-        }
-    }
-
     private ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
@@ -967,37 +895,11 @@ internal sealed partial class PackageLifecycleOwner
         return collection;
     }
 
-    internal bool TryEnqueuePendingEstimateBatch(
-        PendingInstallEstimateBatchRequest request,
-        Func<string, string, bool> shouldSkipForShutdown,
-        Action requestAccepted = null)
-    {
-        if (request == null || request.PackageCount == 0)
-        {
-            return false;
-        }
-        if (shouldSkipForShutdown != null
-            && shouldSkipForShutdown("pending_estimate_batch", request.Source.ToString()))
-        {
-            return false;
-        }
 
-        pendingEstimateQueueProcessor.Enqueue(request, requestAccepted);
-        return true;
-    }
 
-    internal void CancelPendingEstimateQueue()
-    {
-        pendingEstimateQueueProcessor.CancelAll();
-    }
 
-    internal PendingInstallEstimateQueueStatusSnapshot GetPendingEstimateQueueStatusSnapshot()
-    {
-        lock (queueStatusLock)
-        {
-            return pendingEstimateQueueStatus?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-        }
-    }
+
+
 
     internal InstallEstimationProgressSnapshot GetInstallEstimationProgressSnapshot()
     {
@@ -1028,41 +930,13 @@ internal sealed partial class PackageLifecycleOwner
         UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot());
     }
 
-    internal void ReportPendingEstimateBatchProgress(int completedPackageCount)
-    {
-        pendingEstimateQueueProcessor.ReportActiveBatchProgress(completedPackageCount);
-    }
 
-    internal void RunPendingEstimateExclusive(Action action)
-    {
-        using (EnterPendingEstimateExecutionScope())
-        {
-            action?.Invoke();
-        }
-    }
 
-    internal IDisposable EnterPendingEstimateExecutionScope()
-    {
-        estimationExecutionGate.Wait();
-        return new PendingEstimateExecutionScope(estimationExecutionGate);
-    }
 
-    private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        lock (queueStatusLock)
-        {
-            PendingInstallEstimateQueueStatusSnapshot nextSnapshot = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-            if (nextSnapshot.Sequence < latestPendingEstimateQueueStatusSequence)
-            {
-                return;
-            }
 
-            latestPendingEstimateQueueStatusSequence = nextSnapshot.Sequence;
-            pendingEstimateQueueStatus = nextSnapshot;
-            pendingEstimateQueueStatusVersion++;
-            QueuePropertyChanged("PendingEstimateQueueStatusVersion");
-        }
-    }
+
+
+
 
     private void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
     {

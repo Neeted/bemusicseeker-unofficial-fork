@@ -97,9 +97,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         var oldRows = new List<object>();
         var candidateRows = new List<object> { new object() };
         viewModel.MainChartList.Rows = oldRows;
@@ -131,9 +133,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryRetirement_InvalidatesOlderDetailTerminalBeforeSummaryApply()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         var oldRows = new List<object>();
         viewModel.MainChartList.Rows = oldRows;
         viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
@@ -155,9 +159,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryRetirementRegistration_KeepsNewestRequestVersion()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         var older = new PlaylistSourceRetirementRequest(1, buildCancellation: null);
         var newer = new PlaylistSourceRetirementRequest(2, buildCancellation: null);
 
@@ -168,9 +174,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspace_CurrentSourceEntryBuildsAndCommitsMainTableRows()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         PlaylistDetailSourceRow sourceRow = CreateSourceRow(
             "12121212121212121212121212121212",
             "Current source",
@@ -238,7 +246,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -297,7 +304,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -352,7 +358,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -427,7 +432,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1457,9 +1461,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void SetBmsPlayerHeader_UsesSplitBmsMetadata()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         ChartFile file = ChartTestValues.Empty();
         file = file with { Md5 = "abababababababababababababababab", Path = "ouroVoros" + ".bms", Title = "ouroVoros", RawTitle = "ouroVoros", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         file = file with { Subtitle = "[LAST BOSS]" };
@@ -1478,9 +1484,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void BeginPlayback_SynchronizesPlayerHeader()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         ChartFile file = ChartTestValues.Empty();
         file = file with { Md5 = "abababababababababababababababab", Path = "NextTitle" + ".bms", Title = "NextTitle", RawTitle = "NextTitle", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
         file = file with { Subtitle = "[NextSubtitle]" };
@@ -2650,6 +2658,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChart()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistViewPipelineTests", Guid.NewGuid().ToString("N"));
@@ -2688,7 +2697,11 @@ public sealed class PlaylistViewPipelineTests
             };
             PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, (bmson)).CreateViewRow();
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, new BeMusicSeeker.Properties.Settings()));
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
+            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            table.entries = [entry];
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, playlist);
 
             var context = new MainChartListCellEditContext(
                 row,
@@ -2697,9 +2710,9 @@ public sealed class PlaylistViewPipelineTests
                 MainViewOperationSection.Playlist);
             Task commitTask = viewModel.PlaylistWorkspace.CompleteDetailEdit(
                 new MainChartListCellEditEndedEventArgs(context, "updated memo", commit: true));
-            await commitTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await commitTask;
 
-            using var verifyDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             BMSTableEntry stored = verifyDb.Table<BMSTableEntry>().Single(dbRow => dbRow.playlist_id == table.playlist_id);
             Assert.IsNull(entry.md5);
             Assert.IsNull(stored.md5);
@@ -2739,7 +2752,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2813,7 +2825,7 @@ public sealed class PlaylistViewPipelineTests
             new MainChartListCellEditEndedEventArgs(context, "after", commit: true));
 
         InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => commitTask.WaitAsync(TimeSpan.FromSeconds(5)));
+            () => commitTask);
 
         Assert.AreEqual("durable detail failure", exception.Message);
         Assert.AreEqual("before", sourceRow.memo);
@@ -2839,7 +2851,6 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

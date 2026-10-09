@@ -145,10 +145,14 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
-    [TestMethod]
-    public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog()
+    [DataTestMethod]
+    [DataRow("initializing")]
+    [DataRow("library")]
+    [DataRow("playlist")]
+    public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog(string blockedDomain)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
         var dialogs = new RecordingUiDialogService();
         var settingDialog = new SettingsDialogViewModel(
             owner,
@@ -156,7 +160,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             owner.PlaylistWorkspace,
             owner.PlayHistory,
             owner.LibraryFolderTree,
-            new ApplicationComposition(uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog()),
+            composition,
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
             settingsEditSession: SettingsEditSession.CreateDefault(),
@@ -168,18 +172,24 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-        owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
+            operationAdmission: composition.OperationAdmission);
+        IDisposable? held = null;
+        if (blockedDomain == "initializing") { owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true); }
+        else { Assert.IsTrue((blockedDomain == "library" ? composition.OperationAdmission : composition.PlaylistOperationAdmission).TryEnter(out held)); }
         try
         {
             await settingDialog.InstallOrRepairLr2PlayHistorySchemaAsync();
 
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(0, dialogs.ConfirmationCount);
-            StringAssert.Contains(dialogs.LastMessage, Resources.Msg_settings_apply_blocked_during_initialization);
+            StringAssert.Contains(dialogs.LastMessage, blockedDomain == "initializing"
+                ? Resources.Msg_settings_apply_blocked_during_initialization : Resources.Warn_LibraryOperationBusy);
+            if (blockedDomain == "playlist") { Assert.IsFalse(composition.OperationAdmission.IsActive, "片側Busyでは取得したLを解放します。"); }
         }
         finally
         {
+            held?.Dispose();
             owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
         }
     }
@@ -204,7 +214,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var statePort = new TestSettingsDialogStatePort(
                 owner,
                 () => Task.FromResult(StartupInitializationOutcome.Succeeded),
-                reloadScoresOnly: () =>
+                reloadScoresOnly: _ =>
                 {
                     reloadCount++;
                     return Task.CompletedTask;
@@ -277,7 +287,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var statePort = new TestSettingsDialogStatePort(
                 owner,
                 () => Task.FromResult(StartupInitializationOutcome.Succeeded),
-                reloadScoresOnly: () =>
+                reloadScoresOnly: _ =>
                 {
                     reloadCount++;
                     return Task.CompletedTask;
@@ -344,7 +354,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             var statePort = new TestSettingsDialogStatePort(
                 owner,
                 () => Task.FromResult(StartupInitializationOutcome.Succeeded),
-                reloadScoresOnly: () =>
+                reloadScoresOnly: _ =>
                 {
                     reloadCount++;
                     return Task.CompletedTask;

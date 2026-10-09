@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistConcurrencyArchitectureTests
 {
+
     [TestMethod]
     public void ModelObservableState_UsesBclNotificationContract()
     {
@@ -138,9 +139,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(ownerSource.Contains("pendingUpdateCallbacks"));
         Assert.IsFalse(ownerSource.Contains("pendingCompletionActions"));
         StringAssert.Contains(ownerSource, "PlaylistEntriesHydrationReceipt");
-        StringAssert.Contains(ownerSource, "HydrationReceiptPublished");
-        StringAssert.Contains(ownerSource, "PublishHydrationReceipt(");
-        StringAssert.Contains(ownerSource, "out failedRetryRequested");
+
     }
 
     [TestMethod]
@@ -194,21 +193,6 @@ public sealed class PlaylistConcurrencyArchitectureTests
             hydrationCompletion.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal) >= 0,
             "Hydration receipt consumption must not enqueue a mutable table resnapshot route.");
         StringAssert.Contains(hydrationCompletion, "TryCompleteStartupProgressPlaylistReferenceFromHydration(");
-    }
-
-    [TestMethod]
-    public void PlaylistHydrationContinuation_PreservesCustomRepairAndSeparatesBmtFailure()
-    {
-        string playlistSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "Models",
-            "Playlist",
-            "BMSPlaylist.cs"));
-        StringAssert.Contains(playlistSource, "RunCustomFolderOutputRepairAfterHydration");
-        StringAssert.Contains(playlistSource, "runCustomFolderOutputRepairAfterHydration: true");
-        StringAssert.Contains(playlistSource, "playlist_entries_hydration_custom_folder_repair_failed");
-        StringAssert.Contains(playlistSource, "playlist_entries_hydration_bmt_export_failed");
     }
 
     [TestMethod]
@@ -367,10 +351,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "MainWindow",
             "ApplicationComposition.cs"));
 
-        StringAssert.Contains(compositionSource, "BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
         StringAssert.Contains(compositionSource, "PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
         StringAssert.Contains(compositionSource, "BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
-        StringAssert.Contains(compositionSource, "CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
 
         string[] snapshotPaths =
         [

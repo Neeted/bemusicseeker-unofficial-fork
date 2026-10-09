@@ -12,6 +12,9 @@
 
 ### 単一プレイリストの編集
 
+保存・一括編集・順序変更の受付とdraft現行性は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。新規作成の取消は未登録draftを閉じるだけで、正本の仮登録・削除を行いません。
+
+
 所有者付きのモーダル画面を開き、「全般」「フォルダ」「カスタムフォルダ」を表示します。毎回「全般」から始め、前回のカテゴリを保存しません。共通の確定・取消ボタンはカテゴリの外側に置きます。
 
 | カテゴリ | 編集対象 |
@@ -41,7 +44,9 @@
 
 外部情報の取得は上限付きの並列処理で先に行い、読めない対象は変更せず飛ばします。初期化では既存の接頭辞を保存する規則を使わず、選択された項目を外部値から作ります。出力先がNULLなら名前から作り、Shift_JISで扱えない文字とファイル名の不正文字を除きます。接頭辞の衝突、LR2出力先の空値・重複は対象ごとに除外します。
 
-エントリの投影が変わる複数対象は、一回のDBトランザクションで保存します。出力先が変わる場合は移転元の不要な出力も処理し、同じ出力先の内容変更もまとめて出力します。取得、DB反映、出力、画面更新を一つの進捗範囲とし、最後にボタンを再び使用可能にします。BMT内容に影響する操作だけが、末尾で一回BMT出力を予約します。LR2専用設定だけの変更では予約しません。
+エントリの投影が変わる複数対象は、一回のDBトランザクションで保存します。出力先が変わる場合は移転元の不要な出力も処理し、同じ出力先の内容変更もまとめて出力します。取得、DB反映、出力、画面更新を一つの進捗範囲とし、最後にボタンを再び使用可能にします。BMT内容に影響する操作は、有限の変更表をまとめて一回の出力Taskを直接待ちます。LR2専用設定だけの変更ではBMTを再生成しません。
+
+各反映ボタンは保存と必要出力の実Taskを所有し、受付拒否・保存・出力の失敗を画面へ通知します。実終端より前にdraftをリセットしたり、反映完了としてボタンを再有効化したりしません。失敗時は編集入力を保持し、成功時だけ反映後のdraftへ更新します。保存前の失敗は、その保存対象の正本を変更前へ戻し、同じdraftを再反映して保存できます。保存済み対象は後段の出力や別の保存対象の失敗で戻しません。
 
 ### BMT出力順の操作
 
@@ -55,6 +60,8 @@
 | 選択集合、三状態フラグ、外部初期化、出力の集約 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) |
 | 表示と更新日時、件数 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryCountAndPresentationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryCountAndPresentationTests.cs) |
 | カテゴリ操作と所有者付き画面 | [プロパティ画面](../../../BeMusicSeeker/Views/Playlist/PlaylistPropertyDialog.xaml) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) |
+| 一括変更の実Task所有、Busy・DB失敗・BMT出力待ちと出力失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs) | [`MainWindowPlaylistWorkspaceWpfTests.MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)のcompiled反映入口・入力保持・終端後の再有効化 |
+| 一括変更の保存前復元と同じ入力の再保存 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests.BulkHeaderSaveFailure_RestoresCurrentTableAndSameDraftCanSave`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)の5入口・実DB失敗・同一正本保持と再保存 |
 
 ## 関連資料
 

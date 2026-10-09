@@ -33,7 +33,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     [DataRow((int)PackageCatalogSection.Installed)]
     public async Task ClearAllAsync_PreservesConfirmationAndMutationBoundaryOrder(int sectionValue)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var section = (PackageCatalogSection)sectionValue;
         var events = new List<string>();
         var store = new RecordingStore(events);
@@ -93,7 +93,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
     [TestMethod]
     public async Task RemovePackageAsync_PendingConfirmationPrecedesMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var store = new RecordingStore(events);
         FakeUiDialogService dialogs = AcceptedDialogs();

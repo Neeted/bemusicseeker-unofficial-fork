@@ -135,6 +135,21 @@ internal sealed class PlaylistUrlAcquisitionWorkflow
         this.log = log ?? throw new ArgumentNullException(nameof(log));
     }
 
+    /// <summary>取得側が所有するstagingだけを回収し、全削除の実終端を待ちます。受理した導入の入力使用終端後に呼びます。</summary>
+    internal Task ReclaimStagedFilesAsync(IReadOnlyList<string> paths)
+    {
+        return Task.Run(() =>
+        {
+            List<Exception> failures = [];
+            foreach (string path in paths ?? [])
+            {
+                try { if (_downloadGateway.FileExists(path)) { _downloadGateway.DeleteFile(path); } }
+                catch (Exception exception) { failures.Add(exception); }
+            }
+            if (failures.Count > 0) { throw new AggregateException(failures); }
+        });
+    }
+
     internal bool IsStagedFileReady(string path)
     {
         return !string.IsNullOrWhiteSpace(path) && _downloadGateway.FileExists(path);

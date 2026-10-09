@@ -4,7 +4,6 @@
 
 | 計画 | 残る作業 |
 | --- | --- |
-| [操作受付と排他の単純化](operation-concurrency-simplification-plan.md) | 二領域の受付と検証保証の整理、操作台帳を含む競合ポリシーの正本化と機能仕様の参照統一。方針提示後、実装を停止中。 |
 | [安全性の改善](safety-improvements-plan.md) | 保存・受付・失敗報告・入力制限の不足確認と限定修正。 |
 | [起動からLR2同期までの順序統合](lr2-startup-procedural-orchestration-plan.md) | 必須処理の直接待機、型付き結果の引渡し、閲覧と変更受付の分離。 |
 | [LR2同期の確定パスを処理対象から除外する](lr2-song-db-receipt-target-filter-plan.md) | 証票対象の投入前除外、除外後の件数による進捗・状態の統一、不要なパイプライン内スキップの削除。 |

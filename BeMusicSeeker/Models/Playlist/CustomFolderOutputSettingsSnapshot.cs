@@ -24,7 +24,8 @@ internal sealed class CustomFolderOutputSettingsSnapshot
 
     public bool ShowRecommUpdatedMsg { get; init; }
 
-    internal static CustomFolderOutputSettingsSnapshot CreateCurrent(Settings settings)
+    /// <param name="placement">標準構成が保存段階完了時に公開した配置。指定時は共有draftの配置を読み替えず、他の生成flagだけを現在値から捕捉します。</param>
+    internal static CustomFolderOutputSettingsSnapshot CreateCurrent(Settings settings, CustomFolderOutputSettingsSnapshot placement = null)
     {
         if (settings == null)
         {
@@ -33,11 +34,11 @@ internal sealed class CustomFolderOutputSettingsSnapshot
 
         return new CustomFolderOutputSettingsSnapshot
         {
-            OperationModeLR2DB = settings.OperationModeLR2DB,
-            LR2RootPath = settings.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
-            LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
+            OperationModeLR2DB = placement != null ? placement.OperationModeLR2DB : settings.OperationModeLR2DB,
+            LR2RootPath = placement != null ? placement.LR2RootPath : settings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = placement != null ? placement.LR2CustomFolderOutputBaseDir : settings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderOutputBaseDirRootType = placement != null ? placement.LR2CustomFolderOutputBaseDirRootType : settings.LR2CustomFolderOutputBaseDirRootType,
+            LR2CustomFolderAdditionalOutputBaseDirs = placement != null ? placement.LR2CustomFolderAdditionalOutputBaseDirs : settings.LR2CustomFolderAdditionalOutputBaseDirs,
             EnableDownloadLr2IrScoreAndDetectUnsent = settings.EnableDownloadLr2IrScoreAndDetectUnsent,
             PlaylistDefaultIgnoreFolderOutput = settings.PlaylistDefaultIgnoreFolderOutput,
             ShowRecommUpdatedMsg = settings.ShowRecommUpdatedMsg

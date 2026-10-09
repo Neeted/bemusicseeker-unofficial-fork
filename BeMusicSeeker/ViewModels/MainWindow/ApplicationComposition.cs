@@ -49,6 +49,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private CustomFolderOutputSettingsSnapshot appliedCustomFolderOutputPlacement;
+
     private readonly IMainChartColumnSettingsStore mainChartColumnSettingsStore;
 
     private readonly IMainWindowViewSettingsStore mainWindowViewSettingsStore;
@@ -85,6 +87,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly ApplicationPathSnapshot applicationPathSnapshot;
 
+    private readonly IRootFileEnumerator rootFileEnumerator;
+
+    private readonly IChartFileScanner chartFileScanner;
+
     private readonly IExternalShellGateway externalShellGateway;
 
     private readonly IExternalProgramLaunchGateway externalProgramLaunchGateway;
@@ -95,9 +101,17 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IScoreViewerRegistrationGateway scoreViewerRegistrationGateway;
 
+    /// <summary>全機能と必須背景入力更新へ同じ論理受付を渡します。</summary>
+    internal ChartFileOperationSynchronizer OperationAdmission { get; } = new();
+
+    /// <summary>再構築前後のplaylistへ接続するP受付だけを構成の寿命で所有します。L・DB・同期処理・終了状態とは分離します。</summary>
+    internal ChartFileOperationSynchronizer PlaylistOperationAdmission { get; } = new();
+
     private readonly IPackageInstallMutationPort packageInstallMutationPort;
 
-    /// <summary>Creates the application composition with replaceable process and audio catalog boundaries.</summary>
+    /// <summary>同じ共通受付と明示されたプロセス・音声・入力列挙境界で本番の機能を構成します。</summary>
+    /// <param name="rootFileEnumerator">モデルとLR2入力に共通の任意グループ列挙境界。nullは通常経路です。</param>
+    /// <param name="chartFileScanner">モデルの譜面入力を捕捉する任意の走査境界。省略時は通常の走査サービスを使います。</param>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
     /// <param name="fileDbMutationDialogService">Shared optional mutation-report presentation boundary.</param>
@@ -125,6 +139,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IApplicationLifetimePort applicationLifetime = null,
         ICultureCatalog cultureCatalog = null,
         ApplicationPathSnapshot applicationPathSnapshot = null,
+        IRootFileEnumerator rootFileEnumerator = null,
         IExternalShellGateway externalShellGateway = null,
         IExternalPlayerProcessGateway externalPlayerProcessGateway = null,
         IUpdaterProcessGateway updaterProcessGateway = null,
@@ -137,7 +152,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService restartFailureDialogs = null,
         Action<Exception> reportRestartFailure = null,
         IUiDialogService settingsDialogService = null,
-        IPackageInstallMutationPort packageInstallMutationPort = null)
+        IPackageInstallMutationPort packageInstallMutationPort = null,
+        IChartFileScanner chartFileScanner = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -145,6 +161,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.cultureCatalog = cultureCatalog
             ?? throw new ArgumentNullException(nameof(cultureCatalog));
+        this.rootFileEnumerator = rootFileEnumerator;
+        this.chartFileScanner = chartFileScanner;
         this.applicationPathSnapshot = applicationPathSnapshot ?? ApplicationPathPolicy.Current;
         this.externalShellGateway = externalShellGateway ?? ExternalShellGatewayPolicy.Current;
         this.externalProgramLaunchGateway = externalProgramLaunchGateway ?? ExternalProgramLaunchGatewayPolicy.Current;
@@ -167,8 +185,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.packageInstallMutationPort = packageInstallMutationPort;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
+        appliedCustomFolderOutputPlacement = CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values);
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
-            ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
+            ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values, Volatile.Read(ref appliedCustomFolderOutputPlacement)));
         this.startupSettingsProvider = startupSettingsProvider
             ?? (() => StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider
@@ -178,7 +197,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider
             ?? (() => BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
-            ?? (() => CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
+            ?? (() => CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values, Volatile.Read(ref appliedCustomFolderOutputPlacement)));
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values);
         mainWindowViewSettingsStore = new SettingsMainWindowViewSettingsStore(() => this.settingsEditSession.Values);
@@ -253,7 +272,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<IEnumerable<BMSTable>> tableSnapshotProvider,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
-        Func<bool> playlistUrlInstallQueueActiveProvider,
         Func<IReadOnlyList<string>, bool> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
@@ -275,7 +293,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<string, Func<Task>, bool> playlistExternalSyncScheduler,
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
-        Func<bool> playlistRestoreUiThreadCheck)
+        Func<bool> playlistRestoreUiThreadCheck,
+        Func<Task> playlistUrlInstallCompletionProvider)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -295,7 +314,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
                 detailViewLog),
             PlaylistExternalPackageLookupService.CreateDefault(),
             playlistUrlAcquisitionOptionsProvider,
-            playlistUrlInstallQueueActiveProvider,
             playlistUrlInstallSink,
             playlistUrlBrowserOpenSink,
             externalPlaylistImportWarningLog,
@@ -324,7 +342,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playlistReferenceApplyScheduler,
             playlistRestoreUiApplyScheduler,
             playlistRestoreUiThreadCheck,
-            playlistWorkspaceDialogService);
+            playlistWorkspaceDialogService,
+            PlaylistOperationAdmission,
+            playlistUrlInstallCompletionProvider);
         return playlistWorkspace;
     }
 
@@ -379,7 +399,10 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
                 playbackRuntimePort,
                 new BassAudioDeviceTestRuntime(applicationPathSnapshot)),
             audioDeviceCatalog: audioDeviceCatalog,
-            audioSettingsGateway: audioSettingsGateway);
+            audioSettingsGateway: audioSettingsGateway,
+            operationAdmission: OperationAdmission,
+            publishOutputPlacement: () => Volatile.Write(ref appliedCustomFolderOutputPlacement,
+                CustomFolderOutputSettingsSnapshot.CreateCurrent(settingsEditSession.Values)));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(
@@ -395,7 +418,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService installDestinationDialogService,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
@@ -580,6 +603,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     IBMSPlayer ISettingsDialogPlayerFactoryPort.CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
         => CreateBmsPlayerForSettings(settings);
 
+    /// <summary>個別のモデル・DB・終了状態を持つライブラリへ、構成の寿命のLとPを明示接続します。</summary>
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
     {
         if (libraryProfile == null)
@@ -593,15 +617,19 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             libraryProfile.StartupRequiredFileScanReason,
             bmsLibraryOptionsProvider,
             uiScheduler,
-            applicationPathSnapshot);
+            applicationPathSnapshot,
+            chartFileScanner: chartFileScanner,
+            rootFileEnumerator: rootFileEnumerator,
+            operationAdmission: OperationAdmission,
+            playlistOperationAdmission: PlaylistOperationAdmission);
     }
 
     /// <summary>
-    /// Creates the startup playlist from the library created for the same profile.
+    /// 同じprofileで作ったライブラリへplaylistを接続し、そのライブラリからP受付を借用します。
     /// </summary>
-    /// <param name="libraryProfile">The immutable profile captured for startup.</param>
-    /// <param name="library">The library created from <paramref name="libraryProfile"/>.</param>
-    /// <returns>The constructed startup playlist.</returns>
+    /// <param name="libraryProfile">起動要求で捕捉した変更不能なprofile。</param>
+    /// <param name="library">同じprofileから構築したライブラリ。対象・DB・終了状態はこの接続に属します。</param>
+    /// <returns>個別storeのplaylist。再構築前後のP共有だけで旧対象を現行として扱いません。</returns>
     internal BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library)
     {
         if (libraryProfile == null)
@@ -666,7 +694,7 @@ internal sealed class MainWindowChildComposition
         Func<string, ExplorerOpenResult> libraryFolderTreeExplorerOpen,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
@@ -771,7 +799,8 @@ internal sealed class MainWindowChildComposition
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
             reportMaintenanceRescanWorkflowFailure,
-            dialogs: maintenanceRescanDialogService ?? throw new ArgumentNullException(nameof(maintenanceRescanDialogService)));
+            dialogs: maintenanceRescanDialogService ?? throw new ArgumentNullException(nameof(maintenanceRescanDialogService)),
+            dispatchTerminalToUi: action => uiScheduler.InvokeAsync(action));
         FolderAutoRenameWorkflow = new FolderAutoRenameWorkflowOwner(
             chartFileOperations,
             ChartMutationActivity,
@@ -855,7 +884,8 @@ internal sealed class MainWindowChildComposition
             selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
             PlaybackPanel,
             selectedChartAudioConversionDialogService ?? new UiDialogCoordinator(),
-            selectedChartAudioConversionExecutor);
+            selectedChartAudioConversionExecutor,
+            chartFileOperations);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow
             ?? throw new ArgumentNullException(nameof(lr2SongDbSyncWorkflow));
         RankingCacheDownloadWorkflow = rankingCacheDownloadWorkflow
@@ -921,7 +951,7 @@ internal sealed class MainWindowChildComposition
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,
         Action<MaintenanceWorkflowProgress> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, LibraryFileMutationCapability capability)
     {
         throw new InvalidOperationException("Maintenance rescan executor is not configured.");
     }

@@ -406,7 +406,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportedDigestMapIsAppliedByLoadSongTable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new('a', 32);

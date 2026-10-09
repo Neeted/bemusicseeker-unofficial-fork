@@ -55,15 +55,15 @@ public sealed class ChartMutationActivityOwnerTests
         }
 
         start.Set();
-        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
-        release.Set();
-        foreach (Thread worker in workers)
+        try
         {
-            worker.Join();
+            entered.Wait();
         }
-        foreach (IDisposable lease in leases)
+        finally
         {
-            lease.Dispose();
+            release.Set();
+            foreach (Thread worker in workers) { worker.Join(); }
+            foreach (IDisposable lease in leases) { lease?.Dispose(); }
         }
 
         Assert.IsFalse(owner.IsActive);

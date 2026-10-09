@@ -192,20 +192,32 @@ internal sealed class PackageInstallExecutionResult
 }
 
 /// <summary>
-/// Immutable terminal facts for the package-install command seam.
+/// 取り込み・直接推定の同一操作が返す、確定事実と実失敗です。
 /// </summary>
 internal sealed class PackageInstallCommandResult
 {
-    /// <summary>Creates immutable command facts from the operation-scoped install session.</summary>
-    /// <param name="registeredPackages">Packages durably registered before the terminal was returned.</param>
-    /// <param name="sessionReceipt">Canonical install-session terminal facts.</param>
+    /// <summary>操作単位の導入sessionから変更不能な終端事実を作ります。</summary>
+    /// <param name="registeredPackages">終端までに永続登録が確定したパッケージ。</param>
+    /// <param name="sessionReceipt">導入sessionの確定事実。</param>
+    /// <param name="estimationFailure">確定後の推定失敗・取消。確定事実は保持します。</param>
+    /// <param name="operationMessages">同期scopeが捕捉した、終端時に通知する情報メッセージ。</param>
     internal PackageInstallCommandResult(
         IEnumerable<ChartPackage> registeredPackages,
-        LibraryMutationSessionReceipt sessionReceipt)
+        LibraryMutationSessionReceipt sessionReceipt,
+        Exception estimationFailure = null,
+        IEnumerable<BMSLibrary.OperationDialogMessage> operationMessages = null)
     {
+        EstimationFailure = estimationFailure;
+        OperationMessages = Array.AsReadOnly([.. operationMessages ?? []]);
         RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null)]);
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
     }
+
+    /// <summary>確定済み取り込み後の推定の失敗・取消を保持します。</summary>
+    internal Exception EstimationFailure { get; }
+
+    /// <summary>同期推定scopeで捕捉し、操作終端で非同期に通知する情報メッセージです。</summary>
+    internal IReadOnlyList<BMSLibrary.OperationDialogMessage> OperationMessages { get; }
 
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
 
@@ -218,7 +230,7 @@ internal sealed class PackageInstallCommandResult
 
     internal bool HasDurableCommit => SessionReceipt.DurableCommit;
 
-    internal bool HasRequiredFailure => SessionReceipt.HasRequiredFailure;
+    internal bool HasRequiredFailure => SessionReceipt.HasRequiredFailure || EstimationFailure != null;
 
     /// <summary>Gets whether a post-durable required finalizer failed for this command.</summary>
     internal bool HasDurableFinalizationFailure => SessionReceipt.HasDurableFinalizationFailure;

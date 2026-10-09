@@ -75,6 +75,7 @@ public sealed class WpfPickerBoundaryTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PickerCoordinatorMapsOwnerUnavailableForOpenFolderAndSaveRoutes()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>

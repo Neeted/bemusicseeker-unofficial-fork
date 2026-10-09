@@ -12,16 +12,13 @@ namespace BeMusicSeeker.Models;
 
 internal sealed partial class LibraryMutationOwner
 {
-    /// <summary>pending install currentness と同期する digest mutation 世代です。</summary>
-    internal long OwnedDigestMutationGeneration => Volatile.Read(ref ownedDigestMutationGeneration);
 
-    /// <summary>digest mutation 中の索引入力と currentness 世代を開始します。</summary>
+    /// <summary>digest mutation 中の所持lookup・ResourceHealth入力保護を開始します。</summary>
     internal IDisposable BeginOwnedDigestMutationWindow()
     {
-        lock (pendingInstallEstimateCurrentnessGate)
+        lock (ownedInputSnapshotGate)
         {
             catalogOwnedCollectionOwner.BeginDigestMutationWindow();
-            ownedDigestMutationGeneration++;
         }
         try
         {
@@ -29,10 +26,9 @@ internal sealed partial class LibraryMutationOwner
         }
         catch
         {
-            lock (pendingInstallEstimateCurrentnessGate)
+            lock (ownedInputSnapshotGate)
             {
                 catalogOwnedCollectionOwner.EndDigestMutationWindow();
-                ownedDigestMutationGeneration++;
             }
             throw;
         }
@@ -49,18 +45,11 @@ internal sealed partial class LibraryMutationOwner
         }
         finally
         {
-            lock (pendingInstallEstimateCurrentnessGate)
+            lock (ownedInputSnapshotGate)
             {
                 catalogOwnedCollectionOwner.EndDigestMutationWindow();
-                ownedDigestMutationGeneration++;
             }
         }
-    }
-
-    /// <summary>digest mutation の入力境界が現在開いているかを返します。</summary>
-    internal bool IsOwnedDigestMutationWindowActive()
-    {
-        return catalogOwnedCollectionOwner.IsDigestMutationWindowActive();
     }
 
     /// <summary>digest mutation の完了を待ちます。</summary>
@@ -1734,7 +1723,7 @@ internal sealed partial class LibraryMutationOwner
             return;
         }
         IReadOnlyList<string> logMessages;
-        lock (pendingInstallEstimateCurrentnessGate)
+        lock (ownedInputSnapshotGate)
         {
             logMessages = catalogOwnedCollectionOwner.ApplyInstalledChartLookupMutation(
                 mutation,
@@ -2485,7 +2474,7 @@ internal sealed partial class LibraryMutationOwner
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotificationObserver);
-        mutationCapability.Validate(lr2SynchronizationOwner);
+        mutationCapability.Validate(lr2SynchronizationOwner.OperationAdmission);
         addedTargets ??= ChartStorageTargetSet.FromInstalledCharts([]);
         List<string> installPaths = [.. (installPathsToDelete ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))

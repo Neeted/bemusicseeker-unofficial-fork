@@ -40,16 +40,18 @@ internal static class BmsPlaylistTestSupport
     internal static BMSPlaylist CreatePlaylist(
         string songDbPath,
         ILr2PlaylistFolderSynchronizationPort synchronization = null!,
-        Func<LR2Config> getLr2Config = null!)
+        Func<LR2Config> getLr2Config = null!,
+        Settings? settings = null)
     {
+        settings ??= MainWindowViewModelTestFactory.CreateIsolatedSettings();
         return new TestBmsPlaylist(
             songDbPath,
             getLr2Config,
             null,
             null,
-            () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
-            () => BeatorajaBmtOptionsSnapshot.CreateCurrent(Settings.Default),
-            () => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings.Default),
+            () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
+            () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
+            () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
             synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
     }
 
@@ -87,7 +89,6 @@ internal static class BmsPlaylistTestSupport
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

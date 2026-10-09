@@ -143,7 +143,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task FixInstalledLocationsAsync_RealModelFailureReportsOnlyAfterGateRelease()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempRootPath = Path.Combine(
             Path.GetTempPath(),
             "BeMusicSeeker_PendingRepairTerminal_" + Guid.NewGuid().ToString("N"));
@@ -185,10 +185,10 @@ public sealed class PendingPackageWorkflowOwnerTests
             var events = new List<string>();
             var store = new RecordingStore(events)
             {
-                FixInstalledLocationsAction = (activeLibrary, charts, approvedPaths) =>
-                    activeLibrary.FixInstallationDirectoryCharts(charts, approvedPaths)
+                FixInstalledLocationsAction = (activeLibrary, charts, approvedPaths, capability) =>
+                    activeLibrary.FixInstallationDirectoryCharts(charts, approvedPaths, capability: capability)
             };
-            var gate = new ChartFileOperationSynchronizer();
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
             bool reportAfterGateRelease = false;
             dialogs.OnMessage = () =>
             {
@@ -287,7 +287,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_UsesDirectDestinationAndOpensIt()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
@@ -323,7 +323,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_StaleDirectDestinationDoesNotUseHashFallback()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         int providerCallCount = 0;
         FakeUiDialogService dialogs = AcceptedDialogs();
         var openedDirectories = new List<string>();
@@ -356,7 +356,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_NotifiesMultipleSelectionBeforeOpeningFirstTarget()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
@@ -398,7 +398,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForPackageAsync_UsesFirstResolvableChartEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
@@ -440,7 +440,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForPackageAsync_AllEntriesMissingShowsWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var package = ChartPackage.FromChartEntries(
         [
             PackageChartEntry.FromChart(CreateChart()),
@@ -470,7 +470,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_DialogFailurePropagatesWithoutOpeningExplorer()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var failure = new InvalidOperationException("dialog failed");
         FakeUiDialogService dialogs = AcceptedDialogs();
         dialogs.MessageResult = UiDialogResult.Failed(failure);
@@ -899,7 +899,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -955,7 +955,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1022,7 +1022,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ForceInstallPackagesAsync_ApprovesOverrideThenStopsPlaybackAndMutatesPackageScope()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
@@ -1069,7 +1069,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ForceInstallPackagesAsync_OverrideRejectionRunsBoundaryWithoutApprovingPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
@@ -1114,7 +1114,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task ForceInstallPackagesAsync_ConfirmsAccordingToDestinationAndNewInstallSetting(
         bool hasDestination, bool showNewConfirmation, bool accept, bool closeWithoutSelection)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart(installDestination: hasDestination ? @"C:\Installed" : null);
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
@@ -1190,7 +1190,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ManualInstallPackagesAsync_RejectionPreservesShellSelectionAndSkipsMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var store = new RecordingStore(events);
         var dialogs = new FakeUiDialogService
@@ -1221,7 +1221,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ManualInstallPackagesAsync_ConfirmationFailureReturnsBeforeMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var failure = new InvalidOperationException("manual confirmation failed");
         var store = new RecordingStore(events);
@@ -1252,7 +1252,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ManualInstallPackagesAsync_NoEstimatedDestinationsCompletesWithEmptyReceiptAndPreservesPendingSources()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         string pendingPath = Path.Combine(root, "pending");
         Directory.CreateDirectory(pendingPath);
@@ -1304,6 +1304,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                 events,
                 new BmsLibraryPendingPackageStore(),
                 dialogs,
+                chartFileOperations: library.OperationAdmission,
                 playback: new NoOpChartMutationPlaybackPort(),
                 settingsProvider: () => new InstallDestinationWorkflowSettingsSnapshot(
                     showManualInstallConfirmation: false,
@@ -1314,10 +1315,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingChart.InstallDestination));
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
-            using (var beforeInstall = new LR2SongDBExtended(
-                songDbPath,
-                SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex,
-                acquireProcessLock: false))
+            using (LR2SongDBExtended beforeInstall = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.IsTrue(beforeInstall.IsReadOnlyConnection);
                 Assert.AreEqual(0, beforeInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
@@ -1325,7 +1323,7 @@ public sealed class PendingPackageWorkflowOwnerTests
 
             PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
 
-            Assert.IsTrue(result.Succeeded);
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
             Assert.IsNull(result.Failure);
             Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
             Assert.IsFalse(result.HasDurableCommit);
@@ -1339,10 +1337,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(chartPath));
             CollectionAssert.AreEqual(sourceContents, File.ReadAllBytes(chartPath));
-            using (var afterInstall = new LR2SongDBExtended(
-                songDbPath,
-                SQLite.SQLiteOpenFlags.ReadOnly | SQLite.SQLiteOpenFlags.FullMutex,
-                acquireProcessLock: false))
+            using (LR2SongDBExtended afterInstall = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.IsTrue(afterInstall.IsReadOnlyConnection);
                 Assert.AreEqual(0, afterInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
@@ -1358,7 +1353,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
@@ -1374,12 +1369,13 @@ public sealed class PendingPackageWorkflowOwnerTests
                 [],
                 new BmsLibraryPendingPackageStore(),
                 dialogs,
+                chartFileOperations: library.OperationAdmission,
                 playback: new NoOpChartMutationPlaybackPort());
             var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
 
             PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
 
-            Assert.IsTrue(result.Succeeded);
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
             Assert.IsNull(result.Failure);
             Assert.IsTrue(result.ShouldApplyView);
             Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
@@ -1522,7 +1518,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task FixInstalledLocationsAsync_WarnsWithoutDestinationAndDoesNotMutate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var store = new RecordingStore(events);
         var dialogs = new FakeUiDialogService();
@@ -1542,7 +1538,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task FixInstalledLocationsAsync_WarningDisplayFailurePropagates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var failure = new InvalidOperationException("warning display failed");
         var store = new RecordingStore(events);
@@ -1566,7 +1562,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ApprovesDuplicateRemovalAndMutatesPackageScope()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart(
             path: @"C:\Charts\repair.bms",
@@ -1619,7 +1615,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ApprovedMutationUsesOwnerBoundary()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var package = ChartPackage.FromChartEntries([
             PackageChartEntry.FromChart(CreateChart())
@@ -1647,7 +1643,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_EmptySelectionWarnsWithoutMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var store = new RecordingStore(events);
         FakeUiDialogService dialogs = AcceptedDialogs();
@@ -1664,7 +1660,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RejectionSkipsMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var package = ChartPackage.FromChartEntries([
             PackageChartEntry.FromChart(CreateChart())
@@ -1684,7 +1680,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task RenamePendingZeroNoteChartsAsync_StopsPlaybackBeforeMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart();
         var store = new RecordingStore(events) { PendingBmsFormatCharts = [chart] };
@@ -1717,7 +1713,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_ShowsSummaryAfterMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         ChartFile chart = CreateChart();
         var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
@@ -1775,7 +1771,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         string failureKind,
         bool reporterThrows)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var failure = new IOException("resource-overwrite-terminal-" + failureKind);
         var target = new LibraryMutationSessionTarget(@"C:\pending", @"D:\installed");
@@ -1846,7 +1842,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_MultiplePackagesUsesProgressRoute()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
         var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
@@ -1864,7 +1860,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ProgressFailurePropagates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
         var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
@@ -1883,7 +1879,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_UserCancellationIsNormalCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
         var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
@@ -1904,7 +1900,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_PreservesDialogAndMutationFailures()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var events = new List<string>();
         var first = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\first.bms"))]);
         var second = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart(@"C:\Charts\second.bms"))]);
@@ -1929,7 +1925,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task SearchPackagesAsync_FailsFastWhenOwnerAdmissionIsBusyThenRunsAfterRelease()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempRootPath = Path.Combine(
             Path.GetTempPath(),
             "BeMusicSeeker_PendingWorkflowAdmissionTests_" + Guid.NewGuid().ToString("N"));
@@ -1950,15 +1946,15 @@ public sealed class PendingPackageWorkflowOwnerTests
                 dialogs,
                 playback: new NoOpChartMutationPlaybackPort(),
                 chartFileOperations: gate);
-            Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable incumbent));
+            Assert.IsTrue(gate.TryEnter(out IDisposable incumbent));
             try
             {
                 await owner.SearchPackagesAsync(
                     PendingInstallDestinationSearchKind.InstallDestination,
                     [new ChartPackage()]);
                 Assert.AreEqual(0, store.SearchPackagesCount);
-                Assert.IsTrue(gate.TryEnter(out IDisposable afterRejection));
-                afterRejection.Dispose();
+                Assert.IsFalse(gate.TryEnter(out IDisposable afterRejection));
+                Assert.IsNull(afterRejection);
                 Assert.AreEqual(
                     BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
                     dialogs.MessageRequest?.MessageBoxText);
@@ -2021,7 +2017,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [TestMethod]
     public async Task RealPendingOwnerResultReportsConflictAfterOwnerReleasesMutationGate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var conflict = new FileDbMutationDestinationTypeConflict(
             @"C:\pending\BGA",
             @"D:\installed\BGA",
@@ -2098,7 +2094,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     public async Task PendingInstall_RejectsDropDuringConfirmationAndReleasesAdmission(
         bool manual, bool failMutation, bool cancelConfirmation)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
@@ -2138,7 +2134,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             automatic.AttachLibrary(library);
 
             pending = manual ? owner.ManualInstallPackagesAsync([package]) : owner.ForceInstallPackagesAsync([package]);
-            await confirmationEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(confirmationEntered.Task, pending, "pending-install.confirmation");
             Assert.IsFalse(automatic.TryEnqueue(new DroppedInstallBatchRequest([Path.Combine(root, "rejected.zip")])));
             Assert.IsTrue(automatic.IsIdle);
             Assert.AreEqual(0, autoCalls);
@@ -2154,8 +2150,6 @@ public sealed class PendingPackageWorkflowOwnerTests
                 Assert.IsFalse(result.ShouldApplyView);
                 Assert.AreEqual(0, events.Count, "確認取消では実行や一覧更新を始めない。");
             }
-            Assert.IsTrue(library.TryEnterPendingOperation(out IDisposable pendingAfterCompletion));
-            pendingAfterCompletion.Dispose();
             Assert.IsTrue(gate.TryEnter(out IDisposable chartAfterCompletion));
             chartAfterCompletion.Dispose();
             Assert.AreEqual(0, autoCalls, "拒否した drop を受付解放後に自動実行しない。");
@@ -2169,12 +2163,12 @@ public sealed class PendingPackageWorkflowOwnerTests
             confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
             if (pending != null)
             {
-                await pending.WaitAsync(TimeSpan.FromSeconds(5));
+                await pending;
             }
 
             if (automatic != null)
             {
-                await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                await automatic.WaitForIdleAsync();
             }
 
             Directory.Delete(root, recursive: true);
@@ -2193,7 +2187,7 @@ public sealed class PendingPackageWorkflowOwnerTests
     [DataRow(true, true)]
     public async Task DropInstall_RejectsPendingInstallUntilAcceptedMultipleInputsFinish(bool manual, bool selectedRows)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string songDbPath = Path.Combine(root, "song.db");
@@ -2240,10 +2234,7 @@ public sealed class PendingPackageWorkflowOwnerTests
                     if (Interlocked.Exchange(ref blockEnqueue, 0) == 1)
                     {
                         enqueueEntered.TrySetResult(true);
-                        if (!releaseEnqueue.Wait(TimeSpan.FromSeconds(5)))
-                        {
-                            throw new TimeoutException("enqueue publication barrier was not released");
-                        }
+                        releaseEnqueue.Wait();
                     }
                     action();
                     return true;
@@ -2259,7 +2250,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             string firstPath = Path.Combine(root, "first.zip");
             string secondPath = Path.Combine(root, "second.zip");
             enqueue = Task.Run(() => automatic.TryEnqueue(new DroppedInstallBatchRequest([firstPath, secondPath])));
-            await enqueueEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(enqueueEntered.Task, enqueue, "pending-install.enqueue");
 
             PendingPackageMutationResult beforeWorker = await Install();
             Assert.IsFalse(beforeWorker.Succeeded);
@@ -2294,12 +2285,12 @@ public sealed class PendingPackageWorkflowOwnerTests
             releaseEnqueue.Set();
             if (enqueue != null)
             {
-                await enqueue.WaitAsync(TimeSpan.FromSeconds(5));
+                await enqueue;
             }
 
             if (automatic != null)
             {
-                await automatic.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                await automatic.WaitForIdleAsync();
             }
 
             Directory.Delete(root, recursive: true);
@@ -2693,7 +2684,14 @@ public sealed class PendingPackageWorkflowOwnerTests
         internal Exception? RepairFailure { get; set; }
         internal LibraryFixInstallationResult? RepairResult { get; set; }
 
-        internal Func<BMSLibrary, IReadOnlyList<ChartFile>, IReadOnlyList<string>, LibraryFixInstallationResult>? FixInstalledLocationsAction { get; set; }
+        internal Func<BMSLibrary, IReadOnlyList<ChartFile>, IReadOnlyList<string>, LibraryFileMutationCapability?, LibraryFixInstallationResult>? FixInstalledLocationsAction { get; set; }
+
+        private LibraryFileMutationCapability? acceptedCapability;
+
+        /// <summary>実モデルを使う修復だけ生存権限を転送し、純fakeの局所境界は維持します。</summary>
+        public IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability)
+            => FixInstalledLocationsAction == null ? this : new RecordingStore(events)
+            { FixInstalledLocationsAction = FixInstalledLocationsAction, acceptedCapability = capability };
 
         public LibraryFixInstallationResult FixInstalledLocations(
             BMSLibrary library,
@@ -2711,7 +2709,7 @@ public sealed class PendingPackageWorkflowOwnerTests
 
             if (FixInstalledLocationsAction != null)
             {
-                return FixInstalledLocationsAction(library, repairCharts, approvedDuplicateRemovalChartPaths);
+                return FixInstalledLocationsAction(library, repairCharts, approvedDuplicateRemovalChartPaths, acceptedCapability);
             }
             return RepairResult ?? new LibraryFixInstallationResult();
         }
@@ -2744,7 +2742,7 @@ public sealed class PendingPackageWorkflowOwnerTests
             }
             if (WaitForDeleteSourcesCancellation)
             {
-                Assert.IsTrue(cancellationToken.WaitHandle.WaitOne(TimeSpan.FromSeconds(5)));
+                cancellationToken.WaitHandle.WaitOne();
             }
             foreach (ChartPackage _ in packages)
             {

@@ -442,7 +442,7 @@ public sealed class Lr2SynchronizationArchitectureTests
 
         internal bool LeaseActive { get; private set; } = true;
 
-        public LibraryFileMutationLease? TryBeginMutation(string operation, bool showMessage)
+        public LibraryFileMutationLease? TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
         {
             events.Add($"mutation-reservation.enter:{operation}:{showMessage}");
             if (RejectReservation)
@@ -465,7 +465,7 @@ public sealed class Lr2SynchronizationArchitectureTests
             return Reservation;
         }
 
-        public bool TryBlockMutation(string operation, bool showMessage)
+        public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
         {
             events.Add($"mutation-block:{operation}:{showMessage}");
             return false;

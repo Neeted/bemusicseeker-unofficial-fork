@@ -41,14 +41,14 @@ public sealed class FileDbMutationReportTests
             Assert.IsFalse(display.IsCompleted);
             Assert.AreEqual(1, dialogs.Messages.Count, "先行通知が表示中なら後続を重ねない。");
             first.SetException(displayFailure);
-            await display.WaitAsync(TimeSpan.FromSeconds(5));
+            await display;
             CollectionAssert.AreEqual(new[] { "first", "second" }, dialogs.Messages.Select(message => message.MessageBoxText).ToArray());
             CollectionAssert.AreEqual(new[] { displayFailure }, failures);
         }
         finally
         {
             first.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-            await display.WaitAsync(TimeSpan.FromSeconds(5));
+            await display;
         }
     }
 

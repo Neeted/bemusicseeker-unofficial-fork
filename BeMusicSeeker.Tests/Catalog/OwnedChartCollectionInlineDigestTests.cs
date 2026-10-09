@@ -19,7 +19,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_DispatchesDigestMutationToOwnedAdjacentIndexes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
@@ -114,7 +114,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [DataRow(16)]
     public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
@@ -332,7 +332,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_ShaOnlyChangeUpdatesShaLookupAndResourceHealthWithoutPrimaryLookupRebuild()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();
@@ -397,7 +397,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
     [TestMethod]
     public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             new BmsLibraryDbGateway(songDbPath).EnsureChartInfoSchema();

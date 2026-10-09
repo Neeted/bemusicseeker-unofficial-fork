@@ -103,7 +103,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <returns>An open context, or <see langword="null"/> when the table is stale or incomplete.</returns>
     internal PlaylistLampViewerOpenContext CapturePlaylistLampViewerOpenContext(BMSTable table)
     {
-        BMSTable activeTable = ResolveActivePlaylistTable(table, table?.name);
+        BMSTable activeTable = ResolveActivePlaylistTable(table);
         return CreatePlaylistLampViewerOpenContext(activeTable);
     }
 

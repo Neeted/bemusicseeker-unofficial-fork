@@ -21,27 +21,25 @@
 
 画面操作の入口は `SelectedChartMutationWorkflowOwner`、`DuplicateMaintenanceWorkflowOwner`、`PendingPackageWorkflowOwner`、`PackageInstallWorkflowOwner` です。フォルダ名の直接編集は `RegularChartListOwner`、自動変更は `FolderAutoRenameWorkflowOwner` が管理します。`MainWindowViewModel` は画面の構成と各処理の接続を担当します。
 
-`ChartMutationActivityOwner` の操作中表示は、モデルを変更する権限の代わりにはなりません。モデルの受付には `Lr2SynchronizationOwner` の排他権と、その排他権から発行される操作権限を使います。変更中は対象行のメニュー表示とコマンドの再入を拒否します。メニューの有効判定で、UIスレッドからファイルの存在確認を行いません。
+`ChartMutationActivityOwner` の操作中表示は、モデルを変更する権限の代わりにはなりません。モデルの受付には `ChartFileOperationSynchronizer` の生存権限を明示して渡します。L/Pの分類は[競合ポリシー](../core/operation-concurrency-policy.md#ライブラリ保留保守)に従います。変更中は対象行のメニュー表示とコマンドの再入を拒否します。メニューの有効判定で、UIスレッドからファイルの存在確認を行いません。
 
 `LibraryMutationOwner` が変更内容の集約、索引への反映、必須の後処理、公開順序を管理します。`CatalogMutationOwner` はカタログの保存と正本更新、`CatalogOwnedCollectionOwner` は所持集合と関連索引を管理します。`BMSLibrary` は公開窓口、専門キャッシュ、画面通知を接続します。共通反映の内部処理をルートへコールバックとして渡して代行させません。
+
+### 管理出力との交差
+
+分類と取得条件は[競合ポリシー](../core/operation-concurrency-policy.md#分類と並行可否)に従います。実src/dst・祖先再帰・生成削除するfolder行scopeを、保存適用済みLR2管理基点と現正本へ照合します。表0件でも基点内の新規dirを見落とさず、少数の変更で全所持譜面走査を増やしません。
 
 ### 確認と共通受付
 
 利用者の判断が必要な場合は、画面側が物理処理の前に確認し、結果を明示的な引数としてモデルへ渡します。`BeginOperationDialogScope()` の内側に蓄積できるのは、処理結果を知らせるOKボタンだけの通知です。Yes/NoやOK/Cancelの判断をこの範囲へ持ち込まず、必要な判断が欠けた要求は失敗させます。
 
-譜面・音源の物理変更は同じ `ChartFileOperationSynchronizer` を使います。保留一覧の削除・改名・導入、ライブラリの削除・移動・フォルダ変更、ドロップ・URL・外部APIからの自動導入を含みます。保留操作はこの共通受付に加え、背景推定と調整する既存の保留受付も取得します。
-
-| 操作 | 受付を保持する範囲 | 競合時の扱い |
-| --- | --- | --- |
-| 保留パッケージの操作 | 確認・対象解決の前から終了処理まで。受理済みの自動推定との調整には保留操作の受付も使う | 確認、再生停止、保存を始めず拒否する。拒否した要求は予約・再実行しない |
-| 自動導入の受付 | 入力確保前から、一要求内の全処理と未引渡し入力の回収が終わるまで | 追加要求はBusyで拒否する。一要求内の複数入力を入力順に処理し、処理間や取消後の回収中も排他権を保持する |
-| URL・外部APIの通信 | 通信中は導入の受付を保持しない。取得したパスの引渡し時に導入可否を判定する | 取得成功と導入未受理を区別する。未受理を一般例外、ブラウザ起動、後日の再試行へ置き換えない |
+各入口の受付開始・実終端・継続は[競合ポリシー](../core/operation-concurrency-policy.md#受付の開始終端と権限)へ集約します。内部の変更セッションと通知scopeは論理受付より短い同期範囲です。
 
 物理変更を行うownerは、共通受付の内側で `IChartMutationPlaybackPort.StopPlaybackForMutationAsync` を待ち、現在曲と先読みの停止・デコード終了後にだけ書き込みます。変更対象のpath・フォルダと現在曲の関係は判定せず、無関係な現在曲も停止します。停止失敗・終了取消なら物理変更へ進みません。自動導入の各バッチも同じ停止境界を通ります。
 
-変更側が既存受付をcleanupまで保持する間、再生側は新規開始を予約せず断ります。先行して受け付けた曲開始は停止側が待ちます。再生入力gateを保持した別のscopeを返したり、内側から外側のownerへ移譲したりしません。変更終了後の自動再開・先読み再登録は行いません。検索や表示順の変更だけでは再生を止めません。再生の資源寿命は[音声仕様](../runtime/audio.md#次曲一件の先行準備)を参照します。
+変更側が既存受付を後片付けまで保持する間、再生側は新規開始を予約せず断ります。試聴同士の既存Next順次受付は維持します。先行して受け付けた曲開始・準備は停止側が実終端まで待ち、停止後に待機要求を再始動・一時コピーしません。再生入力gateを保持した別のscopeを返したり、内側から外側の管理主体へ移譲したりしません。変更終了後の自動再開・先読み再登録は行いません。検索や表示順の変更だけでは再生を止めません。再生の資源寿命は[音声仕様](../runtime/audio.md#次曲一件の先行準備)を参照します。
 
-既存のThreadStatic通知scopeは非同期停止を待った後に開き、以後の同期mutationと同期cleanupだけを同じスレッドで囲みます。通知scope内でawaitしません。
+既存のThreadStatic通知scopeは非同期停止を待った後に開き、同期取り込みと同期後片付けだけを同じスレッドで囲み、直接推定Taskを待つ前に閉じます。推定実処理は自身の同期評価・適用scopeで情報通知を捕捉し、immutableな操作結果へ渡します。通知scope内でawaitしません。
 
 世代の切替や終了で表示を捨てる場合も受付を解放します。古い処理の終了通知で、新たな処理の排他権を解放しません。通常の変更競合は `Warn_LibraryOperationBusy`、導入の未接続・停止・取消待ちも含む受付不能は `Warn_PackageInstallUnavailable` で案内します。
 
@@ -56,9 +54,9 @@
 | 後続の判定 | 先行する物理処理で成功したハッシュと実際の導入先だけを、操作内の一時的な所有情報へ追加する。未実行予約を所持済みと見なさない |
 | 確定 | 終端で変更を集約し、各管理主体の保存・索引反映・LR2同期・必須の公開準備を一回ずつ行う。別のDBまで単一の物理トランザクションにする保証ではない |
 | 失敗 | 予期しない失敗では依存する後続処理を止め、確認済みの成功、失敗対象、未処理対象を同じ結果へ残す。確認済みの成功集合に対する確定は一回試みる |
-| 公開 | 必須反映が成功した通知だけを準備し、排他権を解放してから公開する。補助的な先行読込みを対象数だけ起動しない |
+| 公開 | 必須反映が成功した通知だけを準備し、短いモデル変更scopeを終えて公開する。外側Lの寿命は競合ポリシーに従う。補助的な先行読込みを対象数だけ起動しない |
 
-削除と通常拡張子変更は、UIで選択とlibrary参照を固定し、既存UI共通受付を取得した後、最初の確認より前に背景処理で短命の不変要求をprepareして非同期に待ちます。フォルダ候補計算と現在値の解決をUIで同期実行しません。通常のprepared対象は不変 `ChartFile` 列で、FS存在・属性を捕捉しません。通常拡張子変更のBMS/PMS双方は一つの背景処理で順次準備し、全準備後に非同期確認へ進みます。重複hash整理の既存keeper選択と対象なし判定は共通受付前に維持します。準備例外では元原因を返して共通受付を解放し、確認・再生停止・変更処理へ進みません。選択削除と重複hash整理は `LibraryChartRemovalPreflight`、拡張子変更は固定対象と変更先拡張子を持つ `LibraryFileExtensionRenameBatch` を使います。フォルダ候補も削除対象と同じsnapshot scopeで捕捉します。確認中はモデルのguardやmutation leaseを保持せず、承認後に同じprepared値を本受付へ渡します。重複hash整理は件数確認の後、捕捉済み候補の全フォルダ確認をworkflowの非同期UI確認で済ませ、同じpreparedと明示的な承認パス列（非承認時もnullではない空列）をモデルへ渡します。件数確認の表示設定を無効にしてもフォルダ判断は行います。フォルダのNoや否定結果で閉じた場合は選択譜面だけ削除し、表示失敗・null応答・例外なら再生停止や本受付へ進まず失敗として受付を解放します。全判断の終了前にdialog scopeへ入らず、scope内の非OK判断拒否を維持します。直接モデル入口も同じprepareと実行を使い、確認後に元選択から対象を確定し直しません。
+削除と通常拡張子変更は、UIで選択とlibrary参照を固定し、既存UI共通受付を取得した後、最初の確認より前に背景処理で短命の不変要求をprepareして非同期に待ちます。フォルダ候補計算と現在値の解決をUIで同期実行しません。通常のprepared対象は不変 `ChartFile` 列で、FS存在・属性を捕捉しません。通常拡張子変更のBMS/PMS双方は一つの背景処理で順次準備し、全準備後に非同期確認へ進みます。重複hash整理の既存keeper選択と対象なし判定は共通受付前に維持します。準備例外では元原因を返して共通受付を解放し、確認・再生停止・変更処理へ進みません。選択削除と重複hash整理は `LibraryChartRemovalPreflight`、拡張子変更は固定対象と変更先拡張子を持つ `LibraryFileExtensionRenameBatch` を使います。フォルダ候補も削除対象と同じスナップショット scopeで捕捉します。確認中は短いモデルguard・DB lockを保持せず、論理的な共通受付を保持します。承認後に同じprepared値と生存する共通権限を実変更へ渡し、必須処理とscope回収の終端後に解放します。重複hash整理は件数確認の後、捕捉済み候補の全フォルダ確認をworkflowの非同期UI確認で済ませ、同じpreparedと明示的な承認パス列（非承認時もnullではない空列）をモデルへ渡します。件数確認の表示設定を無効にしてもフォルダ判断は行います。フォルダのNoや否定結果で閉じた場合は選択譜面だけ削除し、表示失敗・null応答・例外なら再生停止や実変更へ進まず失敗として受付を解放します。全判断の終了前にdialog scopeへ入らず、scope内の非OK判断拒否を維持します。直接モデル入口も同じprepareと実行を使い、確認後に元選択から対象を確定し直しません。
 
 削除のprepareでは同tokenの現在値でも要求のkindとDB完全一致パスが変わっていればUnresolvedとし、物理処理・DB変更へ進めません。古い選択hashだけは許容し、現在hashを固定します。通常拡張子変更では生存tokenの現在配置への追従を維持し、削除固有の要求oldpath照合を追加しません。指定tokenが退役済みなら、共通canonical解決も移転の保存要求も別項目へ救済しません。未所持の保守計算は所持項目への再接続と区別します。
 
@@ -72,33 +70,33 @@
 
 #### 通常の変更ライフサイクル
 
-受理済みの通常変更が成功する経路の順序です。物理成功分は一つの変更セッションへ収集します。外枠は論理的に追跡する操作、内枠は外側の排他権を保持する区間を表し、集合ロック・DBトランザクションの保持期間ではありません。失敗分岐は[ファイルとDBの整合](file-db-consistency.md#局所的なファイル処理と補償)、排他解放後に必須保守がある統合は[フォルダ統合](#フォルダ統合と確定後の保守)を参照します。
+受理済みの通常変更が成功する経路の順序です。物理成功分は一つの変更セッションへ収集します。外枠は追跡する操作、内枠は論理的なLを保持する区間を表し、集合ロック・DBトランザクションの保持期間ではありません。失敗分岐は[ファイルとDBの整合](file-db-consistency.md#局所的なファイル処理と補償)、同じLの必須継続は[フォルダ統合](#フォルダ統合と確定後の保守)を参照します。
 
 ```mermaid
 flowchart TB
     subgraph Operation["受理から終端まで"]
         direction TB
-        subgraph Lease["外側の排他権を保持"]
+        subgraph Lease["論理的なLを保持"]
             direction TB
             Capture["現在の対象・設定を確定"] --> Collect["物理成功分を一括収集"]
             Collect --> Commit["成功集合を永続確定"]
-            Commit --> Apply["必須の内部反映・後片付け・公開準備"]
+            Commit --> Apply["必須の内部反映・後片付け"]
+            Apply --> Publish["必要な参照・結果を公開"]
         end
-        Apply --> Release["排他権を解放"]
-        Release --> Publish["準備済み通知を公開"]
-        Publish --> Terminal["結果を保持して終端"]
+        Publish --> Release["Lを解放"]
+        Release --> Terminal["結果を保持して終端"]
     end
 ```
 
-内部反映・後片付け・公開準備の順序は操作ごとに異なります。図の永続確定は複数の保存先を一つの原子的トランザクションにする意味ではありません。異常結果の報告は、[通知と操作結果](#通知と操作結果)に従って受付・操作中表示等も解放した後に行います。
+内部反映・後片付け・公開準備の順序は操作ごとに異なります。図の永続確定は複数の保存先を一つの原子的トランザクションにする意味ではありません。必要公開と任意の情報案内を区別し、[通知と操作結果](#通知と操作結果)と[競合ポリシー](../core/operation-concurrency-policy.md#受付の開始終端と権限)に従います。
 
 ### 排他権とロック
 
-外側の排他権は、物理処理、カタログ反映、必須の後処理、後片付けまで保持します。対象を捕捉する短いロックは、初期化状態の読取り、保留集合の書込み、BMS集合の書込みの順で取得し、逆順に解放します。ファイルI/O、DB処理、補償、後片付け、通知に入る前に、不要な集合ロックを解放します。
+外側の論理受付は必要な公開と全Task・cleanupの終端まで保持し、同期モデルの変更scope・集合ロックと区別します。対象を捕捉する短いロックは、初期化状態の読取り、保留集合の書込み、BMS集合の書込みの順で取得し、逆順に解放します。ファイルI/O、DB処理、補償、後片付け、通知に入る前に、不要な集合ロックを解放します。
 
 入れ子の処理は、同じ生存中の排他権から明示的に渡された操作権限を検証します。別の所有者、解放済み、nullの権限は失敗です。同じスレッド、`AsyncLocal`、再入回数を権限の根拠にしません。導入からLR2同期へ続く必須処理も、別の受付を取り直す代わりにこの権限を引き継ぎます。
 
-ロック中は `Dispatcher.Invoke`、ダイアログ、購読者、`Task.Wait`、`.Result` を待ちません。終了時の進捗、画面更新、補助タスク、報告は解放後へ渡します。中間進捗が必要な操作は、最新値だけを保持する非同期通知を使い、保留・処理中を合わせて一件に抑えます。終端前に通知を閉じ、遅れた世代の進捗を表示しません。
+ロック中は `Dispatcher.Invoke`、ダイアログ、購読者、`Task.Wait`、`.Result` を待ちません。終了時の進捗、画面更新、補助タスク、報告は短いモデルロックの解放後へ渡します。中間進捗が必要な操作は、最新値だけを保持する非同期通知を使い、保留・処理中を合わせて一件に抑えます。終端前に通知を閉じ、遅れた世代の進捗を表示しません。
 
 ### 操作ごとの反映範囲
 
@@ -118,7 +116,7 @@ flowchart TB
 
 内部反映と公開通知は分離します。所持集合の世代と関連索引の世代対応は内部反映で確定し、通知時に改めて世代を進めません。導入では保存対象の反映に伴うリソース健全性索引の差分を後続保守より前に適用し、保守も同じ操作の必須処理として反映してから公開します。索引反映の例外を、公開通知の例外捕捉で診断だけに変えません。
 
-導入中の譜面解析も、譜面情報・ハッシュと派生索引の内部反映を入力変更区間内で完了させます。譜面情報索引・解析失敗警告の通知は、導入の既存通知キューへ渡して外側の排他権の解放後に公開します。
+導入中の譜面解析も、譜面情報・ハッシュと派生索引の内部反映を入力変更区間内で完了させます。譜面情報索引・解析失敗警告の通知は、導入の既存通知scopeへ集約し、モデルの短い変更scopeを終えて公開します。必要な公開を終えるまで外側の論理受付を保持します。
 
 ### 導入と導入先修正
 
@@ -128,42 +126,35 @@ flowchart TB
 
 リソース上書きの成功件数は、物理準備だけでなくカタログと必須反映の完了で確定します。後片付けだけの失敗は確定成功を取り消しません。推定先の状態更新と `PackageChartEntry.PropertyChanged` の公開は分け、公開は排他権の解放後に行います。
 
-導入先修正は、選択した譜面だけを対象とし、兄弟ファイル、リソース、親フォルダを便乗して処理しません。選択対象を除く既存所持情報を一回捕捉し、物理移動の成功を後続判定へ反映します。承認済みの重複削除も同じセッションへ追加します。確定後は確定後の共通現在値から保守対象を生成し、同じ外側の予約の内側で `forceUpdate: true` の保守を一回行います。
+導入先修正は、選択した譜面だけを対象とし、兄弟ファイル、リソース、親フォルダを便乗して処理しません。選択対象を除く既存所持情報を一回捕捉し、物理移動の成功を後続判定へ反映します。承認済みの重複削除も同じセッションへ追加します。確定後は確定後の共通現在値から保守対象を生成し、同じ外側の操作権限の下で `forceUpdate: true` の保守を一回行います。
 
 ### フォルダ統合と確定後の保守
 
 フォルダ統合は変更一件のセッションです。入力元が欠落している場合は索引取得より前に終了します。共通のパッケージ処理で全体の導入先と型衝突を確認し、物理処理の成功からカタログ・パッケージの変更を追加します。統合先の走査と逆引きの置換も集約し、リソースだけの統合を落としません。
 
-後続の保守対象は、カタログの共通現在値を同じ所持tokenで移転した後、入力元の後片付けより前に固定します。入力元の削除は永続確定後です。統合用の排他権を解放してから、既存の保守予約を取り直し、`forceUpdate: true`、`DeferOnUpdates`、`merge_folder` の条件で保守します。
+後続の保守対象は、カタログの共通現在値を同じ所持tokenで移転した後、入力元の後片付けより前に固定します。入力元の削除は永続確定後です。統合と同じ共通受付の生存権限を必須保守へ渡し、`forceUpdate: true`、`DeferOnUpdates`、`merge_folder` の条件で保守します。単独入口は統合が受付を所有し、外側の受理済み操作では権限を借用します。保守・後片付けの実終端まで保持し、新規受付を取り直しません。
 
-この保守は論理的には同じ操作の必須処理 `PostCommitMaintenance` です。例外や予約拒否による `Canceled` も同じ結果の `FinalizationFailure` に残します。`MergeApplied` と永続確定成功を取り消しませんが、画面は通常の完全成功として報告しません。第二の変更セッションや別の成功報告は作りません。
+この保守は論理的には同じ操作の必須処理 `PostCommitMaintenance` です。保守の例外・取消は同じ結果の `FinalizationFailure` に残します。`MergeApplied` と永続確定成功を取り消しませんが、画面は通常の完全成功として報告しません。第二の変更セッションや別の成功報告は作りません。
 
-#### 統合用の排他権と必須保守の寿命
+#### 統合と必須保守の受付寿命
 
-統合が適用された後の順序と、排他の持ち替えを示します。縦の活性区間はそれぞれの排他権・予約の保持期間で、左の操作は保守の結果まで追跡します。通知済みであることを完全成功の判定に使いません。
+統合が適用された後も同じ受付を保持して必須保守を追跡します。モデルの短いロックを外部通知へ持ち越さず、通知済みであることを完全成功の判定に使いません。
 
 ```mermaid
 sequenceDiagram
     participant Operation as 統合操作
-    participant Merge as 統合用の排他権
+    participant Admission as 共通受付
     participant Maintenance as 保守処理
-    Operation->>Merge: 取得
-    activate Merge
+    Operation->>Admission: 取得または生存権限を借用
+    activate Admission
     Operation->>Operation: 物理処理・永続確定
     Operation->>Operation: 保守対象を固定し、入力元を後片付け
-    Operation->>Merge: 解放
-    deactivate Merge
-    Operation->>Operation: 準備済み通知を公開
-    Operation->>Maintenance: 必須のPostCommitMaintenanceを要求
-    alt 保守予約を取得
-        activate Maintenance
-        Maintenance->>Maintenance: 保守を実行し、finallyで予約解放
-        deactivate Maintenance
-        Maintenance-->>Operation: 保守の成功または失敗
-    else 予約拒否
-        Maintenance-->>Operation: Canceled
-    end
-    Operation->>Operation: 保守結果を同じ操作結果へ反映して終端
+    Operation->>Maintenance: 同じ権限で必須保守を実行
+    Maintenance-->>Operation: 実反映の成功・失敗・取消
+    Operation->>Operation: 保守結果を同じ操作結果へ反映
+    Operation->>Operation: 短いモデル変更scopeを終え、必要結果を公開
+    Operation->>Admission: 所有側は全必須処理・cleanupの実終端で解放
+    deactivate Admission
 ```
 
 保守失敗時も `MergeApplied` と永続確定成功は維持し、`FinalizationFailure` を含む結果を完全成功として報告しません。
@@ -206,13 +197,13 @@ sequenceDiagram
 
 ### 通知と操作結果
 
-必須反映が成功した通常通知だけを公開予定へ加えます。公開処理は排他権の解放後に一回実行し、購読者ごとの例外を診断して他の通知を続けます。通知失敗は確定済みの結果を変えず、処理を再実行しません。
+必須反映が成功した通常通知だけを公開予定へ加えます。公開処理は短いモデル変更scopeの解放後に一回実行し、購読者ごとの例外を診断して他の通知を続けます。論理受付の保持点は競合ポリシーに従います。通知失敗は確定済みの結果を変えず、処理を再実行しません。
 
 自動フォルダ名変更の中間進捗購読者が例外を投げても、通知失敗として診断して変更処理を続けます。本体が成功した場合は成功終端を公開してアイドルへ戻り、進捗通知の失敗を変更失敗へ変換しません。
 
 保留・自動導入の情報通知は、ダイアログ範囲を閉じて `FileDbMutationReport.ShowOperationMessagesAsync` へ渡します。一列の通知は順番に表示しますが、導入処理は表示完了を同期的に待ちません。失敗した表示が後続の通知を止めず、確認の代替にもなりません。
 
-操作の異常結果は、排他権、受付、操作中表示、ダイアログ範囲を解放した後に一度だけ報告します。完全成功は原則無通知、後片付けだけの失敗は警告、未確定・必須反映失敗・未確認対象を含む結果はエラーです。削除専用の `LibraryChartRemovalReport` との二重報告を避け、導入先修正に含まれる承認済み削除を別操作として報告しません。
+操作の異常結果は、短いモデルロック、操作中表示、同期ダイアログ範囲を解放して一度だけ報告します。必要通知・公開と外側の受付終端は競合ポリシーに従い、情報案内の表示完了を同期的に待ちません。完全成功は原則無通知、後片付けだけの失敗は警告、未確定・必須反映失敗・未確認対象を含む結果はエラーです。削除専用の `LibraryChartRemovalReport` との二重報告を避け、導入先修正に含まれる承認済み削除を別操作として報告しません。
 
 報告では成功した変更数を使い、ファイル数へ読み替えません。確認候補のパスは最大3件・各240文字、例外は最大3件・各400文字、本文は4096文字までとします。候補は存在確認済みの回復場所とは限りません。詳細は診断へ残しますが、表示や診断の失敗で本来の結果を上書きしません。
 
@@ -222,19 +213,20 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 通常・追加・root基点とsrc/dst/親再帰の実交差、表0基点 | `Lr2SynchronizationOwner` | [`FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 操作の排他、確認、通知解放 | [`SelectedChartMutationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartMutationWorkflowOwner.cs)、[`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs)、[`BmsLibraryMutationBoundaryTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs)、[`ChartMutationActivityOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/ChartMutationActivityOwnerTests.cs) |
 | 保留導入の確認前受付と、成功・失敗・取消後の解放 | [`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `TryEnterPendingOperation` / `InstallPackagesAsync` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `PendingInstall_RejectsDropDuringConfirmationAndReleasesAdmission`。手動・強制の成功／実行失敗と、手動の確認取消で、確認中のドロップ拒否、拒否した要求の無副作用・再実行なし、終端後の新規受付を確認する。 |
 | 自動導入の受付から一要求の全処理の終了まで、競合する保留導入を拒否 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `TryEnqueue`、[`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `InstallPendingAsync` / `InstallPackagesAsync` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `DropInstall_RejectsPendingInstallUntilAcceptedMultipleInputsFinish`（手動／強制 × 選択行要求／パッケージ要求）。実行開始前と処理中の拒否、追加要求の拒否、一要求内の複数入力、全処理後の通知時の受付解放を確認する。 |
 | 自動導入のBusy拒否と、所有する未引渡し入力の回収 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `TryEnqueue` | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `Enqueue_RejectsBusyBeforeQueueingThenRunsAfterRelease` は未受理要求を予約せず、解放後の新規要求だけを実行することを確認する。`GateBusy_AbandonsOwnedIngressWithoutCallingInstaller` は所有する一時入力の回収と導入未実行を確認する。 |
 | 取消・終了時の受付保持と解放、世代切替後の新規実行 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `CancelAll` / `RequestShutdown` / `AttachLibrary` | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `RequestShutdown_AfterPhysicalInsertionDrainsRequestWithoutPrivateLockCoordination` は終了要求後の未引渡し入力回収、`CancelAll_AfterPhysicalInsertionCannotCancelFreshPostDrainAdmission` は回収中の受付保持と、回収後の新規要求の実行、`GenerationReplacement_BusyRequestFailsFastThenFreshRequestRunsAfterRelease` は世代切替中の拒否と旧処理終了後の新規実行を確認する。 |
-| URL・外部APIの通信成功と導入未受理を分離 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) の `QueuePlaylistUrlInstallPathsAsync` → [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `Enqueue` | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) の `DownloadedPackages_BusyHandoffWarnsWithoutFallbackOrReplay`（`single`: 単発URL、`url`: 本体URL、`diff`: 差分URL、`api`: 外部API）。通信中のライブラリ変更を許可し、引渡し時のBusyだけを警告する。導入、ブラウザへの切替、自動再実行、取得済み入力の削除を行わないことを確認する。 |
+| URL・外部APIの通信成功と導入未受理を分離 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) の `QueuePlaylistUrlInstallPathsAsync` → [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の `Enqueue` | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) の `DownloadedPackages_BusyHandoffWarnsWithoutFallbackOrReplay`（`single`: 単発URL、`url`: 本体URL、`diff`: 差分URL、`api`: 外部API）。通信中のライブラリ変更を許可し、引渡し時のBusyだけを警告する。導入、ブラウザへの切替、自動再実行を行わず、所有するstagingを回収することを確認する。 |
 | 情報通知の表示順と、表示失敗後の継続 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) の `ShowOperationMessagesAsync` | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs) の `OperationMessages_PreserveOrderAndContinueAfterDisplayFailure` は先行表示の完了待ちと、表示失敗後も後続通知へ進む順序を確認する。`ReporterFailureDoesNotAlterFactsOrRetry` は異常結果の表示失敗でも確定内容・元の原因を変えず、再報告しないことを確認する。 |
 | 情報通知の待機・失敗を導入結果や必須処理の失敗に混ぜない | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の終了処理、[`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の `SearchPackagesAsync` | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult` は表示前の導入終端・受付解放と表示失敗後の成功保持を確認する。[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope` は終了処理の失敗でも通知を引き渡すこと、`SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure` は元の変更・終了処理の失敗だけを保持することを確認する。 |
 | 自動導入の必須反映失敗も、受付解放後に型付き結果で通知 | [`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) の終了処理 | [`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs) の `DurableFinalizationFailure_PublishesTypedCompletionWithoutRegisteredPackages`（更新抑制の終了処理の例外あり／なし）。登録パッケージが空でも確定済みの結果を保持し、完了通知・終了処理失敗の通知時に受付を解放していることを確認する。 |
 | 複数対象の移動・削除・拡張子変更、反映回数と永続結果 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `RenameIngress_CapturesOnlyLocalBmsRangeFacts`（BMS局所範囲と手動・自動の両終端）、[`BmsLibraryCatalogRelocationTests`](../../../BeMusicSeeker.Tests/Catalog/BmsLibraryCatalogRelocationTests.cs)、[`OwnedChartCollectionLibraryMutationTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs) の `RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult`、`RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly`、`RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild`、[`BmsLibraryLibraryFileOperationsServiceTests`](../../../BeMusicSeeker.Tests/FileOperations/BmsLibraryLibraryFileOperationsServiceTests.cs) |
 | 導入時の先行成功、欠落と途中失敗、リソースのみの処理 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs)。`ManualInstallPackagesAsync_NoEstimatedDestinationsCompletesWithEmptyReceiptAndPreservesPendingSources` は、実入口の正常スキップ結果と保留パッケージ・元ファイルの保持を確認する。 |
 | 導入・譜面解析の通知前反映と排他解放 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs)、[`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `UsesPreflightDestinationAndWarmDelta` を含む自動・推定先・強制導入テスト。各通知で構築を起こさず索引の現在性を確認し、別の変更予約を取得できることを検査する。譜面解析のハッシュ更新・保存失敗は [`OwnedChartCollectionInlineDigestTests`](../../../BeMusicSeeker.Tests/Catalog/OwnedChartCollectionInlineDigestTests.cs) と [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) で確認する。 |
-| 統合、型衝突、確定後保守の失敗、元の欠落 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation`（BMS/BMSONの成功、共通DB失敗、予約拒否）、[`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) |
+| 統合、型衝突、確定後保守の失敗、元の欠落 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation`（BMS/BMSONの成功、DB拒否による元失敗、同じ受付の生存権限を借用した実保守）、[`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) |
 | 保留の全体削除・一部削除、入力の所属と安全性 | [`PendingPackageWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) | [`BmsLibraryPendingLegacyMutationTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingLegacyMutationTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs)、[`MainWindowPendingPackageMutationViewTerminalTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPendingPackageMutationViewTerminalTests.cs) |
 | カタログの保存と譜面情報の確定後反映 | [`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)、[`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) の `BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex`、`BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk`。失敗したchunkを公開せず、先行確定分だけを保持する。 |
 | 終端の分類・件数・確認候補、表示失敗と多言語通知 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
@@ -245,7 +237,8 @@ sequenceDiagram
 
 `SelectedChartMutationWorkflowOwnerTests.DeleteAsync_PrepareKeepsDispatcherResponsiveAndRetainsCopiedInput` は実Dispatcherから通常削除を開始し、準備待機中のUI応答・共通受付保持・コピー済み入力と、準備例外時の元原因・未実行・解放を確認します。このstore代替試験はワークフローの順序を担い、FS/DBと対象結び付きの保証は以下の実store試験へ分担します。
 
-最初の確認から同じprepared値を渡す本番接続は [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) の `PreparedTargets_RealStorePreservesFirstConfirmationBoundary` が実store・小実DBで削除の古いhash許容／確認取消と、通常拡張子変更のprepare前移転追従を確認します。重複整理の共通gate・本モデル受付Busyと解放は [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunHashCleanupAsync_RealPreparedTargetsKeepGateAndModelAdmission` に分担します。`RunHashCleanupAsync_WholeFolderDecisionUsesPreparedRealStore` は実store・小実DBでYes／No／否定close、候補部分集合だけの承認、モデル再確認なし、確認中の短期モデル受付を確認します。`RunHashCleanupAsync_WholeFolderFailureDoesNotStartMutation` は複数候補の先行Yes後でも後続の表示失敗・null応答・例外で実行しないことを確認します。`BmsLibraryMutationBoundaryTests.OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision` は実候補のdirect入口で非OK拒否を維持します。既存の `RunFolderMergeAsync_AwaitsConfirmationWithoutBlockingCaller` は確認待機中の共通gate取得失敗・別要求の拒否・store未実行と解放後の再取得を確認します。既存のscope、再生停止、取消、部分成功、解放後報告はprepared境界へ追従させて維持します。
+最初の確認から同じprepared値を渡す本番接続は [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) の `PreparedTargets_RealStorePreservesFirstConfirmationBoundary` が実store・小実DBで削除の古いhash許容／確認取消と、通常拡張子変更のprepare前移転追従を確認します。重複整理の同一管理主体の共通権限、確認中の未受理workflow/model要求の副作用前Busyと非予約、実削除と後片付け終端までの受付保持は [`DuplicateMaintenanceWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunHashCleanupAsync_RealPreparedTargetsKeepGateAndModelAdmission` に分担します。同caseは固定preparedによる実削除1件・成功・Failureなし、duplicateのFS/DB/所持集合からの削除とkeeper保持、終端後の次明示受付を確認します。`RunHashCleanupAsync_WholeFolderDecisionUsesPreparedRealStore` は実store・小実DBでYes／No／否定close、候補部分集合だけの承認、モデル再確認なし、同一管理主体の生存権限転送、確認中のモデル要求Busyを確認します。`RunHashCleanupAsync_WholeFolderFailureDoesNotStartMutation` は複数候補の先行Yes後でも後続の表示失敗・null応答・例外で実行しないことを確認します。`BmsLibraryMutationBoundaryTests.OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision` は実候補のdirect入口で非OK拒否を維持します。既存の `RunFolderMergeAsync_AwaitsConfirmationWithoutBlockingCaller` は確認待機中の共通gate取得失敗・別要求の拒否・store未実行と解放後の再取得を確認します。既存のscope、再生停止、取消、部分成功、解放後報告はprepared境界へ追従させて維持します。
+
 
 ## 関連資料
 

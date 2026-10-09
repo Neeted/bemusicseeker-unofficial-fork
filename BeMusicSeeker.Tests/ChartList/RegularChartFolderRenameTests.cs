@@ -18,12 +18,60 @@ namespace BeMusicSeeker.Tests;
 public sealed class RegularChartFolderRenameTests
 {
 
+    /// <summary>実libraryの管理領域交差は、共有Pの競合を停止より先に検出し、物理変更・DB反映・予約を行いません。</summary>
+    [TestMethod]
+    public void FolderRename_ManagedPlaylistBusyRejectsBeforePlaybackStopAndFreshRequestSucceeds()
+    {
+
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string managed = Path.Combine(root, "Managed");
+            string source = Path.Combine(managed, "Source");
+            string destination = Path.Combine(managed, "Moved");
+            Directory.CreateDirectory(source);
+            string path = Path.Combine(source, "chart.bms");
+            File.WriteAllText(path, "#PLAYER 1\n#TITLE Managed\n");
+            ChartFile chart = CreateTestableBmsFile(path);
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => null!), () => options)
+            { BmsCharts = [chart], BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs([chart]);
+            var playback = new NoOpChartMutationPlaybackPort();
+            using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(),
+                chartFileOperations: library.OperationAdmission, mutationDialogs: new FileDbReportRecordingDialogs(), mutationPlayback: playback);
+            owner.AttachNormalLibraryRefreshSource(library);
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
+            try
+            {
+                InvalidOperationException busy = Assert.ThrowsException<InvalidOperationException>(() =>
+                    owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult());
+                StringAssert.Contains(busy.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                Assert.AreEqual(0, playback.StopCount);
+                Assert.IsTrue(File.Exists(path));
+                Assert.IsFalse(Directory.Exists(destination));
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                { Assert.IsNotNull(db.Find<LR2SongDB.song>(path)); Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(destination, "chart.bms"))); }
+            }
+            finally { held.Dispose(); }
+            Assert.IsTrue(File.Exists(path), "P解放だけで拒否要求を予約実行しません。");
+            owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult();
+            Assert.AreEqual(1, playback.StopCount);
+            Assert.IsFalse(File.Exists(path));
+            Assert.IsTrue(File.Exists(Path.Combine(destination, "chart.bms")));
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            owner.StopAsync().GetAwaiter().GetResult();
+        });
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void StopAsync_DrainsInFlightFolderRename(bool finalizationFails)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -90,6 +138,7 @@ public sealed class RegularChartFolderRenameTests
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
                 action => action(),
+                chartFileOperations: library.OperationAdmission,
                 mutationDialogs: dialogs);
             owner.AttachNormalLibraryRefreshSource(library);
             owner.NormalLibraryRefreshApplied += (_, args) =>
@@ -106,12 +155,12 @@ public sealed class RegularChartFolderRenameTests
                 if (!args.IsSuppressed)
                 {
                     suppressionEntered.Set();
-                    releaseSuppression.Wait(TimeSpan.FromSeconds(10));
+                    releaseSuppression.Wait();
                 }
             };
 
             Task renameTask = owner.RenameChartFolderAsync(request, destinationFolder);
-            Assert.IsTrue(suppressionEntered.Wait(TimeSpan.FromSeconds(10)));
+            suppressionEntered.Wait();
 
             using var stopStarted = new ManualResetEventSlim();
             Task stopTask = StartLongRunningAsync(async delegate
@@ -119,7 +168,7 @@ public sealed class RegularChartFolderRenameTests
                 stopStarted.Set();
                 await owner.StopAsync();
             });
-            Assert.IsTrue(stopStarted.Wait(TimeSpan.FromSeconds(10)));
+            stopStarted.Wait();
             Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
             Assert.IsFalse(renameTask.IsCompleted, "The rename must still be in flight while shutdown begins draining it.");
 
@@ -175,7 +224,7 @@ public sealed class RegularChartFolderRenameTests
             var table = new MainChartListViewModel();
             int displayRefreshCount = 0;
             table.DisplayRefreshRequested += (_, _) => Interlocked.Increment(ref displayRefreshCount);
-            var synchronizer = new ChartFileOperationSynchronizer();
+            ChartFileOperationSynchronizer synchronizer = library.OperationAdmission;
             var dialogs = new FileDbReportRecordingDialogs();
             using RegularChartListOwner owner = CreateOwner(
                 table,
@@ -188,21 +237,15 @@ public sealed class RegularChartFolderRenameTests
             try
             {
                 Task renameTask = owner.RenameChartFolderAsync(request, "busy-destination");
-                Exception? renameFailure = null;
-                try
-                {
-                    renameTask.GetAwaiter().GetResult();
-                }
-                catch (Exception exception)
-                {
-                    renameFailure = exception;
-                }
-                Assert.IsNotNull(renameFailure, "The busy gate failure must remain observable on the rename task.");
-                Assert.IsInstanceOfType(renameFailure, typeof(InvalidOperationException));
+                renameTask.GetAwaiter().GetResult();
                 Assert.AreEqual(1, dialogs.Messages.Count, "The failed rename must notify through the mutation dialog route.");
                 Assert.IsTrue(Directory.Exists(sourceDirectory));
                 Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "busy-destination")));
                 Assert.AreEqual(0, Volatile.Read(ref displayRefreshCount));
+                incumbent.Dispose();
+                Assert.IsTrue(Directory.Exists(sourceDirectory), "拒否した要求を後で自動実行しません。");
+                owner.RenameChartFolderAsync(request, "busy-destination").GetAwaiter().GetResult();
+                Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "busy-destination")));
             }
             finally
             {
@@ -240,6 +283,7 @@ public sealed class RegularChartFolderRenameTests
                     new MainChartListViewModel(),
                     CreateWorkspaceForOwner(),
                     action => action(),
+                    chartFileOperations: library.OperationAdmission,
                     mutationDialogs: new FileDbReportRecordingDialogs());
                 owner.AttachNormalLibraryRefreshSource(library);
 
@@ -263,7 +307,7 @@ public sealed class RegularChartFolderRenameTests
 
 
     [TestMethod]
-    public void FolderRenames_SerializeMutationsWithoutWaitingForRefreshDrain()
+    public void ExplicitFolderRenames_AfterFirstTerminalDoNotWaitForDisplayRefreshDrain()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -297,9 +341,9 @@ public sealed class RegularChartFolderRenameTests
                         pendingActions.Enqueue(action);
                     }
                     actionQueued.Set();
-                }));
+                }), chartFileOperations: library.OperationAdmission);
             owner.AttachNormalLibraryRefreshSource(library);
-            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
+            actionQueued.Wait();
             Action catchUp;
             lock (pendingActions)
             {
@@ -310,11 +354,11 @@ public sealed class RegularChartFolderRenameTests
             actionQueued.Reset();
 
             Task firstRename = owner.RenameChartFolderAsync(firstRequest, "first-destination");
-            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
-            Task secondRename = owner.RenameChartFolderAsync(secondRequest, "second-destination");
-            Assert.IsTrue(firstRename.Wait(TimeSpan.FromSeconds(10)));
-            Assert.IsTrue(secondRename.Wait(TimeSpan.FromSeconds(10)));
+            actionQueued.Wait();
+            firstRename.Wait();
             firstRename.GetAwaiter().GetResult();
+            Task secondRename = owner.RenameChartFolderAsync(secondRequest, "second-destination");
+            secondRename.Wait();
             secondRename.GetAwaiter().GetResult();
 
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "first-destination")));
@@ -360,9 +404,9 @@ public sealed class RegularChartFolderRenameTests
                         pendingActions.Enqueue(action);
                     }
                     actionQueued.Set();
-                }));
+                }), chartFileOperations: library.OperationAdmission);
             owner.AttachNormalLibraryRefreshSource(library);
-            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
+            actionQueued.Wait();
             Action catchUp;
             lock (pendingActions)
             {
@@ -373,7 +417,7 @@ public sealed class RegularChartFolderRenameTests
             actionQueued.Reset();
 
             Task renameTask = owner.RenameChartFolderAsync(request, "queued-destination");
-            Assert.IsTrue(actionQueued.Wait(TimeSpan.FromSeconds(10)));
+            actionQueued.Wait();
             Task stopTask = owner.StopAsync();
             Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
 
@@ -395,7 +439,7 @@ public sealed class RegularChartFolderRenameTests
     [DataRow(true)]
     public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh(bool reporterThrows)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string libraryRoot = Path.GetDirectoryName(songDbPath)!;
@@ -413,7 +457,7 @@ public sealed class RegularChartFolderRenameTests
             var gate = new ChartFileOperationSynchronizer();
             var activity = new ChartMutationActivityOwner();
             bool reportAfterRelease = false;
-            bool modelLeaseReleased = false;
+            bool logicalAdmissionHeldDuringNotification = false;
             Directory.CreateDirectory(sourceDirectory);
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE workflow finalization failure\r\n");
             try
@@ -435,17 +479,17 @@ public sealed class RegularChartFolderRenameTests
                 {
                     BmsCharts = [file]
                 };
+                gate = library.OperationAdmission;
                 dialogs.OnMessage = () =>
                 {
                     bool gateReleased = gate.TryEnter(out IDisposable releasedGate);
-                    reportAfterRelease = !activity.IsActive && gateReleased;
+                    reportAfterRelease = !activity.IsActive && !gateReleased;
                     if (gateReleased)
                     {
                         releasedGate.Dispose();
                     }
 
-                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation("rename_report_probe");
-                    modelLeaseReleased = lease != null;
+                    logicalAdmissionHeldDuringNotification = library.OperationAdmission.IsActive;
                 };
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
@@ -496,12 +540,14 @@ public sealed class RegularChartFolderRenameTests
                 Assert.AreEqual(0, dialogs.ModelMessages, "Canonical reporting suppresses the lower receipt-backed dialog.");
                 Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
                 Assert.IsTrue(reportAfterRelease);
-                Assert.IsTrue(modelLeaseReleased);
+                Assert.IsTrue(logicalAdmissionHeldDuringNotification);
                 StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "forced durable finalization failure");
                 StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
-                Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
-                Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));
+                using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
+                    Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(chartPath));
+                }
                 owner.StopAsync().GetAwaiter().GetResult();
             }
             finally

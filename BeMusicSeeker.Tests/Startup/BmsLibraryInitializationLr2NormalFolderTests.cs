@@ -18,7 +18,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersAfterFullScanWhenEnabled()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -85,7 +85,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersForChangedDirectoryMtimeWithoutSongDbDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -170,7 +170,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersForUnchangedDirectoryMtimeWithoutSongDbDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -320,7 +320,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedNormalFolderMtimeSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -414,7 +414,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenOnlyFolderInfoMetadataDiffers()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -498,7 +498,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersForChangedDirectoryMtimeAndDeletedFolderInfoWithoutSongDbDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -578,7 +578,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesDirectoryMtimeFromScanSurfaceForLr2NormalFolders()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -640,7 +640,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersOnlyForAffectedDeletedBmsScope()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepDirectoryPath = Path.Combine(lr2RootPath, "Keep");
@@ -739,7 +739,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DeletedNestedBmsDoesNotExpandLr2NormalFolderScopeToRootChild()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepDirectoryPath = Path.Combine(lr2RootPath, "Big", "Keep");
@@ -841,7 +841,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DeletedLastNestedBmsPrunesEmptyAncestorFolder()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "EmptyPack");
@@ -919,7 +919,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DeletedRootLevelBmsDoesNotExpandLr2NormalFolderScopeToRoot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepDirectoryPath = Path.Combine(lr2RootPath, "Keep");
@@ -1009,7 +1009,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncStaleLr2NormalFoldersOutsideLr2Mode()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -1064,7 +1064,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersOutsideLr2Mode()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -1112,7 +1112,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenScanIsIncomplete()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -1174,7 +1174,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenThereIsNoDbDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
@@ -1256,7 +1256,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersForBmsTextOnlyDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "TextOnly");

@@ -55,8 +55,8 @@ flowchart TB
     Operable --> Followup["後続処理：固有の依存を満たして実行"]
     Required --> RequiredDone["必須登録を閉じ、必須要求が残っていない"]
     RequiredDone --> Initialized["必須進捗を完了：初期化完了"]
-    Initialized --> Sync["自動LR2同期：対象なら一回予約し専用状態で追跡"]
-    Sync -->|動的登録の閉鎖・要求の終端| Settled
+    Initialized --> Sync["自動LR2全体同期：両受付の競合はskip、開始後は実終端待機"]
+    Sync -->|動的登録の閉鎖<br/>要求の終端| Settled
     RequiredDone --> Settled{"AND：登録閉鎖・スケジューラー内が一度収束"}
     Followup --> Settled
     Settled --> Prewarm["任意の事前計算を一回登録・完了まで待つ"]
@@ -146,7 +146,7 @@ flowchart TB
 
 ### 必須の処理と後続処理
 
-起動時のスケジューラーは `startup_ready_operable` で開始します。表示では必須操作の「初期化」と後続の「起動に伴う追加処理」を別の親で追い、親子の要求対応と終了は[進捗仕様](progress.md)に従います。モデルへ注入した受付を `StartupBackgroundTaskSchedulerOwner.Queue` に接続し、依存と分類ごとに実行します。
+起動時のスケジューラーは `startup_ready_operable` で開始します。表示では必須操作の「初期化」と後続の「起動に伴う追加処理」を別の親で追い、親子の要求対応と終了は[進捗仕様](progress.md)に従います。モデルへ注入した受付を `StartupBackgroundTaskSchedulerOwner.Queue` に接続し、依存と分類ごとに実行します。LR2の外側の起動登録は維持し、共通受付取得後の実実処理は手動要求を含めて直接作業Taskで開始・実終端awaitします。共通受付を持ったまま、同じ受付を待つ必須保守が占有する起動枠の空きを待ちません。
 
 | 分類 | 主な処理 | 完了条件 |
 | --- | --- | --- |
@@ -154,7 +154,7 @@ flowchart TB
 | 必須のスコア | メモリ上のスコア適用 | `default` の並列数1 |
 | 必須の補完段階 | ハッシュ・譜面情報の補完、または不要判定 | 要求の確定・DB反映・公開まで待つ |
 | 後続の表示・情報追加 | フォルダツリー、URL補完、参照反映、外部同期・一覧 | 通常は経路ごとに並列数1で必須処理とも重なって進める |
-| 後続の保守・出力 | 保守読込み、未完の保守、出力修復、BMT出力、GC | スケジューラーの後続処理として記録する |
+| 必須playlist準備と独立した後続処理 | entries hydration・出力修復/BMTは親Taskで直接待機。保守・GCは固有の依存を維持 | 必須更新の実終端と独立した後続進捗を区別する |
 | 自動LR2同期 | 正常な必須初期化完了後に一回予約 | 専用状態で報告し、起動進捗の成功・失敗を変更しない |
 
 `StartupBackgroundTasksDone` は必須処理の登録を閉じ、待機中・実行中の必須要求が0になったことを示します。スケジューラー全体の空とは異なります。
@@ -188,6 +188,18 @@ flowchart TB
 
 テーブル再読込みは自動対象を外部同期ONかつ絶対URIのものに絞ります。単体・選択範囲の手動再読込みは外部同期設定によらず選択を対象とし、並列数を制限した共通処理を使います。失敗は個別画面を乱発せず、ログと一覧の状態へ集約します。項目の反映コールバックまで完了してから外部同期へ進みます。
 
+### 利用者が起こす入力再読込みの受付
+
+ライブラリツリーの差分再読込み・再初期化は、共通論理受付を待たずに取得します。推定・変更・受理済み背景入力更新中はBusyで拒否し、再生停止・モデル変更を始めません。受理後は既存の試聴停止gateで準備・受理済みNextの実終端を待ち、入力変更・必須反映・後片付けまで同じ受付を保持します。設定適用からの差分再読込みは、設定側が所有する受付の内部継続として実行します。起動全体・LR2同期の段階間順序は既存の契約に従います。
+
+受付の標準構成接続は [`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs) の `StandardComposition_RejectsCatalogPlaybackAndSettingsBeforeSideEffectsWhileKeepingDraftAndSelection`、再読込み・設定適用の成否と終端は既存の再読込み・設定完了テストで確認します。
+
+差分再読込みと全再初期化でディレクトリ検査が失敗した場合は、再生停止・UI更新抑制・進捗状態・実処理の後片付けを終え、共通論理受付を解放してから警告を表示します。警告からの明示再試行を受け付け、元の失敗は通知後も伝播します。Settingsからの差分再読込みは同じ受理操作の内部継続として受付を取り直さず、外側の保存・反映・後片付けが終端して受付を解放した後に一度通知します。
+
+起動全体同期・条件付き差分同期・任意外部同期の開始判定と必須継続は[競合ポリシー](../core/operation-concurrency-policy.md)に従います。scheduler登録だけからCompletedを強制せず、実施済み差分と参照更新の事実を保持します。
+
+設定からの全再構築では、標準構成が共有するライブラリ・プレイリスト受付の生存権限を、新しく構築する個別ライブラリ・storeへ明示転送します。LR2処理主体、DB、終了状態と再接続識別は個別に保ち、共有受付の一致だけで旧storeの対象を再び許可しません。初回構築と再構築のどちらも実モデル初期化・必要後処理を待ち、同じ受付を取り直したり自分の終端を待ったりしません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
@@ -196,7 +208,9 @@ flowchart TB
 | モード別の構築、検索先、作成・適用の失敗 | [`StartupLibraryInitializationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs) | [`StartupLibraryProfileTests`](../../../BeMusicSeeker.Tests/Startup/StartupLibraryProfileTests.cs)、[`StartupLibraryFailureContractTests`](../../../BeMusicSeeker.Tests/Startup/StartupLibraryFailureContractTests.cs)、[`StartupLibraryInitializationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupLibraryInitializationWorkflowOwnerTests.cs) |
 | LR2設定の未設定・読取不能・構造不正、その他の必須設定不備 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `InitializeAsync_InvalidLr2SettingsUseSettingsGuidanceAndPreserveFiles`、`InitializeLibrary_SettingsValidationFailureRoutesGuidanceByCaller`: 初回・通常起動と設定保存後での設定案内の分担、UI抑止解除、保存パス・XML・DBの保持、保存・初期化の中止。 |
 | LR2ディレクトリ未設定時の通常起動警告 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `InitializeLibrary_Lr2RootPathWarningIsLimitedToEmptyRootOnNormalStartup`: 通常起動成功後だけ警告し、設定保存後の再初期化では追加表示しないこと、設定画面を自動で開かず成功結果を維持することを確認する。 |
-| ディレクトリ不通、外側の警告、設定後の再試行 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[`FileDiffReloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/FileDiffReloadWorkflowOwnerTests.cs)、[`LibraryDirectoryWarningFormatterTests`](../../../BeMusicSeeker.Tests/ChartList/LibraryDirectoryWarningFormatterTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) |
+| ディレクトリ不通、外側の警告、設定後の再試行 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[`FileDiffReloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/FileDiffReloadWorkflowOwnerTests.cs)、[`LibraryDirectoryWarningFormatterTests`](../../../BeMusicSeeker.Tests/ChartList/LibraryDirectoryWarningFormatterTests.cs)、[`MainWindowTreePresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs)  `MainWindowConsumer_DirectoryPreflightWarningRunsAfterCleanupAndRetrySucceeds` と `ApplySettingsAsync_DirectoryWarningCanRetryAfterCleanupAndCommonAdmissionRelease` は、警告中に新しい明示操作が完了することを確認する。 |
+| 起動LR2の実終端と同一scheduler laneの非循環 | [`Lr2SongDbSyncRequestCoordinator`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncRequestCoordinator.cs)、[`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs) | [`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs) の `PostStartupLr2Enrollment_SkipsCompetingStartAndAwaitsStartedActualWorker`: 実scheduler登録の開始競合skip・準備0・無予約と、idleで開始した実実処理の直接await・実DB終端・両受付解放を確認する。 |
+| 手動LR2と受理済み起動保守の非循環 | [`Lr2SongDbSyncRequestCoordinator`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncRequestCoordinator.cs)、[`BMSLibrary.InstallableMaintenance`](../../../BeMusicSeeker/Models/Library/BMSLibrary.InstallableMaintenance.cs) | [`InstallableMaintenanceAdmissionTests`](../../../BeMusicSeeker.Tests/Startup/InstallableMaintenanceAdmissionTests.cs) は実初期化の依存とpost枠1を保ち、準備中のLR2受付を実保守が待っても、実処理の実DB更新、保守更新、全Taskの終端と次の明示要求まで進むことを確認する。 |
 | 必須・後続の依存、終結、導入可能条件 | [`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)、[`StartupInstallReadinessState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/StartupInstallReadinessState.cs) | [`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs)、[`StartupInstallReadinessStateTests`](../../../BeMusicSeeker.Tests/Startup/StartupInstallReadinessStateTests.cs)、[`StartupPostInitializationWarmupOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupPostInitializationWarmupOwnerTests.cs) |
 | 起動失敗と進捗の後片付け、表示の遅延 | [`StartupProgressWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupProgressWorkflowOwner.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) |
 | アプリ所有DB構造のInspect、外側transaction、修復後の再確認 | [`AppSchemaPreflightService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/AppSchemaPreflightService.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`AppSchemaPreflightServiceTests`](../../../BeMusicSeeker.Tests/Startup/AppSchemaPreflightServiceTests.cs) の `EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration`、`RepairAppOwnedSchema_MissingVersionRowConvergesPreflight`、`RepairAppOwnedSchema_CurrentVersionWithInvalidDigestMapStillRepairsSchema`、`RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase`。Inspectの無変更、既存digest行の保持、途中失敗時の旧状態、再試行後の収束を実DBで確認する。`Inspect_PathOverload_DoesNotWaitForLr2SongDbExtendedMonitorLock` は共有Monitorの保持中に検査が完了することを確認し、解放待ちに依存しない起動前検査を保証する。 |

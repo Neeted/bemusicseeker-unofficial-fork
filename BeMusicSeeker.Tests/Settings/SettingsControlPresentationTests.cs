@@ -36,6 +36,7 @@ public sealed class SettingsControlPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
             var window = new SettingsWindow
             {
                 DataContext = viewModel.SettingDialog,
@@ -69,14 +70,14 @@ public sealed class SettingsControlPresentationTests
                 var playbackSelection = (ISelectionItemProvider)playbackPeer.GetPattern(PatternInterface.SelectionItem);
                 Assert.IsNotNull(playbackSelection);
                 playbackSelection.Select();
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(2, navigation.SelectedIndex);
                 Assert.IsInstanceOfType<PlaybackSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
                 Assert.IsTrue(playbackSelection.IsSelected);
 
                 navigation.SelectedIndex = 1;
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
 
@@ -86,10 +87,10 @@ public sealed class SettingsControlPresentationTests
                 window.UpdateLayout();
                 Assert.IsTrue(scroller.ScrollableHeight > 0, "The shell body must expose overflow through its shared scroller.");
                 scroller.ScrollToVerticalOffset(Math.Min(100d, scroller.ScrollableHeight));
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(scroller.VerticalOffset > 0, "The body scroller must accept a non-zero page offset.");
                 navigation.SelectedIndex = 1;
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0d, scroller.VerticalOffset, "Changing categories must reset the shared body scroller.");
             }
             finally
@@ -162,12 +163,12 @@ public sealed class SettingsControlPresentationTests
                 Assert.AreSame(editablePopup, editableCombo.Template.FindName("PART_Popup", editableCombo));
 
                 editableCombo.Text = "FirstZ";
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("FirstZ", editor.Text);
 
                 selectionCombo.Width = 240;
                 editableCombo.Width = 268;
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("FirstZ", editableCombo.Text);
                 Assert.AreEqual("FirstZ", editor.Text);
                 AssertPopupTemplate(selectionCombo, selectionPopup);
@@ -370,11 +371,11 @@ public sealed class SettingsControlPresentationTests
                 double initialOffset = pageScroller.VerticalOffset;
                 double initialHorizontalOffset = pageScroller.HorizontalOffset;
                 scrollProvider.Scroll(ScrollAmount.NoAmount, ScrollAmount.SmallIncrement);
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(pageScroller.VerticalOffset > initialOffset);
                 Assert.AreEqual(pageScroller.VerticalOffset, verticalScrollBar.Value, 0.01d);
                 scrollProvider.Scroll(ScrollAmount.SmallIncrement, ScrollAmount.NoAmount);
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(pageScroller.HorizontalOffset > initialHorizontalOffset);
                 Assert.AreEqual(pageScroller.HorizontalOffset, horizontalScrollBar.Value, 0.01d);
                 AssertMaterializedScrollViewerConsumer(
@@ -382,7 +383,7 @@ public sealed class SettingsControlPresentationTests
                     Orientation.Horizontal,
                     "Representative ScrollViewer horizontal content");
                 verticalScrollBar.IsEnabled = false;
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(verticalScrollBar.Opacity < 1d);
 
                 textBox.ApplyTemplate();
@@ -423,7 +424,7 @@ public sealed class SettingsControlPresentationTests
                 Assert.IsNotNull(selectionItemProvider);
                 Assert.IsFalse(selectionItemProvider.IsSelected);
                 selectionItemProvider.Select();
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, listBox.SelectedIndex);
                 Assert.IsTrue(firstListItem.IsSelected);
                 Assert.IsFalse(secondListItem.IsSelected);
@@ -440,13 +441,13 @@ public sealed class SettingsControlPresentationTests
                 Assert.IsNotNull(expanderProvider);
                 Assert.AreEqual(ExpandCollapseState.Expanded, expanderProvider.ExpandCollapseState);
                 expanderProvider.Collapse();
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(expander.IsExpanded);
                 Assert.IsFalse(headerSite.IsChecked);
                 Assert.IsFalse(((UIElement)expander.Content).IsVisible);
                 Assert.AreEqual(ExpandCollapseState.Collapsed, expanderProvider.ExpandCollapseState);
                 expanderProvider.Expand();
-                PumpDispatcher(window.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(expander.IsExpanded);
                 Assert.IsTrue(headerSite.IsChecked);
                 Assert.IsTrue(((UIElement)expander.Content).IsVisible);
@@ -454,22 +455,22 @@ public sealed class SettingsControlPresentationTests
                 foreach (string theme in new[] { AppThemeService.Light, AppThemeService.Dark, AppThemeService.Light })
                 {
                     AppThemeService.ApplyTheme(theme);
-                    PumpDispatcher(window.Dispatcher);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     foreach (bool expanded in new[] { false, true })
                     {
                         expander.IsExpanded = expanded;
-                        PumpDispatcher(window.Dispatcher);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         window.UpdateLayout();
                         Assert.AreEqual(expanded, headerSite.IsChecked);
                         Assert.AreEqual(expanded, ((UIElement)expander.Content).IsVisible);
                         AssertExpanderHeaderPalette(headerSite, "App.TextBrush");
 
                         expander.IsEnabled = false;
-                        PumpDispatcher(window.Dispatcher);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         window.UpdateLayout();
                         AssertExpanderHeaderPalette(headerSite, "App.DisabledTextBrush");
                         expander.IsEnabled = true;
-                        PumpDispatcher(window.Dispatcher);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         window.UpdateLayout();
                         AssertExpanderHeaderPalette(headerSite, "App.TextBrush");
                     }
@@ -564,11 +565,11 @@ public sealed class SettingsControlPresentationTests
                 var topFolderSelection = (ISelectionItemProvider)topFolderPeer.GetPattern(PatternInterface.SelectionItem);
                 Assert.IsNotNull(topFolderSelection);
                 topFolderSelection.Select();
-                PumpDispatcher(topNavigationWindow.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, topNavigation.SelectedIndex);
                 Assert.IsTrue(topFolderSelection.IsSelected);
                 topNavigationItemsByIndex[2].IsEnabled = false;
-                PumpDispatcher(topNavigationWindow.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
                 Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
                 AutomationPeer disabledNavigationPeer = topNavigationPeer.GetChildren()
@@ -586,7 +587,7 @@ public sealed class SettingsControlPresentationTests
                     selectionRejected = true;
                 }
 
-                PumpDispatcher(topNavigationWindow.Dispatcher);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(selectedBeforeDisabledAttempt, topNavigation.SelectedIndex);
                 Assert.IsTrue(
                     selectionRejected || !disabledNavigationSelection.IsSelected,
@@ -798,12 +799,6 @@ public sealed class SettingsControlPresentationTests
         return false;
     }
 
-    private static void PumpDispatcher(Dispatcher dispatcher)
-    {
-        dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
-    }
 
     private static void AssertPopupTemplate(ComboBox comboBox, Popup popup)
     {
@@ -914,7 +909,7 @@ public sealed class SettingsControlPresentationTests
         scrollProvider.Scroll(
             expectedOrientation == Orientation.Vertical ? ScrollAmount.NoAmount : ScrollAmount.SmallIncrement,
             expectedOrientation == Orientation.Vertical ? ScrollAmount.SmallIncrement : ScrollAmount.NoAmount);
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         double transitionedOffset = expectedOrientation == Orientation.Vertical
             ? viewer.VerticalOffset
@@ -934,7 +929,7 @@ public sealed class SettingsControlPresentationTests
 
         double lineStartOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(lineStart, consumerName + " line-start");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, expectedOrientation) < lineStartOffset,
@@ -942,7 +937,7 @@ public sealed class SettingsControlPresentationTests
 
         double lineEndOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(lineEnd, consumerName + " line-end");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, expectedOrientation) > lineEndOffset,
@@ -950,7 +945,7 @@ public sealed class SettingsControlPresentationTests
 
         double pageStartOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(pageStart, consumerName + " page-start");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, expectedOrientation) < pageStartOffset,
@@ -958,7 +953,7 @@ public sealed class SettingsControlPresentationTests
 
         double pageEndOffset = SetScrollOffsetToInterior(viewer, expectedOrientation, consumerName);
         InvokeScrollButton(pageEnd, consumerName + " page-end");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, expectedOrientation) > pageEndOffset,
@@ -1005,7 +1000,7 @@ public sealed class SettingsControlPresentationTests
             viewer.ScrollToHorizontalOffset(target);
         }
 
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         double offset = GetScrollOffset(viewer, orientation);
         Assert.IsTrue(

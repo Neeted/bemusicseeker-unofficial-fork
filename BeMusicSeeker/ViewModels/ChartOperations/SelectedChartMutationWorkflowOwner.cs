@@ -60,6 +60,13 @@ internal interface IPendingDeleteConfirmationDialogPort
 
 internal interface ISelectedChartMutationStore
 {
+    /// <summary>受理済み権限を保持する変更不能な本番portを返します。独立代替portは自身を使えます。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    ISelectedChartMutationStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
+
+    /// <summary>固定した実変更範囲から、停止前に条件付きPを取得します。独立代替portでは管理出力を持ちません。</summary>
+    bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
+    { lease = null; return true; }
+
     /// <summary>最初の確認前に、モデルの現在値・安全属性・確認候補を固定します。</summary>
     LibraryChartRemovalPreflight PrepareLibraryChartRemoval(
         BMSLibrary library,
@@ -90,6 +97,9 @@ internal interface ISelectedChartMutationStore
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts,
         string newExtension);
+
+    /// <summary>同じLの内側でモデルの物理移動計画を固定します。独立代替portは元の入力要求を使います。</summary>
+    ChartLibraryMoveRequest PrepareLibraryMove(BMSLibrary library, ChartLibraryMoveRequest request) => request;
 
     /// <summary>選択した所持譜面の移動を実行し、確定結果を返します。</summary>
     LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
@@ -377,11 +387,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 resolution.Route == ChartDeleteRoute.Pending
                 ? SelectedChartMutationRefreshScope.Pending
                 : SelectedChartMutationRefreshScope.Library,
-                library =>
+                (library, operationStore) =>
                 {
                     if (resolution.Route == ChartDeleteRoute.Pending)
                     {
-                        store.RemovePendingCharts(
+                        operationStore.RemovePendingCharts(
                             library,
                             pendingCharts,
                             sendToRecycleBin: true,
@@ -389,12 +399,16 @@ internal sealed class SelectedChartMutationWorkflowOwner
                         return;
                     }
 
-                    removalOutcome = store.RemoveLibraryCharts(
+                    removalOutcome = operationStore.RemoveLibraryCharts(
                         library,
                         prepared,
                         approvedFolderPaths);
                 },
-                acquiredOperationGate: operationGate)).ConfigureAwait(false);
+                acquiredOperationGate: operationGate,
+                physicalPaths: resolution.Route == ChartDeleteRoute.Library
+                    ? prepared.Targets.Select(chart => chart.Path).Concat(approvedFolderPaths)
+                    : pendingCharts.Select(chart => deleteContainingPackageFoldersWhenNoBms ? Path.GetDirectoryName(chart.Path) : chart.Path),
+                recursivePhysicalPaths: true)).ConfigureAwait(false);
             operationGateTransferred = true;
             if (removalOutcome != null)
             {
@@ -494,27 +508,30 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     task = Task.Run(() => ExecuteMutation(
                         SelectedChartMutationRefreshScope.Library,
                         mutation: null,
-                        mutationWithReceipt: library => store.RenameLibraryChartsWithReceipt(
+                        mutationWithReceipt: (library, operationStore) => operationStore.RenameLibraryChartsWithReceipt(
                             library,
                             libraryRenameBatches),
-                        acquiredOperationGate: operationGate));
+                        acquiredOperationGate: operationGate,
+                        physicalPaths: libraryRenameBatches.SelectMany(batch => batch.Targets.SelectMany(chart => new[] { chart.Path, Path.ChangeExtension(chart.Path, batch.NewExtension) }))));
                 }
                 else
                 {
                     task = Task.Run(() => ExecuteMutation(
                         SelectedChartMutationRefreshScope.Pending,
-                        library =>
+                        (library, operationStore) =>
                         {
                             if (bCharts.Count > 0)
                             {
-                                store.RenamePendingCharts(library, bCharts, ".bmx");
+                                operationStore.RenamePendingCharts(library, bCharts, ".bmx");
                             }
                             if (pCharts.Count > 0)
                             {
-                                store.RenamePendingCharts(library, pCharts, ".pmx");
+                                operationStore.RenamePendingCharts(library, pCharts, ".pmx");
                             }
                         },
-                        acquiredOperationGate: operationGate));
+                        acquiredOperationGate: operationGate,
+                        physicalPaths: bCharts.SelectMany(chart => new[] { chart.Path, Path.ChangeExtension(chart.Path, ".bmx") })
+                            .Concat(pCharts.SelectMany(chart => new[] { chart.Path, Path.ChangeExtension(chart.Path, ".pmx") }))));
                 }
                 operationGateTransferred = true;
                 return !request.IsPendingSelected
@@ -572,6 +589,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             bool operationGateTransferred = false;
             try
             {
+                moveRequest = await Task.Run(() => store.PrepareLibraryMove(RequireLibrary(), moveRequest));
                 if (!await ConfirmMessageAsync(
                     BeMusicSeeker.Properties.Resources.Msg_move_to_other_root,
                     "Selected chart library move confirmation"))
@@ -582,9 +600,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 Task<SelectedChartMutationResult> task = Task.Run(() => ExecuteMutation(
                     SelectedChartMutationRefreshScope.Library,
                     mutation: null,
-                    mutationWithReceipt: library => store.MoveLibraryChartsWithReceipt(library, moveRequest),
+                    mutationWithReceipt: (library, operationStore) => operationStore.MoveLibraryChartsWithReceipt(library, moveRequest),
                     publishMutationApplied: true,
-                    acquiredOperationGate: operationGate));
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: moveRequest.PreparedPlans?.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }),
+                    recursivePhysicalPaths: true));
                 operationGateTransferred = true;
                 SelectedChartMutationResult result = await task.ConfigureAwait(false);
                 await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Move,
@@ -617,42 +637,28 @@ internal sealed class SelectedChartMutationWorkflowOwner
             return SelectedChartMutationResult.Failed(
                 new InvalidOperationException("A chart-file operation is already active."));
         }
-        SelectedChartMutationResult result;
-        bool publishMutationApplied = false;
+        using IDisposable accepted = operationGate;
         try
         {
-            store.SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding);
-            publishMutationApplied = true;
-            result = SelectedChartMutationResult.Completed;
+            using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+            store.ForAcceptedOperation(capability).SetBMSFilesEncoding(RequireLibrary(), request.Charts, request.Encoding);
+            PublishMutationApplied(encodingChanged: true);
+            return SelectedChartMutationResult.Completed;
         }
         catch (Exception ex)
         {
-            result = SelectedChartMutationResult.Failed(ex);
+            return SelectedChartMutationResult.Failed(ex);
         }
-        finally
-        {
-            operationGate.Dispose();
-        }
-        if (publishMutationApplied)
-        {
-            try
-            {
-                PublishMutationApplied(encodingChanged: true);
-            }
-            catch (Exception ex)
-            {
-                return SelectedChartMutationResult.Failed(ex);
-            }
-        }
-        return result;
     }
 
     private async Task<SelectedChartMutationResult> ExecuteMutation(
         SelectedChartMutationRefreshScope refreshScope,
-        Action<BMSLibrary> mutation,
-        Func<BMSLibrary, LibraryMutationSessionReceipt> mutationWithReceipt = null,
+        Action<BMSLibrary, ISelectedChartMutationStore> mutation,
+        Func<BMSLibrary, ISelectedChartMutationStore, LibraryMutationSessionReceipt> mutationWithReceipt = null,
         bool publishMutationApplied = false,
-        IDisposable acquiredOperationGate = null)
+        IDisposable acquiredOperationGate = null,
+        IEnumerable<string> physicalPaths = null,
+        bool recursivePhysicalPaths = false)
     {
         IDisposable operationGate = acquiredOperationGate;
         if (operationGate == null
@@ -674,14 +680,27 @@ internal sealed class SelectedChartMutationWorkflowOwner
             return SelectedChartMutationResult.Failed(ex);
         }
 
+        using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+        ISelectedChartMutationStore operationStore = store.ForAcceptedOperation(capability);
+        LibraryFileMutationLease playlistLease = null;
+        LibraryFileMutationCapability playlistCapability = null;
+        LibraryFileMutationCapability combinedCapability = null;
         BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         LibraryMutationSessionReceipt mutationReceipt = null;
-        bool publishMutationAppliedAfterRelease = false;
+        bool mutationApplied = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
+            if (physicalPaths != null)
+            {
+                if (!operationStore.TryBeginPhysicalMutation(library, physicalPaths, recursivePhysicalPaths, out playlistLease))
+                { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+                playlistCapability = playlistLease?.CreateMutationCapability();
+                combinedCapability = capability.WithPlaylistCapability(playlistCapability);
+                operationStore = store.ForAcceptedOperation(combinedCapability);
+            }
             activityLease = chartMutationActivity.Enter();
             await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
             dialogScope = library.BeginOperationDialogScope();
@@ -689,11 +708,11 @@ internal sealed class SelectedChartMutationWorkflowOwner
             PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
             if (mutationWithReceipt == null)
             {
-                mutation(library);
+                mutation(library, operationStore);
             }
             else
             {
-                mutationReceipt = mutationWithReceipt(library)
+                mutationReceipt = mutationWithReceipt(library, operationStore)
                     ?? throw new InvalidOperationException("Selected chart mutation returned no session receipt.");
             }
             if (publishMutationApplied
@@ -701,7 +720,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     || (mutationReceipt.DurableCommit
                         && !mutationReceipt.HasDurableFinalizationFailure)))
             {
-                publishMutationAppliedAfterRelease = true;
+                mutationApplied = true;
             }
         }
         catch (Exception ex)
@@ -710,12 +729,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
         }
         finally
         {
-            if (operationGate != null)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
-                operationGate = null;
-            }
-            if (failures.Count == 0 && publishMutationAppliedAfterRelease)
+            if (failures.Count == 0 && mutationApplied)
             {
                 CaptureNotification(() => PublishMutationApplied(libraryPathChanged: true));
             }
@@ -732,6 +746,10 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureNotification(dialogScope.Flush);
             }
+            CaptureCleanupFailure(() => combinedCapability?.Dispose(), failures);
+            CaptureCleanupFailure(() => playlistCapability?.Dispose(), failures);
+            CaptureCleanupFailure(() => playlistLease?.Dispose(), failures);
+            CaptureCleanupFailure(operationGate.Dispose, failures);
         }
         return failures.Count switch
         {
@@ -812,9 +830,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
             ?? throw new InvalidOperationException("Selected chart mutation library is not available.");
     }
 
-    private bool TryEnterOperation(bool pending, out IDisposable operationGate) => pending
-        ? chartFileOperations.TryEnterPendingOperation(libraryProvider(), out operationGate)
-        : chartFileOperations.TryEnter(out operationGate);
+    private bool TryEnterOperation(bool pending, out IDisposable operationGate) =>
+        chartFileOperations.TryEnter(out operationGate);
 
     private static void CaptureCleanupFailure(Action action, ICollection<ExceptionDispatchInfo> failures)
     {
@@ -831,6 +848,18 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
 internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutationStore
 {
+    private readonly LibraryFileMutationCapability capability;
+
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    internal BmsLibrarySelectedChartMutationStore(LibraryFileMutationCapability capability = null) { this.capability = capability; }
+
+    /// <summary>取得済み共通権限を明示的に内部変更へ渡すportを構成します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    public ISelectedChartMutationStore ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibrarySelectedChartMutationStore(capability);
+
+    /// <summary>本番の保存済み管理範囲で条件付きPを判定し、外側が停止・変更・通知終端まで保持するleaseを返します。</summary>
+    public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
+        => library.TryEnterManagedOutputMutation(paths, recursive, out lease, capability);
+
     /// <summary>モデルで確認前の固定削除要求を捕捉します。</summary>
     public LibraryChartRemovalPreflight PrepareLibraryChartRemoval(
         BMSLibrary library,
@@ -847,7 +876,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
     {
         return library.RemoveLibraryCharts(
             prepared,
-            approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
+            approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths, capability: capability);
     }
 
     public void RemovePendingCharts(
@@ -856,7 +885,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         bool sendToRecycleBin,
         bool deleteContainingPackageFoldersWhenNoBms)
     {
-        library.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
+        library.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms, capability);
     }
 
     public void RenamePendingCharts(
@@ -864,7 +893,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         IReadOnlyList<ChartFile> charts,
         string newExtension)
     {
-        library.RenamePendingBmsFormatChartFileExtensions(charts, newExtension);
+        library.RenamePendingBmsFormatChartFileExtensions(charts, newExtension, capability);
     }
 
     /// <summary>モデルで確認前の固定拡張子変更要求を捕捉します。</summary>
@@ -877,10 +906,14 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         BMSLibrary library,
         IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
     {
-        return library.RenameBMSFilesExtensionsWithReceipt(batches, unregister: true);
+        return library.RenameBMSFilesExtensionsWithReceipt(batches, unregister: true, capability: capability);
     }
 
-    /// <summary>移動の確定結果を返し、操作終端でまとめて報告します。</summary>
+    /// <summary>本番の移動計画を一回固定し、停止と物理実行が同じ対象を使う要求へ接続します。</summary>
+    public ChartLibraryMoveRequest PrepareLibraryMove(BMSLibrary library, ChartLibraryMoveRequest request)
+        => request.WithPreparedPlans(library.PrepareLibraryRootMovePlans(request.Charts, request.NewParentDirectory));
+
+    /// <summary>停止前と同じ固定計画・生存L/Pで移動し、確定事実を終端へ返します。</summary>
     public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
         BMSLibrary library,
         ChartLibraryMoveRequest request)
@@ -889,7 +922,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
             request.Charts,
             request.NewParentDirectory,
             false,
-            reportAtTerminal: true);
+            reportAtTerminal: true, capability: capability, preparedPlans: request.PreparedPlans);
     }
 
     public void SetBMSFilesEncoding(
@@ -897,6 +930,6 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
         IReadOnlyList<ChartFile> charts,
         string encoding)
     {
-        library.SetBMSFilesEncoding(charts, encoding);
+        library.SetBMSFilesEncoding(charts, encoding, capability);
     }
 }

@@ -18,6 +18,10 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
@@ -26,10 +30,134 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class MainWindowViewHostTests
 {
+    /// <summary>実receiverのawait後の通知失敗を報告し、元の操作失敗と受付終端、Dispatcherと次要求を維持します。</summary>
+    [TestMethod]
+    public async Task PackageInstallAsyncNotificationFailure_IsReportedWithoutEndingDispatcherAndNextRequestSucceeds()
+    {
+
+        using var directory = new TestTemporaryDirectory("package-notification-terminal");
+        string source = Path.Combine(directory.Path, "source");
+        Directory.CreateDirectory(source);
+        string songDbPath = Path.Combine(directory.Path, "song.db");
+        var originalFailure = new InvalidDataException("installation failed");
+        var notificationFailure = new IOException("notification failed after await");
+        var dialogEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogRelease = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var operationFailed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var capture = new PackageNotificationFailureTarget();
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageHandler = _ =>
+            {
+                dialogEntered.TrySetResult();
+                return dialogRelease.Task;
+            }
+        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            });
+        int installationCount = 0;
+        int failureCount = 0;
+        MainWindowViewModel? viewModel = null;
+        ApplicationComposition? composition = null;
+        LoggingConfiguration? previousConfiguration = LogManager.Configuration;
+        try
+        {
+            // process共通のログ設定はDoNotParallelizeのfixtureだけで差し替え、finallyで戻します。
+            NLogWrapper.ConfigureApplicationFileLogging(directory.Path, LogLevel.Info, enableInstallPerformanceLogging: false);
+            var configuration = new LoggingConfiguration();
+            configuration.AddRule(LogLevel.Error, LogLevel.Fatal, capture);
+            LogManager.Configuration = configuration;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                using (var db = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(songDbPath)) { }
+                Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                composition = new ApplicationComposition(
+                    settingsEditSession: new RecordingSettingsEditSession(settings),
+                    defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
+                    uiScheduler: new WpfUiScheduler(() => dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    fileDbMutationDialogService: dialogs,
+                    packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
+                    {
+                        if (Interlocked.Increment(ref installationCount) == 1) { throw originalFailure; }
+                        return new PackageInstallCommandResult([], null);
+                    }));
+                viewModel = composition.CreateMainWindowViewModel();
+                BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [],
+                    () => null!, null, false, false, false, false, "notification-terminal"));
+                viewModel.PackageInstallWorkflow.AttachLibrary(library);
+                viewModel.PackageInstallWorkflow.FailurePublished += failure =>
+                {
+                    failureCount++;
+                    operationFailed.TrySetResult(failure);
+                };
+                Assert.IsTrue(viewModel.PackageInstallWorkflow.TryEnqueue(new DroppedInstallBatchRequest([source])));
+            });
+            Assert.IsNotNull(viewModel);
+            Assert.IsNotNull(composition);
+            // 操作idle後に別途予約するUI通知は、receiver自身の失敗報告と競合させて観測します。
+            Task failurePublication = await Task.WhenAny(operationFailed.Task, capture.Reported.Task);
+            if (failurePublication == capture.Reported.Task) { throw await capture.Reported.Task; }
+            PackageInstallFailure failure = await operationFailed.Task;
+            Task notificationArrival = await Task.WhenAny(dialogEntered.Task, capture.Reported.Task);
+            if (notificationArrival == capture.Reported.Task) { throw await capture.Reported.Task; }
+            await dialogEntered.Task;
+            await viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+            Assert.AreSame(originalFailure, failure.Exception);
+            Assert.IsFalse(composition.OperationAdmission.IsActive);
+            Assert.IsFalse(capture.Reported.Task.IsCompleted);
+
+            // 同期throwではなく、receiverがawaitした後に失敗する通知境界を通します。
+            dialogRelease.SetException(notificationFailure);
+            Assert.AreSame(notificationFailure, await capture.Reported.Task);
+            TestUiDispatcherHost.Invoke(() =>
+                Assert.IsTrue(viewModel.PackageInstallWorkflow.TryEnqueue(new DroppedInstallBatchRequest([source]))));
+            await viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+            TestUiDispatcherHost.Invoke(() => Assert.AreEqual(1, failureCount));
+            Assert.AreEqual(2, installationCount);
+            Assert.IsFalse(composition.OperationAdmission.IsActive);
+        }
+        finally
+        {
+            dialogRelease.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            if (viewModel != null)
+            {
+                await viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "package-notification-cleanup");
+                    viewModel.SettingDialog.Dispose();
+                    viewModel.RegularChartList.Dispose();
+                });
+            }
+            LogManager.Flush();
+            LogManager.Configuration = previousConfiguration;
+        }
+    }
+
+    private sealed class PackageNotificationFailureTarget : Target
+    {
+        internal TaskCompletionSource<Exception> Reported { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override void Write(LogEventInfo logEvent)
+        {
+            if (logEvent.Message == "package_install_workflow_notification_failed" && logEvent.Exception != null)
+            {
+                Reported.TrySetResult(logEvent.Exception);
+            }
+        }
+    }
+
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void MainWindowShutdownCapturePrecedesShellCompletion(bool deferSettingsPresentation)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    [DoNotParallelize]
+    public void MainWindowShutdownCapturePrecedesShellCompletion(bool deferSettingsPresentation, bool failShutdownNotification)
     {
         const double initialTreeViewWidth = 281d;
         const double capturedTreeViewWidth = 347d;
@@ -44,17 +172,16 @@ public sealed class MainWindowViewHostTests
         {
             events.Add("save");
         });
-        var applicationLifetime = new RecordingApplicationLifetime(events);
+        var notificationFailure = new InvalidOperationException("terminal shutdown failed before its success notification");
+        var applicationLifetime = new RecordingApplicationLifetime(events,
+            onShutdown: () => { if (failShutdownNotification) { throw notificationFailure; } });
 
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
-            bool windowClosed = false;
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             try
             {
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
@@ -63,13 +190,13 @@ public sealed class MainWindowViewHostTests
                 // Constructor activation is intentionally suppressed; this test exercises only
                 // the unshown view-host construction and close terminal, never startup rendering.
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
-                Application.Current.Resources["vm"] = viewModel;
+                ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
                 int settingsPresentationCount = 0;
-                window = new MainWindow(viewModel, settingsWindow =>
+                window = ownership.CreateWindow(() => new MainWindow(viewModel, settingsWindow =>
                 {
                     settingsPresentationCount++;
                     settingsWindow.ContentRendered += (_, _) => settingsWindow.CloseForOwnerShutdown();
-                });
+                }));
                 window.Closed += (_, _) => events.Add("window-closed");
 
                 ColumnDefinition treeColumn = GetNamedElement<ColumnDefinition>(window, "gridColumn0");
@@ -88,7 +215,7 @@ public sealed class MainWindowViewHostTests
                     settingsPresentation.OpenSettingsDialog();
                 }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task,
+                    window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal).Task,
                     "settings-presentation-after-shutdown");
                 Assert.AreEqual(0, settingsPresentationCount);
 
@@ -97,9 +224,18 @@ public sealed class MainWindowViewHostTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     closeRequest,
                     "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.window-close");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    applicationLifetime.ShutdownRequested.Task,
-                    "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.application-shutdown");
+                if (failShutdownNotification)
+                {
+                    Assert.AreSame(notificationFailure,
+                        Assert.ThrowsException<InvalidOperationException>(() => ownership.Dispose()));
+                    Assert.IsFalse(applicationLifetime.ShutdownRequested.Task.IsCompleted);
+                    Assert.IsTrue(window.CloseCompletion.IsFaulted);
+                    Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);
+                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    CollectionAssert.AreEqual(new[] { "save", "window-closed" }, events);
+                    return;
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(applicationLifetime.ShutdownRequested.Task, window.CloseCompletion, "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.application-shutdown"), "MainWindowViewHostTests.MainWindowShutdownCapturePrecedesShellCompletion.application-shutdown");
 
                 Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);
                 Assert.AreEqual(1, settingsSession.SaveCount);
@@ -111,25 +247,25 @@ public sealed class MainWindowViewHostTests
                 // The test lifetime is deliberately non-terminating. Complete the actual Window
                 // close after the shell has requested application termination.
                 window.Close();
-                windowClosed = true;
 
                 CollectionAssert.AreEqual(
                     new[] { "save", "application-shutdown", "window-closed" },
                     events);
             }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
             finally
             {
-                CleanupViewHost(
-                    window,
-                    windowClosed,
-                    viewModel,
-                    hadPreviousViewModelResource,
-                    previousViewModelResource);
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
             }
         });
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowViewSettingsBindAndCaptureThroughHostStore()
     {
         const double initialTreeViewWidth = 286d;
@@ -150,11 +286,8 @@ public sealed class MainWindowViewHostTests
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
-            bool windowClosed = false;
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             try
             {
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
@@ -163,9 +296,9 @@ public sealed class MainWindowViewHostTests
                 // keeps the corresponding selection handler behind the existing startup gate.
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(viewModel);
-                TestUiDispatcherHost.Drain();
+                ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 ColumnDefinition treeColumn = GetNamedElement<ColumnDefinition>(window, "gridColumn0");
                 CustomTableView mainTable = GetNamedElement<CustomTableView>(window, "customTableView");
@@ -189,30 +322,28 @@ public sealed class MainWindowViewHostTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     closeRequest,
                     "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.window-close");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    applicationLifetime.ShutdownRequested.Task,
-                    "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.application-shutdown");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(applicationLifetime.ShutdownRequested.Task, window.CloseCompletion, "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.application-shutdown"), "MainWindowViewHostTests.MainWindowViewSettingsBindAndCaptureThroughHostStore.application-shutdown");
 
                 Assert.AreEqual(capturedTreeViewWidth, settingsSession.TreeViewWidthAtSave);
                 Assert.AreEqual(capturedTreeViewWidth, settings.TreeViewWidth);
                 Assert.AreEqual(1, settingsSession.SaveCount);
 
                 window.Close();
-                windowClosed = true;
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
             }
             finally
             {
-                CleanupViewHost(
-                    window,
-                    windowClosed,
-                    viewModel,
-                    hadPreviousViewModelResource,
-                    previousViewModelResource);
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
             }
         });
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay()
     {
         Settings settings = CreateSettings(
@@ -228,20 +359,17 @@ public sealed class MainWindowViewHostTests
         {
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
-            bool windowClosed = false;
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             try
             {
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
                 viewModel = composition.CreateMainWindowViewModel();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
-                Application.Current.Resources["vm"] = viewModel;
+                ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
 
-                window = new MainWindow(viewModel);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
                 InitialSetupLanguageDialog overlay = GetNamedElement<InitialSetupLanguageDialog>(
                     window,
                     "initialSetupLanguageDialog");
@@ -268,7 +396,7 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(nameof(SettingsDialogViewModel.OpenCommand), commandBinding.Path.Path);
 
                 viewModel.SettingDialog.RequestInitialSetupLanguageDialog();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(Visibility.Visible, overlay.Visibility);
                 Assert.AreSame(viewModel.SettingDialog, overlay.DataContext);
                 string[] expectedLanguages = viewModel.SettingDialog.Languages.ToArray();
@@ -289,9 +417,8 @@ public sealed class MainWindowViewHostTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     closeRequest,
                     "MainWindowViewHostTests.MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay.window-close");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(applicationLifetime.ShutdownRequested.Task, "overlay-terminal-shutdown");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(applicationLifetime.ShutdownRequested.Task, window.CloseCompletion, "overlay-terminal-shutdown"), "overlay-terminal-shutdown");
                 window.Close();
-                windowClosed = true;
 
                 viewModel.SettingDialog.RequestInitialSetupLanguageDialog();
                 Assert.AreEqual(
@@ -299,14 +426,14 @@ public sealed class MainWindowViewHostTests
                     overlay.Visibility,
                     "A detached presentation port must not show the compiled overlay again.");
             }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
             finally
             {
-                CleanupViewHost(
-                    window,
-                    windowClosed,
-                    viewModel,
-                    hadPreviousViewModelResource,
-                    previousViewModelResource);
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
             }
         });
     }
@@ -329,14 +456,14 @@ public sealed class MainWindowViewHostTests
         double customTableHeaderHeight,
         double customTableFontSize)
     {
-        var settings = new Settings
-        {
-            TreeViewWidth = treeViewWidth,
-            StartupSelectInstallPending = startupSelectInstallPending,
-            CustomTableRowHeight = customTableRowHeight,
-            CustomTableHeaderHeight = customTableHeaderHeight,
-            CustomTableFontSize = customTableFontSize
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.TreeViewWidth = treeViewWidth;
+                values.StartupSelectInstallPending = startupSelectInstallPending;
+                values.CustomTableRowHeight = customTableRowHeight;
+                values.CustomTableHeaderHeight = customTableHeaderHeight;
+                values.CustomTableFontSize = customTableFontSize;
+            });
         return settings;
     }
 
@@ -370,18 +497,6 @@ public sealed class MainWindowViewHostTests
         }
     }
 
-    private static void RestoreViewModelResource(bool hadPreviousResource, object? previousResource)
-    {
-        if (hadPreviousResource)
-        {
-            Application.Current.Resources["vm"] = previousResource;
-        }
-        else
-        {
-            Application.Current.Resources.Remove("vm");
-        }
-    }
-
     private static Settings CreatePlaybackHostSettings(string directory)
     {
         var settings = (Settings)System.Configuration.SettingsBase.Synchronized(
@@ -408,14 +523,81 @@ public sealed class MainWindowViewHostTests
         return settings;
     }
 
-    private static MainWindowViewModel CreatePlaybackHostViewModel(ApplicationComposition composition, Settings settings, string directory)
+    private static MainWindowViewModel CreatePlaybackHostViewModel(
+        ApplicationComposition composition, Settings settings, string directory,
+        Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null,
+        IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
+        StartupLibraryMutationPreparation? mutationPreparation = null)
     {
         string songDbPath = Path.Combine(directory, "song.db");
         var library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null,
-            startupRequiredFileScanReason: null,
-            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
-        return new MainWindowViewModel(composition, new FixedStartupLibraryFactory(library, playlist));
+            fileMutationService: null, dialogService: null,
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            optionsSnapshotProvider: mutationPreparation == null
+                ? () => BmsLibraryOptionsSnapshot.CreateCurrent(settings)
+                : mutationPreparation.CaptureOptions,
+            operationAdmission: composition.OperationAdmission,
+            playlistOperationAdmission: composition.PlaylistOperationAdmission);
+        if (mutationPreparation != null) { mutationPreparation.Library = library; }
+        var playlist = new TestBmsPlaylist(
+            new BmsPlaylistLibraryBindings(library), songDbPath,
+            () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+            playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
+            beatorajaBmtOptionsProvider: bmtOptionsProvider ?? (() => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings)));
+        return new MainWindowViewModel(composition, new FixedStartupLibraryFactory(library, playlist),
+            startupLibraryInitializationFailurePresenter: failurePresenter);
+    }
+
+    /// <summary>後続要求を開始するfixture準備として、実起動が受理したL保守のwork終端だけを回収します。</summary>
+    private sealed class StartupLibraryMutationPreparation(Settings settings)
+    {
+        private readonly object syncRoot = new();
+        private readonly List<Task> acceptedMutationTasks = [];
+        private bool trackingAttached;
+
+        /// <summary>既存options捕捉の時点で実schedulerへ接続する対象です。</summary>
+        internal TestBmsLibrary? Library { private get; set; }
+
+        /// <summary>実初期化が接続したschedulerを維持し、登録前の既存入力境界で保守を追跡します。</summary>
+        internal BmsLibraryOptionsSnapshot CaptureOptions()
+        {
+            lock (syncRoot)
+            {
+                if (!trackingAttached && Library?.StartupBackgroundTaskScheduler is { } scheduler)
+                {
+                    trackingAttached = true;
+                    Library.StartupBackgroundTaskScheduler = (name, reason, dependency, work) =>
+                    {
+                        if (name is not ("chart_info_hydration" or "maintenance_hydration" or "installable_maintenance"))
+                        {
+                            return scheduler(name, reason, dependency, work);
+                        }
+                        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        bool accepted = scheduler(name, reason, dependency, async () =>
+                        {
+                            try { await work(); terminal.TrySetResult(); }
+                            catch (Exception failure) { terminal.TrySetException(failure); throw; }
+                        });
+                        if (accepted) { lock (syncRoot) { acceptedMutationTasks.Add(terminal.Task); } }
+                        return accepted;
+                    };
+                }
+            }
+            return BmsLibraryOptionsSnapshot.CreateCurrent(settings);
+        }
+
+        /// <summary>初期化の登録終端後、受理済み3種類の保守をlease解放まで回収します。GC等は含めません。</summary>
+        internal void JoinAcceptedMutations()
+        {
+            Task[] captured;
+            lock (syncRoot)
+            {
+                Assert.IsTrue(trackingAttached, "実初期化のscheduler登録前に保守の回収を接続します。");
+                captured = acceptedMutationTasks.ToArray();
+            }
+            // 初期化Taskの終端は独立保守の終端ではないため、後続要求の準備を別に所有します。
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(captured), "startup-library-mutation-preparation");
+        }
     }
 
     private static void ShowPlaybackHostMainWindow(TestWindowPresentationScope scope, MainWindow window)
@@ -432,6 +614,7 @@ public sealed class MainWindowViewHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowRenderedInitializationAttachesCreatedPlaybackHost()
     {
         using var directory = new TestTemporaryDirectory("main-window-playback-host");
@@ -441,8 +624,9 @@ public sealed class MainWindowViewHostTests
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
             bool closed = false;
-            bool hadResource = Application.Current.Resources.Contains("vm");
-            object? previous = hadResource ? Application.Current.Resources["vm"] : null;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             var player = new FakeBmsPlayer();
             var lifetime = new RecordingApplicationLifetime();
             try
@@ -455,9 +639,13 @@ public sealed class MainWindowViewHostTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(viewModel);
-                window.Closed += (_, _) => closed = true;
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                window.Closed += (_, _) =>
+                {
+                    closed = true;
+                    windowClosed.TrySetResult();
+                };
                 Assert.IsFalse(viewModel.IsInitializationCompleted);
                 Assert.IsFalse(player.HostAttached.Task.IsCompleted);
                 ShowPlaybackHostMainWindow(scope, window);
@@ -470,13 +658,129 @@ public sealed class MainWindowViewHostTests
                 Assert.IsNotNull(player.WindowHost);
                 Assert.AreEqual(host.Handle, player.WindowHost.ParentHandle.NativeValue);
                 window.Close();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "rendered-playback-host-shutdown");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "rendered-playback-host-shutdown"), "rendered-playback-host-shutdown");
                 window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(windowClosed.Task, "rendered-playback-host-window-closed");
                 Assert.IsTrue(closed);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
             }
             finally
             {
-                CleanupViewHost(window, closed, viewModel, hadResource, previous);
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
+            }
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void MainWindowCloseDuringRequiredStartupBmtCancellationJoinsAndDoesNotPresentLateFailure()
+    {
+        using var directory = new TestTemporaryDirectory("main-window-startup-bmt-close");
+        Settings settings = CreatePlaybackHostSettings(directory.Path);
+        using var releaseBmtPreparation = new ManualResetEventSlim();
+        var bmtPreparationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            MainWindowViewModel? viewModel = null;
+            MainWindow? window = null;
+            Task? initialization = null;
+            Task? shutdown = null;
+            Exception? bodyFailure = null;
+            bool closed = false;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowTestLifetime? ownership = null;
+            Window[] baselineWindows = Application.Current.Windows.Cast<Window>().ToArray();
+            var failurePresenter = new MainWindowViewModelStartupProgressTests.RecordingStartupLibraryInitializationFailurePresenter();
+            var lifetime = new RecordingApplicationLifetime();
+            try
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
+                    bmtOptionsProvider: () =>
+                    {
+                        // 必須hydrateの非同期継続で実BMT入力を捕捉する境界を止めます。
+                        Assert.IsFalse(TestUiDispatcherHost.Dispatcher.CheckAccess());
+                        bmtPreparationEntered.TrySetResult();
+                        releaseBmtPreparation.Wait();
+                        return BeatorajaBmtOptionsSnapshot.CreateCurrent(settings);
+                    }, failurePresenter: failurePresenter);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                window.Closed += (_, _) =>
+                {
+                    closed = true;
+                    windowClosed.TrySetResult();
+                };
+                initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                    () => { }, action => action(), () => false);
+                ShowPlaybackHostMainWindow(scope, window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(bmtPreparationEntered.Task, initialization, "startup-bmt-preparation"),
+                    "startup-bmt-preparation-entered");
+                Assert.IsFalse(initialization.IsCompleted);
+                window.Close();
+                shutdown = viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsClosingOrClosed);
+                Assert.IsFalse(closed);
+                Assert.IsFalse(shutdown.IsCompleted);
+                releaseBmtPreparation.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "cancelled-startup-initialization-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "cancelled-startup-close-preparation-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "cancelled-startup-terminal-shutdown"), "cancelled-startup-terminal-shutdown");
+                window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(windowClosed.Task, "cancelled-startup-window-closed");
+                Assert.IsTrue(closed);
+                Assert.IsTrue(initialization.IsCompletedSuccessfully);
+                Assert.IsFalse(((Task<bool>)initialization).GetAwaiter().GetResult());
+                Assert.IsFalse(viewModel.IsInitializationCompleted);
+                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
+                StringAssert.Contains(viewModel.ProgressHub.StartupProgress.SubLabel, "Playlist BMT output was cancelled by shutdown.");
+                Assert.AreEqual(0, failurePresenter.Presentations.Count);
+                Assert.AreEqual(1, lifetime.RequestShutdownCount);
+                Assert.IsFalse(Application.Current.Windows.Cast<Window>().Except(baselineWindows).Any());
+                Assert.IsTrue(composition.OperationAdmission.WaitForIdleAsync().IsCompletedSuccessfully);
+                Assert.IsTrue(composition.PlaylistOperationAdmission.WaitForIdleAsync().IsCompletedSuccessfully);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
+            finally
+            {
+                releaseBmtPreparation.Set();
+                try
+                {
+                    if (initialization != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-bmt-finally-initialization");
+                    }
+                    if (shutdown != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "startup-bmt-finally-shutdown");
+                    }
+                }
+                catch (Exception cleanupFailure) when (bodyFailure != null)
+                {
+                    bodyFailure.Data["StartupBmtJoinFailure"] = cleanupFailure.ToString();
+                }
+                finally
+                {
+                    try { ownership?.DisposeAfterBodyFailure(bodyFailure); }
+                    catch (Exception cleanupFailure) when (bodyFailure != null)
+                    {
+                        bodyFailure.Data["StartupBmtWindowCleanupFailure"] = cleanupFailure.ToString();
+                    }
+                }
             }
         });
     }
@@ -484,6 +788,7 @@ public sealed class MainWindowViewHostTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    [DoNotParallelize]
     public void MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose(bool prepareForUpdate)
     {
         using var directory = new TestTemporaryDirectory("main-window-player-drain");
@@ -491,6 +796,9 @@ public sealed class MainWindowViewHostTests
         settings.TreeViewWidth = 279d;
         settings.StartupSelectInstallPending = false;
         using var release = new ManualResetEventSlim();
+        var packageEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var packageCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var packageRelease = new ManualResetEventSlim();
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -498,14 +806,16 @@ public sealed class MainWindowViewHostTests
             MainWindowViewModel? viewModel = null;
             MainWindow? window = null;
             bool closed = false;
-            bool hadResource = Application.Current.Resources.Contains("vm");
-            object? previous = hadResource ? Application.Current.Resources["vm"] : null;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
             bool saveOnUi = false;
             bool audioActiveAtSave = false;
             bool audioInactiveAtShutdown = false;
             bool shutdownOnUi = false;
             bool capturedBeforePlayer = false;
+            double treeWidthAtPlayerClose = double.NaN;
             bool playerCompletedBeforeSave = false;
             var session = new RecordingSettingsEditSession(settings, () =>
             {
@@ -520,13 +830,16 @@ public sealed class MainWindowViewHostTests
             });
             var player = new FakeBmsPlayer(() =>
             {
-                capturedBeforePlayer = settings.TreeViewWidth == 359d;
+                treeWidthAtPlayerClose = settings.TreeViewWidth;
+                capturedBeforePlayer = treeWidthAtPlayerClose == 359d;
                 entered.TrySetResult(true);
                 release.Wait();
                 completed.TrySetResult(true);
             });
+            var mutationPreparation = new StartupLibraryMutationPreparation(settings);
             Task? observation = null;
             Task? marker = null;
+            var observedClose = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
             try
             {
                 Ribbit.Media.Audio.BassAudioRuntime.Initialize();
@@ -536,28 +849,61 @@ public sealed class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => startupPlayer,
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
+                    {
+                        packageEntered.TrySetResult();
+                        packageRelease.Wait();
+                        packageCompleted.TrySetResult();
+                        return new PackageInstallCommandResult([], null);
+                    }));
+                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
+                    mutationPreparation: mutationPreparation);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(viewModel);
-                window.Closed += (_, _) => closed = true;
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                window.Closed += (_, _) =>
+                {
+                    closed = true;
+                    windowClosed.TrySetResult();
+                };
+                Task initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                    () => { }, action => action(), () => false);
                 ShowPlaybackHostMainWindow(scope, window);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(startupPlayer.HostAttached.Task, "player-drain-initialization");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(startupPlayer.HostAttached.Task, initialization, "player-drain.initialization-host"),
+                    "player-drain-initialization");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "player-drain-initialization-terminal");
+                mutationPreparation.JoinAcceptedMutations();
                 PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
                 IntPtr hostHandle = playbackView.PlayerHostHandle;
                 ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "attach-player");
-                GetNamedElement<ColumnDefinition>(window, "gridColumn0").Width = new GridLength(359d);
+                ColumnDefinition treeColumn = GetNamedElement<ColumnDefinition>(window, "gridColumn0");
+                treeColumn.Width = new GridLength(359d);
+                // 終了時の捕捉は実幅を優先するため、利用者が操作を終えた実レイアウトを先に確定します。
+                window.UpdateLayout();
+                Assert.AreEqual(359d, treeColumn.ActualWidth, "停止順の観測前に変更した画面幅を確定します。");
+                Task? packageIdle = null;
+                if (!prepareForUpdate)
+                {
+                    Assert.IsTrue(viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip")), "受理済み起動保守の準備終端後に導入要求を受理します。");
+                    packageIdle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(packageEntered.Task, packageIdle), "close-package-arrival");
+                    Assert.IsTrue(packageEntered.Task.IsCompleted);
+                    Assert.IsFalse(packageIdle.IsCompleted);
+                    Assert.IsTrue(composition.OperationAdmission.IsActive);
+                }
                 if (prepareForUpdate)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.PrepareForStartupUpdateAsync("update"), "update-preparation");
                 }
+                // 導入の準備停止が済んで実workerへ到達した後に、終端停止を保持するplayerを接続する。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PlaybackPanel.ReplacePlayerAsync(player), "attach-player");
                 observation = Task.Run(async () =>
                 {
                     try
                     {
-                        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, observedClose.Task.Unwrap(), "player-drain.close-player");
                         marker = dispatcher.InvokeAsync(() =>
                         {
                             Assert.IsFalse(completed.Task.IsCompleted);
@@ -575,7 +921,7 @@ public sealed class MainWindowViewHostTests
                             window.Close();
                             Assert.IsFalse(closed, "準備完了だけで再入 Close を通さない。");
                         }).Task;
-                        await marker.WaitAsync(TimeSpan.FromSeconds(5));
+                        await marker;
                     }
                     finally
                     {
@@ -584,9 +930,22 @@ public sealed class MainWindowViewHostTests
                     }
                 });
                 window.Close();
+                observedClose.TrySetResult(window.CloseCompletion);
+                Assert.IsFalse(composition.OperationAdmission.TryEnter(out _), "Close開始時に新規L受付を閉じます。");
+                Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _), "Close開始時に新規P受付を閉じます。");
+                if (packageIdle != null)
+                {
+                    Assert.IsFalse(entered.Task.IsCompleted, "追跡導入の実終端前にplayer終端へ進みません。");
+                    Assert.AreEqual(0, session.SaveCount);
+                    Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                    Assert.IsFalse(closed);
+                    packageRelease.Set();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(packageIdle, "close-package-terminal");
+                    Assert.IsTrue(packageCompleted.Task.IsCompleted);
+                }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "player-drain-marker");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "terminal-shutdown");
-                Assert.IsTrue(capturedBeforePlayer);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "terminal-shutdown"), "terminal-shutdown");
+                Assert.IsTrue(capturedBeforePlayer, $"player停止入口の捕捉幅={treeWidthAtPlayerClose}、指定幅=359。");
                 Assert.IsTrue(playerCompletedBeforeSave);
                 Assert.IsTrue(saveOnUi);
                 Assert.IsTrue(audioActiveAtSave);
@@ -595,14 +954,24 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(1, session.SaveCount);
                 Assert.AreEqual(1, player.CloseProcessCount);
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
+                Assert.IsFalse(composition.OperationAdmission.TryEnter(out _), "実終端後もL受付を再開しません。");
+                Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _), "実終端後もP受付を再開しません。");
                 window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(windowClosed.Task, "player-drain-window-closed");
                 Assert.IsTrue(closed);
                 Assert.IsFalse(ExternalPlayerHostObservation.IsWindow(hostHandle));
                 Assert.AreEqual(1, player.CloseProcessCount);
                 Assert.AreEqual(1, session.SaveCount);
             }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
             finally
             {
+                observedClose.TrySetResult(window?.CloseCompletion ?? Task.CompletedTask);
+                packageRelease.Set();
                 release.Set();
                 try
                 {
@@ -618,35 +987,135 @@ public sealed class MainWindowViewHostTests
                     }
                     if (viewModel != null)
                     {
-                        // 早期 Window close の mutant で terminal が未開始でも実 owner を drain する。
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            viewModel.ShellShutdownWorkflow.CompleteTerminalShutdownAsync(), "owner-cleanup");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "close-package-cleanup");
                     }
-                    if (observation != null)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completed.Task, "player-cleanup");
-                        if (!closed)
-                        {
-                            TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "terminal-cleanup");
-                        }
-                    }
+
                 }
                 finally
                 {
-                    try { CleanupViewHost(window, closed, viewModel, hadResource, previous); }
+                    try { ownership?.DisposeAfterBodyFailure(bodyFailure); }
                     finally { Ribbit.Media.Audio.BassAudioRuntime.Shutdown(); }
                 }
             }
         });
     }
 
+    /// <summary>実導入中のmode保存はBusy通知で終端し、編集済みdraftとXMLを保ち、元worker終端後の明示保存だけを実行します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void MainWindowOperationModeSaveWhilePackageRunsReportsBusyAndRetainsDraft(bool saveBlocked)
+    {
+        using var directory = new TestTemporaryDirectory("mode-save-busy");
+        Settings settings = CreatePlaybackHostSettings(directory.Path);
+        settings.ShowScoreViewerRegisterConfirmMsg = false;
+        settings.Save();
+        string settingsPath = Path.Combine(directory.Path, "user.config");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            MainWindowViewModel? viewModel = null;
+            FileStream? blocker = null;
+            int workerCount = 0;
+            var player = new FakeBmsPlayer();
+            var lifetime = new RecordingApplicationLifetime();
+            var session = new PersistentSettingsEditSession(settings);
+            var dialogs = new AcceptedModeDialogService();
+            var failures = new List<Exception>();
+            try
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: session,
+                    defaultBmsPlayerFactory: () => player,
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsDialogService: dialogs,
+                    reportSettingsApplyFailure: failures.Add,
+                    packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
+                    {
+                        Interlocked.Increment(ref workerCount);
+                        entered.TrySetResult();
+                        release.Wait();
+                        return new PackageInstallCommandResult([], null);
+                    }));
+                viewModel = composition.CreateMainWindowViewModel();
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false,
+                    Path.Combine(directory.Path, "song.db"), [], () => null!, null,
+                    false, false, false, false, "mode-save-busy"));
+                viewModel.PackageInstallWorkflow.AttachLibrary(library);
+                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
+                Task idle = viewModel.PackageInstallWorkflow.WaitForIdleAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(entered.Task, idle), "mode-busy-worker-arrival");
+                Assert.IsTrue(entered.Task.IsCompleted, "実workerへ到達せず操作が終端しました。");
+                Assert.IsFalse(idle.IsCompleted);
+                Assert.IsTrue(composition.OperationAdmission.IsActive);
+                // 初回設定ではmodeはdraftであり、編集中も実導入の受付を解除しません。
+                viewModel.SettingDialog.OperationModeLR2DB = true;
+                viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg = true;
+                byte[] beforeSave = File.ReadAllBytes(settingsPath);
+                bool beforeMode = settings.OperationModeLR2DB;
+                int stopsBeforeSave = player.CloseProcessCount;
+                if (saveBlocked) { blocker = new FileStream(settingsPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite); }
+
+                viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
+
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, dialogs.Messages.Single().MessageBoxText);
+                Assert.AreEqual(0, dialogs.ConfirmationCount);
+                Assert.AreEqual(0, session.ModeSaveCount);
+                Assert.AreEqual(0, session.SaveCount);
+                Assert.AreEqual(0, lifetime.RestartCount);
+                Assert.AreEqual(0, lifetime.RequestShutdownCount);
+                Assert.AreEqual(stopsBeforeSave, player.CloseProcessCount, "Busy保存は先行導入の停止に加えてplayerを停止しません。");
+                Assert.AreEqual(0, failures.Count);
+                Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
+                Assert.AreEqual(beforeMode, settings.OperationModeLR2DB);
+                Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
+                Assert.IsTrue(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
+                CollectionAssert.AreEqual(beforeSave, File.ReadAllBytes(settingsPath));
+                Assert.IsFalse(idle.IsCompleted);
+                Assert.IsTrue(composition.OperationAdmission.IsActive);
+                blocker?.Dispose();
+                blocker = null;
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "mode-busy-worker-terminal");
+                Assert.AreEqual(1, workerCount);
+                Assert.AreEqual(0, session.ModeSaveCount, "Busy保存は元処理の終端後も再実行しません。");
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
+                Assert.AreEqual(1, session.ModeSaveCount);
+                Assert.AreEqual(0, session.SaveCount);
+                Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                Assert.IsFalse(PortableSettingsPersistenceTests.OpenSettings(settingsPath).ShowScoreViewerRegisterConfirmMsg);
+            }
+            finally
+            {
+                release.Set();
+                blocker?.Dispose();
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "mode-busy-worker-cleanup");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "mode-busy-close");
+                    viewModel.SettingDialog.Dispose();
+                    viewModel.RegularChartList.Dispose();
+                }
+            }
+        });
+    }
+
     [TestMethod]
-    public void MainWindowOperationModeRestartDrainsTrackedWorkerAndPlayerBeforeStartAndShutdown()
+    [DoNotParallelize]
+    public void MainWindowOperationModeRestartDrainsPlayerBeforeStartAndShutdown()
     {
         RunMainWindowOperationModeRestartScenario(restartFailure: null);
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowOperationModeRestartFailureAwaitsNotificationBeforeShutdown()
     {
         RunMainWindowOperationModeRestartScenario(
@@ -654,6 +1123,7 @@ public sealed class MainWindowViewHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowOperationModeRestartNotificationFailureStillShutsDown()
     {
         RunMainWindowOperationModeRestartScenario(
@@ -662,12 +1132,14 @@ public sealed class MainWindowViewHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowCloseDuringModeConfirmationPreservesEarlierCloseWithoutModeSave()
     {
         RunMainWindowOperationModeRestartScenario(restartFailure: null, closeDuringConfirmation: true);
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowOperationModeRestartNotificationExceptionStillShutsDown()
     {
         RunMainWindowOperationModeRestartScenario(
@@ -676,6 +1148,7 @@ public sealed class MainWindowViewHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void MainWindowOperationModeRestartSaveFailureRetainsSettingsWithoutShutdown()
     {
         RunMainWindowOperationModeRestartScenario(
@@ -683,12 +1156,21 @@ public sealed class MainWindowViewHostTests
             operationModeSaveFailure: true);
     }
 
+    /// <summary>稼働profileのmode選択もL/P Busyではdraftを保ち、保存・確認・再起動を始めず、次の明示保存だけが成功します。</summary>
+    [DataTestMethod]
+    [DataRow("library")]
+    [DataRow("playlist")]
+    [DoNotParallelize]
+    public void MainWindowOperationModeSelectionBusyRetainsDraftWithoutSavingOrRestarting(string admission)
+        => RunMainWindowOperationModeRestartScenario(restartFailure: null, busyAdmission: admission);
+
     private static void RunMainWindowOperationModeRestartScenario(
         Exception? restartFailure,
         UiDialogResult? notificationResult = null,
         Exception? notificationFailure = null,
         bool closeDuringConfirmation = false,
-        bool operationModeSaveFailure = false)
+        bool operationModeSaveFailure = false,
+        string? busyAdmission = null)
     {
         using var directory = new TestTemporaryDirectory("main-window-mode-restart");
         string settingsPath = Path.Combine(directory.Path, "user.config");
@@ -718,8 +1200,6 @@ public sealed class MainWindowViewHostTests
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
-        using var packageEntered = new ManualResetEventSlim(false);
-        using var packageRelease = new ManualResetEventSlim(false);
         using var playerRelease = new ManualResetEventSlim(false);
         var playerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var restartEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -742,14 +1222,6 @@ public sealed class MainWindowViewHostTests
             restartFailure == null ? null : notificationEntered,
             notificationRelease,
             notificationResult);
-        int packageCallCount = 0;
-        var packageMutation = new DelegatePackageInstallMutationPort((_, _, _, _) =>
-        {
-            packageCallCount++;
-            packageEntered.Set();
-            packageRelease.Wait();
-            return new PackageInstallCommandResult([], null);
-        });
         var lifetime = new RecordingApplicationLifetime(
             onShutdown: () => AddEvent("shutdown"),
             restartApplication: () =>
@@ -770,61 +1242,97 @@ public sealed class MainWindowViewHostTests
             MainWindow? window = null;
             bool windowClosed = false;
             FileStream? settingsBlocker = null;
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
             Task? observation = null;
             bool dispatcherMarkerObserved = false;
+            var observedClose = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            TestBmsLibrary? library = null;
+            var mutationPreparation = new StartupLibraryMutationPreparation(settings);
             try
             {
                 Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+                var settingsDialogs = new AcceptedModeDialogService();
                 ApplicationComposition composition = new(
                     settingsEditSession: settingsSession,
                     defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsDialogService: dialogs,
+                    settingsDialogService: settingsDialogs,
                     restartFailureDialogs: dialogs,
                     reportSettingsApplyFailure: exception =>
                     {
                         reportedSettingsFailures.Add(exception);
                         settingsSaveFailureReported.TrySetResult(exception);
                     },
-                    reportRestartFailure: exception => reportedRestartFailure = exception,
-                    packageInstallMutationPort: packageMutation);
-                var library = new TestBmsLibrary(
+                    reportRestartFailure: exception => reportedRestartFailure = exception);
+                library = new TestBmsLibrary(
                     songDbPath,
                     getLR2Config: null,
                     _lr2ScoreDB: null,
-                    startupRequiredFileScanReason: null,
-                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
-                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings);
+                    fileMutationService: null, dialogService: null,
+                    uiScheduler: new WpfUiScheduler(() => dispatcher),
+                    optionsSnapshotProvider: mutationPreparation.CaptureOptions,
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                mutationPreparation.Library = library;
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, settings, library: library);
                 viewModel = new MainWindowViewModel(
                     composition,
                     new FixedStartupLibraryFactory(library, playlist));
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
-                Application.Current.Resources["vm"] = viewModel;
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.ShellActivationWorkflow.ActivateRenderedShell(
                         () => { },
                         action => action(),
                         () => false),
                     "MainWindowViewHostTests.mode-restart-initialization");
+                mutationPreparation.JoinAcceptedMutations();
                 Assert.IsTrue(viewModel.IsInitializationCompleted);
                 Assert.IsTrue(viewModel.HasActiveLibraryProfile);
 
                 settings.ShowScoreViewerRegisterConfirmMsg = true;
-                window = new MainWindow(viewModel);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
                 window.Closed += (_, _) => windowClosed = true;
-                if (closeDuringConfirmation)
+                if (closeDuringConfirmation) { settingsDialogs.OnConfirmation = window.Close; }
+                if (busyAdmission != null)
                 {
-                    dialogs.OnConfirmation = window.Close;
+                    byte[] before = File.ReadAllBytes(settingsPath);
+                    bool appliedMode = composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB;
+                    ChartFileOperationSynchronizer blocker = busyAdmission == "library"
+                        ? composition.OperationAdmission : composition.PlaylistOperationAdmission;
+                    Assert.IsTrue(blocker.TryEnter(out IDisposable lease));
+                    using (lease)
+                    {
+                        viewModel.SettingDialog.OperationModeLR2DB = true;
+                        Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
+                        Assert.IsFalse(settings.OperationModeLR2DB);
+                        Assert.AreEqual(appliedMode, composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB);
+                        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, settingsDialogs.Messages.Single().MessageBoxText);
+                        Assert.AreEqual(0, settingsDialogs.ConfirmationCount);
+                        Assert.AreEqual(0, settingsSession.ModeSaveCount);
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(0, lifetime.RestartCount);
+                        Assert.AreEqual(0, lifetime.CoordinatedShutdownStartCount);
+                        Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
+                        CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
+                        if (busyAdmission == "playlist") { Assert.IsFalse(composition.OperationAdmission.IsActive); }
+                    }
+                    Assert.AreEqual(0, settingsSession.ModeSaveCount, "拒否要求を終端後に再実行しません。");
+                    viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
+                    Assert.AreEqual(1, settingsSession.ModeSaveCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
+                    window.Close();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "mode-selection-busy-normal-cleanup"), "mode-selection-busy-normal-cleanup");
+                    window.Close();
+                    Assert.IsTrue(windowClosed);
+                    return;
                 }
-                viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
-                Assert.IsTrue(packageEntered.Wait(TimeSpan.FromSeconds(5)), "The tracked package worker did not enter.");
+                Assert.IsFalse(composition.OperationAdmission.IsActive, "mode保存は先行操作がない条件で要求します。");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.PlaybackPanel.ReplacePlayerAsync(new FakeBmsPlayer(() =>
                     {
@@ -847,15 +1355,15 @@ public sealed class MainWindowViewHostTests
                 {
                     try
                     {
-                        await playerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        await TestUiDispatcherHost.AwaitNotificationAsync(playerEntered.Task, observedClose.Task.Unwrap(), "mode-restart.close-player");
                         DispatcherOperation marker = dispatcher.InvokeAsync(() =>
                         {
                             dispatcherMarkerObserved = true;
                             Assert.AreEqual(0, lifetime.RestartCount);
                             Assert.AreEqual(0, lifetime.RequestShutdownCount);
                             Assert.AreEqual(0, settingsSession.SaveCount);
-                        }, DispatcherPriority.ApplicationIdle);
-                        await marker.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        }, DispatcherPriority.Normal);
+                        await marker.Task;
                     }
                     finally
                     {
@@ -863,6 +1371,8 @@ public sealed class MainWindowViewHostTests
                     }
                 });
 
+                // 後続要求に先立つ受理済みL保守は上の準備で実work終端まで回収済みです。
+                Assert.IsFalse(composition.OperationAdmission.IsActive, "受理済み起動保守の準備終端後にmode保存を要求します。");
                 viewModel.SettingDialog.OperationModeLR2DB = true;
                 if (operationModeSaveFailure)
                 {
@@ -873,14 +1383,14 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(
                     !closeDuringConfirmation && !operationModeSaveFailure,
                     viewModel.SettingDialog.OperationModeLR2DB,
-                    $"確認回数={dialogs.ConfirmationCount}, モード保存回数={settingsSession.ModeSaveCount}, "
+                    $"確認回数={settingsDialogs.ConfirmationCount}, モード保存回数={settingsSession.ModeSaveCount}, "
                         + $"編集完了中={viewModel.SettingDialog.IsEditCompletionInProgress}, "
                         + $"有効プロファイル={viewModel.HasActiveLibraryProfile}, "
                         + $"終了準備中={viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted}, "
                         + $"終了中={viewModel.ShellShutdownWorkflow.IsClosingOrClosed}"
                         + Environment.NewLine
                         + string.Join(Environment.NewLine, reportedSettingsFailures.Select(exception => exception.ToString())));
-                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(1, settingsDialogs.ConfirmationCount);
                 Assert.AreEqual(closeDuringConfirmation ? 0 : 1, settingsSession.ModeSaveCount);
                 Assert.AreEqual(0, lifetime.RestartCount);
                 Assert.AreEqual(0, lifetime.RequestShutdownCount);
@@ -902,22 +1412,21 @@ public sealed class MainWindowViewHostTests
                 settingsBlocker?.Dispose();
                 settingsBlocker = null;
                 window.Close();
+                observedClose.TrySetResult(window.CloseCompletion);
 
-                packageRelease.Set();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "MainWindowViewHostTests.mode-restart-dispatcher-marker");
                 if (!closeDuringConfirmation && !operationModeSaveFailure)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        restartEntered.Task,
+                        TestUiDispatcherHost.AwaitNotificationAsync(restartEntered.Task, window.CloseCompletion, "mode-restart.restart-start"),
                         "MainWindowViewHostTests.mode-restart-start");
                 }
                 if (restartFailure != null)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        notificationEntered.Task,
+                        TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, window.CloseCompletion, "mode-restart.failure-notification"),
                         "MainWindowViewHostTests.mode-restart-failure-notification");
-                    // 通知を await しない誤実装にも terminal を進める機会を与えてから確認します。
-                    dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+                    // 通知到達gateを保持した区間に終了が進まないことを観測します。
                     Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
                     Assert.AreEqual(1, settingsSession.SaveCount);
                     if (notificationFailure != null)
@@ -930,12 +1439,9 @@ public sealed class MainWindowViewHostTests
                             notificationResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
                     }
                 }
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    lifetime.ShutdownRequested.Task,
-                    "MainWindowViewHostTests.mode-restart-shutdown");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "MainWindowViewHostTests.mode-restart-shutdown"), "MainWindowViewHostTests.mode-restart-shutdown");
 
                 Assert.IsTrue(dispatcherMarkerObserved);
-                Assert.AreEqual(1, packageCallCount);
                 Assert.AreEqual(1, settingsSession.SaveCount);
                 Assert.AreEqual(closeDuringConfirmation || operationModeSaveFailure ? 0 : 1, lifetime.RestartCount);
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
@@ -959,9 +1465,14 @@ public sealed class MainWindowViewHostTests
                     windowClosed = true;
                 }
             }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
             finally
             {
-                packageRelease.Set();
+                observedClose.TrySetResult(window?.CloseCompletion ?? Task.CompletedTask);
                 playerRelease.Set();
                 notificationRelease?.TrySetResult(
                     UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
@@ -976,12 +1487,14 @@ public sealed class MainWindowViewHostTests
                     {
                     }
                 }
-                CleanupViewHost(
-                    window,
-                    windowClosed,
-                    viewModel,
-                    hadPreviousViewModelResource,
-                    previousViewModelResource);
+                try
+                {
+                    // 失敗時の未開始保守はshutdownが破棄し、開始済みworkは同じshutdown終端で回収します。
+                }
+                finally
+                {
+                    ownership?.DisposeAfterBodyFailure(bodyFailure);
+                }
             }
         });
     }
@@ -1093,6 +1606,9 @@ public sealed class MainWindowViewHostTests
 
         internal bool MessageShown { get; private set; }
 
+        /// <summary>実際に表示した通知を記録し、Busyと再起動失敗の接続を区別します。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
         public Task<UiDialogResult> ConfirmAsync(
             UiConfirmationRequest request,
             CancellationToken cancellationToken = default)
@@ -1107,6 +1623,7 @@ public sealed class MainWindowViewHostTests
             CancellationToken cancellationToken = default)
         {
             MessageShown = true;
+            Messages.Add(request);
             messageEntered?.TrySetResult(true);
             if (messageCompletion != null)
             {
@@ -1207,36 +1724,6 @@ public sealed class MainWindowViewHostTests
         public void IncreaseHighSpeed() { }
         public void DecreaseHighSpeed() { }
         public void VolumeChanged() { }
-    }
-
-    private static void CleanupViewHost(
-        MainWindow? window,
-        bool windowClosed,
-        MainWindowViewModel? viewModel,
-        bool hadPreviousViewModelResource,
-        object? previousViewModelResource)
-    {
-        try
-        {
-            if (window != null && !windowClosed)
-            {
-                window.Close();
-            }
-        }
-        finally
-        {
-            try
-            {
-                // SettingsDialog subscribes to the process-wide ResourceService. Its lifetime must
-                // not extend past this dispatcher-owned view host or later culture changes can
-                // update a CollectionView from a different MSTest worker thread.
-                viewModel?.SettingDialog.Dispose();
-            }
-            finally
-            {
-                RestoreViewModelResource(hadPreviousViewModelResource, previousViewModelResource);
-            }
-        }
     }
 
     private sealed class RecordingSettingsEditSession : ISettingsEditSession

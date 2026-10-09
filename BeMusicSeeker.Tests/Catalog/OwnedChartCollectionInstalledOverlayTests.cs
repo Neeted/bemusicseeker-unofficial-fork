@@ -13,7 +13,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void AutoRenameAllChartFolders_RootOnlyChartsAreNotActionableTargets()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LibraryRoot");
@@ -38,7 +38,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_BuildsPrimaryLookupWithoutFullDirectoryLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
@@ -61,7 +61,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile firstBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
@@ -95,7 +95,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
@@ -134,7 +134,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsExactPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "Bms");
@@ -162,7 +162,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsonExactPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "Bmson");
@@ -190,7 +190,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void WarmOwnedRealPathDirectoryView_BuildsAndReusesOwnedRefIndex()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.Combine("C:\\Installed", "Warmup");
@@ -217,7 +217,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
     [TestMethod]
     public void WarmInstalledPrimaryHashLookup_BuildsWithoutFullDirectoryLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "PrimaryWarmup", "Bms", "chart.bms"));

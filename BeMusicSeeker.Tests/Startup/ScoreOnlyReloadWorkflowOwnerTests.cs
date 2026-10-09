@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -15,7 +14,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
     public async Task ReloadAsync_SuccessInvokesScoreReloadExactlyOnce()
     {
         int reloadCount = 0;
-        var owner = new ScoreOnlyReloadWorkflowOwner(() =>
+        var owner = new ScoreOnlyReloadWorkflowOwner(_ =>
         {
             reloadCount++;
             return Task.CompletedTask;
@@ -31,7 +30,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
     {
         var failure = new IOException("score reload failed");
         var owner = new ScoreOnlyReloadWorkflowOwner(
-            () => Task.FromException(failure));
+            _ => Task.FromException(failure));
 
         IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(
             () => owner.ReloadAsync());
@@ -43,7 +42,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
     public async Task ReloadAsync_CancellationPreservesOriginalException()
     {
         var cancellation = new OperationCanceledException("score reload cancelled");
-        var owner = new ScoreOnlyReloadWorkflowOwner(async () =>
+        var owner = new ScoreOnlyReloadWorkflowOwner(async _ =>
         {
             await Task.Yield();
             throw cancellation;
@@ -57,10 +56,11 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task MainWindowConsumer_SuccessUsesSummaryPresentationWithoutPlaylistReloadRoutes()
     {
         int scoreReloadCount = 0;
-        var owner = new ScoreOnlyReloadWorkflowOwner(() =>
+        var owner = new ScoreOnlyReloadWorkflowOwner(_ =>
         {
             scoreReloadCount++;
             return Task.CompletedTask;
@@ -99,6 +99,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task MainWindowConsumer_SharedGateSerializesCallsAndPublishesDistinctTokens()
     {
         var releaseFirst = new TaskCompletionSource(
@@ -110,7 +111,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
         var tokens = new List<long>();
         int reloadCount = 0;
         MainWindowViewModel? viewModel = null;
-        var owner = new ScoreOnlyReloadWorkflowOwner(() =>
+        var owner = new ScoreOnlyReloadWorkflowOwner(_ =>
         {
             reloadCount++;
             tokens.Add(viewModel!.ProgressHub.StartupProgress.GetActiveStartupProgressOperationToken());
@@ -124,19 +125,20 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
             return Task.CompletedTask;
         });
         viewModel = CreateMainWindowViewModel(owner);
-
+        Task? first = null;
+        Task? second = null;
         try
         {
-            Task first = viewModel.ReloadScoresOnlyAsync();
-            await firstEntered.Task;
-            Task second = viewModel.ReloadScoresOnlyAsync();
+            first = viewModel.ReloadScoresOnlyAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstEntered.Task, first, "score-reload.first-input");
+            second = viewModel.ReloadScoresOnlyAsync();
 
             Assert.AreEqual(1, reloadCount);
             Assert.IsFalse(second.IsCompleted);
 
             releaseFirst.SetResult();
             await first;
-            await secondEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondEntered.Task, second, "score-reload.second-input");
             await second;
 
             Assert.AreEqual(2, reloadCount);
@@ -147,16 +149,18 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
         finally
         {
             releaseFirst.TrySetResult();
-            viewModel.SettingDialog.Dispose();
+            try { await Task.WhenAll(first ?? Task.CompletedTask, second ?? Task.CompletedTask); }
+            finally { viewModel.SettingDialog.Dispose(); }
         }
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task MainWindowConsumer_FailureIsRetryableAndGateAllowsImmediateNextCall()
     {
         var failure = new IOException("score reload failed");
         int reloadCount = 0;
-        var owner = new ScoreOnlyReloadWorkflowOwner(() =>
+        var owner = new ScoreOnlyReloadWorkflowOwner(_ =>
         {
             reloadCount++;
             return reloadCount == 1
@@ -199,7 +203,7 @@ public sealed class ScoreOnlyReloadWorkflowOwnerTests
         ScoreOnlyReloadWorkflowOwner owner)
     {
         var composition = new ApplicationComposition(
-            settingsEditSession: new NoOpSettingsEditSession(new Settings()),
+            settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());

@@ -241,6 +241,7 @@ public sealed class LoadPlaylistURIDialogTests
                 Height = 320
             };
             SynchronizationContext? previousContext = SynchronizationContext.Current;
+            Task? route = null;
             try
             {
                 Materialize(host);
@@ -248,21 +249,20 @@ public sealed class LoadPlaylistURIDialogTests
                 input.Text = "existing input";
                 SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext(host.Dispatcher));
 
-                Task route = dialog.HandleOpenLocalFileAsync();
+                route = dialog.HandleOpenLocalFileAsync();
 
                 Assert.IsFalse(route.IsCompleted);
                 bool dispatcherWorkCompleted = false;
-                host.Dispatcher.BeginInvoke(
+                DispatcherOperation dispatcherWork = host.Dispatcher.BeginInvoke(
                     DispatcherPriority.Background,
                     new Action(() => dispatcherWorkCompleted = true));
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dispatcherWork.Task, "URI-picker-dispatcher-work");
                 Assert.IsTrue(dispatcherWorkCompleted);
 
                 completion.TrySetResult(new UiFilePickerResult(
                     UiDialogStatus.Accepted,
                     [@"C:\tables\pending.json"]));
-                TestUiDispatcherHost.Drain();
-                route.GetAwaiter().GetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(route, "URI-picker-route-terminal");
 
                 Assert.AreEqual(
                     "existing input" + Environment.NewLine + @"C:\tables\pending.json",
@@ -272,6 +272,8 @@ public sealed class LoadPlaylistURIDialogTests
             {
                 try
                 {
+                    completion.TrySetResult(new UiFilePickerResult(UiDialogStatus.CancelledByUser));
+                    if (route != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(route, "URI-picker-finally-route"); }
                     if (host.IsVisible)
                     {
                         host.Close();
@@ -290,7 +292,7 @@ public sealed class LoadPlaylistURIDialogTests
         host.Measure(new Size(640, 320));
         host.Arrange(new Rect(0, 0, 640, 320));
         host.UpdateLayout();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
     }
 
     private static Border FindDialogContentBorder(FrameworkElement root)

@@ -14,7 +14,6 @@ namespace BeMusicSeeker.ViewModels;
 public sealed class OperationProgressHubViewModel : ViewModel
 {
     private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
-    private PendingInstallEstimateQueueStatusSnapshot pendingInstallQueueStatus = new();
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
     private PlaylistUrlDownloadStatusSnapshot playlistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
     private MaintenanceWorkflowProgress maintenanceProgress;
@@ -109,11 +108,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     internal void ResetStartupBackgroundInitializationPresentation() { startupBackgroundOperationToken = 0; RaiseRowsChanged(); }
 
     /// <summary>導入先推定キューを、推定詳細と一つの仕事として反映します。</summary>
-    internal void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        pendingInstallQueueStatus = snapshot?.Clone() ?? new();
-        RaiseRowsChanged();
-    }
+
 
     /// <summary>実行中の導入先推定の詳細を反映します。</summary>
     internal void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
@@ -214,15 +209,12 @@ public sealed class OperationProgressHubViewModel : ViewModel
                     GetDropInstallQueueSubLabel(status), completed, Math.Max(1, total), total <= 0,
                     status.CanCancel ? OperationProgressAction.CancelInstall : OperationProgressAction.None));
             }
-            if (installEstimationProgress.IsActive || pendingInstallQueueStatus.IsActive)
+            if (installEstimationProgress.IsActive)
             {
-                bool detail = installEstimationProgress.IsActive;
-                int total = detail ? installEstimationProgress.TotalWorkCount : pendingInstallQueueStatus.CurrentPackageCount;
-                int completed = detail ? installEstimationProgress.CompletedWorkCount : pendingInstallQueueStatus.CompletedPackageCount;
-                int pending = Math.Max(0, pendingInstallQueueStatus.PendingBatchCount);
-                rows.Add(new("estimate", string.Format(BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                    Math.Max(0, completed), Math.Max(0, total), pending),
-                    detail ? installEstimationProgress.CurrentDisplayName : pendingInstallQueueStatus.CurrentDisplayName,
+                int total = installEstimationProgress.TotalWorkCount;
+                int completed = installEstimationProgress.CompletedWorkCount;
+                rows.Add(new("estimate", string.Format(BeMusicSeeker.Properties.Resources.Install_estimation_label_format,
+                    Math.Max(0, completed), Math.Max(0, total)), installEstimationProgress.CurrentDisplayName,
                     Math.Max(0, completed), Math.Max(1, total), total <= 0));
             }
             foreach (KeyValuePair<string, PlaylistSyncProgressSnapshot> pair in playlistStatuses.OrderBy(x => x.Key, StringComparer.Ordinal))

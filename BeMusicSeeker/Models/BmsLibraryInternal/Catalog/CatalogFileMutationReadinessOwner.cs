@@ -111,15 +111,14 @@ internal sealed class CatalogFileMutationAdmissionOwner
     internal CatalogPathConvergenceBlockReason BlockReason => readinessOwner.BlockReason;
 
     /// <summary>
-    /// Performs a non-reserving preflight check. The subsequent authoritative
-    /// <see cref="TryBeginFileOperationMutation"/> call still re-checks readiness after it
-    /// owns the existing exclusive mutation lease.
+    /// 予約しない事前検査です。受理済み権限は同じ管理主体へ照合し、本受付では収束状態を再確認します。
     /// </summary>
-    /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether convergence or existing busy-state preflight should show its warning.</param>
-    internal bool TryBlockMutation(string operation, bool showMessage)
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="showMessage">拒否警告を表示するか。</param>
+    /// <param name="capability">同じ共通受付の生存権限。nullは新規要求の競合判定です。</param>
+    internal bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        if (lr2SynchronizationOwner.TryBlockMutation(operation, showMessage))
+        if (lr2SynchronizationOwner.TryBlockMutation(operation, showMessage, capability))
         {
             return true;
         }
@@ -145,13 +144,14 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// <param name="showMessage">Whether a convergence rejection should show its warning after the lease is released.</param>
     /// <param name="showBusyMessage">Whether the existing mutation owner should show its busy warning before returning null.</param>
     /// <param name="throwOnBusyRace">Whether failure to acquire the raw exclusive lease is surfaced as the legacy busy exception instead of a null terminal.</param>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     internal LibraryFileMutationLease TryBeginFileOperationMutation(
         string operation,
         bool showMessage,
         bool showBusyMessage = true,
-        bool throwOnBusyRace = true)
+        bool throwOnBusyRace = true, LibraryFileMutationCapability capability = null)
     {
-        LibraryFileMutationLease lease = lr2SynchronizationOwner.TryBeginMutation(operation, showBusyMessage);
+        LibraryFileMutationLease lease = lr2SynchronizationOwner.TryBeginMutation(operation, showBusyMessage, capability);
         if (lease == null)
         {
             if (throwOnBusyRace)

@@ -133,7 +133,6 @@ public partial class BMSPlaylist : ObservableObject
 
     private readonly ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization;
 
-    private readonly Func<string, bool, LibraryFileMutationLease> tryBeginMutationLease;
 
     private BmsPlaylistLibraryBindings libraryBindings;
 
@@ -183,15 +182,12 @@ public partial class BMSPlaylist : ObservableObject
     /// この playlist store に対する長命な論理 mutation admission です。
     /// collection/table lock や DB/file lease はこの admission の内側で必要な短時間だけ取得します。
     /// </summary>
-    private readonly SemaphoreSlim playlistMutationAdmission = new(1, 1);
+    private readonly ChartFileOperationSynchronizer playlistMutationAdmission = new();
 
     private readonly IUiScheduler uiScheduler;
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
-    /// <summary>
-    /// Publishes best-effort startup custom-folder repair progress to the shell.
-    /// </summary>
     /// <summary>要求受付時の発生元を既存項目読込み所有者へ渡します。</summary>
     internal Func<string, long, OperationProgressRequest> ProgressRequestFactory
     {
@@ -219,8 +215,10 @@ public partial class BMSPlaylist : ObservableObject
 
     internal bool IsShutdownRequested => shutdownCoordinator.IsRequested;
 
+    /// <summary>新規P受付を閉じ、受理済み処理の権限を保って取消と後片付けを開始します。</summary>
     internal void RequestShutdown(string reason)
     {
+        playlistMutationAdmission.CloseAdmission();
         shutdownCoordinator.Request(
             reason,
             () => startupReadinessCoordinator.RequestShutdown(reason),
@@ -231,16 +229,14 @@ public partial class BMSPlaylist : ObservableObject
 
     internal bool HasShutdownBlockingWork =>
         IsPlaylistUpdating
-        || playlistEntriesHydrationOwner.HasBlockingWork
-        || BmtOutput.HasBlockingWork
-        || startupReadinessCoordinator.HasExternalImportWork;
+        || playlistMutationAdmission.IsActive
+        || playlistEntriesHydrationOwner.HasBlockingWork;
 
     internal string GetShutdownBlockingWorkLogFields()
     {
         return "playlistUpdating=" + IsPlaylistUpdating.ToString().ToLowerInvariant()
             + " playlistEntriesHydrationRunning=" + playlistEntriesHydrationOwner.PlaylistEntriesHydrationRunning.ToString().ToLowerInvariant()
-            + " startupReadinessExternalImport=" + startupReadinessCoordinator.HasExternalImportWork.ToString().ToLowerInvariant()
-            + " " + BmtOutput.GetShutdownBlockingWorkLogFields();
+            + " playlistAdmission=" + playlistMutationAdmission.IsActive.ToString().ToLowerInvariant();
     }
 
     private bool TrySkipForShutdown(string operation, string reason)
@@ -475,47 +471,16 @@ public partial class BMSPlaylist : ObservableObject
     /// <returns>取得できた場合は <see langword="true"/>。</returns>
     internal bool TryEnterPlaylistMutation(out IDisposable lease)
     {
-        if (!playlistMutationAdmission.Wait(0))
-        {
-            lease = null;
-            return false;
-        }
-        lease = new PlaylistMutationAdmissionLease(this);
-        return true;
+        lease = null;
+        return !IsShutdownRequested && playlistMutationAdmission.TryEnter(out lease);
     }
 
-    /// <summary>
-    /// accepted deferred sync が playlist mutation admission の終端を非同期に待ちます。
-    /// </summary>
-    /// <param name="cancellationToken">待機を取り消す token。</param>
-    /// <returns>取得済み admission lease。</returns>
-    internal async Task<IDisposable> WaitForPlaylistMutationAsync(CancellationToken cancellationToken = default)
-    {
-        await playlistMutationAdmission.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new PlaylistMutationAdmissionLease(this);
-    }
+    /// <summary>呼出元が終端まで保持するPから、関連保存・出力へ転送する権限を発行します。</summary>
+    internal LibraryFileMutationCapability CreatePlaylistMutationCapability(IDisposable lease)
+        => playlistMutationAdmission.CreateMutationCapability(lease);
 
-    private sealed class PlaylistMutationAdmissionLease : IDisposable
-    {
-        private readonly BMSPlaylist owner;
-
-        private int disposed;
-
-        /// <summary>取得済みの論理操作受付を、その所有ストアへ返却する責任を保持します。</summary>
-        internal PlaylistMutationAdmissionLease(BMSPlaylist owner)
-        {
-            this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-        }
-
-        /// <summary>通知などの終端後に受付を一度だけ解放します。</summary>
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref disposed, 1) == 0)
-            {
-                owner.playlistMutationAdmission.Release();
-            }
-        }
-    }
+    /// <summary>Pの受理済み処理の通知・cleanup実終端を待ちます。</summary>
+    internal Task WaitForPlaylistMutationIdleAsync() => playlistMutationAdmission.WaitForIdleAsync();
 
     public bool ContainsBMSTable(BMSTable table)
     {
@@ -555,6 +520,22 @@ public partial class BMSPlaylist : ObservableObject
                 return matches.Count == 1 ? matches[0] : null;
             }
             return (BMSTables ?? []).FirstOrDefault(table => ReferenceEquals(table, requestedTable));
+        }
+    }
+
+    /// <summary>詳細編集の元項目が現在の正本に同じ参照で存在するか確認します。再同期前の項目をID・hash等で読み替えません。</summary>
+    /// <param name="entry">表示行が保持する元項目。</param>
+    /// <returns>同じ生存表に同じ項目が残る場合だけtrue。</returns>
+    internal bool ContainsCurrentDetailEntry(BMSTableEntry entry)
+    {
+        BMSTable table = entry?.parent;
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            if (table == null || !playlistAggregatePersistenceOwner.IsActive(table)) { return false; }
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                return !entry.is_removed && table.entries?.Any(candidate => ReferenceEquals(candidate, entry)) == true;
+            }
         }
     }
 
@@ -676,6 +657,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="uiScheduler">UIスケジューラー。</param>
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
+    /// <param name="recommendationScoreReader">推薦用の原観測を読み取る既存依存。省略時は所有ライブラリへ接続し、L/Pの所有関係は変えません。</param>
     internal BMSPlaylist(
         BmsPlaylistLibraryBindings libraryBindings,
         string _lr2SongDB,
@@ -687,7 +669,8 @@ public partial class BMSPlaylist : ObservableObject
         ApplicationPathSnapshot applicationPathSnapshot,
         IUiScheduler uiScheduler,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
-        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null)
+        Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
+        Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
         : this(
             _lr2SongDB,
             getLR2Config,
@@ -699,11 +682,13 @@ public partial class BMSPlaylist : ObservableObject
             applicationPathSnapshot,
             uiScheduler,
             RequireLibraryBindings(libraryBindings).Lr2PlaylistFolderSynchronization,
-            RequireLibraryBindings(libraryBindings).SourceLibrary.TryBeginLibraryFileMutation,
+            RequireLibraryBindings(libraryBindings).SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission,
             playlistUrlCompletionTsvContentFetcher,
-            playlistUrlCompletionStellaContentFetcher)
+            playlistUrlCompletionStellaContentFetcher,
+            recommendationScoreReader)
     {
         this.libraryBindings = RequireLibraryBindings(libraryBindings);
+        playlistMutationAdmission = libraryBindings.SourceLibrary.Lr2Synchronization.PlaylistOperationAdmission;
     }
 
     /// <summary>
@@ -721,7 +706,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="applicationPathSnapshot">アプリケーションのパス設定。</param>
     /// <param name="uiScheduler">UIスケジューラー。</param>
     /// <param name="lr2PlaylistFolderSynchronization">LR2プレイリストフォルダの同期能力。</param>
-    /// <param name="tryBeginMutationLease">プロセス共通の非待機の変更権取得能力。第二引数でビジー通知の可否を指定します。</param>
+    /// <param name="playlistOperationAdmission">プレイリスト正本保存から管理出力・通知終端まで所有する局所受付。</param>
     /// <param name="playlistUrlCompletionTsvContentFetcher">任意のTSV補完取得能力。</param>
     /// <param name="playlistUrlCompletionStellaContentFetcher">任意のStella補完取得能力。</param>
     /// <param name="recommendationScoreReader">テスト等の独立構成で使う選択スコアの読取り能力。通常構成では所有ライブラリへ接続します。</param>
@@ -736,7 +721,7 @@ public partial class BMSPlaylist : ObservableObject
         ApplicationPathSnapshot applicationPathSnapshot,
         IUiScheduler uiScheduler,
         ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization,
-        Func<string, bool, LibraryFileMutationLease> tryBeginMutationLease,
+        ChartFileOperationSynchronizer playlistOperationAdmission,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionTsvContentFetcher = null,
         Func<Uri, CancellationToken, Task<string>> playlistUrlCompletionStellaContentFetcher = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null)
@@ -772,32 +757,22 @@ public partial class BMSPlaylist : ObservableObject
         this.playlistUrlCompletionStellaContentFetcher = playlistUrlCompletionStellaContentFetcher;
         this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization
             ?? throw new ArgumentNullException(nameof(lr2PlaylistFolderSynchronization));
-        this.tryBeginMutationLease = tryBeginMutationLease
-            ?? throw new ArgumentNullException(nameof(tryBeginMutationLease));
+        playlistMutationAdmission = playlistOperationAdmission ?? throw new ArgumentNullException(nameof(playlistOperationAdmission));
         operationNotificationOwner = new PlaylistOperationNotificationOwner();
         playlistEntriesHydrationOwner = new PlaylistEntriesHydrationOwner(
             playlistPersistenceRepository,
             () => playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot(),
-            generation => playlistAggregatePersistenceOwner.TryBeginHydrationPublish(generation),
             () => IsShutdownRequested,
-            () => StartupBackgroundTaskScheduler,
-            LogPlaylistPerformance,
-            (exception, reason) =>
-            {
-                startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
-                    exception,
-                    "playlist_entries_hydration_completion_failed reason=" + FormatTextForLog(reason));
-            });
+            LogPlaylistPerformance);
         bmtOutput = new PlaylistBmtOutputOwner(
             playlistAggregatePersistenceOwner,
             playlistEntriesHydrationOwner,
             this.beatorajaBmtOptionsProvider,
             beatorajaBmtSongHashResolverFactory,
-            () => StartupBackgroundTaskScheduler,
             LogPlaylistPerformance,
             (exception, message) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, message),
-            () => shutdownCoordinator.IsRequested);
+            () => shutdownCoordinator.IsRequested,
+            playlistMutationAdmission);
         PlaylistExternalSyncOwner externalSyncOwnerLocal = null;
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
             recommendationScoreReader ?? (cancellationToken => LibraryBindings.ReadRecommendationScoresAsync(cancellationToken)),
@@ -812,7 +787,7 @@ public partial class BMSPlaylist : ObservableObject
             playlistAggregatePersistenceOwner,
             EnsurePlaylistEntriesLoaded,
             table => playlistAggregatePersistenceOwner.IsActive(table),
-            (table, reason) => BmtOutput.QueueBeatorajaBmtExportForTable(table, reason),
+            (table, reason, capability) => BmtOutput.ExportTablesAsync([table], reason, capability),
             ApplyCachedPlaylistUrlCompletionToTable,
             EnterPlaylistUpdating,
             ExitPlaylistUpdating,
@@ -878,7 +853,7 @@ public partial class BMSPlaylist : ObservableObject
             RemoveTablesFromVisibleCollection,
             this.customFolderOutputSettingsProvider,
             ResolveCustomFolderOutputDirectory,
-            (table, outputDirectoryBefore, outputDirectoryAfter, isRootFolder, rootOutputBaseDirectoryBefore, outputBaseDirectoryBefore, inferOutputBaseDirectoryBeforeWhenMissing, settings) =>
+            (table, outputDirectoryBefore, outputDirectoryAfter, isRootFolder, rootOutputBaseDirectoryBefore, outputBaseDirectoryBefore, inferOutputBaseDirectoryBeforeWhenMissing, settings, capability) =>
             {
                 PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation preparation =
                     customFolderOutputMaintenanceOwner.PrepareCustomFolderOutputMigration(
@@ -892,7 +867,7 @@ public partial class BMSPlaylist : ObservableObject
                         settings);
                 CustomFolderBatchOutputResult result;
                 using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-                    "ExternalPlaylistSyncCustomFolderOutput"))
+                    "ExternalPlaylistSyncCustomFolderOutput", capability: capability))
                 using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
                 {
                     result = customFolderOutputMaintenanceOwner.TryMigratePreparedCustomFolderOutputDirectory(
@@ -900,13 +875,20 @@ public partial class BMSPlaylist : ObservableObject
                         request => SyncCustomFolderRowsBatch(request, mutationCapability));
                 }
                 customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
-                return result?.Succeeded == true
-                    && string.IsNullOrWhiteSpace(result?.WarningMessage)
-                    && result?.PrimaryException == null;
+                if (result?.PrimaryException != null)
+                {
+                    throw new PlaylistMutationPostCommitException("ExternalPlaylistSyncCustomFolderOutput", result.PrimaryException);
+                }
+                if (result?.Succeeded != true || !string.IsNullOrWhiteSpace(result.WarningMessage))
+                {
+                    throw new PlaylistMutationPostCommitException(result?.WarningMessage ?? Resources.Warn_PlaylistMutationStale);
+                }
+                return true;
             },
-            (tables, reason) => BmtOutput.QueueBeatorajaBmtExportForTables(tables, reason),
+            (tables, reason, capability) => BmtOutput.ExportTablesAsync(tables, reason, capability),
             ApplyCachedPlaylistUrlCompletionToTables,
-            ReOutputCustomFoldersAfterExternalReload);
+            ReOutputCustomFoldersAfterExternalReload,
+            capability => AcquirePlaylistMutationLease("external_playlist_mutation", capability: capability));
         externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,
@@ -958,7 +940,6 @@ public partial class BMSPlaylist : ObservableObject
                 this,
                 new PlaylistHydrationVersionEventArgs(version, request));
         };
-        playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
         listenerForRwlockBMSTablesInitializedAll = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = PropertyChangedSubscription.Create(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = PropertyChangedSubscription.Create(rwlockBMSTables);
@@ -979,14 +960,27 @@ public partial class BMSPlaylist : ObservableObject
     private static BmsPlaylistLibraryBindings RequireLibraryBindings(BmsPlaylistLibraryBindings libraryBindings)
         => libraryBindings ?? throw new ArgumentNullException(nameof(libraryBindings));
 
-    /// <summary>
-    /// DB からプレイリストを読み込み、必要に応じて外部同期とカスタムフォルダ出力まで実行します。
-    /// 初期化済み一覧が空でない場合は、既存一覧を土台に同期処理のみ進めます。
-    /// </summary>
-    /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
-    /// <param name="semaphore">他初期化処理と連携するためのセマフォ。</param>
-    /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
-    public void Initialize(bool reloadExtPlaylist = true, SemaphoreSlim semaphore = null, bool queueBeatorajaBmtExportAfterHydration = true)
+    /// <summary>対象確定前にPを取得し、DBヘッダー・エントリ・必要出力・参照公開を同じ権限で直接待ちます。</summary>
+    /// <param name="reloadExtPlaylist">同じ明示要求で外部同期も実行するか。</param>
+    /// <param name="exportBeatorajaBmt">エントリ読込み後のBMT全表出力を実行するか。</param>
+    /// <returns>全開始処理と通知・cleanupの実終端。元失敗を伝播します。</returns>
+    public Task InitializeAsync(bool reloadExtPlaylist = true, bool exportBeatorajaBmt = true)
+        => InitializeAsync(reloadExtPlaylist, exportBeatorajaBmt, null);
+
+    /// <summary>受理済みPを借用し、必要読込み・出力・公開の実終端を直接待ちます。</summary>
+    internal async Task InitializeAsync(bool reloadExtPlaylist, bool exportBeatorajaBmt, LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("Initialize", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        bool verifyRows = await Task.Run(() => InitializeHeaders()).ConfigureAwait(false);
+        await HydrateRequiredAsync("Initialize", exportBeatorajaBmt, verifyRows, authority).ConfigureAwait(false);
+        if (reloadExtPlaylist)
+        {
+            await externalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, capability: authority).ConfigureAwait(false);
+        }
+    }
+
+    private bool InitializeHeaders()
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long updateTablesMs = 0L;
@@ -996,7 +990,7 @@ public partial class BMSPlaylist : ObservableObject
             throw new InvalidOperationException("Playlist initialization cannot run while another playlist persistence transition is active.");
         }
         startupReadinessCoordinator.BeginPlaylistInitialization("Initialize");
-        bool initializationSemaphoreReleased = semaphore == null;
+        bool rootOutputSearchRootsChanged = false;
         try
         {
             List<BMSTable> list = null;
@@ -1050,24 +1044,14 @@ public partial class BMSPlaylist : ObservableObject
             {
                 updateTablesMs = 0L;
                 var stopwatchLr2configSync = Stopwatch.StartNew();
-                bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
+                rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
                 stopwatchLr2configSync.Stop();
                 lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-                QueueDeferredPlaylistEntriesHydration(
-                    "Initialize",
-                    runExternalSyncAfterHydration: reloadExtPlaylist,
-                    queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
-                    runCustomFolderOutputRepairAfterHydration: true,
-                    verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
-            }
-            if (semaphore != null)
-            {
-                semaphore.Release();
-                initializationSemaphoreReleased = true;
             }
             stopwatchInitialize.Stop();
             LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
             SchedulePlaylistUrlCompletionRefresh("Initialize");
+            return rootOutputSearchRootsChanged;
         }
         catch (Exception exception)
         {
@@ -1076,20 +1060,25 @@ public partial class BMSPlaylist : ObservableObject
         }
         finally
         {
-            if (!initializationSemaphoreReleased)
-            {
-                semaphore?.Release();
-            }
             playlistAggregatePersistenceOwner.EndReload();
         }
     }
 
-    /// <summary>
-    /// プレイリスト一覧とエントリを DB から再読み込みします。
-    /// score DB は触らず、外部同期は呼び出し側で別途 schedule します。
-    /// </summary>
-    /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
-    public void ReloadTables(bool queueBeatorajaBmtExportAfterHydration = true)
+    /// <summary>Pを対象確定前に取得し、ヘッダー再読込み、エントリ、必要出力と参照公開の実終端を待ちます。</summary>
+    /// <param name="exportBeatorajaBmt">必須BMT全表出力を実行するか。</param>
+    public Task ReloadTablesAsync(bool exportBeatorajaBmt = true)
+        => ReloadTablesAsync(exportBeatorajaBmt, null);
+
+    /// <summary>受理済みPを借用し、ヘッダーと必須継続の実終端まで待ちます。</summary>
+    internal async Task ReloadTablesAsync(bool exportBeatorajaBmt, LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReloadTables", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        bool verifyRows = await Task.Run(() => ReloadHeaders()).ConfigureAwait(false);
+        await HydrateRequiredAsync("ReloadTables", exportBeatorajaBmt, verifyRows, authority).ConfigureAwait(false);
+    }
+
+    private bool ReloadHeaders()
     {
         var stopwatchReloadTables = Stopwatch.StartNew();
         long lr2configSyncMs = 0L;
@@ -1127,15 +1116,10 @@ public partial class BMSPlaylist : ObservableObject
             bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
             stopwatchLr2configSync.Stop();
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
-            QueueDeferredPlaylistEntriesHydration(
-                "ReloadTables",
-                runExternalSyncAfterHydration: false,
-                queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
-                runCustomFolderOutputRepairAfterHydration: true,
-                verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             stopwatchReloadTables.Stop();
             LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
             SchedulePlaylistUrlCompletionRefresh("ReloadTables");
+            return rootOutputSearchRootsChanged;
         }
         catch (Exception exception)
         {
@@ -1172,13 +1156,15 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用の完了まで予約を保持します。
+    /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用と必要出力・公開の実終端までPを保持します。
     /// commit 後の読込・UI 失敗は復元 DB を保持したまま伝播し、再試行や巻戻しを行いません。
     /// </summary>
-    internal Task RestorePlaylistDumpAsync(string sql)
+    internal async Task RestorePlaylistDumpAsync(string sql, LibraryFileMutationCapability capability = null)
     {
         ArgumentNullException.ThrowIfNull(sql);
-        return Task.Run(async () =>
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("RestorePlaylistDump", capability: capability);
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
+        await Task.Run(async () =>
         {
             if (!playlistAggregatePersistenceOwner.TryBeginRestore())
             {
@@ -1227,12 +1213,8 @@ public partial class BMSPlaylist : ObservableObject
                 try
                 {
                     bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
-                    QueueDeferredPlaylistEntriesHydration(
-                        "RestorePlaylist",
-                        runExternalSyncAfterHydration: false,
-                        queueBeatorajaBmtExportAfterHydration: true,
-                        runCustomFolderOutputRepairAfterHydration: true,
-                        verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
+                    await HydrateRequiredAsync("RestorePlaylist", exportBeatorajaBmt: true,
+                        verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged, authority).ConfigureAwait(false);
                     SchedulePlaylistUrlCompletionRefresh("RestorePlaylist");
                 }
                 catch (Exception exception)
@@ -1249,296 +1231,33 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows, OperationProgressRequest originatingRequest = null)
+    private async Task HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability)
     {
-        if (TrySkipForShutdown("custom_folder_repair_after_hydration", reason))
-        {
-            return;
-        }
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        if (!settings.OperationModeLR2DB)
-        {
-            return;
-        }
-
-        Action<PlaylistSyncProgressSnapshot> progressReporter = CustomFolderOutputRepairProgressReporter;
-
-        Task work()
-        {
-            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
-            if (progressRequest != null && originatingRequest != null)
-            {
-                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
-            }
-            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
-            executionReporter?.Invoke(progressRequest, true);
-            try
-            {
-                if (IsShutdownRequested)
-                {
-                    LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
-                    return Task.CompletedTask;
-                }
-                RepairMissingCustomFolderOutputsAfterHydrationCore(
-                    reason,
-                    verifyRootOutputDirectoryRows,
-                    settings,
-                    (processed, total, tableName) => PublishCustomFolderOutputRepairProgress(
-                        progressReporter,
-                        processed,
-                        total,
-                        tableName, progressRequest));
-                return Task.CompletedTask;
-            }
-            finally
-            {
-                PublishCustomFolderOutputRepairProgress(progressReporter, 0, 0, string.Empty, progressRequest);
-                executionReporter?.Invoke(progressRequest, false);
-            }
-        }
-
-        if (StartupBackgroundTaskScheduler != null)
-        {
-            if (StartupBackgroundTaskScheduler("playlist_custom_folder_output_repair", reason ?? "queue", "playlist_entries_hydration", work))
-            {
-                return;
-            }
-            LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=startup_scheduler_rejected requestReason=" + FormatTextForLog(reason));
-            return;
-        }
-        if (IsShutdownRequested)
-        {
-            LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
-            return;
-        }
-        Task.Run(work).ObserveFault("QueueCustomFolderOutputRepairAfterHydration");
-    }
-
-    private void PlaylistEntriesHydrationReceiptPublishedHandler(
-        object sender,
-        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs eventArgs)
-    {
-        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt = eventArgs?.Receipt;
-        if (receipt == null)
-        {
-            return;
-        }
-
-        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent continuation = receipt.Continuation;
-        if (IsShutdownRequested)
-        {
-            return;
-        }
-        if (!playlistEntriesHydrationOwner.IsReceiptCurrent(receipt))
-        {
-            eventArgs.CompositionFailure = new InvalidOperationException(
-                "Playlist hydration receipt is no longer current before consumer composition.");
-            eventArgs.RetryContinuation = continuation;
-            eventArgs.RetryRequested = true;
-            return;
-        }
-        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt publishedReceipt = receipt;
-        bool externalSyncLeaseRequired = continuation?.RunExternalSyncAfterHydration == true;
-        if (continuation?.RunExternalSyncAfterHydration == true)
-        {
-            try
-            {
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                QueueExternalPlaylistSyncAfterHydration(receipt.Reason, receipt.ProgressRequest);
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                publishedReceipt = playlistEntriesHydrationOwner.CreateReceiptForCurrentTables(
-                    receipt,
-                    continuation.WithoutExternalSync());
-            }
-            catch (Exception ex)
-            {
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                eventArgs.CompositionFailure = ex;
-                eventArgs.RetryContinuation = continuation.WithoutExternalSync();
-                eventArgs.RetryRequested = false;
-                NLogWrapper.FileLogger?.Warn(
-                    ex,
-                    "playlist_entries_hydration_external_sync_failed reason=" + FormatTextForLog(receipt.Reason));
-                return;
-            }
-        }
-
-        if (!playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
-        {
-            if (!IsShutdownRequested)
-            {
-                eventArgs.CompositionFailure = new InvalidOperationException(
-                    "Playlist hydration receipt became stale during consumer composition.");
-                eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                eventArgs.RetryRequested = true;
-            }
-            return;
-        }
-
-        IDisposable receiptPublicationLease = null;
-        if (externalSyncLeaseRequired)
-        {
-            receiptPublicationLease = playlistAggregatePersistenceOwner.TryBeginHydrationPublish(
-                publishedReceipt.Generation);
-        }
-        if (externalSyncLeaseRequired
-            && receiptPublicationLease == null)
-        {
-            if (!IsShutdownRequested)
-            {
-                eventArgs.CompositionFailure = new InvalidOperationException(
-                    "Playlist hydration receipt publication could not reserve the current collection.");
-                eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                eventArgs.RetryRequested = true;
-            }
-            return;
-        }
-
-        bool publicationReceiptIsCurrent;
         try
         {
-            publicationReceiptIsCurrent = playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt);
+            PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt =
+                await playlistEntriesHydrationOwner.HydrateAsync(reason).ConfigureAwait(false);
+            CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+            await Task.Run(() => RepairMissingCustomFolderOutputsAfterHydrationCore(
+                reason, verifyRootOutputDirectoryRows, settings,
+                (processed, total, name) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
+                    processed, total, name, receipt.ProgressRequest), capability)).ConfigureAwait(false);
+            if (exportBeatorajaBmt)
+            {
+                await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability).ConfigureAwait(false);
+            }
+            PlaylistEntriesHydrationReceiptPublished?.Invoke(this,
+                new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(receipt));
+            playlistEntriesHydrationOwner.CompleteHydration(receipt);
+        }
+        catch (Exception exception)
+        {
+            startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
+            throw;
         }
         finally
         {
-            receiptPublicationLease?.Dispose();
-        }
-
-        if (!publicationReceiptIsCurrent)
-        {
-            if (!IsShutdownRequested)
-            {
-                eventArgs.CompositionFailure = new InvalidOperationException(
-                    "Playlist hydration receipt became stale while acquiring the publication reservation.");
-                eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                eventArgs.RetryRequested = true;
-            }
-            return;
-        }
-
-        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent effectiveContinuation = publishedReceipt.Continuation;
-        if (effectiveContinuation?.RunCustomFolderOutputRepairAfterHydration == true)
-        {
-            try
-            {
-                QueueCustomFolderOutputRepairAfterHydration(
-                    receipt.Reason,
-                    effectiveContinuation.VerifyRootOutputDirectoryRows, receipt.ProgressRequest);
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(
-                    ex,
-                    "playlist_entries_hydration_custom_folder_repair_failed reason=" + FormatTextForLog(receipt.Reason));
-            }
-        }
-        if (effectiveContinuation?.QueueBeatorajaBmtExportAfterHydration == true)
-        {
-            try
-            {
-                BmtOutput.QueueBeatorajaBmtExportAll(receipt.Reason, originatingRequest: receipt.ProgressRequest);
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(
-                    ex,
-                    "playlist_entries_hydration_bmt_export_failed reason=" + FormatTextForLog(receipt.Reason));
-            }
-        }
-
-        if (playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
-        {
-            try
-            {
-                PlaylistEntriesHydrationReceiptPublished?.Invoke(
-                    this,
-                    new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(publishedReceipt));
-            }
-            catch (Exception ex)
-            {
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                eventArgs.CompositionFailure = ex;
-                eventArgs.RetryContinuation = publishedReceipt.Continuation;
-                // A presentation consumer failure is deterministic for this receipt. Let the
-                // hydration owner fault the operation instead of retrying an unchanged consumer.
-                eventArgs.RetryRequested = false;
-            }
-        }
-        else if (!IsShutdownRequested)
-        {
-            eventArgs.CompositionFailure = new InvalidOperationException(
-                "Playlist hydration receipt became stale before presentation publication.");
-            eventArgs.RetryContinuation = publishedReceipt.Continuation;
-            eventArgs.RetryRequested = true;
-        }
-    }
-
-    private void QueueExternalPlaylistSyncAfterHydration(string reason, OperationProgressRequest originatingRequest)
-    {
-        if (TrySkipForShutdown("external_sync_after_hydration", reason))
-        {
-            return;
-        }
-
-        async Task Work()
-        {
-            OperationProgressRequest progressRequest = ExecutionProgressRequestProvider?.Invoke();
-            if (progressRequest != null && originatingRequest != null)
-            {
-                progressRequest = progressRequest with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
-            }
-            Action<OperationProgressRequest, bool> executionReporter = RequestProgressReporter;
-            executionReporter?.Invoke(progressRequest, true);
-            try
-            {
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                using IDisposable admission = await WaitForPlaylistMutationAsync(
-                    startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
-                if (IsShutdownRequested)
-                {
-                    return;
-                }
-                await externalSyncOwner.UpdateBMSTablesInternalAsync(
-                    reloadExtPlaylist: true,
-                    cancellationToken: startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
-            }
-            finally { executionReporter?.Invoke(progressRequest, false); }
-        }
-
-        Func<string, string, string, Func<Task>, bool> startupScheduler = StartupBackgroundTaskScheduler;
-        if (startupScheduler != null)
-        {
-            if (startupScheduler(
-                "external_playlist_sync",
-                reason ?? "playlist_entries_hydration",
-                "playlist_entries_hydration",
-                Work))
-            {
-                return;
-            }
-            LogPlaylistPerformance(
-                "external_sync_after_hydration skipped reason=startup_scheduler_rejected requestReason="
-                + FormatTextForLog(reason));
-            return;
-        }
-        if (!IsShutdownRequested)
-        {
-            Task.Run(Work).ObserveFault("QueueExternalPlaylistSyncAfterHydration");
+            PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter, 0, 0, string.Empty);
         }
     }
 
@@ -1586,32 +1305,10 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    public void QueueDeferredPlaylistEntriesHydration(
-        string reason,
-        bool runExternalSyncAfterHydration = false,
-        bool queueBeatorajaBmtExportAfterHydration = false,
-        bool runCustomFolderOutputRepairAfterHydration = false,
-        bool verifyRootOutputDirectoryRows = false)
+    /// <summary>読取りに必要な項目を準備します。親変更の必要出力・参照公開の完了通知は行いません。</summary>
+    internal Task EnsureAllPlaylistEntriesLoadedAsync(string reason)
     {
-        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent continuation =
-            runExternalSyncAfterHydration
-                || queueBeatorajaBmtExportAfterHydration
-                || runCustomFolderOutputRepairAfterHydration
-                || verifyRootOutputDirectoryRows
-                ? new PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent(
-                    runExternalSyncAfterHydration,
-                    queueBeatorajaBmtExportAfterHydration,
-                    runCustomFolderOutputRepairAfterHydration,
-                    verifyRootOutputDirectoryRows)
-                : null;
-        playlistEntriesHydrationOwner.QueueDeferredPlaylistEntriesHydration(
-            reason,
-            continuation);
-    }
-
-    internal Task EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)
-    {
-        return playlistEntriesHydrationOwner.EnsureAllPlaylistEntriesLoadedAsync(reason, publishCompletedVersion);
+        return playlistEntriesHydrationOwner.EnsureAllPlaylistEntriesLoadedAsync(reason);
     }
 
     internal void EnsurePlaylistEntriesLoaded(BMSTable table, string reason)
@@ -2170,13 +1867,18 @@ public partial class BMSPlaylist : ObservableObject
             settings);
     }
 
+    /// <summary>捕捉設定と生存権限で通常形式の出力基点を変更します。設定の外側受付を取り直さず、物理変更と保存を終えます。</summary>
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryWithSettings", capability: capability);
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
+
         settings ??= GetCustomFolderOutputSettings();
         additionalOutputBaseDirsBefore ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
         additionalOutputBaseDirsAfter ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -2216,7 +1918,7 @@ public partial class BMSPlaylist : ObservableObject
             "setting_custom_folder_output_base_dir_changed",
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings);
+            settings: settings, capability: authority);
     }
 
     /// <summary>
@@ -2234,11 +1936,16 @@ public partial class BMSPlaylist : ObservableObject
             settings: null);
     }
 
+    /// <summary>捕捉設定と生存権限でルート形式の出力基点を変更し、元のファイル・DB結果を維持します。</summary>
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal void ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ChangeCustomFolderBaseDirectoryRootWithSettings", capability: capability);
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
+
         settings ??= GetCustomFolderOutputSettings();
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -2257,7 +1964,7 @@ public partial class BMSPlaylist : ObservableObject
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => true),
             rootOutputBaseDirBefore: outputDirBaseBefore,
             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-            settings: settings);
+            settings: settings, capability: authority);
     }
 
     /// <summary>
@@ -2267,11 +1974,15 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="pendingRenames">編集中に確定した登録名の変更。</param>
     /// <param name="settings">変更後のカスタムフォルダ出力設定。</param>
     /// <returns>変更したプレイリスト数。</returns>
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
     internal int ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings", capability: capability);
+        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
+
         if (settings == null || BMSTables == null)
         {
             return 0;
@@ -2358,7 +2069,7 @@ public partial class BMSPlaylist : ObservableObject
                 outputDirPathBeforeByTable,
                 "setting_custom_folder_output_base_registration_changed",
                 outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
-                settings: settings);
+                settings: settings, capability: authority);
         }
         return changedTables.Count;
     }
@@ -2438,8 +2149,10 @@ public partial class BMSPlaylist : ObservableObject
         string rootOutputBaseDirBefore,
         string outputBaseDirBefore,
         bool inferOutputBaseDirBeforeWhenMissing,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("MigrateCustomFolderOutputDirectory", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
@@ -2478,7 +2191,7 @@ public partial class BMSPlaylist : ObservableObject
                 settings);
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "MigrateCustomFolderOutputDirectory"))
+            "MigrateCustomFolderOutputDirectory", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             result = customFolderOutputMaintenanceOwner.TryMigratePreparedCustomFolderOutputDirectory(
@@ -2490,7 +2203,7 @@ public partial class BMSPlaylist : ObservableObject
 
     private void ReOutputCustomFoldersAfterExternalReload(
         IReadOnlyList<BMSTable> bmsTables,
-        string reason)
+        string reason, LibraryFileMutationCapability capability = null)
     {
         if (bmsTables == null || bmsTables.Count == 0)
         {
@@ -2530,7 +2243,7 @@ public partial class BMSPlaylist : ObservableObject
 
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "ExternalPlaylistReloadCustomFolderOutput"))
+            "ExternalPlaylistReloadCustomFolderOutput", capability: capability))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             // Projection, physical materialization, and LR2 folder-row sync all run
@@ -2562,6 +2275,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void ReOutputCustomFolder(BMSTable bmsTable)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFolder", capability: null);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
@@ -2588,7 +2303,7 @@ public partial class BMSPlaylist : ObservableObject
             customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(bmsTable, settings);
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "ReOutputCustomFolder"))
+            "ReOutputCustomFolder", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             result = customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder(
@@ -2599,24 +2314,26 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// 受理済み予約の下でカスタムフォルダを出力し、全体同期に必要な物理入力を返します。folder表の保存は全体同期へ委ねます。
+    /// 受理済みのプレイリスト局所権限を借用してカスタムフォルダを出力し、全体同期に必要な物理入力を返します。folder表の保存は全体同期へ委ねます。
     /// LR2専用の任意通知先へ実段階・対象件数を渡します。通知の失敗は出力結果を変更しません。
     /// </summary>
     internal Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
         string reason,
         LibraryFileMutationCapability mutationCapability,
-        Action<string, int, int> stageProgressReporter = null)
+        Action<string, int, int> stageProgressReporter = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (mutationCapability == null)
         {
             throw new ArgumentNullException(nameof(mutationCapability));
         }
 
+        mutationCapability.Validate(playlistMutationAdmission);
         return ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync(
                 reason,
                 yieldBetweenTables: false,
                 mutationCapability: mutationCapability,
-                stageProgressReporter: stageProgressReporter)
+                stageProgressReporter: stageProgressReporter, settings: settings)
             .GetAwaiter()
             .GetResult();
     }
@@ -2625,9 +2342,10 @@ public partial class BMSPlaylist : ObservableObject
         string reason,
         bool yieldBetweenTables,
         LibraryFileMutationCapability mutationCapability,
-        Action<string, int, int> stageProgressReporter = null)
+        Action<string, int, int> stageProgressReporter = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             return Lr2SongDbSyncPreparedDataSurface.Empty;
@@ -2668,7 +2386,7 @@ public partial class BMSPlaylist : ObservableObject
         string reason,
         bool verifyRootOutputDirectoryRows,
         CustomFolderOutputSettingsSnapshot settings,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null, LibraryFileMutationCapability capability = null)
     {
         if (settings == null)
         {
@@ -2727,7 +2445,7 @@ public partial class BMSPlaylist : ObservableObject
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
             "playlist_custom_folder_output_repair",
-            showMessage: false))
+            showMessage: false, capability: capability))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             if (verifiedCurrentProjections.Count > 0)
@@ -4037,8 +3755,10 @@ public partial class BMSPlaylist : ObservableObject
         RemoveCustomFolder(bmsTable, null);
     }
 
-    internal void RemoveCustomFolder(BMSTable bmsTable, CustomFolderOutputSettingsSnapshot settings)
+    internal void RemoveCustomFolder(BMSTable bmsTable, CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RemoveCustomFolder", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
@@ -4064,7 +3784,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "RemoveCustomFolder"))
+            "RemoveCustomFolder", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             result = customFolderOutputMaintenanceOwner.TryRemoveCustomFolder(
@@ -4202,10 +3922,17 @@ public partial class BMSPlaylist : ObservableObject
         return lr2PlaylistFolderSynchronization;
     }
 
-    private LibraryFileMutationLease AcquirePlaylistMutationLease(string operation, bool showMessage = true)
+    /// <summary>最初の正本変更前に局所受付を非待機取得し、受理済み継続では同じ権限を借用します。呼出元が必要な通知・後片付けの終端後に解放します。</summary>
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="showMessage">既存呼出し契約の通知指定。競合は元のBusy例外で呼出元へ返します。</param>
+    /// <param name="capability">同じ局所受付管理主体の生存権限。nullは新規受付です。</param>
+    /// <returns>所有または借用した局所受付。借用の解放は外側の受付を解放しません。</returns>
+    internal LibraryFileMutationLease AcquirePlaylistMutationLease(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
     {
-        return tryBeginMutationLease(operation, showMessage)
-            ?? throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
+        if (capability != null) { return playlistMutationAdmission.Borrow(capability); }
+        return playlistMutationAdmission.TryEnter(out IDisposable lease)
+            ? (LibraryFileMutationLease)lease
+            : throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
     }
 
     private static void LogLr2FolderSyncResult(string operation, Lr2FolderFileDbSyncResult result, int scopeCount, int itemCount)
@@ -4529,169 +4256,116 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="bmsTable">削除対象のプレイリスト。</param>
     /// <returns>実際に削除されたプレイリスト。対象が存在しない場合は <see langword="null"/>。</returns>
-    public BMSTable RemoveBMSTable(BMSTable bmsTable)
+    public BMSTable RemoveBMSTable(BMSTable bmsTable) => RemoveBMSTable(bmsTable, null);
+
+    /// <summary>同じ削除要求のPを借用し、正本削除と公開が終わるまで保持します。nullは新規受付です。</summary>
+    /// <returns>削除した表。正本に対象がない場合はnullです。</returns>
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal BMSTable RemoveBMSTable(BMSTable bmsTable, LibraryFileMutationCapability capability)
     {
+        (IReadOnlyList<BMSTable> Removed, Exception PublicationFailure) result = RemoveBMSTables([bmsTable], capability);
+        if (result.PublicationFailure != null) { ExceptionDispatchInfo.Capture(result.PublicationFailure).Throw(); }
+        return result.Removed.SingleOrDefault();
+    }
+
+    /// <summary>一要求の成功対象を一回のDB削除へ集約し、正本参照を公開します。通知失敗でも確定した削除を保持します。</summary>
+    /// <param name="tables">同じ受理済み操作が確定した削除対象。</param>
+    /// <param name="capability">呼出元が必要出力・公開・通知終端まで保持する生存P権限。</param>
+    /// <returns>実際にDB削除を確定した表の変更不能な集合と、確定後の参照公開失敗。DB失敗は元例外として送出します。</returns>
+    internal (IReadOnlyList<BMSTable> Removed, Exception PublicationFailure) RemoveBMSTables(IEnumerable<BMSTable> tables, LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("RemoveBMSTables", capability: capability);
         playlistAggregatePersistenceOwner.EnsureNotRestoring();
-        Exception collectionNotificationFailure = null;
-        BMSTable tableToRemove = InvokeBMSTablesCollectionMutation(delegate
+        BMSTable[] requested = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        List<Exception> notificationFailures = [];
+        BMSTable[] removed = InvokeBMSTablesCollectionMutation(() =>
         {
             using (rwlockBMSTables.GetWriterGuard())
             {
-                BMSTable activeTable = BMSTables.FirstOrDefault(candidate =>
-                    ReferenceEquals(candidate, bmsTable)
-                    || (bmsTable?.playlist_id.HasValue == true
-                        && candidate?.playlist_id == bmsTable.playlist_id));
-                if (activeTable == null)
-                {
-                    return null;
-                }
-                playlistAggregatePersistenceOwner.EnsureNotRestoring();
-                EnsurePlaylistEntriesLoaded(activeTable, "BMSPlaylist.RemoveBMSTable");
-                try
-                {
-                    playlistAggregatePersistenceOwner.DeleteActiveTables([activeTable]);
-                }
+                BMSTable[] active = [.. requested.Where(BMSTables.Contains)];
+                foreach (BMSTable table in active) { EnsurePlaylistEntriesLoaded(table, "BMSPlaylist.RemoveBMSTables"); }
+                try { playlistAggregatePersistenceOwner.DeleteActiveTables(active); }
                 catch (Exception deletionFailure)
                 {
-                    RestoreActivePlaylistAfterFailedRemoval(activeTable, deletionFailure);
-                    throw;
-                }
-
-                bool removed;
-                try
-                {
-                    removed = BMSTables.RemoveExt(activeTable);
-                }
-                catch (Exception removalFailure)
-                {
-                    removed = !BMSTables.Contains(activeTable);
-                    if (removed)
+                    List<Exception> failures = [deletionFailure];
+                    foreach (BMSTable table in active)
                     {
-                        collectionNotificationFailure = removalFailure;
-                        NLogWrapper.FileLogger?.Warn(
-                            removalFailure,
-                            "playlist_collection_remove_notification_failed_after_commit table="
-                            + (activeTable.name ?? string.Empty));
+                        try
+                        {
+                            playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+                            playlistAggregatePersistenceOwner.CommitTablesWithEntries([table], requireCurrentTarget: true,
+                                hydrationReason: "BMSPlaylist.RemoveBMSTablesRollback");
+                        }
+                        catch (Exception rollbackFailure) { failures.Add(rollbackFailure); }
                     }
+                    if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
+                    ExceptionDispatchInfo.Capture(deletionFailure).Throw();
                 }
-                if (!removed)
+                foreach (BMSTable table in active)
                 {
-                    RestoreActivePlaylistAfterFailedRemoval(
-                        activeTable,
-                        new InvalidOperationException("Playlist collection removal failed after durable deletion."));
-                    throw new InvalidOperationException("Playlist removal rollback unexpectedly returned.");
+                    try
+                    {
+                        if (!BMSTables.RemoveExt(table)) { throw new InvalidOperationException(Resources.Warn_PlaylistMutationStale); }
+                    }
+                    catch (Exception failure) { notificationFailures.Add(failure); }
                 }
-                return activeTable;
+                return active;
             }
         });
-        if (tableToRemove == null)
+        Exception publicationFailure = notificationFailures.Count switch
         {
-            return null;
-        }
-        Exception bmtRemovalFailure = null;
-        try
-        {
-            BmtOutput.QueueBeatorajaBmtRemoveForTable(tableToRemove, "RemoveBMSTable");
-        }
-        catch (Exception ex)
-        {
-            bmtRemovalFailure = ex;
-        }
-        if (collectionNotificationFailure != null && bmtRemovalFailure != null)
-        {
-            throw new AggregateException(collectionNotificationFailure, bmtRemovalFailure).Flatten();
-        }
-        if (collectionNotificationFailure != null)
-        {
-            ExceptionDispatchInfo.Capture(collectionNotificationFailure).Throw();
-        }
-        if (bmtRemovalFailure != null)
-        {
-            ExceptionDispatchInfo.Capture(bmtRemovalFailure).Throw();
-        }
-        return tableToRemove;
-    }
-
-    private void RestoreActivePlaylistAfterFailedRemoval(
-        BMSTable table,
-        Exception removalFailure)
-    {
-        try
-        {
-            playlistAggregatePersistenceOwner.MarkActiveTables([table]);
-            playlistAggregatePersistenceOwner.CommitTablesWithEntries(
-                [table],
-                requireCurrentTarget: true,
-                hydrationReason: "BMSPlaylist.RemoveBMSTableRollback");
-        }
-        catch (Exception rollbackFailure)
-        {
-            throw new AggregateException(removalFailure, rollbackFailure).Flatten();
-        }
-        ExceptionDispatchInfo.Capture(removalFailure).Throw();
-    }
-
-    /// <summary>
-    /// 新規の空プレイリストを生成し、一覧へ追加します。
-    /// </summary>
-    /// <returns>追加された新規プレイリスト。</returns>
-    public BMSTable CreateBMSTable()
-    {
-        var bMSTable = new BMSTable
-        {
-            last_update = DateTime.Now,
-            ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault()
+            0 => null,
+            1 => notificationFailures[0],
+            _ => new AggregateException(notificationFailures).Flatten()
         };
-        return InvokeBMSTablesCollectionMutation(delegate
+        return (Array.AsReadOnly(removed), publicationFailure);
+    }
+
+    /// <summary>保存前の新規表draftを生成します。正本集合とDBへ追加せず、取消はdraftの破棄だけです。</summary>
+    /// <returns>まだ保存されていない空表。正本への登録はPを受理した保存操作が行います。</returns>
+    public BMSTable CreateBMSTable() => new()
+    {
+        last_update = DateTime.Now,
+        ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault(),
+        is_bmt_output = true
+    };
+
+    /// <summary>受理済み新規draftをDBへ確定し、正本参照の公開まで同じPで待ちます。公開後処理の失敗でもDB確定事実を保持します。</summary>
+    /// <param name="table">保存対象の正本外draft。</param>
+    /// <param name="capability">保存操作が保持する同ownerの生存P権限。</param>
+    internal async Task RegisterDraftAsync(BMSTable table, LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RegisterPlaylistDraft", capability: capability);
+        if (table == null) { throw new ArgumentNullException(nameof(table)); }
+        using (rwlockBMSTables.GetReaderGuard())
         {
-            using (rwlockBMSTablesInitializeMin.GetReaderGuard())
-            using (rwlockBMSTables.GetWriterGuard())
+            if (BMSTables.Contains(table) || table.playlist_id.HasValue)
             {
-                try
-                {
-                    bMSTable.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
-                    bMSTable.is_bmt_output = true;
-                    BMSTables.Add(bMSTable);
-                    playlistAggregatePersistenceOwner.MarkActiveTables([bMSTable]);
-                }
-                catch (Exception creationFailure)
-                {
-                    var rollbackFailures = new List<Exception>();
-                    try
-                    {
-                        bool isVisible = BMSTables.Contains(bMSTable);
-                        if (isVisible)
-                        {
-                            BMSTables.RemoveExt(bMSTable);
-                        }
-                    }
-                    catch (Exception rollbackFailure)
-                    {
-                        rollbackFailures.Add(rollbackFailure);
-                    }
-                    try
-                    {
-                        bool remainsVisible = BMSTables.Contains(bMSTable);
-                        if (remainsVisible)
-                        {
-                            rollbackFailures.Add(
-                                new InvalidOperationException("New playlist remained visible after creation rollback."));
-                        }
-                    }
-                    catch (Exception rollbackFailure)
-                    {
-                        rollbackFailures.Add(rollbackFailure);
-                    }
-                    if (rollbackFailures.Count > 0)
-                    {
-                        rollbackFailures.Insert(0, creationFailure);
-                        throw new AggregateException(rollbackFailures).Flatten();
-                    }
-                    throw;
-                }
-                return bMSTable;
+                throw new InvalidOperationException("A new playlist draft was already registered.");
             }
-        });
+            if (BMSTables.Any(current => string.Equals(current.name, table.name, StringComparison.Ordinal)))
+            {
+                throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table.name);
+            }
+            table.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
+        }
+        await Task.Run(() => playlistAggregatePersistenceOwner.CommitTablesWithEntries([table],
+            requireCurrentTarget: false, hydrationReason: "RegisterPlaylistDraft")).ConfigureAwait(false);
+        try
+        {
+            await uiScheduler.InvokeAsync(() =>
+            {
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+                    BMSTables.Add(table);
+                }
+            }).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            throw new PlaylistMutationPostCommitException("RegisterPlaylistDraft", exception);
+        }
     }
 
     internal LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()
@@ -4713,7 +4387,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal bool RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter, bool commitFlag = true)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal bool RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter, bool commitFlag = true, LibraryFileMutationCapability capability = null)
     {
         return ApplyLocalTableMutation(
             bmsTable,
@@ -4723,7 +4398,7 @@ public partial class BMSPlaylist : ObservableObject
             {
                 table.RenameFolder(foldeNameBefore, folderNameAfter);
                 return true;
-            });
+            }, capability);
     }
 
     /// <summary>
@@ -4734,7 +4409,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal bool RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete, bool commitFlag = true)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal bool RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete, bool commitFlag = true, LibraryFileMutationCapability capability = null)
     {
         return ApplyLocalTableMutation(
             bmsTable,
@@ -4744,7 +4420,7 @@ public partial class BMSPlaylist : ObservableObject
             {
                 table.RemoveFolder(folderNameDelete);
                 return true;
-            });
+            }, capability);
     }
 
     /// <summary>
@@ -4755,13 +4431,14 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <returns>実際に追加されたフォルダ名。対象が一覧に無い場合は <see langword="null"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal string CreateNewFolderBMSTable(BMSTable bmsTable, string newfolder = null, bool commitFlag = true)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal string CreateNewFolderBMSTable(BMSTable bmsTable, string newfolder = null, bool commitFlag = true, LibraryFileMutationCapability capability = null)
     {
         return ApplyLocalTableMutation(
             bmsTable,
             "CreateNewFolderBMSTable",
             commitFlag,
-            table => table.CreateNewFolder(newfolder));
+            table => table.CreateNewFolder(newfolder), capability);
     }
 
     /// <summary>
@@ -4773,7 +4450,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal bool AddPlaylistEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> entries, BMSTable bmsTable, string folderName, bool commitFlag = true)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal bool AddPlaylistEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> entries, BMSTable bmsTable, string folderName, bool commitFlag = true, LibraryFileMutationCapability capability = null)
     {
         return ApplyLocalTableMutation(
             bmsTable,
@@ -4783,24 +4461,23 @@ public partial class BMSPlaylist : ObservableObject
             {
                 table.AddBMSTableEntriesToFolder(entries, folderName);
                 return true;
-            });
+            }, capability);
     }
 
     /// <summary>
-    /// Applies one playlist drop as a single admitted local mutation.
+    /// 一つのプレイリストドロップを局所受付内で保存・出力し、必要な公開・通知まで同じ権限を保持します。
     /// </summary>
-    /// <param name="bmsTable">The playlist table being changed.</param>
-    /// <param name="operation">The operation name used for diagnostics and output routing.</param>
-    /// <param name="folderName">The ordinary destination folder name.</param>
-    /// <param name="entriesToRemove">Entries to remove before adding the drop payload.</param>
-    /// <param name="entriesToAdd">Entries to add to <paramref name="folderName"/>.</param>
-    /// <param name="folderMutations">Additional folder batches, used by root-folder drops.</param>
-    /// <returns>Outcome facts for the admitted playlist drop.</returns>
-    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <param name="bmsTable">変更対象の表。</param>
+    /// <param name="operation">診断と出力処理の操作名。</param>
+    /// <param name="folderName">通常の追加先フォルダ名。</param>
+    /// <param name="entriesToRemove">追加前に除去する項目。</param>
+    /// <param name="entriesToAdd">指定フォルダへ追加する項目。</param>
+    /// <param name="folderMutations">ルート型ドロップの追加フォルダ群。</param>
+    /// <returns>実保存と出力の結果・失敗。</returns>
+    /// <exception cref="ArgumentNullException">必須引数がnullです。</exception>
     /// <remarks>
-    /// The LR2 file-mutation lease is deliberately acquired before the model write.
-    /// Playlist DB persistence and custom-folder materialization then execute under
-    /// that same capability; publication and BMT scheduling happen after release.
+    /// 最初のモデル変更前にプレイリスト局所受付を取得します。正本保存と関連出力へ
+    /// 同じ生存権限を渡します。呼出元が確定結果のBMT・必須公開・通知終端まで保持します。
     /// </remarks>
     internal PlaylistDropMutationResult ApplyPlaylistDropMutation(
         BMSTable bmsTable,
@@ -4808,7 +4485,7 @@ public partial class BMSPlaylist : ObservableObject
         string folderName,
         IEnumerable<BMSTableEntry> entriesToRemove,
         IEnumerable<BMSTableEntry> entriesToAdd,
-        IEnumerable<PlaylistDropFolderMutation> folderMutations)
+        IEnumerable<PlaylistDropFolderMutation> folderMutations, LibraryFileMutationCapability capability = null)
     {
         if (bmsTable == null)
         {
@@ -4831,13 +4508,13 @@ public partial class BMSPlaylist : ObservableObject
             throw new ArgumentNullException(nameof(folderMutations));
         }
 
+        using LibraryFileMutationLease admitted = AcquirePlaylistMutationLease(operation, capability: capability);
+        using LibraryFileMutationCapability authority = admitted.CreateMutationCapability();
         List<BMSTableEntry> removeEntries = [.. entriesToRemove.Where(entry => entry != null)];
         List<BMSTableEntry> addEntries = [.. entriesToAdd.Where(entry => entry != null)];
         List<PlaylistDropFolderMutation> additionalFolderMutations =
             [.. folderMutations.Where(mutation => mutation != null)];
 
-        // Hydration and the initial active-table check are intentionally outside
-        // admission. No model write has occurred if the nonblocking lease is busy.
         EnsurePlaylistEntriesLoaded(bmsTable, operation);
         using (rwlockBMSTables.GetReaderGuard())
         {
@@ -4876,19 +4553,11 @@ public partial class BMSPlaylist : ObservableObject
                 RestorePlaylistMutationAfterFailure(bmsTable, mutationSnapshot, mutationFailure);
                 throw;
             }
-            ExceptionDispatchInfo bmtFailure = null;
-            try
-            {
-                BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, operation);
-            }
-            catch (Exception exception)
-            {
-                bmtFailure = ExceptionDispatchInfo.Capture(exception);
-            }
             return new PlaylistDropMutationResult(
                 applied: true,
                 durable: true,
-                primaryException: bmtFailure);
+                primaryException: null,
+                changedTables: [bmsTable]);
         }
 
         CustomFolderBatchOutputResult outputResult = null;
@@ -4896,7 +4565,7 @@ public partial class BMSPlaylist : ObservableObject
         BMSTable.MutationSnapshot mutationSnapshotForFailure = null;
         try
         {
-            using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(operation))
+            using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(operation, capability: authority))
             using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
             {
                 // Recheck membership under the admitted operation immediately before
@@ -4959,18 +4628,11 @@ public partial class BMSPlaylist : ObservableObject
                 primaryFailure = ExceptionDispatchInfo.Capture(exception);
             }
         }
-        try
-        {
-            BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, operation);
-        }
-        catch (Exception exception)
-        {
-            primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
-        }
         return new PlaylistDropMutationResult(
             applied: true,
             durable: true,
-            primaryException: primaryFailure);
+            primaryException: primaryFailure,
+            changedTables: [bmsTable]);
     }
 
     private bool ApplyPlaylistDropModelMutation(
@@ -5036,7 +4698,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
     /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal bool RemoveEntriesBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, bool commitFlag = true)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal bool RemoveEntriesBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, bool commitFlag = true, LibraryFileMutationCapability capability = null)
     {
         return ApplyLocalTableMutation(
             bmsTable,
@@ -5046,7 +4709,53 @@ public partial class BMSPlaylist : ObservableObject
             {
                 table.RemoveBMSTableEntries(bmsEntries);
                 return true;
-            });
+            }, capability);
+    }
+
+    /// <summary>受理済みP内の有限なエントリ削除を一回の保存へ集約し、確定対象と必要LR2出力の失敗を返します。</summary>
+    /// <param name="entriesByTable">受付時に解決した元表と削除対象。</param>
+    /// <param name="capability">出力・公開・通知まで呼出元が保持する同ownerの生存P。</param>
+    /// <returns>DB確定対象と確定後失敗。保存前失敗は元例外として送出し、メモリー変更を復元します。</returns>
+    internal PlaylistDropMutationResult RemovePlaylistEntriesBatch(
+        IReadOnlyDictionary<BMSTable, List<BMSTableEntry>> entriesByTable, LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RemovePlaylistEntriesBatch", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        Dictionary<BMSTable, BMSTable.MutationSnapshot> snapshots = [];
+        List<BMSTable> changed = [];
+        try
+        {
+            foreach (KeyValuePair<BMSTable, List<BMSTableEntry>> group in entriesByTable)
+            {
+                EnsurePlaylistEntriesLoaded(group.Key, "RemovePlaylistEntriesBatch");
+                using (rwlockBMSTables.GetReaderGuard())
+                using (group.Key.ReaderWriterLock.GetWriterGuard())
+                {
+                    if (!BMSTables.Contains(group.Key)) { continue; }
+                    snapshots.Add(group.Key, group.Key.CaptureMutationSnapshot());
+                    group.Key.RemoveBMSTableEntries(group.Value);
+                    changed.Add(group.Key);
+                }
+            }
+            if (changed.Count == 0) { return PlaylistDropMutationResult.NotApplied; }
+            playlistAggregatePersistenceOwner.ReplaceTablesWithEntries(changed);
+        }
+        catch (Exception failure)
+        {
+            List<Exception> failures = [failure];
+            foreach (KeyValuePair<BMSTable, BMSTable.MutationSnapshot> snapshot in snapshots)
+            {
+                try { RestorePlaylistMutationAfterFailure(snapshot.Key, snapshot.Value, failure); }
+                catch (Exception rollbackFailure) when (!ReferenceEquals(rollbackFailure, failure)) { failures.Add(rollbackFailure); }
+            }
+            if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+        ExceptionDispatchInfo postCommitFailure = null;
+        try { ReOutputCustomFoldersAndCommitHeadersToDB(changed, "playlist_remove_entries", capability: authority); }
+        catch (Exception failure) { postCommitFailure = ExceptionDispatchInfo.Capture(failure); }
+        return new PlaylistDropMutationResult(applied: true, durable: true,
+            primaryException: postCommitFailure, changedTables: changed);
     }
 
     /// <summary>
@@ -5057,7 +4766,7 @@ public partial class BMSPlaylist : ObservableObject
         BMSTable bmsTable,
         string operation,
         bool commitFlag,
-        Func<BMSTable, TResult> mutation)
+        Func<BMSTable, TResult> mutation, LibraryFileMutationCapability capability = null)
     {
         if (bmsTable == null)
         {
@@ -5068,9 +4777,8 @@ public partial class BMSPlaylist : ObservableObject
             throw new ArgumentNullException(nameof(mutation));
         }
 
-        // Hydration is deliberately completed before the nonblocking lease
-        // admission.  The initial membership check also keeps inactive-table
-        // calls as a complete no-op without consulting the lease provider.
+        using LibraryFileMutationLease admitted = AcquirePlaylistMutationLease(operation, capability: capability);
+        using LibraryFileMutationCapability authority = admitted.CreateMutationCapability();
         EnsurePlaylistEntriesLoaded(bmsTable, operation);
         using (rwlockBMSTables.GetReaderGuard())
         {
@@ -5104,14 +4812,6 @@ public partial class BMSPlaylist : ObservableObject
                     bmsTable,
                     mutationSnapshot,
                     publishNotifications: false);
-                try
-                {
-                    BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, operation);
-                }
-                catch (Exception exception)
-                {
-                    throw new PlaylistMutationPostCommitException(operation, exception);
-                }
                 return result;
             }
             catch (Exception mutationFailure) when (mutationFailure is not PlaylistMutationPostCommitException)
@@ -5126,7 +4826,7 @@ public partial class BMSPlaylist : ObservableObject
         BMSTable.MutationSnapshot mutationSnapshotForFailure = null;
         try
         {
-            using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(operation))
+            using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(operation, capability: authority))
             using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
             {
                 // Recheck membership immediately after admission and immediately
@@ -5185,7 +4885,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         try
         {
-            BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, operation);
+
         }
         catch (Exception exception)
         {
@@ -5280,8 +4980,11 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="bmsTable">反映対象のプレイリスト。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void ReOutputCustomFolderAndCommitToDB(BMSTable bmsTable)
+    /// <param name="capability">同じ受理済み操作の生存するプレイリスト局所権限。nullは新規の非待機受付です。必須公開・通知・cleanup終端まで所有者が保持します。</param>
+    internal void ReOutputCustomFolderAndCommitToDB(BMSTable bmsTable, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFolderAndCommitToDB", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
@@ -5308,7 +5011,7 @@ public partial class BMSPlaylist : ObservableObject
                     customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(bmsTable, settings);
                 CustomFolderBatchOutputResult result;
                 using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-                    "ReOutputCustomFolderAndCommitToDB"))
+                    "ReOutputCustomFolderAndCommitToDB", capability: authority))
                 using (LibraryFileMutationCapability mutationCapability =
                     mutationLease.CreateMutationCapability())
                 {
@@ -5319,11 +5022,12 @@ public partial class BMSPlaylist : ObservableObject
                 customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
             }
         }
-        BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, "ReOutputCustomFolderAndCommitToDB");
+
     }
 
     /// <summary>
     /// プレイリスト本体のヘッダ情報を永続化し、LR2DB モード時はカスタムフォルダだけを再出力します。
+    /// DB確定後の公開失敗は確定後の分類で返し、保存済みヘッダーを復元しません。
     /// </summary>
     /// <param name="bmsTables">反映対象のプレイリスト群。</param>
     /// <param name="reason">性能ログに残す理由。</param>
@@ -5333,8 +5037,10 @@ public partial class BMSPlaylist : ObservableObject
         IEnumerable<BMSTable> bmsTables,
         string reason,
         Action<int, int, string> progressCallback = null,
-        CustomFolderOutputSettingsSnapshot settings = null)
+        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReOutputCustomFoldersAndCommitHeadersToDB", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         if (bmsTables == null)
         {
             throw new ArgumentNullException(nameof(bmsTables));
@@ -5356,7 +5062,7 @@ public partial class BMSPlaylist : ObservableObject
         settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
-            CommitBMSTableHeadersToDB(tableList);
+            CommitBMSTableHeadersToDB(tableList, capability: authority);
             return;
         }
 
@@ -5369,7 +5075,7 @@ public partial class BMSPlaylist : ObservableObject
                 settings: settings);
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "ReOutputCustomFoldersAndCommitHeadersToDB"))
+            "ReOutputCustomFoldersAndCommitHeadersToDB", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             result = customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync(
@@ -5389,11 +5095,16 @@ public partial class BMSPlaylist : ObservableObject
             }
             CommitPreparedBMSTableHeadersToDB(tableList);
         }
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
+        try { customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback); }
+        catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
+        {
+            throw new PlaylistMutationPostCommitException(reason, exception);
+        }
     }
 
     /// <summary>
     /// カスタムフォルダ出力先を複数プレイリスト分まとめて移行し、プレイリスト本体のヘッダ情報だけを永続化します。
+    /// DB確定後の移行・公開失敗は確定後の分類で返し、保存済みヘッダーを復元しません。
     /// </summary>
     /// <param name="bmsTables">反映対象のプレイリスト群。</param>
     /// <param name="outputDirPathBeforeByTable">変更前の出力先パス。</param>
@@ -5408,8 +5119,10 @@ public partial class BMSPlaylist : ObservableObject
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
         IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,
-        CustomFolderOutputSettingsSnapshot settings = null)
+        CustomFolderOutputSettingsSnapshot settings = null, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         if (bmsTables == null)
         {
             throw new ArgumentNullException(nameof(bmsTables));
@@ -5433,7 +5146,7 @@ public partial class BMSPlaylist : ObservableObject
         settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
-            CommitBMSTableHeadersToDB(tableList);
+            CommitBMSTableHeadersToDB(tableList, capability: authority);
             return;
         }
 
@@ -5447,122 +5160,26 @@ public partial class BMSPlaylist : ObservableObject
                 settings);
         CustomFolderBatchOutputResult result;
         using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB"))
+            "MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB", capability: authority))
         using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
         {
             CommitPreparedBMSTableHeadersToDB(tableList);
-            result = customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories(
-                preparation,
-                reason,
-                request => SyncCustomFolderRowsBatch(request, mutationCapability));
-        }
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback);
-    }
-
-    /// <summary>
-    /// プレイリストを永続化し、LR2DB モード時は旧出力先から新出力先へカスタムフォルダも移行します。
-    /// </summary>
-    /// <param name="bmsTable">反映対象のプレイリスト。</param>
-    /// <param name="outputDirPathBefore">変更前の出力先パス。</param>
-    /// <param name="outputDirPathAfter">変更後の出力先パス。省略時は現設定から算出します。</param>
-    /// <param name="queueBeatorajaBmtExport">変更後に beatoraja `.bmt` 出力を予約するかどうか。</param>
-    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void MigrateCustomFolderOutputDirectoryAndCommitToDB(
-        BMSTable bmsTable,
-        string outputDirPathBefore,
-        string outputDirPathAfter = null,
-        bool queueBeatorajaBmtExport = true,
-        bool? wasRootFolderBefore = null,
-        string rootOutputBaseDirBefore = null,
-        string outputBaseDirBefore = null,
-        bool inferOutputBaseDirBeforeWhenMissing = true)
-    {
-        if (bmsTable == null)
-        {
-            throw new ArgumentNullException(nameof(bmsTable));
-        }
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        if (settings.OperationModeLR2DB && string.IsNullOrWhiteSpace(outputDirPathAfter))
-        {
-            outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable, settings);
-        }
-
-        bool PrepareCurrentTableForCommit()
-        {
-            using (rwlockBMSTables.GetReaderGuard())
+            try
             {
-                if (!BMSTables.Contains(bmsTable))
-                {
-                    return false;
-                }
+                result = customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories(
+                    preparation,
+                    reason,
+                    request => SyncCustomFolderRowsBatch(request, mutationCapability));
             }
-
-            EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
-            return true;
-        }
-
-        void CommitCurrentTable(bool entriesPrepared = false)
-        {
-            if (!entriesPrepared && !PrepareCurrentTableForCommit())
+            catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
             {
-                return;
-            }
-            using (rwlockBMSTables.GetReaderGuard())
-            {
-                if (BMSTables.Contains(bmsTable))
-                {
-                    using (bmsTable.ReaderWriterLock.GetWriterGuard())
-                    {
-                        playlistAggregatePersistenceOwner.ReplaceTablesWithEntries([bmsTable]);
-                    }
-                }
+                throw new PlaylistMutationPostCommitException(reason, exception);
             }
         }
-
-        bool currentTablePrepared = PrepareCurrentTableForCommit();
-        // An inactive table at preparation time is a complete no-op.  In
-        // particular, do not acquire a mutation lease or enqueue a BMT export.
-        if (!currentTablePrepared)
+        try { customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback); }
+        catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
         {
-            return;
-        }
-
-        if (!settings.OperationModeLR2DB)
-        {
-            CommitCurrentTable(entriesPrepared: true);
-            if (queueBeatorajaBmtExport)
-            {
-                BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
-            }
-            return;
-        }
-
-        PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation preparation =
-            customFolderOutputMaintenanceOwner.PrepareCustomFolderOutputMigration(
-                bmsTable,
-                outputDirPathBefore,
-                outputDirPathAfter,
-                wasRootFolderBefore ?? bmsTable.is_root_folder,
-                rootOutputBaseDirBefore,
-                outputBaseDirBefore,
-                inferOutputBaseDirBeforeWhenMissing,
-                settings);
-        CustomFolderBatchOutputResult result;
-        // Persist the already-hydrated snapshot before admission; the lease then
-        // owns only the prepared output projection and LR2 row sync.
-        CommitCurrentTable(entriesPrepared: true);
-        using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-            "MigrateCustomFolderOutputDirectoryAndCommitToDB"))
-        using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
-        {
-            result = customFolderOutputMaintenanceOwner.TryMigratePreparedCustomFolderOutputDirectory(
-                preparation,
-                request => SyncCustomFolderRowsBatch(request, mutationCapability));
-        }
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
-        if (queueBeatorajaBmtExport)
-        {
-            BmtOutput.QueueBeatorajaBmtExportForTable(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
+            throw new PlaylistMutationPostCommitException(reason, exception);
         }
     }
 
@@ -5570,9 +5187,11 @@ public partial class BMSPlaylist : ObservableObject
     /// プレイリスト本体とエントリを DB へ保存します。LR2 カスタムフォルダ出力は行いません。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
+    /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void CommitBMSTableWithEntriesToDB(BMSTable bmsTable)
+    internal void CommitBMSTableWithEntriesToDB(BMSTable bmsTable, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("CommitBMSTableWithEntriesToDB", capability: capability);
         if (bmsTable == null)
         {
             throw new ArgumentNullException(nameof(bmsTable));
@@ -5593,9 +5212,11 @@ public partial class BMSPlaylist : ObservableObject
     /// </summary>
     /// <param name="bmsTables">保存対象のプレイリスト群。</param>
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
+    /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
-    internal void CommitBMSTablesWithEntriesToDB(IEnumerable<BMSTable> bmsTables, Action<int, int, string> progressCallback = null)
+    internal void CommitBMSTablesWithEntriesToDB(IEnumerable<BMSTable> bmsTables, Action<int, int, string> progressCallback = null, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("CommitBMSTablesWithEntriesToDB", capability: capability);
         if (bmsTables == null)
         {
             throw new ArgumentNullException(nameof(bmsTables));
@@ -5625,9 +5246,11 @@ public partial class BMSPlaylist : ObservableObject
     /// プレイリスト本体のヘッダ情報を DB へ保存します。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
+    /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void CommitBMSTableHeaderToDB(BMSTable bmsTable)
+    internal void CommitBMSTableHeaderToDB(BMSTable bmsTable, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("CommitBMSTableHeaderToDB", capability: capability);
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
@@ -5649,12 +5272,14 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="bmsTables">保存対象のプレイリスト群。</param>
     /// <param name="requireCurrentTarget">対象が現在のコレクションから外れていた場合に失敗させるかどうか。</param>
     /// <param name="collectionReadLockHeld">呼び出し元がコレクション読み取りロックを保持している、直列化された経路かどうか。</param>
+    /// <param name="capability">親操作の生存P権限。nullは保存対象捕捉前の新規非待機受付です。派生出力を行う上位ownerが終端まで保持します。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
     internal void CommitBMSTableHeadersToDB(
         IEnumerable<BMSTable> bmsTables,
         bool requireCurrentTarget = true,
-        bool collectionReadLockHeld = false)
+        bool collectionReadLockHeld = false, LibraryFileMutationCapability capability = null)
     {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("CommitBMSTableHeadersToDB", capability: capability);
         if (bmsTables == null)
         {
             throw new ArgumentNullException(nameof(bmsTables));
@@ -5716,35 +5341,35 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>
-    /// 単一プレイリストエントリを一意条件で置き換えて保存します。
+    /// 詳細編集で受理した同ownerの生存Pを借用し、現行の元項目と必要LR2出力を保存します。
+    /// 未接続・削除済み・再同期前の項目は拒否し、他の項目へ読み替えません。
     /// </summary>
-    /// <param name="entry">保存対象のエントリ。</param>
-    public void CommitBMSTableEntry(BMSTableEntry entry)
+    /// <param name="entry">正本の現行項目。編集値と所持譜面からのhash補完は呼出元で反映します。</param>
+    /// <param name="capability">BMT・公開・通知の実終端まで呼出元が保持する生存P。</param>
+    /// <returns>DB保存した元の表。保存または必要LR2出力の失敗は例外で伝えます。</returns>
+    /// <exception cref="PlaylistMutationPostCommitException">DB確定後の準備・出力・通知が失敗しました。確定した編集値は保持します。</exception>
+    internal BMSTable CommitBMSTableEntry(BMSTableEntry entry, LibraryFileMutationCapability capability)
     {
-        CommitBMSTableEntry(entry, null);
-    }
-
-    internal void CommitBMSTableEntry(BMSTableEntry entry, string editedPropertyName)
-    {
+        using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("CommitBMSTableEntry", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         BMSTable owningTable = playlistAggregatePersistenceOwner.CommitEntry(
             entry,
-            editedPropertyName,
             () => rwlockBMSTables.GetReaderGuard());
-        if (owningTable != null)
+        try
         {
-            bool owningTableWasActive = playlistAggregatePersistenceOwner.IsActive(owningTable);
-            CustomFolderOutputSettingsSnapshot outputSettings = !string.IsNullOrWhiteSpace(owningTable.Output_dir)
-                ? GetCustomFolderOutputSettings()
-                : null;
-            if (outputSettings?.OperationModeLR2DB == true)
+            if (owningTable != null)
             {
-                if (owningTableWasActive)
+                bool owningTableWasActive = playlistAggregatePersistenceOwner.IsActive(owningTable);
+                CustomFolderOutputSettingsSnapshot outputSettings = !string.IsNullOrWhiteSpace(owningTable.Output_dir)
+                    ? GetCustomFolderOutputSettings()
+                    : null;
+                if (outputSettings?.OperationModeLR2DB == true && owningTableWasActive)
                 {
                     PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
                         customFolderOutputMaintenanceOwner.PrepareCustomFolderOutput(owningTable, outputSettings);
                     CustomFolderBatchOutputResult result;
                     using (LibraryFileMutationLease mutationLease = AcquirePlaylistMutationLease(
-                        "CommitBMSTableEntry"))
+                        "CommitBMSTableEntry", capability: authority))
                     using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
                     {
                         result = customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder(
@@ -5754,8 +5379,12 @@ public partial class BMSPlaylist : ObservableObject
                     customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
                 }
             }
-            BmtOutput.QueueBeatorajaBmtExportForTable(owningTable, "CommitBMSTableEntry");
         }
+        catch (Exception exception) when (exception is not PlaylistMutationPostCommitException)
+        {
+            throw new PlaylistMutationPostCommitException("CommitBMSTableEntry", exception);
+        }
+        return owningTable;
     }
 
     /// <summary>
@@ -5773,6 +5402,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <param name="sql">復元する SQL ダンプ文字列。</param>
     public void LoadPlaylistDump(string sql)
     {
+        using LibraryFileMutationLease admission = AcquirePlaylistMutationLease("LoadPlaylistDump");
         if (!playlistAggregatePersistenceOwner.TryBeginRestore())
         {
             throw new InvalidOperationException("Playlist restore cannot run while another playlist persistence transition is active.");
@@ -5867,7 +5497,8 @@ public partial class BMSPlaylist : ObservableObject
         return "#COMMAND " + command + Environment.NewLine + "#MAXTRACKS " + maxtracks + Environment.NewLine + "#CATEGORY " + category + Environment.NewLine + "#TITLE " + title + Environment.NewLine + "#INFORMATION_A " + (informationA ?? string.Empty) + Environment.NewLine + "#INFORMATION_B " + (informationB ?? string.Empty) + Environment.NewLine + Environment.NewLine;
     }
 
-    private CustomFolderOutputSettingsSnapshot GetCustomFolderOutputSettings()
+    /// <summary>一つの受理操作で固定して使う小さい設定snapshotを捕捉します。共有Valuesへ状態を追加しません。</summary>
+    internal CustomFolderOutputSettingsSnapshot GetCustomFolderOutputSettings()
     {
         return customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
@@ -6012,8 +5643,9 @@ internal sealed class PlaylistDropMutationResult
     internal PlaylistDropMutationResult(
         bool applied,
         bool durable,
-        ExceptionDispatchInfo primaryException)
+        ExceptionDispatchInfo primaryException, IReadOnlyList<BMSTable> changedTables = null)
     {
+        ChangedTables = Array.AsReadOnly((changedTables ?? []).ToArray());
         Applied = applied;
         Durable = durable;
         PrimaryException = primaryException;
@@ -6022,6 +5654,8 @@ internal sealed class PlaylistDropMutationResult
     /// <summary>
     /// Gets whether the target table accepted the model mutation.
     /// </summary>
+    internal IReadOnlyList<BMSTable> ChangedTables { get; }
+
     internal bool Applied { get; }
 
     /// <summary>

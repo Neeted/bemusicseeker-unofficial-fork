@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -80,146 +79,49 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task StartupReadiness_AdmitsImportBeforeReadinessAndRunsItAfterward()
+    public async Task StartupReadiness_TracksRequiredCompletionIndependentlyFromInstallEstimation()
     {
         var coordinator = new StartupReadinessCoordinator();
         coordinator.BeginPlaylistInitialization("test");
-        Uri uri = new("https://example.test/table.json");
-        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports([uri], out bool shouldStartDrain));
-        Assert.IsTrue(shouldStartDrain);
-        Task readinessWait = coordinator.WaitForRequiredPlaylistReadinessAsync();
-        Assert.IsFalse(readinessWait.IsCompleted, "The import consumer must await the readiness task.");
-
-        Task<IReadOnlyList<Uri>> consumer = Task.Run(async () =>
-        {
-            Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
-            await readinessWait;
-            return coordinator.DequeueExternalPlaylistImportBatch();
-        });
-        Assert.IsFalse(consumer.IsCompleted, "The import consumer must await the readiness task.");
-
+        Task readiness = coordinator.WaitForRequiredPlaylistReadinessAsync();
+        Assert.IsFalse(readiness.IsCompleted);
         coordinator.MarkRequiredPlaylistReady();
-        IReadOnlyList<Uri> admittedUris = await consumer.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.AreEqual(1, admittedUris.Count);
-        Assert.AreEqual(uri, admittedUris[0]);
+        await readiness;
         Assert.IsTrue(coordinator.IsRequiredPlaylistReady);
         Assert.IsFalse(coordinator.IsInstallEstimationReady);
     }
 
     [TestMethod]
-    public async Task StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue()
+    public async Task StartupReadiness_ShutdownTerminalizesWaitersDespiteCallbackFailure()
     {
         var coordinator = new StartupReadinessCoordinator();
         coordinator.BeginPlaylistInitialization("test");
         Task capturedRequiredReadiness = coordinator.RequiredPlaylistReadiness;
         Task capturedInstallEstimationReadiness = coordinator.InstallEstimationReadiness;
         Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
-        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/table.json")],
-            out _));
-        Task capturedImportDrain = coordinator.ExternalImportDrainCompletion;
-        var consumerEntered = new TaskCompletionSource<bool>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        int lateMutationCount = 0;
-        var consumer = Task.Run(async () =>
-        {
-            Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
-            consumerEntered.TrySetResult(true);
-            try
-            {
-                await coordinator.WaitForRequiredPlaylistReadinessAsync();
-                Interlocked.Increment(ref lateMutationCount);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            finally
-            {
-                coordinator.CompleteExternalPlaylistImportDrain();
-            }
-        });
-        await consumerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
         var cancellationCallbackFailure = new InvalidOperationException("shutdown cancellation callback failed");
         bool callbackAfterFailureRan = false;
-        using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(
-            () => callbackAfterFailureRan = true);
-        using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(
-            () => throw cancellationCallbackFailure);
-
-        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(
-            () => coordinator.RequestShutdown("test"));
-
+        using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(() => callbackAfterFailureRan = true);
+        using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(() => throw cancellationCallbackFailure);
+        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(() => coordinator.RequestShutdown("test"));
         Assert.AreSame(cancellationCallbackFailure, shutdownFailure.Flatten().InnerExceptions[0]);
-        Assert.IsTrue(callbackAfterFailureRan, "Cancellation must attempt callbacks after the first callback failure.");
+        Assert.IsTrue(callbackAfterFailureRan);
         Assert.IsTrue(capturedRequiredReadiness.IsCanceled);
         Assert.IsTrue(capturedInstallEstimationReadiness.IsCanceled);
-        await Assert.ThrowsExceptionAsync<TaskCanceledException>(
-            () => readinessWaiter.WaitAsync(TimeSpan.FromSeconds(5)));
-        await consumer.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.IsTrue(capturedImportDrain.IsCompleted);
-        Assert.AreEqual(0, lateMutationCount);
-        Assert.IsTrue(coordinator.ExternalImportDrainCompletion.IsCompleted);
-        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
-        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/later.json")],
-            out _));
+        await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => readinessWaiter);
     }
 
     [TestMethod]
-    public void StartupReadiness_ShutdownCallbackFailureTerminalizesIdleImportDrain()
+    public async Task StartupReadiness_FailedInitializationPreservesOriginalFailure()
     {
         var coordinator = new StartupReadinessCoordinator();
         coordinator.BeginPlaylistInitialization("test");
-        Task capturedRequiredReadiness = coordinator.RequiredPlaylistReadiness;
-        Task capturedInstallEstimationReadiness = coordinator.InstallEstimationReadiness;
-        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/table.json")],
-            out _));
-        Task capturedImportDrain = coordinator.ExternalImportDrainCompletion;
-        var cancellationCallbackFailure = new InvalidOperationException("idle shutdown cancellation callback failed");
-        bool callbackAfterFailureRan = false;
-        using CancellationTokenRegistration callbackAfterFailure = coordinator.ShutdownToken.Register(
-            () => callbackAfterFailureRan = true);
-        using CancellationTokenRegistration failingCallback = coordinator.ShutdownToken.Register(
-            () => throw cancellationCallbackFailure);
-
-        AggregateException shutdownFailure = Assert.ThrowsException<AggregateException>(
-            () => coordinator.RequestShutdown("test"));
-
-        Assert.AreSame(cancellationCallbackFailure, shutdownFailure.Flatten().InnerExceptions[0]);
-        Assert.IsTrue(callbackAfterFailureRan, "Cancellation must attempt callbacks after the first callback failure.");
-        Assert.IsTrue(capturedRequiredReadiness.IsCanceled);
-        Assert.IsTrue(capturedInstallEstimationReadiness.IsCanceled);
-        Assert.IsTrue(capturedImportDrain.IsCompletedSuccessfully);
-        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
-        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/later.json")],
-            out _));
-    }
-
-    [TestMethod]
-    public async Task StartupReadiness_FailedInitializationTerminalizesPendingImportDrain()
-    {
-        var coordinator = new StartupReadinessCoordinator();
-        coordinator.BeginPlaylistInitialization("test");
-        Assert.IsTrue(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/table.json")],
-            out bool shouldStartDrain));
-        Assert.IsTrue(shouldStartDrain);
-        Assert.IsTrue(coordinator.TryBeginExternalPlaylistImportDrain());
         Task readinessWaiter = coordinator.WaitForRequiredPlaylistReadinessAsync();
         var failure = new InvalidOperationException("playlist initialization failed");
-
         coordinator.FailRequiredPlaylistReadiness(failure);
-
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => readinessWaiter.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(coordinator.CompleteExternalPlaylistImportDrain());
-        Assert.AreEqual(0, coordinator.DequeueExternalPlaylistImportBatch().Count);
-        Assert.IsFalse(coordinator.TryAdmitExternalPlaylistImports(
-            [new Uri("https://example.test/later.json")],
-            out _));
+        Exception observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => readinessWaiter);
+        Assert.AreSame(failure, observed);
+        Assert.IsFalse(coordinator.IsRequiredPlaylistReady);
     }
 
     [TestMethod]

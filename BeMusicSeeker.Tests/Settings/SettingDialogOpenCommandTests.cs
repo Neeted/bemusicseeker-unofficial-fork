@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media;
@@ -15,15 +16,16 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingDialogOpenCommandTests
 {
     [TestMethod]
+    [DoNotParallelize]
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
         var catalog = new TestAudioDeviceCatalog();
-        var settingsSession = new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerResamplingQuality = 2,
-            PlayerMixerThreadCount = 3
-        });
+        var settingsSession = new TestSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerResamplingQuality = 2;
+                values.PlayerMixerThreadCount = 3;
+            }));
         using SettingsDialogViewModel dialog = CreateViewModel(catalog, settingsSession).SettingDialog;
         var presentation = new RecordingSettingsDialogPresentationPort();
         dialog.AttachPresentationPort(presentation);
@@ -40,14 +42,15 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayerDriverSelection_UsesTypedBackendCapabilities()
     {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            PlayerWASAPIParam = false
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                values.PlayerWASAPIParam = false;
+            });
         using SettingsDialogViewModel dialog = CreateViewModel(
             settingsEditSession: new TestSettingsEditSession(settings)).SettingDialog;
 
@@ -93,15 +96,15 @@ public sealed class SettingDialogOpenCommandTests
             CultureInfo? previousCulture = BeMusicSeeker.Properties.Resources.Culture;
             try
             {
-                var settings = new BeMusicSeeker.Properties.Settings
-                {
-                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-                    PlayerDriver = unavailableBackend
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerDriver = unavailableBackend
                         ? BassAudioPlayer.DeviceDriver.NULL_DEVICE
-                        : BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-                    PlayerDevice = unavailableBackend ? null : "saved-missing-device",
-                    PlayerDeviceName = unavailableBackend ? null : "Saved missing device"
-                };
+                        : BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                values.PlayerDevice = unavailableBackend ? null : "saved-missing-device";
+                values.PlayerDeviceName = unavailableBackend ? null : "Saved missing device";
+            });
                 var catalog = new TestAudioDeviceCatalog
                 {
                     Devices =
@@ -209,15 +212,16 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void OpenCommand_SelectedDevicePreservesSavedIdentityAcrossRefreshAndNewViewModel()
     {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            PlayerDevice = "saved-device",
-            PlayerDeviceName = "Saved device"
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                values.PlayerDevice = "saved-device";
+                values.PlayerDeviceName = "Saved device";
+            });
         var catalog = new TestAudioDeviceCatalog
         {
             Devices =
@@ -253,15 +257,16 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task SelectedPlayerDevice_TreatsEmptyIdentityAsDefaultAndPersistsPairOnlyOnSave()
     {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            PlayerDevice = string.Empty,
-            PlayerDeviceName = "stale default name"
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                values.PlayerDevice = string.Empty;
+                values.PlayerDeviceName = "stale default name";
+            });
         var catalog = new TestAudioDeviceCatalog
         {
             Devices =
@@ -294,15 +299,16 @@ public sealed class SettingDialogOpenCommandTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task SaveSettings_DevicePersistenceFailureRestoresPersistedTripleAndKeepsDraft()
     {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson,
-            PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            PlayerDevice = "saved-device",
-            PlayerDeviceName = "Saved device"
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+                values.PlayerDriver = BassAudioPlayer.DeviceDriver.WASAPI_SHARED;
+                values.PlayerDevice = "saved-device";
+                values.PlayerDeviceName = "Saved device";
+            });
         var catalog = new TestAudioDeviceCatalog
         {
             Devices =
@@ -341,10 +347,10 @@ public sealed class SettingDialogOpenCommandTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             settingsEditSession: settingsEditSession
-                ?? new TestSettingsEditSession(new BeMusicSeeker.Properties.Settings
-                {
-                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-                }),
+                ?? new TestSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            })),
             audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog())
             .CreateMainWindowViewModel();
     }

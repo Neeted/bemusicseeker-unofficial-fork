@@ -18,7 +18,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ForceInstallPendingPackages_UsesDialogServiceForOverrideConfirmation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService
@@ -48,7 +48,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void RenameChartFolder_UsesDialogServiceForMissingFolderWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var dialogService = new RecordingDialogService();
@@ -66,7 +66,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowEverythingFallbackWarning_UsesDialogService()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string fallbackReason = "empty_results_with_roots";
@@ -88,7 +88,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowFileScanSkippedIncompleteWarning_UsesDialogService()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "directory_enumeration_failed:C:\\BMS";
@@ -110,7 +110,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void ShowEmptyScanWithExistingDbWarning_UsesDialogService()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "empty_scan_with_existing_db";
@@ -134,7 +134,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string fallbackReason = "bridge_scan_failed:4";
@@ -155,7 +155,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueFileScanSkippedIncompleteWarning_CoalescesDuplicateRequests()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "root_not_found:C:\\BMS";
@@ -177,7 +177,7 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestMethod]
     public void QueueEmptyScanWithExistingDbWarning_CoalescesDuplicateRequests()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string failureReason = "empty_scan_with_existing_db";

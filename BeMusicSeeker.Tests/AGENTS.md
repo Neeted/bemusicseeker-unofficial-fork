@@ -14,6 +14,8 @@
 
 同じ責務の既存テストと補助処理を先に調べます。通常のライブラリ準備は `TestBmsFactory`、WPFは `TestUiDispatcherHost` と `TestWindowPresentationScope` を入口とします。待機・解放の詳細は[画面テストの分離](../devdocs/spec/development/testing.md#画面テストの分離)に従います。物理フォルダや局所・統合・E2Eの名称だけで実行区分・並列度を決めません。
 
+設定fixtureは `MainWindowViewModelTestFactory.CreateIsolatedSettings` 等の専用providerか固定snapshotを使います。実MainWindowの共通寿命は `MainWindowTestLifetime`、通常Taskと表示・閉鎖の待機はそれぞれ `AwaitTaskOnDispatcher` と `AwaitPresentationOnDispatcher` に揃えます。同一テストの親子Windowには同じ表示scopeを渡します。
+
 ## 編集と確認
 
 [検証境界と保証の分担](../devdocs/spec/development/test-authoring.md#検証境界と保証の分担)に沿って、条件の組合せと実接続・代表フローの保証を分けます。対象の実装を動かし、承認された期待結果を維持します。分解・統合・削除では、元の保証の移管先か、不要になった理由を確認してから重複を取り除きます。

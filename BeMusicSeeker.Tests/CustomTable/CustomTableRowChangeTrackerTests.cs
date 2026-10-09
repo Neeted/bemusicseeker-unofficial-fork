@@ -1,7 +1,6 @@
-using System;
 using System.ComponentModel;
-using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -90,12 +89,13 @@ public sealed class CustomTableRowChangeTrackerTests
     [TestMethod]
     public void RedrawScheduler_CoalescesRequestsUntilDispatcherRuns()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             int redrawCount = 0;
+            var redrawApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var scheduler = new CustomTableRedrawScheduler(
                 Dispatcher.CurrentDispatcher,
-                delegate { redrawCount++; });
+                delegate { redrawCount++; redrawApplied.TrySetResult(); });
 
             scheduler.Request();
             scheduler.Request();
@@ -104,12 +104,13 @@ public sealed class CustomTableRowChangeTrackerTests
             Assert.AreEqual(1, scheduler.ScheduledCount);
             Assert.AreEqual(0, redrawCount);
 
-            DrainDispatcher();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(redrawApplied.Task, "redraw-first-action");
 
             Assert.AreEqual(1, redrawCount);
 
+            redrawApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             scheduler.Request();
-            DrainDispatcher();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(redrawApplied.Task, "redraw-second-action");
 
             Assert.AreEqual(2, scheduler.ScheduledCount);
             Assert.AreEqual(2, redrawCount);
@@ -119,13 +120,14 @@ public sealed class CustomTableRowChangeTrackerTests
     [TestMethod]
     public void RedrawScheduler_BackgroundRequestRunsActionOnDispatcherThread()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             int dispatcherThreadId = Thread.CurrentThread.ManagedThreadId;
             int actionThreadId = -1;
+            var redrawApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var scheduler = new CustomTableRedrawScheduler(
                 Dispatcher.CurrentDispatcher,
-                delegate { actionThreadId = Thread.CurrentThread.ManagedThreadId; });
+                delegate { actionThreadId = Thread.CurrentThread.ManagedThreadId; redrawApplied.TrySetResult(); });
 
             var worker = new Thread((ThreadStart)delegate
             {
@@ -137,7 +139,7 @@ public sealed class CustomTableRowChangeTrackerTests
 
             Assert.AreEqual(-1, actionThreadId);
 
-            DrainDispatcher();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(redrawApplied.Task, "redraw-worker-action");
 
             Assert.AreEqual(dispatcherThreadId, actionThreadId);
             Assert.AreEqual(1, scheduler.ScheduledCount);
@@ -162,39 +164,6 @@ public sealed class CustomTableRowChangeTrackerTests
         CollectionAssert.Contains(rows, otherRow);
         Assert.AreEqual(0, queue.Count);
         Assert.AreEqual(0, queue.Drain().Length);
-    }
-
-    private static void DrainDispatcher()
-    {
-        var frame = new DispatcherFrame();
-        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
-        {
-            frame.Continue = false;
-        });
-        Dispatcher.PushFrame(frame);
-    }
-
-    private static void RunOnSta(Action action)
-    {
-        Exception exception = null!;
-        var thread = new Thread(delegate ()
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
     }
 
     private sealed class TestRow : INotifyPropertyChanged

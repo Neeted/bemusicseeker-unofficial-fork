@@ -38,7 +38,7 @@ public sealed class PlayerSettingsGatewayTests
         finally { System.IO.Directory.Delete(directory, true); }
     }
 
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void GatewayCapturesRequestedAudioSettingsWithoutNegotiatedWriteBack()
     {

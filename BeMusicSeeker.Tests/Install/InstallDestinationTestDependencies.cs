@@ -9,7 +9,8 @@ namespace BeMusicSeeker.Tests;
 
 internal sealed class NoOpChartMutationPlaybackPort : IChartMutationPlaybackPort
 {
-    public Task StopPlaybackForMutationAsync() => Task.CompletedTask;
+    internal int StopCount { get; private set; }
+    public Task StopPlaybackForMutationAsync() { StopCount++; return Task.CompletedTask; }
 }
 
 internal sealed class TestUiDialogService : IUiDialogService

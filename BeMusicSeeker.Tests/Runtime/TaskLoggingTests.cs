@@ -126,7 +126,7 @@ public sealed class TaskLoggingTests
         var failure = new InvalidOperationException("workflow failed");
         operation.SetException(failure);
 
-        Task observedTask = await callbackSignal.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Task observedTask = await callbackSignal.Task;
 
         Assert.AreSame(operation.Task, observedTask);
         Assert.IsTrue(operation.Task.IsFaulted);
@@ -153,7 +153,7 @@ public sealed class TaskLoggingTests
         var failure = new InvalidOperationException("workflow failed");
         operation.SetException(failure);
 
-        Assert.IsTrue(await callbackSignal.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(await callbackSignal.Task);
         Assert.IsTrue(operation.Task.IsFaulted);
         Assert.AreSame(failure, operation.Task.Exception?.InnerException);
     }

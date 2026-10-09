@@ -23,16 +23,15 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void InstallPipelinePresentation_ShowsAcquisitionInstallAndEstimateTogether()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var fixture = ProgressWorkflowFixture.Create(hub);
 
-        hub.UpdatePendingEstimateQueueStatus(new PendingInstallEstimateQueueStatusSnapshot
+        hub.UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot
         {
             IsActive = true,
-            PendingBatchCount = 2,
-            CurrentPackageCount = 8,
-            CompletedPackageCount = 3,
+            TotalWorkCount = 8,
+            CompletedWorkCount = 3,
             CurrentDisplayName = "pending"
         });
         Assert.IsTrue((GetPipelineRow(hub) != null));
@@ -58,7 +57,7 @@ public sealed class OperationProgressHubViewModelTests
             }
         };
         fixture.StartPackageProgress();
-        Assert.IsTrue(packageValueUpdated.Wait(TimeSpan.FromSeconds(5)));
+        packageValueUpdated.Wait();
         Assert.AreEqual(1, (GetPipelineRow(hub)?.Value ?? 0d));
         Assert.IsTrue((GetRow(hub, "install")?.CanCancel == true));
         StringAssert.Contains((GetRow(hub, "install")?.Detail ?? string.Empty), "drop.zip");
@@ -83,7 +82,7 @@ public sealed class OperationProgressHubViewModelTests
             Task urlAcquisition = playlistWorkspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/priority.zip")],
                 isDiffUrl: false);
-            Assert.IsTrue(urlGateway.ReadStarted.Wait(TimeSpan.FromSeconds(5)));
+            urlGateway.ReadStarted.Wait();
             OperationProgressRow urlRow = hub.Rows.Single(row => row.Key == "url");
             Assert.AreEqual(1d, urlRow.Maximum);
             Assert.AreEqual(0d, urlRow.Value);
@@ -113,7 +112,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public async Task InstallPipelinePresentation_NormalizesEmptyMaximumAndInactiveState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         using var fixture = ProgressWorkflowFixture.Create(hub, packageTotalCount: 0);
@@ -129,7 +128,7 @@ public sealed class OperationProgressHubViewModelTests
             }
         };
         fixture.StartPackageProgress();
-        Assert.IsTrue(packageActive.Wait(TimeSpan.FromSeconds(5)));
+        packageActive.Wait();
         Assert.AreEqual(1, (GetPipelineRow(hub)?.Maximum ?? 1d));
 
         fixture.ReleasePackageProgress();
@@ -142,12 +141,12 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void FolderAutoRenamePresentation_NormalizesProgressAndClearsOnCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartFolderRenameProgress();
-        Assert.IsTrue(fixture.FolderProgressStarted.Wait(TimeSpan.FromSeconds(5)));
+        fixture.FolderProgressStarted.Wait();
 
         Assert.IsTrue((GetRow(hub, "rename") != null));
         Assert.AreEqual(1.0, (GetRow(hub, "rename")?.Maximum ?? 1d));
@@ -165,8 +164,8 @@ public sealed class OperationProgressHubViewModelTests
             }
         };
         fixture.ReleaseFolderRenameProgress();
-        Assert.IsTrue(fixture.Folder.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(progressCleared.Wait(TimeSpan.FromSeconds(5)));
+        fixture.Folder.WaitForIdleAsync().Wait();
+        progressCleared.Wait();
         Assert.IsFalse((GetRow(hub, "rename") != null));
         Assert.AreEqual(0.0, (GetRow(hub, "rename")?.Value ?? 0d));
         Assert.AreEqual(1.0, (GetRow(hub, "rename")?.Maximum ?? 1d));
@@ -177,12 +176,12 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void MaintenanceRescanPresentation_UsesAttachedWorkflowProgressAndTerminalReset()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var fixture = ProgressWorkflowFixture.Create(hub);
 
         fixture.StartMaintenanceProgress();
-        Assert.IsTrue(fixture.MaintenanceProgressStarted.Wait(TimeSpan.FromSeconds(5)));
+        fixture.MaintenanceProgressStarted.Wait();
         Assert.IsTrue((GetRow(hub, "maintenance") != null));
         Assert.AreEqual(1.0, (GetRow(hub, "maintenance")?.Maximum ?? 1d));
         Assert.AreEqual(1.0, (GetRow(hub, "maintenance")?.Value ?? 0d));
@@ -197,8 +196,8 @@ public sealed class OperationProgressHubViewModelTests
             }
         };
         fixture.ReleaseMaintenanceProgress();
-        Assert.IsTrue(fixture.Maintenance.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(progressCleared.Wait(TimeSpan.FromSeconds(5)));
+        fixture.Maintenance.WaitForIdleAsync().Wait();
+        progressCleared.Wait();
         Assert.IsFalse((GetRow(hub, "maintenance") != null));
         Assert.IsFalse((GetRow(hub, "maintenance")?.CanCancel == true));
     }
@@ -218,7 +217,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void PlaylistSyncPresentation_UsesNormalizedValuesAndCurrentTableName()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
         var changedProperties = new List<string>();
@@ -368,7 +367,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void StartupBackgroundInitializationPresentation_KeepsParentAndIndependentWorkVisible()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
 
         hub.StartupProgress.ApplyPresentation(true, "required", "required phase", 1.0, 2.0);
@@ -454,7 +453,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public async Task Lr2SongDbSyncPresentation_RemainsVisibleDuringStartupAndCompletionDelay()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var hidden = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -513,14 +512,14 @@ public sealed class OperationProgressHubViewModelTests
             Assert.AreEqual(startupValue, hub.Rows.Single(row => row.Key == "startup").Value);
             Assert.AreEqual(startupMaximum, hub.Rows.Single(row => row.Key == "startup").Maximum);
             CompleteStartupProgress(owner);
-            await delayEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await delayEntered.Task;
             Assert.IsTrue((GetRow(hub, "lr2") != null));
         }
         finally
         {
             releaseDelay.TrySetResult(true);
         }
-        await hidden.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await hidden.Task;
         Assert.AreEqual("lr2", hub.Rows.Single().Key);
         hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
@@ -533,7 +532,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void Lr2SongDbSyncPresentation_UsesRetryForIncompleteAndClearsNotNeeded()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         Lr2SongDbSyncRuntimeStatus incomplete = Lr2SongDbSyncStatusMapper.Create(
             new Lr2SongDbSyncStatusSnapshot
@@ -566,7 +565,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public async Task Lr2SongDbSyncIncompleteStatus_RemainsDedicatedAndRetryableWithoutStartupAccounting()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseDelay = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var presentationCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -640,7 +639,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void Lr2Rows_AttachOnlyAssociatedStartupExecutionAndLeaveTerminalWarningIndependent()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         hub.BeginBackgroundProgressGeneration(1);
         hub.BeginStartupBackgroundInitializationPresentation(11, 1);
@@ -674,7 +673,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void PlaylistRows_KeepIndependentRequestsAndMergeOnlyMatchingDedicatedWork()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         PlaylistWorkspaceViewModel workspace = AttachPlaylistProgressSources(hub);
         var bmt = new OperationProgressRequest(1, 1, "scheduler:beatoraja_bmt_export_all", 1);
@@ -713,7 +712,7 @@ public sealed class OperationProgressHubViewModelTests
     [DataRow(false)]
     public void PlaylistRows_SyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder(bool syncCompletesFirst)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var presentation = new ConcurrentQueue<Action>();
         PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceTestPorts.CreateProgressWorkspace(action => action());
@@ -808,7 +807,7 @@ public sealed class OperationProgressHubViewModelTests
     [TestMethod]
     public void InitializationRows_RejectOldTokensKeepConcurrentDetailsAndUsePhaseCompletion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
         var hub = new OperationProgressHubViewModel(owner);
         long oldToken = owner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
@@ -1045,7 +1044,7 @@ public sealed class OperationProgressHubViewModelTests
                     progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
                     progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted(paths.FirstOrDefault() ?? string.Empty, 1, packageTotalCount));
                     packageProgressStarted.Set();
-                    fixture.packageRelease.Wait(TimeSpan.FromSeconds(10));
+                    fixture.packageRelease.Wait();
                     return new PackageInstallCommandResult([], null);
                 }),
                 new NoOpChartMutationPlaybackPort(),
@@ -1055,11 +1054,11 @@ public sealed class OperationProgressHubViewModelTests
                     return true;
                 });
             var maintenance = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+                (current, progress, token, capability) =>
                 {
                     progress(new MaintenanceWorkflowProgress { TotalCount = 1, ProcessedCount = 1 });
                     maintenanceProgressStarted.Set();
-                    fixture.maintenanceRelease.Wait(TimeSpan.FromSeconds(10));
+                    fixture.maintenanceRelease.Wait();
                     return new MaintenanceWorkflowResult();
                 },
                 action => Task.Factory.StartNew(
@@ -1078,7 +1077,7 @@ public sealed class OperationProgressHubViewModelTests
                     {
                         progress.TryWrite(new FolderAutoRenameProgressUpdate(1, 1, "source"));
                         folderProgressStarted.Set();
-                        fixture.folderRelease.Wait(TimeSpan.FromSeconds(10));
+                        fixture.folderRelease.Wait();
                         return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
                     },
                     (current, parentDirectory) => true),
@@ -1108,7 +1107,7 @@ public sealed class OperationProgressHubViewModelTests
         internal void StartPackageProgress()
         {
             Package.Enqueue([Path.Combine(root, "drop.zip")]);
-            Assert.IsTrue(PackageProgressStarted.Wait(TimeSpan.FromSeconds(5)));
+            PackageProgressStarted.Wait();
         }
 
         internal void ReleasePackageProgress()
@@ -1141,9 +1140,9 @@ public sealed class OperationProgressHubViewModelTests
             packageRelease.Set();
             maintenanceRelease.Set();
             folderRelease.Set();
-            Package.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
-            Maintenance.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
-            Folder.WaitForIdleAsync().Wait(TimeSpan.FromSeconds(5));
+            Package.WaitForIdleAsync().Wait();
+            Maintenance.WaitForIdleAsync().Wait();
+            Folder.WaitForIdleAsync().Wait();
             packageRelease.Dispose();
             maintenanceRelease.Dispose();
             folderRelease.Dispose();

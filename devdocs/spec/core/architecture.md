@@ -124,10 +124,18 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 
 `System.Resources.Extensions` と `System.Configuration.ConfigurationManager` はWindowsDesktopランタイムが供給します。アプリの直接依存や中央バージョンへ追加せず、偶然のロックファイル項目を構成契約として固定しません。設定と実配布物の動作を、それぞれの境界で確認します。
 
+### 共通の論理受付
+
+`ApplicationComposition`がL/Pの別々の受付主体を構成し、各libraryと同じlibraryのplaylistへ明示接続します。具体的な操作分類・権限・実終端は[競合ポリシー](operation-concurrency-policy.md)を正本とします。短い索引・接続lockとDBトランザクションは専門ownerに残し、ルートへ他者のロックを集めません。試聴同士の既存順次実行と停止所有はPlaybackに残します。
+
+ライブラリ共通受付とプレイリスト局所受付は役割別に所有します。標準構成では両受付の別々の管理主体を`ApplicationComposition`の寿命で所有し、再構築する各ライブラリと同じライブラリのプレイリストへ明示接続します。LR2処理主体・DB・store・終了状態は個別のままです。旧storeの終了で共有受付を解放・失効せず、受付の一致だけで旧対象を現行として許可しません。操作の並行可否は競合ポリシーで定めます。保存・適用済み出力配置の小スナップショットは標準構成が公開し、モデルの交差判定・playlist出力・全体同期署名/currentnessへ同じ値を接続します。全Settings複製や残余履歴は増やしません。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 再構築前後のプレイリスト受付と個別storeの分離 | `ApplicationComposition`、`BMSLibrary`、`BmsPlaylistLibraryBindings` | [`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) の `CompositionCreatesPlaylistWithTypedLibraryBindings`は同じ構成のP共有、Lとの分離、個別主体・DB・終了状態、旧終了後の生存権限借用と別構成の権限拒否を確認する。 |
+| 構成から共有する論理受付と背景入力更新の順序 | [`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)、[`ChartFileOperationSynchronizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartFileOperationSynchronizer.cs) | [導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)の標準構成接続と本番mutation port・実背景更新の回帰で確認する。 |
 | 設定保存の型と互換性 | [Settings.cs](../../../BeMusicSeeker/Properties/Settings.cs)、[PortableSettingsProvider.cs](../../../BeMusicSeeker/Properties/PortableSettingsProvider.cs) | [PortableSettingsPersistenceTests](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の `SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys`: 新しい設定インスタンスでの再読込みと未知キーの保持。 |
 | 管理依存の配置・配布物 | [BeMusicSeeker.csproj](../../../BeMusicSeeker/BeMusicSeeker.csproj)、[publish.ps1](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [ManagedDependencyOutputPolicyTests](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) の `ApplicationProjectUsesHostManagedDependencyLayout` と[Full検証](../development/testing.md)の実配布物起動・更新。 |
 | WPFとWin32による外部プレーヤーの接続・寿命 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [再生パネルの対応表](../ui/playback-panel.md#実装とテストの対応)の初期生成・接続・終了待ちを確認する。 |

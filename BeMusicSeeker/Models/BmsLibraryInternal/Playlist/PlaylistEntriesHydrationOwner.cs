@@ -5,8 +5,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.Utils;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -14,7 +12,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// プレイリスト header 読み込みと entries hydration の workflow state を所有します。
 /// <para>
 /// <see cref="BMSPlaylist"/> は application-facing command と observable property を公開しますが、
-/// hydration の coalescing、version、failure、shutdown、completion ordering はこの owner に集約します。
+/// 読込みと参照公開の識別を所有し、必須変更は親操作から直接待たれます。
 /// </para>
 /// </summary>
 internal sealed class PlaylistEntriesHydrationOwner
@@ -27,41 +25,23 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     private OperationProgressRequest requestedProgressRequest;
 
-    private Action<OperationProgressRequest, bool> requestedProgressReporter;
-
     private readonly PlaylistPersistenceRepository repository;
 
     private readonly Func<PlaylistHydrationTableSnapshot> tablesSnapshotProvider;
 
-    private readonly Func<long, IDisposable> hydrationPublishLeaseProvider;
-
     private readonly Func<bool> isShutdownRequested;
 
-    private readonly Func<Func<string, string, string, Func<Task>, bool>> startupSchedulerProvider;
-
     private readonly Action<string> logPerformance;
-
-    private readonly Action<Exception, string> logCompletionFailure;
 
     private readonly SemaphoreSlim hydrationSemaphore = new(1, 1);
 
     private readonly object requestLock = new();
-
-    private PlaylistHydrationContinuationIntent pendingContinuation;
-
-    private bool pendingRequest;
-
-    private int queued;
-
-    private bool workStarted;
 
     private int running;
 
     private int requestedVersion;
 
     private int completedVersion;
-
-    private int failedThroughVersion;
 
     private int shutdownEpoch;
 
@@ -86,57 +66,6 @@ internal sealed class PlaylistEntriesHydrationOwner
         }
 
         internal long Generation { get; }
-    }
-
-    internal sealed class PlaylistHydrationContinuationIntent
-    {
-        internal PlaylistHydrationContinuationIntent(
-            bool runExternalSyncAfterHydration,
-            bool queueBeatorajaBmtExportAfterHydration,
-            bool runCustomFolderOutputRepairAfterHydration,
-            bool verifyRootOutputDirectoryRows)
-        {
-            RunExternalSyncAfterHydration = runExternalSyncAfterHydration;
-            QueueBeatorajaBmtExportAfterHydration = queueBeatorajaBmtExportAfterHydration;
-            RunCustomFolderOutputRepairAfterHydration = runCustomFolderOutputRepairAfterHydration;
-            VerifyRootOutputDirectoryRows = verifyRootOutputDirectoryRows;
-        }
-
-        internal bool RunExternalSyncAfterHydration { get; }
-
-        internal bool QueueBeatorajaBmtExportAfterHydration { get; }
-
-        internal bool RunCustomFolderOutputRepairAfterHydration { get; }
-
-        internal bool VerifyRootOutputDirectoryRows { get; }
-
-        internal PlaylistHydrationContinuationIntent WithoutExternalSync()
-        {
-            return new PlaylistHydrationContinuationIntent(
-                runExternalSyncAfterHydration: false,
-                QueueBeatorajaBmtExportAfterHydration,
-                RunCustomFolderOutputRepairAfterHydration,
-                VerifyRootOutputDirectoryRows);
-        }
-
-        internal static PlaylistHydrationContinuationIntent Merge(
-            PlaylistHydrationContinuationIntent current,
-            PlaylistHydrationContinuationIntent next)
-        {
-            if (current == null)
-            {
-                return next;
-            }
-            if (next == null)
-            {
-                return current;
-            }
-            return new PlaylistHydrationContinuationIntent(
-                current.RunExternalSyncAfterHydration || next.RunExternalSyncAfterHydration,
-                current.QueueBeatorajaBmtExportAfterHydration || next.QueueBeatorajaBmtExportAfterHydration,
-                current.RunCustomFolderOutputRepairAfterHydration || next.RunCustomFolderOutputRepairAfterHydration,
-                current.VerifyRootOutputDirectoryRows || next.VerifyRootOutputDirectoryRows);
-        }
     }
 
     internal sealed class PlaylistHydratedTableFact
@@ -195,7 +124,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             int requestVersion,
             string reason,
             IReadOnlyList<PlaylistHydratedTableFact> tables,
-            PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
+            OperationProgressRequest progressRequest = null)
         {
             ProgressRequest = progressRequest;
             Generation = generation;
@@ -203,7 +132,6 @@ internal sealed class PlaylistEntriesHydrationOwner
             RequestVersion = requestVersion;
             Reason = reason ?? string.Empty;
             Tables = Array.AsReadOnly([.. (tables ?? []).Where(table => table != null)]);
-            Continuation = continuation;
         }
 
         /// <summary>この読込み受領を生産した要求の表示識別です。派生受領にも保持します。</summary>
@@ -219,7 +147,6 @@ internal sealed class PlaylistEntriesHydrationOwner
 
         internal IReadOnlyList<PlaylistHydratedTableFact> Tables { get; }
 
-        internal PlaylistHydrationContinuationIntent Continuation { get; }
     }
 
     internal sealed class PlaylistEntriesHydrationReceiptEventArgs : EventArgs
@@ -231,29 +158,19 @@ internal sealed class PlaylistEntriesHydrationOwner
 
         internal PlaylistEntriesHydrationReceipt Receipt { get; }
 
-        internal Exception CompositionFailure { get; set; }
 
-        internal PlaylistHydrationContinuationIntent RetryContinuation { get; set; }
-
-        internal bool RetryRequested { get; set; }
     }
 
     internal PlaylistEntriesHydrationOwner(
         PlaylistPersistenceRepository repository,
         Func<PlaylistHydrationTableSnapshot> tablesSnapshotProvider,
-        Func<long, IDisposable> hydrationPublishLeaseProvider,
         Func<bool> isShutdownRequested,
-        Func<Func<string, string, string, Func<Task>, bool>> startupSchedulerProvider,
-        Action<string> logPerformance,
-        Action<Exception, string> logCompletionFailure)
+        Action<string> logPerformance)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
         this.tablesSnapshotProvider = tablesSnapshotProvider ?? throw new ArgumentNullException(nameof(tablesSnapshotProvider));
-        this.hydrationPublishLeaseProvider = hydrationPublishLeaseProvider ?? throw new ArgumentNullException(nameof(hydrationPublishLeaseProvider));
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
-        this.startupSchedulerProvider = startupSchedulerProvider ?? throw new ArgumentNullException(nameof(startupSchedulerProvider));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
-        this.logCompletionFailure = logCompletionFailure ?? throw new ArgumentNullException(nameof(logCompletionFailure));
     }
 
     internal event Action<bool> RunningChanged;
@@ -264,15 +181,13 @@ internal sealed class PlaylistEntriesHydrationOwner
     /// <summary>確定した完了版と、同じ読込み実行の表示識別を通知します。</summary>
     internal event Action<int, OperationProgressRequest> HydrationCompleted;
 
-    internal event EventHandler<PlaylistEntriesHydrationReceiptEventArgs> HydrationReceiptPublished;
-
     internal bool PlaylistEntriesHydrationRunning => Volatile.Read(ref running) != 0;
 
     internal int PlaylistEntriesHydrationRequestedVersion => Volatile.Read(ref requestedVersion);
 
     internal int PlaylistEntriesHydrationCompletedVersion => Volatile.Read(ref completedVersion);
 
-    internal bool HasBlockingWork => PlaylistEntriesHydrationRunning || Volatile.Read(ref queued) != 0;
+    internal bool HasBlockingWork => PlaylistEntriesHydrationRunning;
 
     internal List<BMSTable> LoadPlaylistHeaders(out long loadTablesMs)
     {
@@ -283,339 +198,45 @@ internal sealed class PlaylistEntriesHydrationOwner
         return tables;
     }
 
+    /// <summary>終了後の受付識別を更新します。親P操作が開始済みTaskを実終端まで待ちます。</summary>
     internal void ClearPendingForShutdown(string reason)
     {
-        int requestedVersionAtShutdown;
-        lock (requestLock)
-        {
-            shutdownEpoch++;
-            requestedVersionAtShutdown = requestedVersion;
-            pendingRequest = false;
-            pendingContinuation = null;
-            if (!workStarted)
-            {
-                queued = 0;
-            }
-        }
-        SetCompletedVersion(requestedVersionAtShutdown);
-        logPerformance("playlist_entries_hydration pending_cleared reason=" + (reason ?? string.Empty));
+        Interlocked.Increment(ref shutdownEpoch);
     }
 
-    internal void CompleteQueueForShutdown(string reason, string shutdownReason)
+    /// <summary>親操作内でエントリ読込みを直接待ち、確定した参照公開用の受領を返します。予約と自動再試行を行いません。</summary>
+    internal async Task<PlaylistEntriesHydrationReceipt> HydrateAsync(string reason)
     {
-        int requestedVersionAtCompletion;
-        lock (requestLock)
+        int version = Interlocked.Increment(ref requestedVersion);
+        OperationProgressRequest request = ProgressRequestFactory?.Invoke("playlist_entries_hydration", version);
+        requestedProgressRequest = request;
+        Action<OperationProgressRequest, bool> reporter = RequestProgressReporter;
+        HydrationRequested?.Invoke(version, request);
+        reporter?.Invoke(request, true);
+        try
         {
-            requestedVersionAtCompletion = requestedVersion;
-            pendingRequest = false;
-            pendingContinuation = null;
-            queued = 0;
-            workStarted = false;
+            PlaylistHydrationResult result = await EnsureAllPlaylistEntriesLoadedAsync(reason).ConfigureAwait(false);
+            return CreateHydrationReceipt(result.Generation, Volatile.Read(ref shutdownEpoch), version, reason, request)
+                ?? throw new InvalidOperationException("Playlist hydration snapshot could not be published.");
         }
-        SetCompletedVersion(requestedVersionAtCompletion);
-        logPerformance("playlist_entries_hydration skipped reason=" + (shutdownReason ?? "shutdown_requested")
-            + " requestReason=" + (reason ?? string.Empty));
+        finally
+        {
+            reporter?.Invoke(request, false);
+        }
     }
 
-    internal void QueueDeferredPlaylistEntriesHydration(
-        string reason,
-        PlaylistHydrationContinuationIntent continuation = null)
+    /// <summary>同じP内の必要出力と参照公開の成功後だけ完了版を通知します。</summary>
+    internal void CompleteHydration(PlaylistEntriesHydrationReceipt receipt)
     {
-        if (isShutdownRequested())
-        {
-            logPerformance("playlist_entries_hydration skipped reason=shutdown_requested requestReason=" + (reason ?? string.Empty));
-            return;
-        }
-
-        string requestReason = reason ?? string.Empty;
-        int version;
-        OperationProgressRequest progressRequest;
-        bool shouldSchedule;
-        lock (requestLock)
-        {
-            if (isShutdownRequested())
-            {
-                logPerformance("playlist_entries_hydration skipped reason=shutdown_requested requestReason=" + requestReason);
-                return;
-            }
-            version = Interlocked.Increment(ref requestedVersion);
-            requestedProgressRequest = progressRequest = ProgressRequestFactory?.Invoke("playlist_entries_hydration", version);
-            requestedProgressReporter = RequestProgressReporter;
-            pendingRequest = true;
-            pendingContinuation = PlaylistHydrationContinuationIntent.Merge(pendingContinuation, continuation);
-            shouldSchedule = queued == 0;
-            queued = 1;
-        }
-        HydrationRequested?.Invoke(version, progressRequest);
-        logPerformance("playlist_entries_hydration queue reason=" + requestReason
-            + " version=" + version
-            + " runExternalSyncAfterHydration="
-            + (continuation?.RunExternalSyncAfterHydration == true).ToString().ToLowerInvariant()
-            + " queueBeatorajaBmtExportAfterHydration="
-            + (continuation?.QueueBeatorajaBmtExportAfterHydration == true).ToString().ToLowerInvariant());
-
-        if (!shouldSchedule)
-        {
-            logPerformance("playlist_entries_hydration coalesced reason=" + requestReason + " version=" + version);
-            return;
-        }
-
-        void ScheduleWork(Func<Task> work, string scheduledRequestReason)
-        {
-            Func<string, string, string, Func<Task>, bool> startupScheduler = startupSchedulerProvider();
-            if (startupScheduler != null)
-            {
-                if (startupScheduler("playlist_entries_hydration", scheduledRequestReason, null, work))
-                {
-                    return;
-                }
-                CompleteQueueForShutdown(scheduledRequestReason, "startup_scheduler_rejected");
-                return;
-            }
-            if (isShutdownRequested())
-            {
-                CompleteQueueForShutdown(scheduledRequestReason, "shutdown_requested");
-                return;
-            }
-            Task.Run(work).ObserveFault("QueueDeferredPlaylistEntriesHydration");
-        }
-
-        async Task Work()
-        {
-            bool failed = false;
-            PlaylistHydrationContinuationIntent failedContinuation = null;
-            bool failedRetryRequested = false;
-            int startedRequestVersion;
-            OperationProgressRequest executionRequest;
-            Action<OperationProgressRequest, bool> executionReporter;
-            int workShutdownEpoch;
-            lock (requestLock)
-            {
-                workShutdownEpoch = shutdownEpoch;
-                startedRequestVersion = requestedVersion;
-                executionRequest = requestedProgressRequest;
-                executionReporter = requestedProgressReporter;
-                workStarted = true;
-            }
-            executionReporter?.Invoke(executionRequest, true);
-            try
-            {
-                if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                {
-                    SetCompletedVersion(PlaylistEntriesHydrationRequestedVersion);
-                    logPerformance("playlist_entries_hydration skipped reason=shutdown_requested requestReason=" + requestReason);
-                    return;
-                }
-
-                while (true)
-                {
-                    PlaylistHydrationResult hydrationResult = null;
-                    IDisposable hydrationPublishLease = null;
-                    while (hydrationPublishLease == null)
-                    {
-                        hydrationResult = await EnsureAllPlaylistEntriesLoadedAsync(requestReason, publishCompletedVersion: false).ConfigureAwait(false);
-                        if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                        {
-                            SetCompletedVersion(PlaylistEntriesHydrationRequestedVersion);
-                            logPerformance("playlist_entries_hydration post_load_skipped reason=shutdown_requested requestReason=" + requestReason);
-                            return;
-                        }
-                        if (!IsCurrentGeneration(hydrationResult.Generation))
-                        {
-                            continue;
-                        }
-                        hydrationPublishLease = hydrationPublishLeaseProvider(hydrationResult.Generation);
-                        if (hydrationPublishLease == null)
-                        {
-                            await Task.Yield();
-                        }
-                    }
-
-                    try
-                    {
-                        PlaylistHydrationContinuationIntent mergedContinuation;
-                        int batchVersion;
-                        OperationProgressRequest batchProgressRequest;
-                        Action<OperationProgressRequest, bool> batchProgressReporter;
-                        bool shutdownAfterDrain;
-                        lock (requestLock)
-                        {
-                            shutdownAfterDrain = isShutdownRequested() || shutdownEpoch != workShutdownEpoch;
-                            batchVersion = PlaylistEntriesHydrationRequestedVersion;
-                            batchProgressRequest = requestedProgressRequest;
-                            batchProgressReporter = requestedProgressReporter;
-                            if (shutdownAfterDrain)
-                            {
-                                pendingRequest = false;
-                                pendingContinuation = null;
-                                mergedContinuation = null;
-                            }
-                            else
-                            {
-                                mergedContinuation = pendingContinuation;
-                                pendingRequest = false;
-                                pendingContinuation = null;
-                            }
-                        }
-                        if (executionRequest != batchProgressRequest)
-                        {
-                            executionReporter?.Invoke(executionRequest, false);
-                            executionRequest = batchProgressRequest;
-                            executionReporter = batchProgressReporter;
-                            executionReporter?.Invoke(executionRequest, true);
-                        }
-                        if (shutdownAfterDrain)
-                        {
-                            SetCompletedVersion(batchVersion, batchProgressRequest);
-                            return;
-                        }
-
-                        if (!IsCurrentGeneration(hydrationResult.Generation))
-                        {
-                            lock (requestLock)
-                            {
-                                pendingRequest = true;
-                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
-                                    pendingContinuation,
-                                    mergedContinuation);
-                            }
-                            continue;
-                        }
-                        if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                        {
-                            SetCompletedVersion(batchVersion, batchProgressRequest);
-                            return;
-                        }
-
-                        PlaylistEntriesHydrationReceipt receipt = CreateHydrationReceipt(
-                            hydrationResult.Generation,
-                            workShutdownEpoch,
-                            batchVersion,
-                            requestReason,
-                            mergedContinuation, batchProgressRequest);
-                        if (receipt == null)
-                        {
-                            lock (requestLock)
-                            {
-                                pendingRequest = true;
-                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
-                                    pendingContinuation,
-                                    mergedContinuation);
-                            }
-                            continue;
-                        }
-                        hydrationPublishLease.Dispose();
-                        hydrationPublishLease = null;
-                        if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                        {
-                            SetCompletedVersion(batchVersion, batchProgressRequest);
-                            return;
-                        }
-                        failedContinuation = mergedContinuation;
-                        try
-                        {
-                            PublishHydrationReceipt(
-                                receipt,
-                                out failedContinuation,
-                                out failedRetryRequested);
-                        }
-                        catch (Exception) when (failedRetryRequested)
-                        {
-                            if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                            {
-                                SetCompletedVersion(PlaylistEntriesHydrationRequestedVersion);
-                                return;
-                            }
-                            lock (requestLock)
-                            {
-                                pendingRequest = true;
-                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
-                                    pendingContinuation,
-                                    failedContinuation);
-                            }
-                            failedContinuation = null;
-                            failedRetryRequested = false;
-                            logPerformance("playlist_entries_hydration retry reason=" + requestReason);
-                            continue;
-                        }
-                        if (IsShutdownOrEpochChanged(workShutdownEpoch))
-                        {
-                            SetCompletedVersion(batchVersion, batchProgressRequest);
-                            return;
-                        }
-                        SetCompletedVersion(batchVersion, batchProgressRequest);
-                        return;
-                    }
-                    finally
-                    {
-                        hydrationPublishLease?.Dispose();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                failed = true;
-                lock (requestLock)
-                {
-                    bool independentRequest = pendingRequest
-                        && requestedVersion > startedRequestVersion;
-                    if (failedRetryRequested)
-                    {
-                        pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
-                            pendingContinuation,
-                            failedContinuation);
-                        pendingRequest = true;
-                    }
-                    else if (!independentRequest)
-                    {
-                        pendingRequest = false;
-                        pendingContinuation = null;
-                    }
-                }
-                logCompletionFailure(ex, requestReason);
-                throw;
-            }
-            finally
-            {
-                executionReporter?.Invoke(executionRequest, false);
-                bool hasPendingRequest;
-                lock (requestLock)
-                {
-                    if (failed)
-                    {
-                        failedThroughVersion = Math.Max(failedThroughVersion, requestedVersion);
-                        hasPendingRequest = !isShutdownRequested()
-                            && shutdownEpoch == workShutdownEpoch
-                            && pendingRequest;
-                        queued = hasPendingRequest ? 1 : 0;
-                        workStarted = false;
-                    }
-                    else
-                    {
-                        hasPendingRequest = !isShutdownRequested()
-                            && shutdownEpoch == workShutdownEpoch
-                            && (pendingRequest || pendingContinuation != null);
-                        queued = hasPendingRequest ? 1 : 0;
-                        workStarted = false;
-                    }
-                }
-                if (hasPendingRequest)
-                {
-                    logPerformance("playlist_entries_hydration reschedule reason=" + requestReason);
-                    ScheduleWork(Work, requestReason);
-                }
-            }
-        }
-
-        ScheduleWork(Work, requestReason);
+        SetCompletedVersion(receipt.RequestVersion, receipt.ProgressRequest);
     }
 
-    internal async Task<PlaylistHydrationResult> EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)
+    /// <summary>項目の読取り準備を待ちます。必要出力・参照公開を含む親操作の完了版は更新しません。</summary>
+    internal async Task<PlaylistHydrationResult> EnsureAllPlaylistEntriesLoadedAsync(string reason)
     {
         string requestReason = reason ?? string.Empty;
         if (isShutdownRequested())
         {
-            SetCompletedVersion(PlaylistEntriesHydrationRequestedVersion);
             logPerformance("playlist_entries_hydration ensure_all_skipped reason=shutdown_requested requestReason=" + requestReason);
             return new PlaylistHydrationResult(GetTablesSnapshot().Generation);
         }
@@ -629,10 +250,6 @@ internal sealed class PlaylistEntriesHydrationOwner
                 if (tablesSnapshot.Tables.Count > 0
                     && tablesSnapshot.Tables.All(table => table.ArePlaylistEntriesLoaded))
                 {
-                    if (publishCompletedVersion)
-                    {
-                        PublishDirectCompletionVersionIfNoPostLoadWork();
-                    }
                     return new PlaylistHydrationResult(tablesSnapshot.Generation);
                 }
 
@@ -715,10 +332,6 @@ internal sealed class PlaylistEntriesHydrationOwner
                 if (!currentSnapshot.Tables.Where(table => table != null).All(table => table.ArePlaylistEntriesLoaded))
                 {
                     continue;
-                }
-                if (publishCompletedVersion)
-                {
-                    PublishDirectCompletionVersionIfNoPostLoadWork();
                 }
                 return new PlaylistHydrationResult(currentSnapshot.Generation);
             }
@@ -885,31 +498,14 @@ internal sealed class PlaylistEntriesHydrationOwner
         int shutdownEpoch,
         int requestVersion,
         string reason,
-        PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
+        OperationProgressRequest progressRequest = null)
     {
         return TryCreateStableReceipt(
             generation,
             shutdownEpoch,
             requestVersion,
             reason,
-            continuation, progressRequest);
-    }
-
-    internal PlaylistEntriesHydrationReceipt CreateReceiptForCurrentTables(
-        PlaylistEntriesHydrationReceipt source,
-        PlaylistHydrationContinuationIntent continuation)
-    {
-        if (source == null)
-        {
-            throw new ArgumentNullException(nameof(source));
-        }
-        return TryCreateStableReceipt(
-                requiredGeneration: null,
-                requiredShutdownEpoch: source.ShutdownEpoch,
-                requestVersion: source.RequestVersion,
-                reason: source.Reason,
-                continuation: continuation, progressRequest: source.ProgressRequest)
-            ?? throw new InvalidOperationException("Playlist hydration receipt snapshot changed while composing the consumer receipt.");
+            progressRequest);
     }
 
     private PlaylistEntriesHydrationReceipt TryCreateStableReceipt(
@@ -917,7 +513,7 @@ internal sealed class PlaylistEntriesHydrationOwner
         int? requiredShutdownEpoch,
         int requestVersion,
         string reason,
-        PlaylistHydrationContinuationIntent continuation, OperationProgressRequest progressRequest = null)
+        OperationProgressRequest progressRequest = null)
     {
         for (int attempt = 0; attempt < 8; attempt++)
         {
@@ -952,7 +548,7 @@ internal sealed class PlaylistEntriesHydrationOwner
                 requestVersion,
                 reason,
                 facts,
-                continuation, progressRequest);
+                progressRequest);
         }
         return null;
     }
@@ -978,57 +574,6 @@ internal sealed class PlaylistEntriesHydrationOwner
         return true;
     }
 
-    private void PublishHydrationReceipt(
-        PlaylistEntriesHydrationReceipt receipt,
-        out PlaylistHydrationContinuationIntent retryContinuation,
-        out bool retryRequested)
-    {
-        retryContinuation = receipt?.Continuation;
-        retryRequested = false;
-        if (receipt == null)
-        {
-            return;
-        }
-        PlaylistEntriesHydrationReceiptEventArgs eventArgs = new(receipt);
-        try
-        {
-            HydrationReceiptPublished?.Invoke(this, eventArgs);
-        }
-        catch (Exception ex)
-        {
-            retryContinuation = eventArgs.RetryContinuation ?? retryContinuation;
-            retryRequested = eventArgs.RetryRequested;
-            logCompletionFailure(ex, receipt.Reason);
-            throw;
-        }
-        if (eventArgs.CompositionFailure != null)
-        {
-            retryContinuation = eventArgs.RetryContinuation ?? retryContinuation;
-            retryRequested = eventArgs.RetryRequested;
-            logCompletionFailure(eventArgs.CompositionFailure, receipt.Reason);
-            throw new InvalidOperationException(
-                "Playlist hydration consumer composition failed.",
-                eventArgs.CompositionFailure);
-        }
-    }
 
-    private void PublishDirectCompletionVersionIfNoPostLoadWork()
-    {
-        int completionVersion;
-        lock (requestLock)
-        {
-            if (workStarted
-                || pendingContinuation != null)
-            {
-                return;
-            }
-            completionVersion = requestedVersion;
-            if (completionVersion <= failedThroughVersion)
-            {
-                return;
-            }
-        }
-        SetCompletedVersion(completionVersion);
-    }
 
 }

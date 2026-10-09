@@ -66,6 +66,8 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Action hydrationStateChanged;
 
+    private readonly ChartFileOperationSynchronizer operationAdmission;
+
     private readonly object hydrationStateLock = new();
 
     private int hydrationRequestedVersion;
@@ -74,6 +76,8 @@ internal sealed class CatalogMaintenanceOwner
 
     private int hydrationCompletedVersion;
 
+    /// <summary>推定入力の必須背景更新を、構成が共有する論理受付へ接続します。</summary>
+    /// <param name="operationAdmission">先行操作の実終端を非同期で待つ共有受付。</param>
     internal CatalogMaintenanceOwner(
         BmsLibraryInitializationService initializationService,
         BmsLibraryMaintenanceService maintenanceService,
@@ -94,7 +98,8 @@ internal sealed class CatalogMaintenanceOwner
         Func<Exception, string> displayedExceptionMessageProvider,
         Func<CatalogMaintenanceHydrationReceipt, long> publishHydration,
         Action<string> logPerformance,
-        Action hydrationStateChanged)
+        Action hydrationStateChanged,
+        ChartFileOperationSynchronizer operationAdmission = null)
     {
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.maintenanceService = maintenanceService ?? throw new ArgumentNullException(nameof(maintenanceService));
@@ -116,6 +121,7 @@ internal sealed class CatalogMaintenanceOwner
         this.publishHydration = publishHydration ?? throw new ArgumentNullException(nameof(publishHydration));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
         this.hydrationStateChanged = hydrationStateChanged;
+        this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
     }
 
     internal bool HydrationRunning
@@ -443,10 +449,10 @@ internal sealed class CatalogMaintenanceOwner
             return;
         }
 
-        Func<Task> work = () =>
+        Func<Task> work = async () =>
         {
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
             ProcessHydrationRequests(reportDirect: false);
-            return Task.CompletedTask;
         };
         Func<string, string, string, Func<Task>, bool> startupBackgroundTaskScheduler = startupBackgroundTaskSchedulerProvider?.Invoke();
         if (startupBackgroundTaskScheduler != null)
@@ -464,7 +470,11 @@ internal sealed class CatalogMaintenanceOwner
             return;
         }
         reportStartupBackgroundTask?.Invoke("maintenance_hydration", "queued", 0L, false, reason ?? string.Empty);
-        Task.Run(() => ProcessHydrationRequests(reportDirect: true)).ObserveFault("ProcessDeferredMaintenanceHydrationRequests");
+        Task.Run(async () =>
+        {
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
+            ProcessHydrationRequests(reportDirect: true);
+        }).ObserveFault("ProcessDeferredMaintenanceHydrationRequests");
     }
 
     internal void CompleteHydrationForShutdown()

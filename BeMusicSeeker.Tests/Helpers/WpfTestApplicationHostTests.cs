@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -20,6 +23,207 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class WpfTestApplicationHostTests
 {
+    /// <summary>既終端と受理後終了の要求が、停止の二次失敗を含め元例外とthread回収を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void OwnedDispatcher_HostFailureEndsAcceptedAndLaterRequests(bool requestAfterEnd, bool shutdownFails)
+    {
+        using var ready = new ManualResetEventSlim();
+        using var fatalEntered = new ManualResetEventSlim();
+        using var releaseFatal = new ManualResetEventSlim();
+        using var completed = new ManualResetEventSlim();
+        var original = new InvalidOperationException("host failure");
+        var secondary = new InvalidOperationException("shutdown failure");
+        Dispatcher? dispatcher = null;
+        Exception? terminalFailure = null;
+        Task? request = null;
+        DispatcherOperation? accepted = null;
+        int actionCalls = 0;
+        var thread = new Thread(() =>
+        {
+            dispatcher = Dispatcher.CurrentDispatcher;
+            if (shutdownFails) { dispatcher.ShutdownStarted += (_, _) => throw secondary; }
+            dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+            {
+                fatalEntered.Set();
+                releaseFatal.Wait();
+                throw original;
+            }));
+            ready.Set();
+            try { Dispatcher.Run(); }
+            catch (Exception exception) { terminalFailure = exception; }
+            finally
+            {
+                TestUiDispatcherHost.CompleteOwnedDispatcher(dispatcher, completed, exception =>
+                {
+                    if (terminalFailure == null) { terminalFailure = exception; }
+                    else { terminalFailure.Data["TestDispatcherShutdownFailure"] = exception.ToString(); }
+                });
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        try
+        {
+            ready.Wait();
+            fatalEntered.Wait();
+            Dispatcher target = dispatcher ?? throw new AssertFailedException("The owned dispatcher was not created.");
+            if (requestAfterEnd)
+            {
+                releaseFatal.Set();
+                completed.Wait();
+                Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() =>
+                    TestUiDispatcherHost.InvokeOnOwnedDispatcher(target, thread, completed, () => terminalFailure,
+                        () => actionCalls++)));
+            }
+            else
+            {
+                var registered = new TaskCompletionSource<DispatcherOperation>(TaskCreationOptions.RunContinuationsAsynchronously);
+                DispatcherHookEventHandler posted = (_, args) =>
+                {
+                    if (args.Operation.Priority == DispatcherPriority.Send) { registered.TrySetResult(args.Operation); }
+                };
+                target.Hooks.OperationPosted += posted;
+                try
+                {
+                    request = Task.Run(() => TestUiDispatcherHost.InvokeOnOwnedDispatcher(target, thread, completed,
+                        () => terminalFailure, () => actionCalls++));
+                    Task.WhenAny(registered.Task, request).GetAwaiter().GetResult();
+                    if (request.IsCompleted) { request.GetAwaiter().GetResult(); Assert.Fail("The request ended before its actual registration."); }
+                    accepted = registered.Task.GetAwaiter().GetResult();
+                    releaseFatal.Set();
+                    Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() => request.GetAwaiter().GetResult()));
+                }
+                finally { target.Hooks.OperationPosted -= posted; }
+            }
+            Assert.IsFalse(thread.IsAlive, "The target recovery must join its thread before returning the failure.");
+            Assert.AreEqual(0, actionCalls);
+            Assert.IsTrue(completed.IsSet);
+            if (accepted != null) { Assert.IsTrue(accepted.Task.IsCompleted); }
+            if (shutdownFails)
+            {
+                string detail = original.Data["TestDispatcherShutdownFailure"] as string
+                    ?? throw new AssertFailedException("The secondary shutdown failure was not preserved.");
+                StringAssert.Contains(detail, secondary.Message);
+            }
+            Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() =>
+                TestUiDispatcherHost.JoinOwnedDispatcher(thread, completed, () => terminalFailure)));
+            Assert.IsFalse(thread.IsAlive);
+        }
+        finally
+        {
+            releaseFatal.Set();
+            completed.Wait();
+            thread.Join();
+            if (request != null)
+            {
+                try { request.GetAwaiter().GetResult(); }
+                catch (Exception exception) when (ReferenceEquals(exception, original)) { }
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Invoke_ActionFailurePreservesHealthyHostAndFollowingRequest()
+    {
+        var original = new InvalidOperationException("action failure");
+        Assert.AreSame(original, Assert.ThrowsException<InvalidOperationException>(() => TestUiDispatcherHost.Invoke(() => throw original)));
+        bool followingCompleted = false;
+        TestUiDispatcherHost.Invoke(() => followingCompleted = true);
+        Assert.IsTrue(followingCompleted);
+    }
+
+    [TestMethod]
+    public void OwnedDispatcher_NormalRecoveryJoinsBeforeReturning()
+    {
+        using var ready = new ManualResetEventSlim();
+        using var completed = new ManualResetEventSlim();
+        Dispatcher? dispatcher = null;
+        Exception? terminalFailure = null;
+        var thread = new Thread(() =>
+        {
+            dispatcher = Dispatcher.CurrentDispatcher;
+            ready.Set();
+            try { Dispatcher.Run(); }
+            catch (Exception exception) { terminalFailure = exception; }
+            finally { TestUiDispatcherHost.CompleteOwnedDispatcher(dispatcher, completed, exception => terminalFailure ??= exception); }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        try
+        {
+            ready.Wait();
+            (dispatcher ?? throw new AssertFailedException("The owned dispatcher was not created.")).BeginInvokeShutdown(DispatcherPriority.Send);
+            TestUiDispatcherHost.JoinOwnedDispatcher(thread, completed, () => terminalFailure);
+            Assert.IsFalse(thread.IsAlive);
+            Assert.IsTrue(completed.IsSet);
+            Assert.IsNull(terminalFailure);
+        }
+        finally
+        {
+            dispatcher?.BeginInvokeShutdown(DispatcherPriority.Send);
+            completed.Wait();
+            thread.Join();
+        }
+    }
+
+    /// <summary>通常Taskの待機が予約consumerの成功・失敗・取消をそのまま観測します。</summary>
+    [DataTestMethod]
+    [DataRow("success")]
+    [DataRow("failure")]
+    [DataRow("canceled")]
+    [DataRow("producer_failure")]
+    [DataRow("producer_canceled")]
+    [DataRow("missing")]
+    public void AwaitTaskOnDispatcher_ObservesScheduledConsumerTerminal(string outcome)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var failure = new InvalidOperationException("consumer failed");
+            DispatcherOperation producer = TestUiDispatcherHost.Dispatcher.InvokeAsync(new Action(() =>
+            {
+                switch (outcome)
+                {
+                    case "success": completion.TrySetResult(); break;
+                    case "failure": completion.TrySetException(failure); break;
+                    case "canceled": completion.TrySetCanceled(); break;
+                    case "producer_failure": throw failure;
+                }
+            }), DispatcherPriority.Background, outcome == "producer_canceled" ? new CancellationToken(canceled: true) : CancellationToken.None);
+            Task observation = TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, producer.Task, outcome);
+            try
+            {
+                switch (outcome)
+                {
+                    case "success": TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome); break;
+                    case "failure":
+                    case "producer_failure":
+                        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() =>
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome)));
+                        break;
+                    case "canceled":
+                    case "producer_canceled":
+                        Assert.ThrowsException<TaskCanceledException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
+                        if (outcome == "producer_canceled") { Assert.IsTrue(producer.Task.IsCanceled); }
+                        break;
+                    case "missing":
+                        Assert.ThrowsException<InvalidOperationException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, outcome));
+                        break;
+                }
+            }
+            finally
+            {
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(producer.Task, "consumer-test-producer-terminal"); }
+                catch (InvalidOperationException exception) when (outcome == "producer_failure" && ReferenceEquals(exception, failure)) { }
+                catch (TaskCanceledException) when (outcome == "producer_canceled") { }
+            }
+        });
+    }
+
     [TestMethod]
     public void Invoke_ReusesSingleApplicationDispatcherAndStaThread()
     {
@@ -73,6 +277,7 @@ public sealed class WpfTestApplicationHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CompiledDialogSurfaces_ResolveSemanticBrushesOnConstructorOnlyControls()
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
@@ -143,11 +348,19 @@ public sealed class WpfTestApplicationHostTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void ShowAndWaitForContentRendered_CompletesWhileApplicationIdleIsBlocked()
+    public void PresentationAndCleanup_CompleteWhileApplicationIdleIsBlocked()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            var window = new Window { Width = 320, Height = 200, Content = new Border() };
+            var source = new TextBox { Text = "before" };
+            var reflected = new TextBox();
+            reflected.SetBinding(TextBox.TextProperty, new Binding(nameof(TextBox.Text)) { Source = source });
+            var selection = new ListBox { ItemsSource = new[] { "first", "second" }, SelectedIndex = 0 };
+            var content = new StackPanel();
+            content.Children.Add(source);
+            content.Children.Add(reflected);
+            content.Children.Add(selection);
+            var window = new Window { Width = 320, Height = 200, Content = content };
             Dispatcher dispatcher = window.Dispatcher;
             bool keepWorking = true;
             bool idleReached = false;
@@ -188,11 +401,25 @@ public sealed class WpfTestApplicationHostTests
                 Assert.IsTrue(window.ActualWidth > 0 && window.ActualHeight > 0);
                 Assert.IsTrue(workCount > 0);
                 Assert.IsFalse(idleReached);
+                source.Text = "after";
+                selection.SelectedIndex = 1;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("after", reflected.Text);
+                Assert.AreEqual("second", selection.SelectedItem);
+                Assert.IsTrue(reflected.ActualWidth > 0 && reflected.ActualHeight > 0);
+                Assert.IsTrue(selection.ActualWidth > 0 && selection.ActualHeight > 0);
+                Assert.IsFalse(idleReached);
+                Assert.IsFalse(watchdogTriggered);
                 nint handle = TestWindowPresentationScope.GetNativeHandle(window);
                 Assert.AreNotEqual(0, handle);
                 Assert.IsTrue(TestWindowPresentationScope.HasNoActivateStyle(handle));
                 Assert.IsTrue(TestWindowPresentationScope.IsOutsideAllMonitors(handle));
                 Assert.AreNotEqual(handle, TestWindowPresentationScope.ForegroundWindow);
+                scope.Cleanup();
+                Assert.IsFalse(watchdogTriggered, "Cleanup must complete from actual closure without general idle.");
+                Assert.IsFalse(idleReached);
+                Assert.IsFalse(Application.Current.Windows.Cast<Window>().Contains(window));
+                Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(handle));
             }
             finally
             {
@@ -205,6 +432,71 @@ public sealed class WpfTestApplicationHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
+    public void NestedCleanup_PreservesExistingParentShownAfterInnerScopeStarts()
+    {
+        TestUiDispatcherHost.RunWindowTest(outer =>
+        {
+            var parent = new Window { Width = 320, Height = 200, Content = new Border() };
+            int parentClosed = 0;
+            string? closeStack = null;
+            EventHandler closed = (_, _) =>
+            {
+                parentClosed++;
+                closeStack = Environment.StackTrace;
+            };
+            parent.Closed += closed;
+            // Application/native全体のbaselineを比べるため、別のpresentation scopeの再入を隔離します。
+            Assert.IsTrue(Application.Current.Windows.Cast<Window>().Contains(parent));
+            Assert.AreEqual(0, TestWindowPresentationScope.GetNativeHandle(parent));
+            var inner = new TestWindowPresentationScope(Application.Current, TestWindowPresentationScope.GetCurrentNativeThreadId());
+            try
+            {
+                outer.ShowAndWaitForContentRendered(parent);
+                nint parentHandle = TestWindowPresentationScope.GetNativeHandle(parent);
+                Assert.AreNotEqual(0, parentHandle);
+                MethodInfo nativeOwnerQuery = typeof(TestWindowPresentationScope).GetMethod(
+                    "GetWindow", BindingFlags.Static | BindingFlags.NonPublic)
+                    ?? throw new AssertFailedException("The native owner query was not found.");
+                nint nativeOwner = (nint)(nativeOwnerQuery.Invoke(null, [parentHandle, 4u])
+                    ?? throw new AssertFailedException("The native owner query did not return a handle."));
+                Assert.AreNotEqual(nint.Zero, nativeOwner);
+                Assert.IsTrue(TestWindowPresentationScope.NativeWindowExists(nativeOwner));
+                var baselineHandles = (HashSet<nint>)(typeof(TestWindowPresentationScope).GetField(
+                    "baselineNativeWindows", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(inner)
+                    ?? throw new AssertFailedException("The native baseline was not found."));
+                Assert.IsFalse(baselineHandles.Contains(nativeOwner), "The native owner is created after the inner baseline.");
+                var threadHandles = (IReadOnlyList<nint>)(typeof(TestWindowPresentationScope).GetMethod(
+                    "EnumerateNativeWindows", BindingFlags.Static | BindingFlags.NonPublic)?.Invoke(
+                        null, [TestWindowPresentationScope.GetCurrentNativeThreadId()])
+                    ?? throw new AssertFailedException("The native thread inventory was not found."));
+                Assert.IsTrue(threadHandles.Contains(nativeOwner), "The native owner would otherwise be a new cleanup candidate.");
+                inner.Cleanup();
+                Assert.AreEqual(0, parentClosed,
+                    $"parent=0x{parentHandle:X}, native owner=0x{nativeOwner:X}; {closeStack}");
+                Assert.IsTrue(parent.IsVisible);
+                Assert.IsTrue(TestWindowPresentationScope.NativeWindowExists(parentHandle));
+                Assert.IsTrue(TestWindowPresentationScope.NativeWindowExists(nativeOwner));
+                outer.Cleanup();
+                Assert.AreEqual(1, parentClosed);
+                Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(parentHandle));
+                Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(nativeOwner));
+                Assert.IsFalse(Application.Current.Windows.Cast<Window>().Contains(parent));
+            }
+            finally
+            {
+                try { inner.Cleanup(); }
+                finally
+                {
+                    try { outer.Cleanup(); }
+                    finally { parent.Closed -= closed; }
+                }
+            }
+        });
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
     public void ShowAndWaitForContentRendered_DoesNotSucceedWithoutRenderNotification()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -233,9 +525,11 @@ public sealed class WpfTestApplicationHostTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RunWindowTest_NonActivatingPresentationStaysOffscreenAndCleansWindowAndPopupHwnds()
     {
         var closeEvents = new List<string>();
+        var createdHandles = new List<nint>();
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             var target = new Button { Content = "target" };
@@ -248,6 +542,7 @@ public sealed class WpfTestApplicationHostTests
             window.Closed += (_, _) => closeEvents.Add("owner");
             scope.ShowAndWaitForContentRendered(window);
             nint windowHandle = TestWindowPresentationScope.GetNativeHandle(window);
+            createdHandles.Add(windowHandle);
 
             var popup = new Popup
             {
@@ -257,8 +552,9 @@ public sealed class WpfTestApplicationHostTests
             popup.Closed += (_, _) => closeEvents.Add("popup");
             scope.TrackPopup(popup);
             popup.IsOpen = true;
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             nint popupHandle = TestWindowPresentationScope.GetNativeHandle(popup.Child);
+            createdHandles.Add(popupHandle);
 
             Assert.AreNotEqual(0, windowHandle);
             Assert.AreNotEqual(0, popupHandle);
@@ -280,9 +576,14 @@ public sealed class WpfTestApplicationHostTests
                 Height = 100,
                 Content = new Border { Width = 40, Height = 20 }
             };
-            child.Closed += (_, _) => closeEvents.Add("child");
+            child.Closed += (_, _) =>
+            {
+                Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(popupHandle));
+                closeEvents.Add("child");
+            };
             scope.ShowAndWaitForContentRendered(child);
             nint childHandle = TestWindowPresentationScope.GetNativeHandle(child);
+            createdHandles.Add(childHandle);
             Assert.AreNotEqual(0, childHandle);
             Assert.IsTrue(
                 TestWindowPresentationScope.HasNoActivateStyle(childHandle),
@@ -292,9 +593,14 @@ public sealed class WpfTestApplicationHostTests
         });
 
         CollectionAssert.AreEqual(new[] { "popup", "child", "owner" }, closeEvents);
+        foreach (nint handle in createdHandles)
+        {
+            Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(handle));
+        }
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RunWindowTest_FailurePriorityIsBodyThenPresentationThenCleanup()
     {
         var expected = new InvalidOperationException("body failure");
@@ -318,7 +624,7 @@ public sealed class WpfTestApplicationHostTests
                 };
                 scope.TrackPopup(popup);
                 popup.IsOpen = true;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreNotEqual(0, TestWindowPresentationScope.GetNativeHandle(popup.Child));
                 scope.RegisterPresentationFailureForTesting(expectedPresentation);
                 scope.RegisterCleanupFailureForTesting(expectedCleanup);

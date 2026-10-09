@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Tests.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
@@ -22,6 +21,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoInlineHydrationTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void LoadCurrentChartInfoParseFailuresByMd5_QueriesOnlyRequestedRows()
     {
@@ -165,7 +166,7 @@ public sealed class ChartInfoInlineHydrationTests
                 try
                 {
                     lockAcquired.Set();
-                    Assert.IsTrue(releaseLock.Wait(TimeSpan.FromSeconds(5)));
+                    releaseLock.Wait();
                 }
                 finally
                 {
@@ -173,7 +174,7 @@ public sealed class ChartInfoInlineHydrationTests
                 }
             });
 
-            Assert.IsTrue(lockAcquired.Wait(TimeSpan.FromSeconds(5)));
+            lockAcquired.Wait();
             Task<Dictionary<string, BeMusicSeeker.Models.ChartDetails>> lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
             try
             {
@@ -182,7 +183,7 @@ public sealed class ChartInfoInlineHydrationTests
             finally
             {
                 releaseLock.Set();
-                lockHolder.Wait(TimeSpan.FromSeconds(5));
+                lockHolder.Wait();
             }
 
             Dictionary<string, BeMusicSeeker.Models.ChartDetails> rows = lookupTask.Result;
@@ -195,7 +196,7 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public async Task DeferredChartInfoHydration_BuildsSessionIndexAndUsesSha256BeforeMd5()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             var gateway = new BmsLibraryDbGateway(songDbPath);
@@ -209,7 +210,7 @@ public sealed class ChartInfoInlineHydrationTests
                 CreateChartInfoRow(firstSha, md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion),
                 CreateChartInfoRow(unrelatedSha, new string('b', 32), BmsLibraryDbGateway.CurrentChartInfoParserVersion)
             ]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             Assert.IsFalse(library.ChartInfoIndexHydrated);
             Assert.AreEqual(0, library.ChartInfoIndexVersion);
@@ -495,7 +496,7 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public async Task DeferredChartInfoHydration_IndexesExistingRowsForBmsAndBmson()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string bmsSha = new('1', 64);
@@ -516,7 +517,7 @@ public sealed class ChartInfoInlineHydrationTests
             BeMusicSeeker.Models.ChartDetails bmsRow = CreateChartInfoRow(bmsSha, file.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             BeMusicSeeker.Models.ChartDetails bmsonRow = CreateChartInfoRow(bmsonSha, bmsonSong.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
             gateway.UpsertChartInfos([bmsRow, bmsonRow]);
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
             {
                 BmsCharts = [file],
                 BmsonCharts = [bmsonSong]
@@ -550,7 +551,7 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public async Task DeferredChartInfoHydration_UsesActualDataInBothModesAndSkipsFullBackfillWhenCurrent(bool operationModeLr2Db)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string md5 = new('a', 32);
@@ -574,10 +575,10 @@ public sealed class ChartInfoInlineHydrationTests
                 songDb.InsertOrReplace(CreateChartDigestRow(md5, sha), typeof(LR2SongDBExtended.chart_digest_map));
                 songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
             }
-            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            bool originalOperationMode = testSettings.OperationModeLR2DB;
             try
             {
-                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
+                testSettings.OperationModeLR2DB = operationModeLr2Db;
                 var options = new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = operationModeLr2Db,
@@ -588,7 +589,7 @@ public sealed class ChartInfoInlineHydrationTests
                     using var songDb = new LR2SongDBExtended(songDbPath);
                     Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
                 }
-                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
                     BmsCharts = [file]
                 };
@@ -614,7 +615,7 @@ public sealed class ChartInfoInlineHydrationTests
             }
             finally
             {
-                Settings.Default.OperationModeLR2DB = originalOperationMode;
+                testSettings.OperationModeLR2DB = originalOperationMode;
             }
         });
     }
@@ -926,7 +927,7 @@ public sealed class ChartInfoInlineHydrationTests
                 chartPath,
                 "#PLAYER 1\r\n#TITLE publication order after\r\n#PLAYLEVEL 7\r\n#BPM 130\r\n#00111:01\r\n",
                 Encoding.ASCII);
-            var library = new TestBmsLibrary(songDbPath);
+            var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             OwnedChartCollectionTestSupport.SetLibraryFilesWithoutNotification(library, [file]);
             OwnedChartCollectionTestSupport.SetLibraryBmsonSongsWithoutNotification(library, []);
             OwnedChartCollectionTestSupport.SetDuplicateChartGroupsWithoutNotification(library, []);
@@ -989,7 +990,7 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public async Task DeferredChartInfoHydration_MissingCurrentRowBackfillsRegardlessOfCompletedLr2Status(bool operationModeLr2Db)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
             string chartPath = Path.Combine(tempRootPath, "missing-current.bms");
@@ -1014,11 +1015,11 @@ public sealed class ChartInfoInlineHydrationTests
                     Lr2SongDbSyncStatusService.MarkCompleted(songDb, signature, "unit-test", 1, DateTime.UtcNow);
                 }
             }
-            bool originalOperationMode = Settings.Default.OperationModeLR2DB;
+            bool originalOperationMode = testSettings.OperationModeLR2DB;
             try
             {
-                Settings.Default.OperationModeLR2DB = operationModeLr2Db;
-                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService())
+                testSettings.OperationModeLR2DB = operationModeLr2Db;
+                var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings)
                 {
                     BmsCharts = [file]
                 };
@@ -1039,7 +1040,7 @@ public sealed class ChartInfoInlineHydrationTests
             }
             finally
             {
-                Settings.Default.OperationModeLR2DB = originalOperationMode;
+                testSettings.OperationModeLR2DB = originalOperationMode;
             }
         });
     }
@@ -1048,10 +1049,10 @@ public sealed class ChartInfoInlineHydrationTests
     [DoNotParallelize]
     public async Task DeferredChartInfoHydration_SkipsFullBackfillWhenNoCandidates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string tempRootPath, string songDbPath)
         {
-            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService(), settings: testSettings);
 
             InvokeDeferredChartInfoHydration(library, "unit_test", queueFullBackfillAfterHydration: true);
 

@@ -129,7 +129,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow,
         PlaylistExternalPackageLookupService playlistExternalPackageLookupService,
         Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider,
-        Func<bool> playlistUrlInstallQueueActiveProvider,
         Func<IReadOnlyList<string>, bool> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
@@ -158,8 +157,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
         Func<bool> playlistRestoreUiThreadCheck,
-        IUiDialogService playlistWorkspaceDialogService = null)
+        IUiDialogService playlistWorkspaceDialogService = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null,
+        Func<Task> playlistUrlInstallCompletionProvider = null)
     {
+        this.playlistOperationAdmission = playlistOperationAdmission;
+        this.playlistUrlInstallCompletionProvider = playlistUrlInstallCompletionProvider ?? (() => Task.CompletedTask);
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         DetailBuildState = buildState ?? throw new ArgumentNullException(nameof(buildState));
@@ -174,8 +177,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             ?? throw new ArgumentNullException(nameof(playlistExternalPackageLookupService));
         this.playlistUrlAcquisitionOptionsProvider = playlistUrlAcquisitionOptionsProvider
             ?? throw new ArgumentNullException(nameof(playlistUrlAcquisitionOptionsProvider));
-        this.playlistUrlInstallQueueActiveProvider = playlistUrlInstallQueueActiveProvider
-            ?? throw new ArgumentNullException(nameof(playlistUrlInstallQueueActiveProvider));
         this.playlistUrlInstallSink = playlistUrlInstallSink
             ?? throw new ArgumentNullException(nameof(playlistUrlInstallSink));
         this.playlistUrlBrowserOpenSink = playlistUrlBrowserOpenSink
@@ -336,8 +337,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     void ISettingsDialogWorkspacePort.SchedulePlaylistUrlCompletionRefresh(string reason)
         => getPlaylistStore()?.SchedulePlaylistUrlCompletionRefresh(reason);
 
-    void ISettingsDialogWorkspacePort.QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath)
-        => getPlaylistStore()?.BmtOutput.QueueBeatorajaBmtExportAll(reason, cleanupTablePath);
+    Task ISettingsDialogWorkspacePort.ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability)
+        => getPlaylistStore()?.BmtOutput.ExportAllAsync(reason, cleanupTablePath, capability: capability) ?? Task.CompletedTask;
 
     Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
         Func<Task> operation,
@@ -350,6 +351,19 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         remove => PlaylistCatalogChanged -= value;
     }
 
+    private readonly ChartFileOperationSynchronizer playlistOperationAdmission;
+
+    private readonly Func<Task> playlistUrlInstallCompletionProvider;
+
+    LibraryFileMutationLease ISettingsDialogCustomFolderOutputPort.TryBeginOutputOperation()
+    {
+        if (playlistOperationAdmission != null)
+        {
+            return playlistOperationAdmission.TryEnter(out IDisposable accepted) ? (LibraryFileMutationLease)accepted : null;
+        }
+        return getPlaylistStore()?.TryEnterPlaylistMutation(out IDisposable lease) == true ? (LibraryFileMutationLease)lease : null;
+    }
+
     CustomFolderOutputSettingsSnapshot ISettingsDialogCustomFolderOutputPort.CustomFolderOutputSettings
         => customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
@@ -359,22 +373,22 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         string outputDirBaseAfter,
         string additionalOutputBaseDirsBefore,
         string additionalOutputBaseDirsAfter,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
         => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryWithSettings(
             outputDirBaseBefore,
             outputDirBaseAfter,
             additionalOutputBaseDirsBefore,
             additionalOutputBaseDirsAfter,
-            settings);
+            settings, capability);
 
     void ISettingsDialogCustomFolderOutputPort.ChangeCustomFolderBaseDirectoryRootWithSettings(
         string outputDirBaseBefore,
         string outputDirBaseAfter,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
         => getPlaylistStore()?.ChangeCustomFolderBaseDirectoryRootWithSettings(
             outputDirBaseBefore,
             outputDirBaseAfter,
-            settings);
+            settings, capability);
 
     bool ISettingsDialogCustomFolderOutputPort.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
         string previousRootOutputBaseDirectory,
@@ -387,11 +401,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     int ISettingsDialogCustomFolderOutputPort.ApplyCustomFolderAdditionalOutputBaseRegistrationChanges(
         string previousAdditionalOutputBaseDirectories,
         IReadOnlyDictionary<string, string> pendingRenames,
-        CustomFolderOutputSettingsSnapshot settings)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
         => getPlaylistStore()?.ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
             previousAdditionalOutputBaseDirectories,
             pendingRenames,
-            settings) ?? 0;
+            settings, capability) ?? 0;
 
     internal bool RepairRootCustomFolderOutputSearchRootsAfterStartup(
         CustomFolderOutputSettingsSnapshot settings)
@@ -462,13 +476,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     internal Task ApplyCurrentVisibleBmtOrderAsync(IEnumerable<PlaylistSummaryRow> visibleRows)
     {
         List<PlaylistSummaryRow> visibleRowsSnapshot = [.. (visibleRows ?? [])];
-        return Task.Run(() => ApplyCurrentVisibleBmtOrderCore(visibleRowsSnapshot));
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.SummarySort, capability => ApplyCurrentVisibleBmtOrderCore(visibleRowsSnapshot, capability));
     }
 
-    private void ApplyCurrentVisibleBmtOrderCore(IReadOnlyList<PlaylistSummaryRow> visibleRows)
+    private async Task ApplyCurrentVisibleBmtOrderCore(IReadOnlyList<PlaylistSummaryRow> visibleRows, LibraryFileMutationCapability capability)
     {
-        if (GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows))
+        if (GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows, capability))
         {
+            await GetPlaylistStore().BmtOutput.SyncUrlsAsync("playlist_summary_apply_current_order_to_bmt_sort", capability).ConfigureAwait(false);
             RequestPlaylistSummaryBmtSortRefresh("playlist_summary_apply_current_order_to_bmt_sort");
         }
     }
@@ -476,13 +491,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     internal Task MoveSummaryRowsToBmtTopAsync(IEnumerable<PlaylistSummaryRow> rows)
     {
         List<PlaylistSummaryRow> rowsSnapshot = [.. (rows ?? [])];
-        return Task.Run(() => MoveSummaryRowsToBmtTopCore(rowsSnapshot));
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.SummarySort, capability => MoveSummaryRowsToBmtTopCore(rowsSnapshot, capability));
     }
 
-    private void MoveSummaryRowsToBmtTopCore(IReadOnlyList<PlaylistSummaryRow> rows)
+    private async Task MoveSummaryRowsToBmtTopCore(IReadOnlyList<PlaylistSummaryRow> rows, LibraryFileMutationCapability capability)
     {
-        if (GetSummaryBmtSort().MoveRowsToTop(rows))
+        if (GetSummaryBmtSort().MoveRowsToTop(rows, capability))
         {
+            await GetPlaylistStore().BmtOutput.SyncUrlsAsync("playlist_summary_move_to_bmt_sort_top", capability).ConfigureAwait(false);
             RequestPlaylistSummaryBmtSortRefresh("playlist_summary_move_to_bmt_sort_top");
         }
     }
@@ -490,13 +506,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     internal Task MoveSummaryRowsToBmtBottomAsync(IEnumerable<PlaylistSummaryRow> rows)
     {
         List<PlaylistSummaryRow> rowsSnapshot = [.. (rows ?? [])];
-        return Task.Run(() => MoveSummaryRowsToBmtBottomCore(rowsSnapshot));
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.SummarySort, capability => MoveSummaryRowsToBmtBottomCore(rowsSnapshot, capability));
     }
 
-    private void MoveSummaryRowsToBmtBottomCore(IReadOnlyList<PlaylistSummaryRow> rows)
+    private async Task MoveSummaryRowsToBmtBottomCore(IReadOnlyList<PlaylistSummaryRow> rows, LibraryFileMutationCapability capability)
     {
-        if (GetSummaryBmtSort().MoveRowsToBottom(rows))
+        if (GetSummaryBmtSort().MoveRowsToBottom(rows, capability))
         {
+            await GetPlaylistStore().BmtOutput.SyncUrlsAsync("playlist_summary_move_to_bmt_sort_bottom", capability).ConfigureAwait(false);
             RequestPlaylistSummaryBmtSortRefresh("playlist_summary_move_to_bmt_sort_bottom");
         }
     }
@@ -509,21 +526,21 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     {
         List<PlaylistSummaryRow> visibleRowsSnapshot = [.. (visibleRows ?? [])];
         List<PlaylistSummaryRow> draggedRowsSnapshot = [.. (draggedRows ?? [])];
-        return Task.Run(() =>
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.SummarySort, async capability =>
         {
-            DropSummaryRowsInBmtOrderCore(
+            await DropSummaryRowsInBmtOrderCore(
                 visibleRowsSnapshot,
                 draggedRowsSnapshot,
                 visibleInsertIndex,
-                currentPlaylistId);
+                currentPlaylistId, capability).ConfigureAwait(false);
         });
     }
 
-    private long DropSummaryRowsInBmtOrderCore(
+    private async Task<long> DropSummaryRowsInBmtOrderCore(
         IReadOnlyList<PlaylistSummaryRow> visibleRows,
         IReadOnlyList<PlaylistSummaryRow> draggedRowsSnapshot,
         int visibleInsertIndex,
-        int? currentPlaylistId)
+        int? currentPlaylistId, LibraryFileMutationCapability capability)
     {
         long selectionRestoreOperationId = 0L;
         PlaylistSummarySelectionRestoreRequest selectionRestoreRequest = null;
@@ -559,7 +576,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                     {
                         ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
                     }
-                });
+                }, capability);
             if (!changed)
             {
                 return 0L;
@@ -684,10 +701,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         pendingPlaylistSummarySelectionOperationId = 0L;
     }
 
-    internal void ApplyImportedTablesToBmtFront(IReadOnlyList<BMSTable> importedTables)
+    internal async Task ApplyImportedTablesToBmtFrontAsync(IReadOnlyList<BMSTable> importedTables, LibraryFileMutationCapability capability)
     {
-        if (GetSummaryBmtSort().ApplyImportedTablesToFront(importedTables))
+        if (GetSummaryBmtSort().ApplyImportedTablesToFront(importedTables, capability))
         {
+            await GetPlaylistStore().BmtOutput.SyncUrlsAsync("beatoraja_table_url_import", capability);
             RequestPlaylistSummaryBmtSortRefresh("beatoraja_table_url_import");
         }
     }

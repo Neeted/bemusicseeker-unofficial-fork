@@ -327,7 +327,7 @@ public sealed class CustomTableColumnSettingsTests
     [TestMethod]
     public void EnsureColumnSettingDefaults_RecreatesAndCompletesPlayHistorySettings()
     {
-        var settings = new Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         var existing = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
         existing.PlayHistoryBestExscore.Visibility = Visibility.Visible;
         existing.PlayHistoryBestExscore.DisplayIndex = 77;

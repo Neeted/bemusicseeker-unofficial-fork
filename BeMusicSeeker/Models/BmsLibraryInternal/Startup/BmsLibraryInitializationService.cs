@@ -15,21 +15,10 @@ using SQLite;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>
-/// Owns startup readiness boundaries and the deferred external-playlist import queue.
-/// </summary>
-/// <remarks>
-/// Playlist readiness is deliberately independent from install-estimation readiness.  A
-/// caller may therefore admit a playlist request as soon as the command is received while
-/// still deferring all playlist I/O until the required local playlist hydration boundary.
-/// The coordinator also owns the queue lifecycle so shutdown cannot leave a producer or
-/// consumer alive after the playlist model has become terminal.
-/// </remarks>
+/// <summary>必須プレイリスト初期化と推定の準備完了を独立して通知します。未受理の外部取込予約は所有しません。</summary>
 internal sealed class StartupReadinessCoordinator
 {
     private readonly object syncRoot = new();
-
-    private readonly Queue<Uri> pendingExternalPlaylistImports = new();
 
     private readonly CancellationTokenSource shutdownCancellation = new();
 
@@ -37,17 +26,11 @@ internal sealed class StartupReadinessCoordinator
 
     private TaskCompletionSource<bool> installEstimationReadiness = CreatePendingCompletion();
 
-    private TaskCompletionSource<bool> externalImportDrainCompletion = CreateCompletedCompletion();
-
     private bool requiredPlaylistReady = true;
 
     private bool playlistInitializationActive;
 
     private bool requiredPlaylistReadinessFaulted;
-
-    private bool externalImportDrainActive;
-
-    private bool externalImportDrainStarted;
 
     private int shutdownRequested;
 
@@ -132,34 +115,6 @@ internal sealed class StartupReadinessCoordinator
     }
 
     /// <summary>
-    /// Gets whether an external import drain is active or queued.
-    /// </summary>
-    internal bool HasExternalImportWork
-    {
-        get
-        {
-            lock (syncRoot)
-            {
-                return externalImportDrainActive || pendingExternalPlaylistImports.Count > 0;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Gets the current external import drain completion task.
-    /// </summary>
-    internal Task ExternalImportDrainCompletion
-    {
-        get
-        {
-            lock (syncRoot)
-            {
-                return externalImportDrainCompletion.Task;
-            }
-        }
-    }
-
-    /// <summary>
     /// Starts a required playlist initialization boundary.
     /// </summary>
     /// <param name="reason">Diagnostic reason for the boundary.</param>
@@ -173,10 +128,7 @@ internal sealed class StartupReadinessCoordinator
             }
             playlistInitializationActive = true;
             requiredPlaylistReady = false;
-            if (!externalImportDrainActive && pendingExternalPlaylistImports.Count == 0)
-            {
-                requiredPlaylistReadinessFaulted = false;
-            }
+            requiredPlaylistReadinessFaulted = false;
             requiredPlaylistReadiness = CreatePendingCompletion();
         }
     }
@@ -286,124 +238,6 @@ internal sealed class StartupReadinessCoordinator
     }
 
     /// <summary>
-    /// Atomically admits external-playlist URI requests into the shared deferred queue.
-    /// </summary>
-    /// <param name="uris">Absolute URI requests in caller order.</param>
-    /// <param name="shouldStartDrain">Whether the caller owns starting the single consumer.</param>
-    /// <returns><see langword="true"/> when all valid requests were admitted.</returns>
-    internal bool TryAdmitExternalPlaylistImports(
-        IEnumerable<Uri> uris,
-        out bool shouldStartDrain)
-    {
-        List<Uri> validUris = [.. (uris ?? []).Where(uri => uri != null && uri.IsAbsoluteUri)];
-        shouldStartDrain = false;
-        if (validUris.Count == 0)
-        {
-            return false;
-        }
-
-        lock (syncRoot)
-        {
-            if (IsShutdownRequested || requiredPlaylistReadinessFaulted)
-            {
-                return false;
-            }
-            foreach (Uri uri in validUris)
-            {
-                pendingExternalPlaylistImports.Enqueue(uri);
-            }
-            if (!externalImportDrainActive)
-            {
-                externalImportDrainActive = true;
-                externalImportDrainCompletion = CreatePendingCompletion();
-                shouldStartDrain = true;
-            }
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Claims the single external-import consumer after a producer admitted work.
-    /// </summary>
-    /// <returns><see langword="true"/> when this caller owns the drain lifecycle.</returns>
-    internal bool TryBeginExternalPlaylistImportDrain()
-    {
-        lock (syncRoot)
-        {
-            if (IsShutdownRequested || !externalImportDrainActive || externalImportDrainStarted)
-            {
-                return false;
-            }
-            if (requiredPlaylistReadinessFaulted)
-            {
-                pendingExternalPlaylistImports.Clear();
-                externalImportDrainActive = false;
-                externalImportDrainStarted = false;
-                externalImportDrainCompletion.TrySetResult(true);
-                return false;
-            }
-            externalImportDrainStarted = true;
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Dequeues one FIFO import batch for the coordinator's single consumer.
-    /// </summary>
-    internal IReadOnlyList<Uri> DequeueExternalPlaylistImportBatch()
-    {
-        lock (syncRoot)
-        {
-            if (requiredPlaylistReadinessFaulted)
-            {
-                pendingExternalPlaylistImports.Clear();
-                externalImportDrainActive = false;
-                externalImportDrainStarted = false;
-                externalImportDrainCompletion.TrySetResult(true);
-                return [];
-            }
-            if (pendingExternalPlaylistImports.Count == 0)
-            {
-                externalImportDrainActive = false;
-                externalImportDrainStarted = false;
-                externalImportDrainCompletion.TrySetResult(true);
-                return [];
-            }
-            List<Uri> batch = [.. pendingExternalPlaylistImports];
-            pendingExternalPlaylistImports.Clear();
-            return batch;
-        }
-    }
-
-    /// <summary>
-    /// Completes a consumer cycle, preserving a pending cycle if a producer raced the drain.
-    /// </summary>
-    /// <returns><see langword="true"/> when no follow-up consumer is needed.</returns>
-    internal bool CompleteExternalPlaylistImportDrain()
-    {
-        lock (syncRoot)
-        {
-            if (IsShutdownRequested || requiredPlaylistReadinessFaulted)
-            {
-                pendingExternalPlaylistImports.Clear();
-                externalImportDrainActive = false;
-                externalImportDrainStarted = false;
-                externalImportDrainCompletion.TrySetResult(true);
-                return true;
-            }
-            if (pendingExternalPlaylistImports.Count > 0)
-            {
-                externalImportDrainStarted = false;
-                return false;
-            }
-            externalImportDrainActive = false;
-            externalImportDrainStarted = false;
-            externalImportDrainCompletion.TrySetResult(true);
-            return true;
-        }
-    }
-
-    /// <summary>
     /// Requests terminal shutdown for readiness waiters and deferred import producers/consumers.
     /// </summary>
     /// <param name="reason">Diagnostic shutdown reason.</param>
@@ -416,21 +250,12 @@ internal sealed class StartupReadinessCoordinator
 
         TaskCompletionSource<bool> readinessCompletion;
         TaskCompletionSource<bool> installCompletion;
-        TaskCompletionSource<bool> drainCompletion;
         lock (syncRoot)
         {
             requiredPlaylistReady = false;
             playlistInitializationActive = false;
-            pendingExternalPlaylistImports.Clear();
             readinessCompletion = requiredPlaylistReadiness;
             installCompletion = installEstimationReadiness;
-            drainCompletion = externalImportDrainCompletion;
-            if (!externalImportDrainStarted)
-            {
-                externalImportDrainActive = false;
-                externalImportDrainStarted = false;
-                drainCompletion.TrySetResult(true);
-            }
             readinessCompletion.TrySetCanceled(shutdownCancellation.Token);
             installCompletion.TrySetCanceled(shutdownCancellation.Token);
         }
@@ -1136,7 +961,8 @@ internal sealed class BmsLibraryInitializationService
         Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false,
         IEnumerable<string> lr2FolderExcludedDirectories = null,
-        Action<SongTableFileCheckResult> catalogProjectionApplied = null)
+        Action<SongTableFileCheckResult> catalogProjectionApplied = null,
+        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -1328,7 +1154,7 @@ internal sealed class BmsLibraryInitializationService
             result,
             logInstallPerformance,
             logInstallPerformanceWarn,
-            bmsFileScanSucceeded);
+            bmsFileScanSucceeded, enterNormalFolderMutation);
 
         logInstallPerformance?.Invoke("song_tbl_file_check_result result=applied"
             + " checkedCharts=" + (result.BmsPathCount + result.BmsonPathCount)
@@ -1556,7 +1382,8 @@ internal sealed class BmsLibraryInitializationService
         SongTableFileCheckResult result,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
-        bool scanCompletedSuccessfully)
+        bool scanCompletedSuccessfully,
+        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation)
     {
         if (dbGateway == null
             || result == null
@@ -1595,11 +1422,12 @@ internal sealed class BmsLibraryInitializationService
         result.Lr2NormalFolderSyncExecuted = true;
         try
         {
-            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyCollection<string> directoryMetadataTargets = [.. Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
                 .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, syncInput.DirectoryPaths))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            using IDisposable mutation = enterNormalFolderMutation?.Invoke(syncInput, directoryMetadataTargets);
+            using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
             IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
                 directoryEntrySurface,
                 directoryMetadataTargets);

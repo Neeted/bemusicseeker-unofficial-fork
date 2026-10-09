@@ -20,7 +20,7 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         Assert.AreEqual(1, (int)PlayerPanelState.TITLE_SMALL);
         Assert.AreEqual(2, (int)PlayerPanelState.BMS_PLAYER);
 
-        SettingsProperty metadata = new Settings().Properties[nameof(Settings.PlayerPanelState)];
+        SettingsProperty metadata = MainWindowViewModelTestFactory.CreateIsolatedSettings().Properties[nameof(Settings.PlayerPanelState)];
         Assert.IsNotNull(metadata);
         Assert.AreEqual("PlayerPanelState", metadata.Name);
         Assert.AreEqual("TITLE_SMALL", metadata.DefaultValue);

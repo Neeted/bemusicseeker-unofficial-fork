@@ -27,7 +27,6 @@ internal static class PlaylistWorkspaceFixtureFactory
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -97,7 +96,6 @@ internal static class PlaylistWorkspaceFixtureFactory
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             browserOpenSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -214,18 +212,19 @@ internal static class PlaylistWorkspaceFixtureFactory
         Func<bool>? restoreUiThreadCheck = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            });
+        TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
         var createdPlaylist = new BMSPlaylist(
-            songDbPath,
-            null,
-            null,
-            null,
-            () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(Settings.Default),
+            new BmsPlaylistLibraryBindings(library),
+            songDbPath, null, null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(),
             () => new BeatorajaBmtOptionsSnapshot(),
-            () => new CustomFolderOutputSettingsSnapshot(),
+            () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
             TestBmsFactory.MissingEverythingBridge,
-            new RestoreUiScheduler(restoreUiApplyScheduler, restoreUiThreadCheck),
-            new TestLr2PlaylistFolderSynchronizationPort(songDbPath),
-            (_, _) => new LibraryFileMutationLease(new object(), static () => true, static () => { }))
+            new RestoreUiScheduler(restoreUiApplyScheduler, restoreUiThreadCheck))
         {
             BMSTables = new ObservableCollection<BMSTable>(tables)
         };
@@ -233,6 +232,7 @@ internal static class PlaylistWorkspaceFixtureFactory
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             playlistStoreProvider: () => createdPlaylist,
+            playlistLibraryProvider: () => library,
             restoreUiApplyScheduler: restoreUiApplyScheduler,
             restoreUiThreadCheck: restoreUiThreadCheck);
         workspace.RefreshPlaylistTreeTables(createdPlaylist);

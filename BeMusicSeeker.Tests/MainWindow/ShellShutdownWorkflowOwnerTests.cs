@@ -280,8 +280,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             {
                 close = owner.RequestWindowCloseAsync();
 
-                await shutdownEntered.Task;
-                await interactionBlocked.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(shutdownEntered.Task, close, "shell-shutdown.cancel-start");
+                await TestUiDispatcherHost.AwaitNotificationAsync(interactionBlocked.Task, close, "shell-shutdown.interaction-blocked");
                 Assert.IsTrue(owner.IsShutdownPreparationStarted);
                 Assert.IsTrue(owner.IsShutdownPreparationRunning);
                 Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
@@ -340,24 +340,32 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task LateAttachedCatalogsReceiveShutdownCancellation()
     {
+        string root = Path.Combine(Path.GetTempPath(), "BmsLateAttachedShutdown-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
+        try
+        {
+            ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
+            Assert.IsTrue(receipt.PreparationSucceeded);
 
-        ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
-        Assert.IsTrue(receipt.PreparationSucceeded);
+            BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
+            owner.AttachLibrary(library);
+            owner.AttachPlaylist(playlist);
 
-        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        var playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
-        SetPrivateField(
-            playlist,
-            "shutdownCoordinator",
-            new PlaylistShutdownCoordinator());
-
-        owner.AttachLibrary(library);
-        owner.AttachPlaylist(playlist);
-
-        Assert.IsTrue(library.IsShutdownRequested);
-        Assert.IsTrue(playlist.IsShutdownRequested);
+            Assert.IsTrue(library.IsShutdownRequested);
+            Assert.IsTrue(playlist.IsShutdownRequested);
+            Assert.IsFalse(composition.OperationAdmission.TryEnter(out _));
+            Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _));
+        }
+        finally
+        {
+            try { await owner.CompleteTerminalShutdownAsync(); }
+            finally { viewModel.SettingDialog.Dispose(); DeleteDirectory(root); }
+        }
     }
 
     [TestMethod]
@@ -389,21 +397,30 @@ public sealed class ShellShutdownWorkflowOwnerTests
     [TestMethod]
     public async Task TerminalCleanupStartsCancellationWhenClosePreparationWasBypassed()
     {
+        string root = Path.Combine(Path.GetTempPath(), "BmsTerminalBypassShutdown-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel);
-        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        var playlist = (BMSPlaylist)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSPlaylist));
-        SetPrivateField(
-            playlist,
-            "shutdownCoordinator",
-            new PlaylistShutdownCoordinator());
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+            BMSPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                Path.Combine(root, "song.db"), composition.SettingsEditSession.Values, library: library);
+            owner.AttachLibrary(library);
+            owner.AttachPlaylist(playlist);
+            await owner.CompleteTerminalShutdownAsync();
 
-        owner.AttachLibrary(library);
-        owner.AttachPlaylist(playlist);
-        await owner.CompleteTerminalShutdownAsync();
-
-        Assert.IsTrue(library.IsShutdownRequested);
-        Assert.IsTrue(playlist.IsShutdownRequested);
+            Assert.IsTrue(library.IsShutdownRequested);
+            Assert.IsTrue(playlist.IsShutdownRequested);
+            Assert.IsFalse(composition.OperationAdmission.TryEnter(out _));
+            Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _));
+        }
+        finally
+        {
+            try { await owner.CompleteTerminalShutdownAsync(); }
+            finally { viewModel.SettingDialog.Dispose(); DeleteDirectory(root); }
+        }
     }
 
     [TestMethod]
@@ -627,7 +644,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         try
         {
             Assert.IsTrue(startupUpdate.Start());
-            await launchEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(launchEntered.Task, startupUpdate.WaitForIdleAsync(), "shell-shutdown.update-launch");
             Assert.IsTrue(await owner.RequestOperationModeRestartAsync(
                 new OperationModeRestartRequest(true, "history-mode-wins")));
             Assert.IsNotNull(close);
@@ -1084,7 +1101,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db");
             using var maintenanceEntered = new ManualResetEventSlim(false);
             var maintenance = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token) =>
+                (current, progress, token, capability) =>
                 {
                     maintenanceEntered.Set();
                     maintenanceRelease.Task.GetAwaiter().GetResult();
@@ -1172,6 +1189,65 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    [TestMethod]
+    public async Task WindowClose_AwaitsActualPlaylistOutputAndAdmissionCleanupAfterCancellation()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(ShellShutdownWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var marked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        MainWindowViewModel? viewModel = null;
+        Task? output = null;
+        Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+        try
+        {
+            string db = Path.Combine(root, "song.db");
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(db);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            var playlist = new TestBmsPlaylist(db, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () =>
+                {
+                    entered.TrySetResult();
+                    release.Task.GetAwaiter().GetResult();
+                    return new BeatorajaBmtOptionsSnapshot
+                    { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = Path.Combine(root, "table") };
+                },
+                () => new CustomFolderOutputSettingsSnapshot())
+            { BMSTables = [] };
+            viewModel = MainWindowViewModelTestFactory.Create();
+            ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, markShutdown: _ => marked.TrySetResult());
+            owner.AttachPlaylist(playlist);
+            output = Task.Run(() => playlist.BmtOutput.ExportAllAsync("shutdown_output"));
+            Task reached = await Task.WhenAny(entered.Task, output);
+            if (reached == output) { await output; }
+            Assert.AreSame(entered.Task, reached);
+            Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _));
+            close = owner.RequestWindowCloseAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(marked.Task, close, "shell-shutdown.marked");
+            Assert.IsFalse(close.IsCompleted, "出力受付内の実Taskとcleanupを待ちます。");
+            Assert.IsFalse(output.IsCompleted);
+            Assert.IsFalse(playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
+            release.TrySetResult();
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => output);
+            Assert.IsTrue((await close).CloseAllowed);
+            Assert.IsTrue(playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
+            Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _), "Close後は出力終端のPにも新規要求を受理しません。");
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "table")), "終了取消後に出力の副作用を始めません。");
+        }
+        finally
+        {
+            release.TrySetResult();
+            try
+            {
+                if (output != null) { try { await output; } catch (OperationCanceledException) { } }
+                if (close != null) { await close; }
+            }
+            finally { viewModel?.SettingDialog.Dispose(); Directory.Delete(root, true); }
+        }
+    }
+
     private static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
         Func<Func<Task>, Task>? dispatch = null,
@@ -1215,6 +1291,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
             viewModel.PlaybackPanel,
             settingsEditSession
                 ?? GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").SettingsEditSession,
+            GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").OperationAdmission,
+            GetPrivateField<ApplicationComposition>(viewModel, "applicationComposition").PlaylistOperationAdmission,
             new SemaphoreSlim(1, 1),
             viewModel.ProgressHub.StartupProgress,
             markShutdown ?? (_ => { }),
@@ -1252,14 +1330,17 @@ public sealed class ShellShutdownWorkflowOwnerTests
         field.SetValue(target, value);
     }
 
-    private static BMSLibrary CreateLibrary(string root, string fileName)
+    private static BMSLibrary CreateLibrary(string root, string fileName, MainWindowViewModel? owner = null)
     {
         string path = Path.Combine(root, fileName);
         File.WriteAllBytes(path, []);
         using (var initialize = new LR2SongDBExtended(path))
         {
         }
-        return new TestBmsLibrary(path, null, null, string.Empty);
+        return owner == null
+            ? new TestBmsLibrary(path, null, null, string.Empty)
+            : MainWindowViewModelTestFactory.CreateLibrary(
+                path, MainWindowViewModelTestFactory.GetComposition(owner).SettingsEditSession.Values, owner);
     }
 
     private static UpdateCheckResult CreateAvailableUpdateResult()
@@ -1435,7 +1516,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         internal RecordingSettingsEditSession(Action? onSave = null, BeMusicSeeker.Properties.Settings? values = null)
         {
             this.onSave = onSave;
-            Values = values ?? BeMusicSeeker.Properties.Settings.Default;
+            Values = values ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
         }
 
         public BeMusicSeeker.Properties.Settings Values { get; }

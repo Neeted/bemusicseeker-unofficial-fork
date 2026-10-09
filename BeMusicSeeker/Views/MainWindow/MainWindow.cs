@@ -66,6 +66,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private int terminalShutdownStarted;
 
+    private Task terminalShutdownCompletion = Task.CompletedTask;
+
+    private Task closeCompletion = Task.CompletedTask;
+
+    /// <summary>
+    /// 開始済みのClose要求が準備・Dispatcher受信・終端処理まで完了する実Taskです。
+    /// 開始前は完了済みTaskであり、取得自体はCloseを開始しません。開始後の失敗・取消も伝えます。
+    /// </summary>
+    internal Task CloseCompletion => closeCompletion;
+
     private bool terminalWindowCloseAuthorized;
 
     private SettingsWindow settingsWindow;
@@ -601,14 +611,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return (base.DataContext as MainWindowViewModel)?.ShellShutdownWorkflow.IsClosingOrClosed == true;
     }
 
-    private bool IsPlaylistUrlDownloadRunning
-    {
-        get
-        {
-            return (base.DataContext as MainWindowViewModel)?.PlaylistWorkspace.IsPlaylistUrlDownloadRunning == true;
-        }
-    }
-
     private void SubscribeViewModelUiInteractions(MainWindowViewModel viewModel)
     {
         if (viewModel == null || ReferenceEquals(subscribedViewModel, viewModel))
@@ -1111,7 +1113,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        _ = base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task;
+        closeCompletion = CompleteTerminalShutdownOnDispatcherAsync();
+        closeCompletion.ObserveFault("MainWindow.StartupUpdateTerminalShutdown");
     }
 
     private void MainWindowViewModel_OperationModeRestartRequested()
@@ -1444,7 +1447,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var viewModel = base.DataContext as MainWindowViewModel;
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             e.Data,
-            IsPlaylistUrlDownloadRunning,
             viewModel == null
                 ? null
                 : paths => viewModel.PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths(paths));
@@ -1467,9 +1469,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         switch (decision.WarningKind)
         {
-            case DroppedInstallDropWarningKind.PlaylistDownloadBlocked:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload);
-                break;
             case DroppedInstallDropWarningKind.UnsupportedFormat:
                 ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
                 break;
@@ -1518,11 +1517,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private void Window_DragOver(object sender, DragEventArgs e)
     {
-        if (IsPlaylistUrlDownloadRunning)
-        {
-            e.Effects = DragDropEffects.None;
-        }
-        else if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
+        if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
         {
             e.Effects = DragDropEffects.Copy;
         }
@@ -1590,17 +1585,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private async Task CompleteCloseAfterShellRequestAsync(Task<ShellShutdownWorkflowCompletionReceipt> closeRequest)
     {
         await closeRequest.ConfigureAwait(true);
-        await base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task.ConfigureAwait(true);
+        await CompleteTerminalShutdownOnDispatcherAsync().ConfigureAwait(true);
     }
 
-    private void ApplyTerminalShutdown()
+    private async Task CompleteTerminalShutdownOnDispatcherAsync()
+    {
+        await base.Dispatcher.InvokeAsync(ApplyTerminalShutdown).Task.Unwrap().ConfigureAwait(true);
+    }
+
+    private Task ApplyTerminalShutdown()
     {
         if (Interlocked.CompareExchange(ref terminalShutdownStarted, 1, 0) != 0)
         {
-            return;
+            return terminalShutdownCompletion;
         }
 
-        ApplyTerminalShutdownAsync().ObserveFault("MainWindow.ApplyTerminalShutdown");
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        terminalShutdownCompletion = completion.Task;
+        _ = ApplyTerminalShutdownAndPublishAsync(completion);
+        return completion.Task;
+    }
+
+    private async Task ApplyTerminalShutdownAndPublishAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await ApplyTerminalShutdownAsync().ConfigureAwait(true);
+            completion.TrySetResult();
+        }
+        catch (OperationCanceledException exception) { completion.TrySetCanceled(exception.CancellationToken); }
+        catch (Exception exception) { completion.TrySetException(exception); }
     }
 
     private async Task ApplyTerminalShutdownAsync()
@@ -1662,12 +1676,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
+            // Pの実終端待ちより前に所有dialogへcloseを伝えます。applyは捨てず、
+            // 後段で実Task・DataContext回収までjoinするため終了待ちとの循環を作りません。
+            activePlaylistPropertyDialog?.CloseForOwnerShutdown();
+            activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
             settingsWindow?.CloseForOwnerShutdown();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)
             {
-                _ = CompleteCloseAfterShellRequestAsync(closeRequest);
+                closeCompletion = CompleteCloseAfterShellRequestAsync(closeRequest);
+                closeCompletion.ObserveFault("MainWindow.CompleteCloseAfterShellRequest");
             }
             return;
         }
@@ -4206,7 +4225,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistSummaryBulkEditDialog, object>(
                     () =>
                     {
-                        window = new PlaylistSummaryBulkEditDialog(dialog);
+                        window = new PlaylistSummaryBulkEditDialog(dialog, playlistWorkspaceDialogService);
                         activePlaylistSummaryBulkEditDialog = window;
                         return window;
                     },

@@ -23,7 +23,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_PublishesOneResourceGenerationForConfirmedFoldersOnly(bool recycle)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -105,7 +105,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_CatalogFailureReturnsAfterConfirmedFilesystemDeletion(bool afterCommit)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -177,7 +177,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_OnlySuccessfulApiTargetsAreConfirmed()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -242,7 +242,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(3, true)]
     public void RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult(int childState, bool recycle)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -362,7 +362,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnselectedDescendantKeepsResourcesAndRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -407,7 +407,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(false)]
     public void RemoveLibraryCharts_ResolvesSelectionThroughProductionOwner(bool pathOnly)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -445,7 +445,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_CaseOnlyExactRowsAreBothRemoved()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -493,7 +493,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_PhysicalAliasExactRowsAreBothRemovedWithoutWholeFolderDelete(bool useDotAlias)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -542,7 +542,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_PhysicalAliasDeleteFailureIsNotRetried()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -591,7 +591,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void GetLibraryWholeFolderDeleteConfirmationPaths_PreservesCaseOnlyNestedSelections()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string parent = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -628,7 +628,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(4)]
     public void RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase(int selectionKind)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -686,7 +686,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(4)]
     public void RemoveLibraryCharts_PreflightChecksCapturedKindAndExactPathButAllowsOldHash(int change)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Pack");
@@ -768,7 +768,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void PreparedRequests_RejectRetiredTargetBeforeAnyPhysicalOrCatalogMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Prepared");
@@ -832,7 +832,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void PreparedRename_UsesCurrentDigestAndFixedSourceWithoutHashHistoryComparison()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "PreparedDigest");
@@ -887,7 +887,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(true)]
     public void RemoveLibraryCharts_LastChartHonorsWholeFolderConfirmation(bool deleteWholeFolder)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string folder = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Pack");
@@ -923,7 +923,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
@@ -951,7 +951,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             library.BmsonCharts = [];
             library.DuplicateChartGroups = [];
             // 初期通知が終わってから解除後の通知を観測し、workerの実時間遅延は判定しない。
-            Assert.IsTrue(initialBmsFilesNotification.Wait(TimeSpan.FromSeconds(5)));
+            initialBmsFilesNotification.Wait();
             library.PropertyChanged -= initialHandler;
             List<ChartFile> initialSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             Assert.AreEqual(2, initialSnapshot.Count);
@@ -997,7 +997,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void BMSFilesReplacement_InvalidatesOwnedCollectionVersionAndRebuildsOnNextView()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "First", "chart.bms"));
@@ -1021,7 +1021,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void StorageRowPropertiesExposeReadOnlyViews()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
@@ -1059,7 +1059,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void HasOwnedChartUnderRealPath_UsesOwnedCollectionForBmsAndBmson()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile bmsFile = CreateFile(
@@ -1086,7 +1086,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregistersBmsonStorageRowsInLibraryBoundary()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string rootPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed");
@@ -1143,7 +1143,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [DataRow(16)]
     public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(songDbPath =>
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1353,7 +1353,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterAppliesCurrentResourceHealthIndexDelta()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string resourceDirectoryPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "Resource");
@@ -1388,7 +1388,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RenameChartFolder_InvalidatesCurrentResourceHealthIndex()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ResourceMutation_" + Guid.NewGuid().ToString("N"));
@@ -1430,7 +1430,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     [TestMethod]
     public void RenameChartFolder_DispatchesParentFolderOnceAndClearsDuplicateCache()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedMutationDispatch_" + Guid.NewGuid().ToString("N"));

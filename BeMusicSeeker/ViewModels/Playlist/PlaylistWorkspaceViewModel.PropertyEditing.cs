@@ -1,8 +1,8 @@
 using System;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -14,10 +14,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private PlaylistPropertyDialogViewModel activePropertyDialog;
 
     private int propertyDialogOpenInProgress;
-
-    private readonly SemaphoreSlim summaryPropertyEditGate = new(1, 1);
-
-    private PlaylistSummaryPendingPropertySave pendingSummaryPropertySave;
 
     internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> PlaylistPropertyValidationError;
 
@@ -256,7 +252,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     isNewTable: true);
                 if (editSession == null)
                 {
-                    await Task.Run(() => GetPlaylistStore().RemoveBMSTable(table));
                     return null;
                 }
                 return OpenPropertyDialogCore(editSession);
@@ -264,7 +259,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             catch
             {
                 editSession?.Dispose();
-                await Task.Run(() => GetPlaylistStore().RemoveBMSTable(table));
                 throw;
             }
         }
@@ -400,206 +394,92 @@ public sealed partial class PlaylistWorkspaceViewModel
         string propertyName,
         string text)
     {
-        await summaryPropertyEditGate.WaitAsync();
+        BMSPlaylist store = GetPlaylistStore();
+        if (!TryBeginPlaylistMutation(store, PlaylistWorkspaceMutationKind.PropertySave, out IDisposable admission)) { return false; }
+        using IDisposable accepted = admission;
+        using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
+
+        PlaylistPropertySaveService service = propertySaveService
+            ?? throw new InvalidOperationException("Playlist property editing is not available.");
+        BMSTable table = ResolveActivePlaylistSummaryTable(row);
+        if (table == null
+            || !CanOpenPlaylistEditDialog
+            || !IsSummaryPropertyEditable(propertyName))
+        {
+            return false;
+        }
+        PlaylistPropertyEditSession editSession =
+            await service.CreateEditSessionAsync(table);
+        if (editSession == null)
+        {
+            return false;
+        }
+        PlaylistPropertySaveCommit commit = null;
         try
         {
-            PlaylistPropertySaveService service = propertySaveService
-                ?? throw new InvalidOperationException("Playlist property editing is not available.");
-            BMSTable table = ResolveActivePlaylistSummaryTable(row);
-            if (table == null
-                || !CanOpenPlaylistEditDialog
-                || !IsSummaryPropertyEditable(propertyName))
+            PlaylistPropertyValues values = editSession.Values;
+            switch (propertyName)
             {
-                return false;
-            }
-            if (pendingSummaryPropertySave != null)
-            {
-                if (!HasSamePlaylistIdentity(pendingSummaryPropertySave.Commit.Table, table)
-                    || !SummaryPropertyInputMatches(
-                        pendingSummaryPropertySave.Commit.AppliedValues,
-                        propertyName,
-                        text))
-                {
-                    throw new InvalidOperationException(
-                        "A playlist summary property save follow-up is pending. Retry the same edit before changing another value.");
-                }
-                if (!await service.IsRetryTargetCurrentAsync(
-                    pendingSummaryPropertySave.Session,
-                    pendingSummaryPropertySave.Commit))
-                {
-                    throw new InvalidOperationException(
-                        "Playlist properties changed while summary save follow-up was pending. Reopen the edit before saving again.");
-                }
-                try
-                {
-                    await Task.Run(() => service.ApplyPostSaveUpdatesAsync(
-                        pendingSummaryPropertySave.Commit));
-                }
-                catch (Exception followupFailure)
-                {
-                    await ReconcilePendingSummaryPropertySaveAsync(service, followupFailure);
-                    throw;
-                }
-                pendingSummaryPropertySave.Session.Dispose();
-                pendingSummaryPropertySave = null;
-                return true;
-            }
-
-            PlaylistPropertyEditSession editSession =
-                await service.CreateEditSessionAsync(table);
-            if (editSession == null)
-            {
-                return false;
-            }
-            PlaylistPropertySaveCommit commit = null;
-            try
-            {
-                PlaylistPropertyValues values = editSession.Values;
-                switch (propertyName)
-                {
-                    case nameof(PlaylistSummaryRow.Name):
+                case nameof(PlaylistSummaryRow.Name):
+                    {
+                        string name = (text ?? string.Empty).Trim();
+                        if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
                         {
-                            string name = (text ?? string.Empty).Trim();
-                            if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
-                            {
-                                return true;
-                            }
-                            values.Name = name;
-                            break;
+                            return true;
                         }
-                    case nameof(PlaylistSummaryRow.FolderName):
+                        values.Name = name;
+                        break;
+                    }
+                case nameof(PlaylistSummaryRow.FolderName):
+                    {
+                        string outputDirectory = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(
+                            values.Name,
+                            text);
+                        if (string.Equals(
+                            BMSTable.NormalizeOutputDirectoryName(values.OutputDirectory),
+                            BMSTable.NormalizeOutputDirectoryName(outputDirectory),
+                            StringComparison.Ordinal))
                         {
-                            string outputDirectory = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(
-                                values.Name,
-                                text);
-                            if (string.Equals(
-                                BMSTable.NormalizeOutputDirectoryName(values.OutputDirectory),
-                                BMSTable.NormalizeOutputDirectoryName(outputDirectory),
-                                StringComparison.Ordinal))
-                            {
-                                return true;
-                            }
-                            values.OutputDirectory = outputDirectory;
-                            break;
+                            return true;
                         }
-                    case nameof(PlaylistSummaryRow.CompatPrefix):
+                        values.OutputDirectory = outputDirectory;
+                        break;
+                    }
+                case nameof(PlaylistSummaryRow.CompatPrefix):
+                    {
+                        string compatPrefix = (text ?? string.Empty).TrimStart();
+                        if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
                         {
-                            string compatPrefix = (text ?? string.Empty).TrimStart();
-                            if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
-                            {
-                                return true;
-                            }
-                            values.CompatPrefix = compatPrefix;
-                            break;
+                            return true;
                         }
-                    case nameof(PlaylistSummaryRow.Symbol):
+                        values.CompatPrefix = compatPrefix;
+                        break;
+                    }
+                case nameof(PlaylistSummaryRow.Symbol):
+                    {
+                        string symbol = (text ?? string.Empty).Trim();
+                        if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
                         {
-                            string symbol = (text ?? string.Empty).Trim();
-                            if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
-                            {
-                                return true;
-                            }
-                            values.Symbol = symbol;
-                            break;
+                            return true;
                         }
-                    default:
-                        return false;
-                }
-                commit = await service.TrySaveAsync(editSession, values);
-                if (commit == null)
-                {
+                        values.Symbol = symbol;
+                        break;
+                    }
+                default:
                     return false;
-                }
-                try
-                {
-                    await Task.Run(() => service.ApplyPostSaveUpdatesAsync(commit));
-                }
-                catch (Exception followupFailure)
-                {
-                    PlaylistPropertyEditSession reconciledSession;
-                    try
-                    {
-                        reconciledSession = await service.ReconcileFailedSaveAsync(editSession, commit);
-                    }
-                    catch (Exception reconciliationFailure)
-                    {
-                        throw new AggregateException(followupFailure, reconciliationFailure).Flatten();
-                    }
-                    editSession.Dispose();
-                    editSession = null;
-                    pendingSummaryPropertySave = new PlaylistSummaryPendingPropertySave(
-                        commit,
-                        reconciledSession);
-                    ExceptionDispatchInfo.Capture(followupFailure).Throw();
-                    throw new InvalidOperationException("Playlist summary save failure propagation unexpectedly returned.");
-                }
-                return true;
             }
-            finally
+            commit = await service.TrySaveAsync(editSession, values, authority);
+            if (commit == null)
             {
-                editSession?.Dispose();
+                return false;
             }
+            await service.ApplyPostSaveUpdatesAsync(commit, authority);
+            return true;
         }
         finally
         {
-            summaryPropertyEditGate.Release();
+            editSession?.Dispose();
         }
-    }
-
-    private async Task ReconcilePendingSummaryPropertySaveAsync(
-        PlaylistPropertySaveService service,
-        Exception followupFailure)
-    {
-        PlaylistPropertyEditSession reconciledSession;
-        try
-        {
-            reconciledSession = await service.ReconcileFailedSaveAsync(
-                pendingSummaryPropertySave.Session,
-                pendingSummaryPropertySave.Commit);
-        }
-        catch (Exception reconciliationFailure)
-        {
-            throw new AggregateException(followupFailure, reconciliationFailure).Flatten();
-        }
-        pendingSummaryPropertySave.Session.Dispose();
-        pendingSummaryPropertySave = new PlaylistSummaryPendingPropertySave(
-            pendingSummaryPropertySave.Commit,
-            reconciledSession);
-    }
-
-    private static bool HasSamePlaylistIdentity(BMSTable left, BMSTable right)
-    {
-        return ReferenceEquals(left, right)
-            || (left?.playlist_id.HasValue == true
-                && right?.playlist_id == left.playlist_id);
-    }
-
-    private static bool SummaryPropertyInputMatches(
-        PlaylistPropertyValues values,
-        string propertyName,
-        string text)
-    {
-        return propertyName switch
-        {
-            nameof(PlaylistSummaryRow.Name) => string.Equals(
-                values.Name ?? string.Empty,
-                (text ?? string.Empty).Trim(),
-                StringComparison.Ordinal),
-            nameof(PlaylistSummaryRow.FolderName) => string.Equals(
-                BMSTable.NormalizeOutputDirectoryName(values.OutputDirectory),
-                BMSTable.NormalizeOutputDirectoryName(
-                    PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(values.Name, text)),
-                StringComparison.Ordinal),
-            nameof(PlaylistSummaryRow.CompatPrefix) => string.Equals(
-                values.CompatPrefix ?? string.Empty,
-                (text ?? string.Empty).TrimStart(),
-                StringComparison.Ordinal),
-            nameof(PlaylistSummaryRow.Symbol) => string.Equals(
-                values.Symbol ?? string.Empty,
-                (text ?? string.Empty).Trim(),
-                StringComparison.Ordinal),
-            _ => false
-        };
     }
 
     private static bool IsSummaryPropertyEditable(string propertyName)
@@ -609,21 +489,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             || string.Equals(propertyName, nameof(PlaylistSummaryRow.CompatPrefix), StringComparison.Ordinal)
             || string.Equals(propertyName, nameof(PlaylistSummaryRow.Symbol), StringComparison.Ordinal);
     }
-}
-
-internal sealed class PlaylistSummaryPendingPropertySave
-{
-    internal PlaylistSummaryPendingPropertySave(
-        PlaylistPropertySaveCommit commit,
-        PlaylistPropertyEditSession session)
-    {
-        Commit = commit ?? throw new ArgumentNullException(nameof(commit));
-        Session = session ?? throw new ArgumentNullException(nameof(session));
-    }
-
-    internal PlaylistPropertySaveCommit Commit { get; }
-
-    internal PlaylistPropertyEditSession Session { get; }
 }
 
 internal sealed class PlaylistSummaryPropertyEditCompletion

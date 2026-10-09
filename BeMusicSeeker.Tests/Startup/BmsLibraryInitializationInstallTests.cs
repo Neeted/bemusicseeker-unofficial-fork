@@ -24,7 +24,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public async Task Initialize_RestoresPendingWithoutAutomaticEstimationAndAllowsManualEstimation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryInitializationInstallTests), Guid.NewGuid().ToString("N"));
         string installed = Path.Combine(root, "Library", "Song");
         string pending = Path.Combine(root, "Pending");
@@ -69,7 +69,7 @@ public sealed class BmsLibraryInitializationInstallTests
                 }
             };
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
-            Assert.IsFalse(library.GetPendingEstimateQueueStatusSnapshot().IsActive);
+            Assert.IsFalse(library.GetInstallEstimationProgressSnapshot().IsActive);
             while (backgroundWork.TryDequeue(out Func<Task>? work))
             {
                 await work();
@@ -106,7 +106,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
         public void ObserveProgress(InstallEstimationProgressObservation observation) { }
 
-        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation) { }
+        public void ObserveResultApplied(InstallEstimationAppliedObservation observation) { }
 
         private sealed class Scope : IDisposable
         {
@@ -117,7 +117,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void UpsertSongs_FillsLr2FolderAndParentForInstalledBmsRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Installed");
@@ -139,7 +139,7 @@ public sealed class BmsLibraryInitializationInstallTests
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([file]);
 
             Assert.IsNull(file.Folder, "生成列の保存は捕捉済みの共通入力を書き換えません。");
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song stored = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(bmsPath, stored.path);
             Assert.AreEqual(file.Md5, stored.hash);
@@ -154,7 +154,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void UpsertSongs_PreservesShiftJisUnsupportedInstalledBmsRowsWithWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Installed😀");
@@ -177,7 +177,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
             Assert.IsNull(file.Folder);
             Assert.AreEqual(0, file.Warnings.Count, "保存による旧入力への警告書戻しを行いません。");
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song stored = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(bmsPath, stored.path);
             Assert.AreEqual(file.Md5, stored.hash);
@@ -222,7 +222,7 @@ public sealed class BmsLibraryInitializationInstallTests
 
             new BmsLibraryDbGateway(songDbPath).UpsertSongs([updated]);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(bmsPath, row.path);
             Assert.AreEqual("Updated Title", row.title);
@@ -285,7 +285,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_InitializesPendingWarningsAndCounts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directoryPackagePath = Path.Combine(lr2RootPath, "PendingDir");
@@ -349,7 +349,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void ReloadInstallTable_ExcludesRegisteredRootsBeforePendingPublicationAndPreservesSources()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string registeredRoot = Path.Combine(lr2RootPath, "Library");
@@ -388,8 +388,6 @@ public sealed class BmsLibraryInitializationInstallTests
             var owner = new PackageLifecycleOwner(
                 dbGateway,
                 new TestUiScheduler(() => null!),
-                (_, _) => { },
-                _ => { },
                 _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
@@ -426,7 +424,7 @@ public sealed class BmsLibraryInitializationInstallTests
             {
                 Assert.AreEqual(chart.Value, File.ReadAllText(chart.Key));
             }
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song catalogRow = verify.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(nestedChartPath, catalogRow.path);
             Assert.AreEqual("Keep catalog", catalogRow.title);
@@ -436,7 +434,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_CanonicalPathFirstWinsAndStartupCleanupConvergesDatabase()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string validPackagePath = Path.Combine(lr2RootPath, "CanonicalPending");
@@ -463,8 +461,6 @@ public sealed class BmsLibraryInitializationInstallTests
             var packageLifecycleOwner = new PackageLifecycleOwner(
                 dbGateway,
                 new TestUiScheduler(() => null!),
-                (_, _) => { },
-                _ => { },
                 _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
@@ -503,7 +499,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string packagePath = Path.Combine(lr2RootPath, "SoleAliasPending");
@@ -540,8 +536,6 @@ public sealed class BmsLibraryInitializationInstallTests
             var packageLifecycleOwner = new PackageLifecycleOwner(
                 dbGateway,
                 new TestUiScheduler(() => null!),
-                (_, _) => { },
-                _ => { },
                 _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
@@ -617,7 +611,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonDir");
@@ -656,7 +650,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_AddsBmsonResourceWarningWithoutMaterializingCompatibilityAdapter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonResource");
@@ -693,7 +687,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_ProjectsResourceHealthForAllPackageEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directoryPackagePath = Path.Combine(lr2RootPath, "PendingBmsonResources");
@@ -734,7 +728,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_RestoresNestedChartsAndPrioritizesNestedWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directoryPackagePath = Path.Combine(lr2RootPath, "PendingDir");
@@ -773,7 +767,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadSongTable_DetectsLeapYearFolderTimestampInAnyLeapYear()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearFolder");
@@ -819,7 +813,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LeapYearFolderRepair_RevalidatesApprovedCandidateAndPersistsAfterTimestampMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearRepair");
@@ -866,7 +860,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(0, repair.Failures.Count);
             Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
             Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.IsNull(persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
@@ -876,7 +870,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LeapYearFolderRepair_SkipsCandidateWhenTimestampChangesAfterCapture()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearReplacement");
@@ -924,7 +918,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(0, repair.RepairedCount);
             Assert.AreEqual(0, repair.Failures.Count);
             Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.AreEqual(0, persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
@@ -934,7 +928,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LeapYearFolderRepair_MissingMutationServiceFailsWithoutPersistingCatalogUpdate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "LeapYearMissingMutationService");
@@ -976,7 +970,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(1, repair.Failures.Count);
             Assert.AreEqual(folderPath, repair.Failures[0].Path);
             Assert.IsNotNull(repair.Failures[0].Exception);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.AreEqual(0, persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
@@ -986,7 +980,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void Initialize_SkipsApprovedLeapYearFolderWhenCatalogIdentityChangesBeforeAdmission()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "PublicReplacement");
@@ -1036,7 +1030,7 @@ public sealed class BmsLibraryInitializationInstallTests
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
 
             Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.AreEqual(0, persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
@@ -1046,7 +1040,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void Initialize_RepairsStableLeapYearFolderBeforeDeferredDialogAndAllowsReentry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string folderPath = Path.Combine(lr2RootPath, "Songs", "PublicStable");
@@ -1107,7 +1101,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
             Assert.IsTrue(timestampObservedWithoutModelGuards);
             Assert.IsTrue(callbackAfterReleaseObserved);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.IsNull(persistedFolder.adddate);
             Assert.IsNull(persistedFolder.date);
@@ -1117,7 +1111,7 @@ public sealed class BmsLibraryInitializationInstallTests
     [TestMethod]
     public void LoadInstallTable_AssignsBmsonSingleFileWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string singleFileDirectoryPath = Path.Combine(lr2RootPath, "Pending");

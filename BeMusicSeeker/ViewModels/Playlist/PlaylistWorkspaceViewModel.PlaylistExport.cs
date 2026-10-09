@@ -84,18 +84,15 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistOperationNotificationOwner notificationOwner = tables?.OperationNotificationOwner
             ?? new PlaylistOperationNotificationOwner();
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
-        bool temporaryDataUrl = false;
-        Uri originalDataUrl = bmsTable.Data_url;
         try
         {
-            if (string.IsNullOrWhiteSpace(bmsTable.Data_url?.ToString()))
+            string contents;
+            string dataContents;
+            using (bmsTable.ReaderWriterLock.GetReaderGuard())
             {
-                bmsTable.Data_url = new Uri(Path.GetFileName(fileNameData), UriKind.Relative);
-                temporaryDataUrl = true;
+                contents = bmsTable.HeaderToJson(Path.GetFileName(fileNameData));
+                dataContents = bmsTable.DataToJson();
             }
-
-            string contents = bmsTable.HeaderToJson();
-            string dataContents = bmsTable.DataToJson();
             try
             {
                 File.WriteAllText(fileNameHeader, contents);
@@ -110,10 +107,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            if (temporaryDataUrl)
-            {
-                bmsTable.Data_url = originalDataUrl;
-            }
             PublishPlaylistOperationNotificationReceipt(
                 session,
                 "playlist table JSON export notification");

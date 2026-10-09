@@ -110,6 +110,10 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private readonly ISettingsEditSession settingsEditSession;
 
+    private readonly ChartFileOperationSynchronizer operationAdmission;
+
+    private readonly ChartFileOperationSynchronizer playlistOperationAdmission;
+
     private readonly SemaphoreSlim mainOperationSemaphore;
 
     private readonly StartupProgressWorkflowOwner startupProgressWorkflowOwner;
@@ -175,32 +179,34 @@ internal sealed class ShellShutdownWorkflowOwner
     private bool operationModeRestartAccepted;
 
     /// <summary>
-    /// Creates the owner that coordinates shell shutdown preparation, terminal cleanup, and the final application-lifetime request.
+    /// 構成の新規L/P受付を閉じ、終了準備、実終端の回収、最終的なApplication終了要求を調整します。
     /// </summary>
-    /// <param name="startupUpdateWorkflow">Startup update workflow that shares shutdown preparation.</param>
-    /// <param name="elevatedProcessWarningWorkflow">Elevated-process warning workflow notified during shutdown.</param>
-    /// <param name="startupBackgroundTaskScheduler">Owner of startup background tasks that must drain.</param>
-    /// <param name="regularChartListOwner">Regular chart list owner that must stop background work.</param>
-    /// <param name="playlistWorkspace">Playlist workspace whose operations must drain.</param>
-    /// <param name="playHistoryWorkflowOwner">Play-history workflow owner whose refresh must drain.</param>
-    /// <param name="packageInstallWorkflow">Package-install workflow cancelled during shutdown.</param>
-    /// <param name="maintenanceRescanWorkflow">Maintenance rescan workflow cancelled during shutdown.</param>
-    /// <param name="folderAutoRenameWorkflow">Folder rename workflow cancelled during shutdown.</param>
-    /// <param name="playbackPanel">Playback owner closed during terminal cleanup.</param>
-    /// <param name="settingsEditSession">Settings session saved during terminal cleanup.</param>
-    /// <param name="mainOperationSemaphore">Semaphore used to wait for the main operation boundary.</param>
-    /// <param name="startupProgressWorkflowOwner">Startup progress owner used to block and unblock interaction.</param>
-    /// <param name="markCoordinatedShutdownStarted">Marks the process lifetime as coordinated before preparation.</param>
-    /// <param name="requestApplicationShutdown">Requests final application termination after terminal cleanup.</param>
+    /// <param name="startupUpdateWorkflow">終了準備を共有する起動更新処理。</param>
+    /// <param name="elevatedProcessWarningWorkflow">終了開始を通知する昇格警告処理。</param>
+    /// <param name="startupBackgroundTaskScheduler">受理済み起動処理の実終端を所有する主体。</param>
+    /// <param name="regularChartListOwner">停止と背景処理の終端を待つ通常一覧。</param>
+    /// <param name="playlistWorkspace">表示・同期等の終端を待つプレイリスト。</param>
+    /// <param name="playHistoryWorkflowOwner">表示更新の終端を待つ履歴処理。</param>
+    /// <param name="packageInstallWorkflow">終了時に取消し、受理済み導入の終端を待つ主体。</param>
+    /// <param name="maintenanceRescanWorkflow">終了時に取消し、再走査の終端を待つ主体。</param>
+    /// <param name="folderAutoRenameWorkflow">終了時に取消し、改名の終端を待つ主体。</param>
+    /// <param name="playbackPanel">終端の後処理で停止・回収する再生主体。</param>
+    /// <param name="settingsEditSession">終端の後処理で保存する設定セッション。</param>
+    /// <param name="operationAdmission">Close開始時に新規要求を閉じる構成のL受付。</param>
+    /// <param name="playlistOperationAdmission">Close開始時に新規要求を閉じる構成のP受付。</param>
+    /// <param name="mainOperationSemaphore">進行中の初期化・再読込みを待つ既存境界。</param>
+    /// <param name="startupProgressWorkflowOwner">終了待ち中の画面入力を制御する起動進捗。</param>
+    /// <param name="markCoordinatedShutdownStarted">終了準備前に協調終了を記録する処理。</param>
+    /// <param name="requestApplicationShutdown">実終端の後処理後にApplication終了を要求する処理。</param>
     /// <param name="startApplicationRestart">終端の後処理後に後継プロセスを起動する処理。</param>
     /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗を通知するサービス。</param>
     /// <param name="reportRestartFailure">再起動失敗を通知できなかった場合の報告処理。</param>
-    /// <param name="stopPerformanceDiagnostics">Stops performance diagnostics during preparation.</param>
-    /// <param name="dispatchToUi">Dispatches terminal UI work to the shell thread.</param>
-    /// <param name="logShutdown">Writes normal shutdown diagnostics.</param>
-    /// <param name="logShutdownWarning">Writes shutdown warning diagnostics.</param>
-    /// <param name="formatTextForLog">Formats untrusted values for shutdown diagnostics.</param>
-    /// <param name="reportSettingsSaveFailure">Presents a save warning outside owner locks; cleanup continues even if notification fails.</param>
+    /// <param name="stopPerformanceDiagnostics">終了準備で性能診断の終端を待つ処理。</param>
+    /// <param name="dispatchToUi">画面上の終端処理を所有Dispatcherへ渡す処理。</param>
+    /// <param name="logShutdown">通常の終了診断を記録する処理。</param>
+    /// <param name="logShutdownWarning">終了時の警告診断を記録する処理。</param>
+    /// <param name="formatTextForLog">終了診断用に値を整形する処理。</param>
+    /// <param name="reportSettingsSaveFailure">owner lock外で保存警告を通知する処理。通知失敗時も後処理を継続します。</param>
     internal ShellShutdownWorkflowOwner(
         StartupUpdateWorkflowOwner startupUpdateWorkflow,
         ElevatedProcessWarningWorkflowOwner elevatedProcessWarningWorkflow,
@@ -213,6 +219,8 @@ internal sealed class ShellShutdownWorkflowOwner
         FolderAutoRenameWorkflowOwner folderAutoRenameWorkflow,
         PlaybackPanelViewModel playbackPanel,
         ISettingsEditSession settingsEditSession,
+        ChartFileOperationSynchronizer operationAdmission,
+        ChartFileOperationSynchronizer playlistOperationAdmission,
         SemaphoreSlim mainOperationSemaphore,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<string> markCoordinatedShutdownStarted,
@@ -239,6 +247,8 @@ internal sealed class ShellShutdownWorkflowOwner
         this.folderAutoRenameWorkflow = folderAutoRenameWorkflow ?? throw new ArgumentNullException(nameof(folderAutoRenameWorkflow));
         this.playbackPanel = playbackPanel ?? throw new ArgumentNullException(nameof(playbackPanel));
         this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+        this.operationAdmission = operationAdmission ?? throw new ArgumentNullException(nameof(operationAdmission));
+        this.playlistOperationAdmission = playlistOperationAdmission ?? throw new ArgumentNullException(nameof(playlistOperationAdmission));
         this.mainOperationSemaphore = mainOperationSemaphore ?? throw new ArgumentNullException(nameof(mainOperationSemaphore));
         this.startupProgressWorkflowOwner = startupProgressWorkflowOwner ?? throw new ArgumentNullException(nameof(startupProgressWorkflowOwner));
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
@@ -629,6 +639,7 @@ internal sealed class ShellShutdownWorkflowOwner
             }
 
             closingOrClosed = true;
+            CloseOperationAdmissions();
             var completion = new TaskCompletionSource<ShellShutdownWorkflowCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             windowCloseTask = completion.Task;
             _ = CompleteWindowCloseAsync(completion);
@@ -730,6 +741,7 @@ internal sealed class ShellShutdownWorkflowOwner
             preparationStarted = true;
             preparationRunning = true;
             closingOrClosed = true;
+            CloseOperationAdmissions();
             preparationWasUpdate = updatePreparation;
             completion = new TaskCompletionSource<ShutdownPreparationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             preparationTask = completion.Task;
@@ -964,8 +976,15 @@ internal sealed class ShellShutdownWorkflowOwner
             sqliteCloseFailureCount);
     }
 
+    private void CloseOperationAdmissions()
+    {
+        operationAdmission.CloseAdmission();
+        playlistOperationAdmission.CloseAdmission();
+    }
+
     private Task BeginShutdownRequested(string reason)
     {
+        CloseOperationAdmissions();
         if (Interlocked.CompareExchange(ref shutdownRequested, 1, 0) != 0)
         {
             return shutdownStartCompletion.Task.Unwrap();
@@ -1124,12 +1143,11 @@ internal sealed class ShellShutdownWorkflowOwner
     {
         await WaitForConditionAsync(
             "deferredPlaylistWorkers",
-            () => playlistReferenceApplyWorkflow.IsIdle
-                && playlistWorkspace.IsDeferredExternalPlaylistSyncIdle,
+            () => playlistReferenceApplyWorkflow.IsIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => playlistReferenceApplyWorkflow.DescribeWaitState()
-                + " " + playlistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState()).ConfigureAwait(false);
+                + " " + "playlistSyncOwnedByPlaylistAdmission=true").ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
@@ -1146,6 +1164,10 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForLibraryShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
     {
+        if (Volatile.Read(ref libraryAttached))
+        {
+            await files.OperationAdmission.WaitForIdleAsync().ConfigureAwait(false);
+        }
         await WaitForConditionAsync(
             "libraryShutdownWork",
             () => !Volatile.Read(ref libraryAttached) || !files.HasShutdownBlockingWork,
@@ -1156,6 +1178,7 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForPlaylistShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
     {
+        if (Volatile.Read(ref playlistAttached)) { await tables.WaitForPlaylistMutationIdleAsync().ConfigureAwait(false); }
         await WaitForConditionAsync(
             "playlistShutdownWork",
             () => !Volatile.Read(ref playlistAttached) || !tables.HasShutdownBlockingWork,

@@ -9,12 +9,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class KeywordSearchPresentationTests
 {
-    [TestInitialize]
-    public void TestInitialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-    }
-
     [TestMethod]
     public void BuildKeywordSearchWarningText_UsesContextSpecificFields()
     {
@@ -42,9 +36,11 @@ public sealed class KeywordSearchPresentationTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryKeywordFilterChangedThroughWorkspaceUpdatesWarningPresentation()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
 
         viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "memo:alpha";
 

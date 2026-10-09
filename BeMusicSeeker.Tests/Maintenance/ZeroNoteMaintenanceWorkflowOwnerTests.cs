@@ -18,7 +18,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         var owner = new ZeroNoteMaintenanceWorkflowOwner(
             () => null!,
             synchronizer,
-            _ => recheckCount++);
+            (_, capability) => recheckCount++);
 
         bool rechecked = await owner.RecheckAsync();
 
@@ -35,7 +35,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         var owner = new ZeroNoteMaintenanceWorkflowOwner(
             () => library,
             synchronizer,
-            actualLibrary =>
+            (actualLibrary, _) =>
             {
                 Assert.AreSame(library, actualLibrary);
                 Interlocked.Increment(ref recheckCount);
@@ -62,7 +62,7 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         var owner = new ZeroNoteMaintenanceWorkflowOwner(
             () => library,
             new ChartFileOperationSynchronizer(),
-            _ => throw new InvalidOperationException("recheck failed"));
+            (_, capability) => throw new InvalidOperationException("recheck failed"));
 
         InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
             () => owner.RecheckAsync());

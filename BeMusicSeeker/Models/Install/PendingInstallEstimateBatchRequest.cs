@@ -24,10 +24,12 @@ internal sealed class PendingInstallEstimateBatchRequest
     public string[] RegroupEligibleSourceDirectories { get; }
 
     /// <summary>
-    /// Gets the optional prepared partition and source-surface snapshot. Consumers may reuse it only
-    /// while its composite currentness stamp matches the processing capture.
+    /// 同じ受理操作の評価へ再利用する、準備済み分割と入力元リソースです。
     /// </summary>
     public PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; }
+
+    /// <summary>同じ取り込み操作が捕捉した設定。手動推定は受付後の評価準備で捕捉します。</summary>
+    internal BmsLibraryOptionsSnapshot OptionsSnapshot { get; }
 
     internal PerformanceInteraction PerformanceInteraction { get; }
 
@@ -38,8 +40,10 @@ internal sealed class PendingInstallEstimateBatchRequest
         IEnumerable<string> regroupEligibleSourceDirectories = null,
         int deferredPackageCount = 0,
         PendingEstimateSourceBatchSnapshot batchSourceSnapshot = null,
-        PerformanceInteraction? performanceInteraction = null)
+        PerformanceInteraction? performanceInteraction = null,
+        BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
+        OptionsSnapshot = optionsSnapshot;
         Source = source;
         Packages = [.. (packages ?? []).Where(package => package != null)];
         DeferredPackageCount = Math.Max(0, deferredPackageCount);

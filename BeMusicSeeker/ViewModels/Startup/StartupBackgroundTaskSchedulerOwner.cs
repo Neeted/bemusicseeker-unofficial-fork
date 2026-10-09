@@ -898,6 +898,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         return true;
     }
 
+    /// <summary>
+    /// 新規受付を閉じ、任意の未開始要求を破棄し、受理済み必須処理を実終端へ進めます。
+    /// </summary>
+    /// <param name="reason">終了要求の診断理由。</param>
+    /// <remarks>登録完了通知は終了後に待たず、実処理の並列枠と先行必須処理の終端順は維持します。</remarks>
     internal void RequestShutdown(string reason)
     {
         bool shouldStartWorker;
@@ -1172,8 +1177,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             return false;
         }
         if (IsPostInitializationIdleOnly(request.Name)
-            && (!postInitializationSchedulingComplete
-                || !requiredInitializationSchedulingComplete
+            && ((!shutdownRequested
+                    && (!postInitializationSchedulingComplete || !requiredInitializationSchedulingComplete))
                 || runningRequiredCount > 0
                 || queue.Any(candidate => !candidate.IsPostInitialization)))
         {

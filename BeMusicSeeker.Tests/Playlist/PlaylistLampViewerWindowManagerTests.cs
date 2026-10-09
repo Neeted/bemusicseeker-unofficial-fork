@@ -165,7 +165,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "manager.collection-removal.other-open");
                 PlaylistLampViewerWindow otherWindow = otherOpen.GetAwaiter().GetResult()
                     ?? throw new AssertFailedException("The other viewer did not open.");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 int firstClosedCount = 0;
                 TaskCompletionSource<bool> firstClosed = Completion<bool>();
@@ -181,10 +181,10 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 // This is the real active playlist collection mutation watched by the
                 // production BmsLibraryPlaylistLampDataSource subscription.
                 Assert.IsTrue(fixture.Playlist.BMSTables.Remove(fixture.Table));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(
                     firstClosed.Task,
                     "manager.collection-removal.primary-closed");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, firstClosedCount);
                 Assert.AreEqual(1, fixture.Manager.Count);
@@ -231,14 +231,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 PlaylistLampViewerSegmentViewModel secondGlobalRank = secondWindow.ViewModel.PositiveRankSegments
                     .Single(segment => segment.CategoryKey == "A");
                 firstGlobalRank.Invoke();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(firstGlobalRank.IsSelected);
                 Assert.IsFalse(secondGlobalRank.IsSelected);
                 Assert.IsTrue(secondWindow.IsVisible);
                 Assert.IsTrue(secondGlobalRank.IsInvokable);
 
                 secondGlobalRank.Invoke();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(firstGlobalRank.IsSelected);
                 Assert.IsTrue(secondGlobalRank.IsSelected);
                 Assert.AreSame(firstGlobalRank, firstWindow.ViewModel.SelectedSegment);
@@ -252,10 +252,10 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     firstClosed.TrySetResult(true);
                 };
                 firstWindow.Close();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(
                     firstClosed.Task,
                     "manager.same-playlist.first-closed");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, firstClosedCount);
                 Assert.AreEqual(1, fixture.Manager.Count);
@@ -276,30 +276,37 @@ public sealed class PlaylistLampViewerWindowManagerTests
             fixture =>
             {
                 Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    source.CaptureStarted.Task,
-                    "manager.presentable-gate.capture-started");
-                TestUiDispatcherHost.Drain();
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        source.CaptureStarted.Task,
+                        "manager.presentable-gate.capture-started");
 
-                Assert.AreEqual(0, fixture.Manager.Count);
-                Assert.IsFalse(Application.Current.Windows
-                    .OfType<PlaylistLampViewerWindow>()
-                    .Any(window => window.IsVisible));
-                Assert.AreEqual(0, dialogs.MessageCount);
+                    Assert.AreEqual(0, fixture.Manager.Count);
+                    Assert.IsFalse(Application.Current.Windows
+                        .OfType<PlaylistLampViewerWindow>()
+                        .Any(window => window.IsVisible));
+                    Assert.AreEqual(0, dialogs.MessageCount);
 
-                source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    open,
-                    "manager.presentable-gate.ready");
-                TestUiDispatcherHost.Drain();
+                    source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        open,
+                        "manager.presentable-gate.ready");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.IsNotNull(open.GetAwaiter().GetResult());
-                Assert.AreEqual(1, fixture.Manager.Count);
-                Assert.AreEqual(1, fixture.PreparedWindowCount);
-                Assert.AreEqual(1, Application.Current.Windows
-                    .OfType<PlaylistLampViewerWindow>()
-                    .Count(window => window.IsVisible));
-                Assert.AreEqual(0, dialogs.MessageCount);
+                    Assert.IsNotNull(open.GetAwaiter().GetResult());
+                    Assert.AreEqual(1, fixture.Manager.Count);
+                    Assert.AreEqual(1, fixture.PreparedWindowCount);
+                    Assert.AreEqual(1, Application.Current.Windows
+                        .OfType<PlaylistLampViewerWindow>()
+                        .Count(window => window.IsVisible));
+                    Assert.AreEqual(0, dialogs.MessageCount);
+                }
+                finally
+                {
+                    source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.presentable-gate.finally-open");
+                }
             });
     }
 
@@ -327,28 +334,36 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 };
                 dialogs.BlockedMessageResult = Completion<UiDialogResult>();
 
-                source.Replace(PlaylistLampAggregationRequest.Failed("1", "live aggregation failure"));
-                source.Raise("1", 1);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    dialogs.FirstMessage.Task,
-                    "manager.live-failed.dialog-presented");
+                try
+                {
+                    source.Replace(PlaylistLampAggregationRequest.Failed("1", "live aggregation failure"));
+                    source.Raise("1", 1);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        dialogs.FirstMessage.Task,
+                        "manager.live-failed.dialog-presented");
 
-                // Keep the first dialog pending while another terminal publication arrives.
-                // FailureHandled must suppress the duplicate notification, but the original
-                // viewer remains the one that is eventually closed.
-                source.Raise("1", 2);
-                TestUiDispatcherHost.Drain();
-                Assert.AreEqual(1, dialogs.MessageCount);
+                    // Keep the first dialog pending while another terminal publication arrives.
+                    // FailureHandled must suppress the duplicate notification, but the original
+                    // viewer remains the one that is eventually closed.
+                    source.Raise("1", 2);
+                    Assert.AreEqual(1, dialogs.MessageCount);
 
-                dialogs.BlockedMessageResult.TrySetResult(
-                    UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(closed.Task, "manager.live-failed.closed");
+                    dialogs.BlockedMessageResult.TrySetResult(
+                        UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.closed");
 
-                Assert.AreEqual(1, closedCount);
-                Assert.AreEqual(0, fixture.Manager.Count);
-                Assert.AreEqual(1, dialogs.MessageCount);
-                Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
-                Assert.AreEqual(1, source.DisposeCount);
+                    Assert.AreEqual(1, closedCount);
+                    Assert.AreEqual(0, fixture.Manager.Count);
+                    Assert.AreEqual(1, dialogs.MessageCount);
+                    Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
+                    Assert.AreEqual(1, source.DisposeCount);
+                }
+                finally
+                {
+                    dialogs.BlockedMessageResult.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    fixture.Manager.Dispose();
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.finally-closed");
+                }
             });
     }
 
@@ -363,21 +378,30 @@ public sealed class PlaylistLampViewerWindowManagerTests
             fixture =>
             {
                 Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    source.CaptureStarted.Task,
-                    "manager.pending-cancel.capture-started");
+                try
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        source.CaptureStarted.Task,
+                        "manager.pending-cancel.capture-started");
 
-                fixture.Manager.Dispose();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.pending-cancel.open-canceled");
-                TestUiDispatcherHost.Drain();
+                    fixture.Manager.Dispose();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.pending-cancel.open-canceled");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.IsNull(open.GetAwaiter().GetResult());
-                Assert.AreEqual(0, fixture.Manager.Count);
-                Assert.AreEqual(0, dialogs.MessageCount);
-                Assert.AreEqual(1, source.DisposeCount);
-                Assert.IsFalse(Application.Current.Windows
-                    .OfType<PlaylistLampViewerWindow>()
-                    .Any(window => window.IsVisible));
+                    Assert.IsNull(open.GetAwaiter().GetResult());
+                    Assert.AreEqual(0, fixture.Manager.Count);
+                    Assert.AreEqual(0, dialogs.MessageCount);
+                    Assert.AreEqual(1, source.DisposeCount);
+                    Assert.IsFalse(Application.Current.Windows
+                        .OfType<PlaylistLampViewerWindow>()
+                        .Any(window => window.IsVisible));
+                }
+                finally
+                {
+                    fixture.Manager.Dispose();
+                    source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.pending-cancel.finally-open");
+                }
             },
             prepareWindowPresentation: false);
     }
@@ -397,36 +421,32 @@ public sealed class PlaylistLampViewerWindowManagerTests
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                new Settings
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = settingsRoot;
+                values.StandaloneBmsRootPaths = settingsRoot;
+                values.BMSInstallDir = settingsRoot;
+                values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                values.EnablePlaylistUrlCompletion = false;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UseExternalPanelImage = false;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+                values.IsLR2BackupEnabled = false;
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            }),
+                (presentationScope, _, owner) =>
                 {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = settingsRoot,
-                    StandaloneBmsRootPaths = settingsRoot,
-                    BMSInstallDir = settingsRoot,
-                    TableListURL = new Uri("http://127.0.0.1:1/table-list.json"),
-                    EnablePlaylistUrlCompletion = false,
-                    ScanBmsFilesOnStartup = false,
-                    SkipInitPlaylistLoad = true,
-                    UseBeatorajaScoreDb = false,
-                    EnableBeatorajaBmtOutput = false,
-                    UseExternalPanelImage = false,
-                    UsePlayeruBMplay = false,
-                    UsePlayerLR2body = false,
-                    UsePlayerBMIIDXView = false,
-                    IsLR2BackupEnabled = false,
-                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-                },
-                (_, owner) =>
-                {
-                    var presentationScope = new TestWindowPresentationScope(
-                        Application.Current,
-                        TestWindowPresentationScope.GetCurrentNativeThreadId());
                     ManagerTestFixture? fixture = null;
                     ExceptionDispatchInfo? bodyFailure = null;
                     Exception? cleanupFailure = null;
                     try
                     {
-                        presentationScope.PrepareForOwnedPresentation(owner);
                         owner.Show();
                         owner.UpdateLayout();
                         fixture = new ManagerTestFixture(
@@ -469,49 +489,17 @@ public sealed class PlaylistLampViewerWindowManagerTests
                         cleanupFailure = ex;
                     }
 
-                    try
-                    {
-                        presentationScope.Cleanup();
-                    }
-                    catch (Exception ex)
-                    {
-                        cleanupFailure = cleanupFailure == null
-                            ? ex
-                            : new AggregateException(
-                                "Manager test presentation cleanup failed.",
-                                cleanupFailure,
-                                ex);
-                    }
-
-                    ExceptionDispatchInfo? presentationFailure = presentationScope.GetPresentationFailure();
                     if (bodyFailure != null)
                     {
-                        if (presentationFailure != null)
-                        {
-                            bodyFailure.SourceException.Data["TestWindowPresentationFailure"] =
-                                presentationFailure.SourceException.ToString();
-                        }
                         if (cleanupFailure != null)
                         {
-                            bodyFailure.SourceException.Data["TestWindowPresentationCleanupFailure"] =
-                                cleanupFailure.ToString();
+                            bodyFailure.SourceException.Data["ManagerFixtureCleanupFailure"] = cleanupFailure.ToString();
                         }
                         bodyFailure.Throw();
                     }
-                    if (presentationFailure != null)
-                    {
-                        if (cleanupFailure != null)
-                        {
-                            presentationFailure.SourceException.Data["TestWindowPresentationCleanupFailure"] =
-                                cleanupFailure.ToString();
-                        }
-                        presentationFailure.Throw();
-                    }
-                    if (cleanupFailure != null)
-                    {
-                        ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
-                    }
-                });
+                    if (cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }
+                },
+                prepareWindowForPresentation: (windowTest, owner) => windowTest.PrepareForOwnedPresentation(owner));
         }
         finally
         {

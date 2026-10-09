@@ -62,18 +62,77 @@ internal static class TestUiDispatcherHost
         LazyThreadSafetyMode.ExecutionAndPublication);
 
     /// <summary>
-    /// Gets the dispatcher owned by the shared WPF test application.
+    /// 共有test Applicationの活動中Dispatcherを取得し、既終端なら所有threadと元例外を回収します。
     /// </summary>
     internal static Dispatcher Dispatcher
-        => host.Value.Dispatcher;
+        => GetActiveHost().Dispatcher;
+
+    private static HostState GetActiveHost()
+    {
+        HostState state = host.Value;
+        if (state.Completed.IsSet)
+        {
+            JoinOwnedDispatcher(state.Thread, state.Completed, () => state.TerminalFailure);
+            throw new InvalidOperationException("The owned test dispatcher has completed.");
+        }
+        return state;
+    }
 
     /// <summary>
-    /// Runs an action synchronously on the shared WPF application dispatcher.
+    /// 共有Dispatcherの要求終端を待ち、host終了時は元例外と所有thread回収を保持します。
     /// </summary>
     internal static void Invoke(Action action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        host.Value.Dispatcher.Invoke(action);
+        HostState state = GetActiveHost();
+        InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure, action);
+    }
+
+    /// <summary>実Dispatcher要求か所有ホストの終端を観測し、元ホスト例外とthread回収を保持します。</summary>
+    /// <remarks>専用STAの検査も共有Applicationと同じ受付・終端処理を使います。状態の再起動は行いません。</remarks>
+    internal static void InvokeOnOwnedDispatcher(Dispatcher dispatcher, Thread thread, ManualResetEventSlim completed,
+        Func<Exception?> terminalFailure, Action action, DispatcherPriority priority = DispatcherPriority.Send)
+    {
+        if (completed.IsSet)
+        {
+            JoinOwnedDispatcher(thread, completed, terminalFailure);
+            throw new InvalidOperationException("The owned test dispatcher has completed.");
+        }
+        if (dispatcher.CheckAccess())
+        {
+            dispatcher.Invoke(action, priority);
+            return;
+        }
+
+        DispatcherOperation operation = dispatcher.InvokeAsync(action, priority);
+        int outcome = WaitHandle.WaitAny([((IAsyncResult)operation.Task).AsyncWaitHandle, completed.WaitHandle]);
+        if (outcome == 1 || operation.Status == DispatcherOperationStatus.Aborted)
+        {
+            // Dispatcher停止の二次失敗でqueueの自動Abortまで進まなくても、所有要求を終端化します。
+            operation.Abort();
+            JoinOwnedDispatcher(thread, completed, terminalFailure);
+            throw new InvalidOperationException("The owned test dispatcher ended before completing its request.");
+        }
+        operation.Task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>Dispatcher停止の二次失敗を記録し、所有threadの終端通知を必ず発行します。</summary>
+    internal static void CompleteOwnedDispatcher(Dispatcher? dispatcher, ManualResetEventSlim completed, Action<Exception> recordFailure)
+    {
+        try
+        {
+            if (dispatcher != null && !dispatcher.HasShutdownFinished) { dispatcher.InvokeShutdown(); }
+        }
+        catch (Exception exception) { recordFailure(exception); }
+        finally { completed.Set(); }
+    }
+
+    /// <summary>回収が戻る前に所有threadをjoinし、保存済みの元ホスト例外を返します。</summary>
+    internal static void JoinOwnedDispatcher(Thread thread, ManualResetEventSlim completed, Func<Exception?> terminalFailure)
+    {
+        completed.Wait();
+        thread.Join();
+        if (terminalFailure() is { } failure) { ExceptionDispatchInfo.Capture(failure).Throw(); }
     }
 
     /// <summary>
@@ -82,8 +141,8 @@ internal static class TestUiDispatcherHost
     internal static void RunWindowTest(Action<TestWindowPresentationScope> action)
     {
         ArgumentNullException.ThrowIfNull(action);
-        HostState state = host.Value;
-        state.Dispatcher.Invoke(() =>
+        HostState state = GetActiveHost();
+        Invoke(() =>
         {
             var scope = new TestWindowPresentationScope(state.Application, state.NativeThreadId);
             ExceptionDispatchInfo? bodyFailure = null;
@@ -142,30 +201,57 @@ internal static class TestUiDispatcherHost
         });
     }
 
-    /// <summary>
-    /// Processes queued dispatcher work through application-idle priority.
-    /// </summary>
-    internal static void Drain()
+    /// <summary>予約済みのBinding・配置・描画反映をLoaded境界まで進めます。</summary>
+    /// <remarks>
+    /// 実controlの値・選択・配置は呼出側で確認します。機能Task、Background予約、
+    /// 閉鎖の終端や全Dispatcherのidleは保証せず、それぞれの実通知・Taskで待ちます。
+    /// </remarks>
+    internal static void ProcessQueuedPresentation()
     {
-        Dispatcher dispatcher = host.Value.Dispatcher;
-        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
+        HostState state = GetActiveHost();
+        InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure,
+            () => { }, DispatcherPriority.Loaded);
     }
 
     /// <summary>
-    /// Pumps the host dispatcher until an explicit asynchronous outcome completes.
+    /// 実機能Taskの成功・失敗・取消まで共通Dispatcherを進めます。通常完了へ局所期限を加えません。
     /// </summary>
     /// <param name="task">The task that represents the outcome under test.</param>
     /// <param name="operationName">A diagnostic name used when the outcome does not complete.</param>
     /// <remarks>
-    /// The watchdog only detects a missing outcome; it is not part of the normal completion path.
+    /// 表示・閉鎖などの期限付き観測にはAwaitPresentationOnDispatcherを使います。
     /// </remarks>
     internal static void AwaitTaskOnDispatcher(Task task, string operationName)
+        => AwaitOnDispatcher(task, operationName, boundedObservation: false);
+
+    /// <summary>
+    /// 実処理の終端前に必要な通知を待ち、通知前の失敗・取消と正常終端時の通知欠落を表面化します。
+    /// 呼出元は実処理が待つ入力をfinallyで解放し、開始済みTaskを回収します。
+    /// </summary>
+    internal static async Task AwaitNotificationAsync(Task notification, Task operation, string operationName)
+    {
+        Task first = await Task.WhenAny(notification, operation).ConfigureAwait(false);
+        if (first == operation)
+        {
+            await operation.ConfigureAwait(false);
+            if (!notification.IsCompleted)
+            {
+                throw new InvalidOperationException($"The operation '{operationName}' completed without its required notification.");
+            }
+        }
+        await notification.ConfigureAwait(false);
+    }
+
+    /// <summary>描画・閉鎖・native解放の通知欠落を期限付きで検出します。</summary>
+    internal static void AwaitPresentationOnDispatcher(Task task, string operationName)
+        => AwaitOnDispatcher(task, operationName, boundedObservation: true);
+
+    private static void AwaitOnDispatcher(Task task, string operationName, bool boundedObservation)
     {
         ArgumentNullException.ThrowIfNull(task);
         ArgumentException.ThrowIfNullOrWhiteSpace(operationName);
 
-        Dispatcher dispatcher = host.Value.Dispatcher;
+        Dispatcher dispatcher = Dispatcher;
         if (!dispatcher.CheckAccess())
         {
             throw new InvalidOperationException(
@@ -181,7 +267,7 @@ internal static class TestUiDispatcherHost
         var frame = new DispatcherFrame();
         bool timedOut = false;
         ExceptionDispatchInfo? dispatchFailure = null;
-        var watchdog = new DispatcherTimer(
+        DispatcherTimer? watchdog = boundedObservation ? new DispatcherTimer(
             TimeSpan.FromSeconds(5),
             DispatcherPriority.Send,
             (_, _) =>
@@ -189,7 +275,7 @@ internal static class TestUiDispatcherHost
                 timedOut = true;
                 frame.Continue = false;
             },
-            dispatcher);
+            dispatcher) : null;
 
         _ = task.ContinueWith(
             _ =>
@@ -210,14 +296,17 @@ internal static class TestUiDispatcherHost
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-        watchdog.Start();
+        if (boundedObservation)
+        {
+            watchdog?.Start();
+        }
         try
         {
             Dispatcher.PushFrame(frame);
         }
         finally
         {
-            watchdog.Stop();
+            watchdog?.Stop();
         }
 
         if (dispatchFailure != null)
@@ -250,7 +339,9 @@ internal static class TestUiDispatcherHost
 
         try
         {
-            state.Dispatcher.Invoke(() =>
+            if (!state.Completed.IsSet)
+            {
+                Invoke(() =>
             {
                 try
                 {
@@ -276,15 +367,19 @@ internal static class TestUiDispatcherHost
                     }
                 }
             });
+            }
         }
         catch (Exception ex)
         {
             cleanupFailure ??= ex;
         }
 
-        state.Completed.Wait();
-        state.Thread.Join();
-        cleanupFailure ??= state.TerminalFailure;
+        try { JoinOwnedDispatcher(state.Thread, state.Completed, () => state.TerminalFailure); }
+        catch (Exception exception)
+        {
+            if (cleanupFailure != null) { exception.Data["TestApplicationCleanupFailure"] = cleanupFailure.ToString(); }
+            throw;
+        }
         if (cleanupFailure != null)
         {
             ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
@@ -332,7 +427,11 @@ internal static class TestUiDispatcherHost
             }
             finally
             {
-                completed.Set();
+                CompleteOwnedDispatcher(dispatcher, completed, exception =>
+                {
+                    if (terminalFailure == null) { terminalFailure = exception; }
+                    else { terminalFailure.Data["TestDispatcherShutdownFailure"] = exception.ToString(); }
+                });
             }
         })
         {
@@ -398,6 +497,7 @@ internal sealed class TestWindowPresentationScope
     private const uint SwpNoZOrder = 0x0004;
     private const uint SwpNoActivate = 0x0010;
     private const int GwlExStyle = -20;
+    private const uint GwOwner = 4;
     private const long WsExNoActivate = 0x08000000L;
     private readonly Application application;
     private readonly uint nativeThreadId;
@@ -445,7 +545,7 @@ internal sealed class TestWindowPresentationScope
             {
                 presentationCompleted.TrySetResult(false);
             }
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(
                 presentationCompleted.Task,
                 $"{window.GetType().Name}.ContentRendered");
 
@@ -582,35 +682,44 @@ internal sealed class TestWindowPresentationScope
 
     internal static uint GetCurrentNativeThreadId() => GetCurrentThreadId();
 
+    /// <summary>
+    /// 所有するPopupとWindowの実閉鎖を待ち、購読と残留HWNDを回収します。
+    /// </summary>
+    /// <remarks>
+    /// 開始済みの機能処理Taskは呼出側が回収します。共有Dispatcher全体のidleは
+    /// 閉鎖や処理終端の証明にせず、閉鎖通知とWindow/HWNDの残留を確認します。
+    /// </remarks>
     internal void Cleanup()
     {
         List<Exception> failures = [];
         foreach (PopupRegistration registration in trackedPopups.AsEnumerable().Reverse())
         {
+            Popup popup = registration.Popup;
+            nint handle = popup.Child is Visual child ? GetNativeHandle(child) : 0;
+            bool waitForClosed = NativeWindowExists(handle);
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler onClosed = (_, _) => closed.TrySetResult();
+            popup.Closed += onClosed;
             try
             {
-                registration.Popup.IsOpen = false;
+                popup.IsOpen = false;
+                if (waitForClosed)
+                {
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "presentation-cleanup.popup-closed");
+                }
+                if (popup.IsOpen || NativeWindowExists(handle))
+                {
+                    throw new InvalidOperationException("The tracked popup did not finish closing.");
+                }
             }
             catch (Exception ex)
             {
                 failures.Add(ex);
             }
-        }
-
-        // Complete popup teardown before closing its placement target or any owned window.
-        try
-        {
-            DrainDispatcher(application.Dispatcher);
-        }
-        catch (Exception ex)
-        {
-            failures.Add(ex);
-        }
-        finally
-        {
-            foreach (PopupRegistration registration in trackedPopups)
+            finally
             {
-                registration.Popup.Opened -= registration.Opened;
+                popup.Closed -= onClosed;
+                popup.Opened -= registration.Opened;
             }
         }
 
@@ -628,6 +737,10 @@ internal sealed class TestWindowPresentationScope
 
         foreach (Window window in cleanupWindows)
         {
+            bool waitForClosed = application.Windows.Cast<Window>().Contains(window);
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            EventHandler onClosed = (_, _) => closed.TrySetResult();
+            window.Closed += onClosed;
             try
             {
                 if (window is BeMusicSeeker.Views.SettingsWindow settingsWindow)
@@ -638,13 +751,21 @@ internal sealed class TestWindowPresentationScope
                 {
                     window.Close();
                 }
+                if (waitForClosed)
+                {
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "presentation-cleanup.window-closed");
+                }
             }
-            catch (InvalidOperationException) when (!window.IsLoaded && new WindowInteropHelper(window).Handle == 0)
+            catch (InvalidOperationException) when (!waitForClosed && !window.IsLoaded && new WindowInteropHelper(window).Handle == 0)
             {
             }
             catch (Exception ex)
             {
                 failures.Add(ex);
+            }
+            finally
+            {
+                window.Closed -= onClosed;
             }
         }
 
@@ -655,10 +776,27 @@ internal sealed class TestWindowPresentationScope
             registration.Window.Closing -= registration.Closing;
         }
 
-        DrainDispatcher(application.Dispatcher);
+        TestUiDispatcherHost.ProcessQueuedPresentation();
 
+        // 開始時に未開だった既存親の後発HWNDは、その親を所有する外scopeへ帰属します。
+        // 明示追跡した対象は従来どおり当scopeが閉じ、新規/未所属nativeの検査も維持します。
+        var otherOwnerHandles = baselineWindows
+            .Where(window => !trackedWindows.Any(registration => ReferenceEquals(registration.Window, window)))
+            .Select(window => new WindowInteropHelper(window).Handle)
+            .Where(handle => handle != 0)
+            .ToHashSet();
+        // ShowInTaskbar=falseの生存親には、Show後に生成されたWPF native ownerがあります。
+        // そのownerの破棄も親を連鎖閉鎖するため、実所有関係だけを有限に辿って保護します。
+        foreach (nint windowHandle in otherOwnerHandles.ToArray())
+        {
+            for (nint owner = GetWindow(windowHandle, GwOwner);
+                owner != 0 && otherOwnerHandles.Add(owner);
+                owner = GetWindow(owner, GwOwner))
+            {
+            }
+        }
         nint[] leakedHandles = EnumerateNativeWindows(nativeThreadId)
-            .Where(handle => !baselineNativeWindows.Contains(handle))
+            .Where(handle => !baselineNativeWindows.Contains(handle) && !otherOwnerHandles.Contains(handle))
             .ToArray();
         foreach (nint handle in leakedHandles)
         {
@@ -668,12 +806,12 @@ internal sealed class TestWindowPresentationScope
             }
         }
 
-        DrainDispatcher(application.Dispatcher);
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         Window[] leakedWindows = application.Windows.Cast<Window>()
             .Where(window => !baselineWindows.Contains(window))
             .ToArray();
         nint[] remainingHandles = EnumerateNativeWindows(nativeThreadId)
-            .Where(handle => !baselineNativeWindows.Contains(handle))
+            .Where(handle => !baselineNativeWindows.Contains(handle) && !otherOwnerHandles.Contains(handle))
             .ToArray();
         if (leakedWindows.Length != 0 || remainingHandles.Length != 0)
         {
@@ -692,14 +830,6 @@ internal sealed class TestWindowPresentationScope
                 ? failures[0]
                 : new AggregateException("Window presentation cleanup failed.", failures);
         }
-    }
-
-    private static void DrainDispatcher(Dispatcher dispatcher)
-    {
-        dispatcher.Invoke(DispatcherPriority.Input, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
-        dispatcher.Invoke(DispatcherPriority.ApplicationIdle, new Action(() => { }));
     }
 
     private static void VerifyPresentationPolicy(nint handle)
@@ -952,6 +1082,9 @@ internal sealed class TestWindowPresentationScope
         uint threadId,
         EnumThreadWindowsCallback callback,
         nint parameter);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetWindow(nint window, uint command);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

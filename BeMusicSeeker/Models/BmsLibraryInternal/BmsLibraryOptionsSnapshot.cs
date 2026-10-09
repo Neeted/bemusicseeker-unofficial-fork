@@ -64,7 +64,10 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public int PendingInstallEstimateMaxParallelPackages { get; init; }
 
-    internal static BmsLibraryOptionsSnapshot CreateCurrent(Settings settings)
+    /// <summary>受理する処理の設定入力を捕捉します。出力配置だけは保存段階で公開済みの値に揃えます。</summary>
+    /// <param name="settings">非配置設定を読む共有設定。</param>
+    /// <param name="placement">保存段階完了時に公開した配置。署名・出力・管理領域照合で同じ値を使い、非配置入力は現在設定から捕捉します。</param>
+    internal static BmsLibraryOptionsSnapshot CreateCurrent(Settings settings, CustomFolderOutputSettingsSnapshot placement = null)
     {
         if (settings == null)
         {
@@ -73,12 +76,12 @@ internal sealed class BmsLibraryOptionsSnapshot
 
         return new BmsLibraryOptionsSnapshot
         {
-            OperationModeLR2DB = settings.OperationModeLR2DB,
-            LR2RootPath = settings.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
-            LR2CustomFolderAdditionalOutputBaseDirsSerialized = settings.LR2CustomFolderAdditionalOutputBaseDirs,
-            LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
+            OperationModeLR2DB = placement != null ? placement.OperationModeLR2DB : settings.OperationModeLR2DB,
+            LR2RootPath = placement != null ? placement.LR2RootPath : settings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = placement != null ? placement.LR2CustomFolderOutputBaseDir : settings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(placement != null ? placement.LR2CustomFolderAdditionalOutputBaseDirs : settings.LR2CustomFolderAdditionalOutputBaseDirs),
+            LR2CustomFolderAdditionalOutputBaseDirsSerialized = placement != null ? placement.LR2CustomFolderAdditionalOutputBaseDirs : settings.LR2CustomFolderAdditionalOutputBaseDirs,
+            LR2CustomFolderOutputBaseDirRootType = placement != null ? placement.LR2CustomFolderOutputBaseDirRootType : settings.LR2CustomFolderOutputBaseDirRootType,
             EnableSmartComponentOverwrite = settings.EnableSmartComponentOverwrite,
             KeepSmartOverwriteProtectedFilesByRenaming = settings.KeepSmartOverwriteProtectedFilesByRenaming,
             DeletePendingPackageSourceAfterInstall = settings.DeletePendingPackageSourceAfterInstall,

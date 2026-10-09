@@ -203,7 +203,7 @@ public sealed class DialogPresentationTests
                     playlistList.ItemContainerGenerator.ContainerFromItem(lastOption),
                     "The final playlist must remain unrealized before the virtualized viewport reaches it.");
                 playlistList.ScrollIntoView(lastOption);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 dialog.UpdateLayout();
                 ListBoxItem lastContainer = FindVisualDescendants<ListBoxItem>(playlistList)
                     .Single(item => ReferenceEquals(item.DataContext, lastOption));
@@ -1023,14 +1023,14 @@ public sealed class DialogPresentationTests
         Assert.IsTrue(scrollProvider.VerticallyScrollable);
         double initialOffset = viewer.VerticalOffset;
         scrollProvider.Scroll(ScrollAmount.NoAmount, ScrollAmount.SmallIncrement);
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(viewer.VerticalOffset > initialOffset, "The canonical dialog scrollbar must perform an actual offset transition.");
         Assert.AreEqual(viewer.VerticalOffset, verticalScrollBar.Value, 0.01d);
 
         double lineUpOffset = SetScrollOffsetToInterior(viewer);
         InvokeScrollButton(lineUp, "The canonical dialog scrollbar line-up");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             viewer.VerticalOffset < lineUpOffset,
@@ -1038,7 +1038,7 @@ public sealed class DialogPresentationTests
 
         double lineDownOffset = SetScrollOffsetToInterior(viewer);
         InvokeScrollButton(lineDown, "The canonical dialog scrollbar line-down");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             viewer.VerticalOffset > lineDownOffset,
@@ -1046,7 +1046,7 @@ public sealed class DialogPresentationTests
 
         double pageUpOffset = SetScrollOffsetToInterior(viewer);
         InvokeScrollButton(pageUp, "The canonical dialog scrollbar page-up");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             viewer.VerticalOffset < pageUpOffset,
@@ -1054,7 +1054,7 @@ public sealed class DialogPresentationTests
 
         double pageDownOffset = SetScrollOffsetToInterior(viewer);
         InvokeScrollButton(pageDown, "The canonical dialog scrollbar page-down");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             viewer.VerticalOffset > pageDownOffset,
@@ -1088,7 +1088,7 @@ public sealed class DialogPresentationTests
         double maximum = viewer.ScrollableHeight;
         Assert.IsTrue(maximum > 0d, "The canonical dialog scrollbar must expose a positive scroll extent.");
         viewer.ScrollToVerticalOffset(maximum / 2d);
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             viewer.VerticalOffset > 0d && viewer.VerticalOffset < maximum,
@@ -1124,11 +1124,11 @@ public sealed class DialogPresentationTests
             "The property dialog must capture its initial General provider before category navigation.");
         Assert.AreEqual(PropertyNavigationCategory.General, IdentifyVisiblePropertyCategory(contentHost));
         navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
         Assert.AreEqual(PropertyNavigationCategory.Folder, IdentifyVisiblePropertyCategory(contentHost));
         navigationState.ItemsByCategory[PropertyNavigationCategory.General].Provider.Select();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
     }
 
@@ -1179,7 +1179,7 @@ public sealed class DialogPresentationTests
                 {
                     rejected = true;
                 }
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(
                     rejected || !item.Provider.IsSelected,
                     "A disabled property navigation provider must reject Automation selection.");
@@ -1191,7 +1191,7 @@ public sealed class DialogPresentationTests
             else
             {
                 item.Provider.Select();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 category = IdentifyVisiblePropertyCategory(contentHost);
             }
 
@@ -1210,7 +1210,7 @@ public sealed class DialogPresentationTests
             itemsByCategory[PropertyNavigationCategory.General],
             "The captured initial SelectionItem must be the provider mapped to General.");
         initiallySelectedItem.Provider.Select();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         return new PropertyNavigationObservation(selectionProvider, itemsByCategory, initiallySelectedItem);
     }
 

@@ -11,11 +11,9 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,12 +21,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// Arbitrary filtered Quick runs share one testhost. This fixture mutates the
-// process-global playback modes, player selection, volume, panel state,
-// stagefile, and external-panel settings in Settings.Default.
-[DoNotParallelize]
 public sealed class PlaybackPanelViewModelTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public async Task SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges()
     {
@@ -87,7 +83,7 @@ public sealed class PlaybackPanelViewModelTests
             await panel.StartAtIndex(0);
             player.CloseCompletion = () => { entered.TrySetResult(); return cleanup.Task; };
             deletion = mutation.DeleteAsync(new SelectedChartDeleteRequest([target], target, MainViewOperationSection.Library));
-            await entered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, deletion, "playback.mutation-stop");
             await panel.StartAtIndex(1);
             Assert.AreEqual(1, player.Starts.Count, "変更受付中の再生を後から実行する予約にはしません。");
             Assert.AreEqual(0, store.Mutations, "停止完了前にファイルを変更しません。");
@@ -346,7 +342,7 @@ public sealed class PlaybackPanelViewModelTests
             await panel.StartAtIndex(0);
             Assert.AreEqual(paths[1], player.Preloads.Single().Path);
             next = panel.Next();
-            await nextStartEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(nextStartEntered.Task, next, "playback.next-start");
             stop = panel.StopPlayback(closeProcess: true);
             Assert.IsNull(panel.NowPlayingChart);
             Assert.IsFalse(next.IsCompleted);
@@ -393,7 +389,7 @@ public sealed class PlaybackPanelViewModelTests
         Task terminal = shutdown ? panel.CloseForShutdown() : panel.ReplacePlayerAsync(replacement);
         try
         {
-            await entered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, terminal, "playback.terminal-close");
             Assert.IsFalse(terminal.IsCompleted);
             Assert.AreEqual(TimeSpan.FromSeconds(10), panel.CurrentlyPlayingDuration);
             cleanup.SetResult();
@@ -476,7 +472,7 @@ public sealed class PlaybackPanelViewModelTests
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList), new InMemoryPlaybackSettingsStore(),
             dialogs, _ => Assert.Fail("有効な入力の開始順序を確認します。"), new ChartFileOperationSynchronizer());
-        panel.AttachLibrary(new TestBmsLibrary(songDbPath));
+        panel.AttachLibrary(new TestBmsLibrary(songDbPath, settings: testSettings));
         var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseClose = new ManualResetEventSlim();
@@ -492,7 +488,7 @@ public sealed class PlaybackPanelViewModelTests
             panel.PlaybackStarted += (_, _) => Interlocked.Increment(ref startedCount);
             player.BeforeClose = () => { closeEntered.TrySetResult(); releaseClose.Wait(); };
             close = panel.StopPlayback(closeProcess: true);
-            await closeEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(closeEntered.Task, close, "playback.close-process");
             player.PlayStartTask = completion.Task;
             player.PlayStartException = failAtInvocation ? failure : null;
             player.BeforePlayStart = () => inputExistedAtInvocation = File.Exists(playbackPath);
@@ -688,7 +684,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.ChangePlayside();
         panel.IncreaseHighSpeed();
         panel.DecreaseHighSpeed();
-        int originalVolume = Settings.Default.uBMplayVolume;
+        int originalVolume = testSettings.uBMplayVolume;
         try
         {
             panel.PlayerVolume = originalVolume == 100 ? 99 : originalVolume + 1;
@@ -696,7 +692,7 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.uBMplayVolume = originalVolume;
+            testSettings.uBMplayVolume = originalVolume;
         }
 
         CollectionAssert.AreEqual(
@@ -728,7 +724,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             dispatcher,
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -766,7 +762,7 @@ public sealed class PlaybackPanelViewModelTests
             first,
             dispatcher,
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -825,19 +821,19 @@ public sealed class PlaybackPanelViewModelTests
         player.BeforePlayStart = () =>
         {
             startEntered.Set();
-            releaseStart.Wait(TimeSpan.FromSeconds(5));
+            releaseStart.Wait();
         };
         long generation = panel.BeginPlayback(ChartTestValues.Empty(), 0);
 
         Task<bool> start = Task.Run(
             () => panel.TryPlayStart(generation, "race.bms", null));
-        Assert.IsTrue(startEntered.Wait(TimeSpan.FromSeconds(5)));
+        startEntered.Wait();
         var stop = Task.Run(() => panel.StopPlayback(closeProcess: true));
         Assert.IsFalse(stop.Wait(TimeSpan.FromMilliseconds(100)));
 
         releaseStart.Set();
-        Assert.IsTrue(stop.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(start.Wait(TimeSpan.FromSeconds(5)));
+        stop.Wait();
+        start.Wait();
         CollectionAssert.AreEqual(
             new[] { "PlayStart:race.bms", "Close" },
             player.Commands.ToArray());
@@ -911,10 +907,10 @@ public sealed class PlaybackPanelViewModelTests
         Task replacementTask =
             ((ISettingsDialogPlaybackRuntimePort)panel).ApplyPlayerSettingsAsync(replacement);
 
-        Assert.IsTrue(closeEntered.Wait(TimeSpan.FromSeconds(5)));
+        closeEntered.Wait();
         Assert.IsFalse(replacementTask.IsCompleted);
         releaseClose.Set();
-        Assert.IsTrue(replacementTask.Wait(TimeSpan.FromSeconds(5)));
+        replacementTask.Wait();
         Assert.AreEqual(1, first.CloseProcessCount);
         Assert.AreEqual(replacement.Duration, panel.CurrentlyPlayingDuration);
     }
@@ -1138,7 +1134,7 @@ public sealed class PlaybackPanelViewModelTests
         var row = LibraryChartRow.FromChartFile((ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path }));
         var list = new MainChartListViewModel { Rows = new List<object> { row } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(list),
-            new SettingsPlaybackSettingsStore(() => Settings.Default), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+            new SettingsPlaybackSettingsStore(() => testSettings), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
         try
         {
             Assert.IsFalse(panel.HandleTableRowActivation(0, row));
@@ -1152,9 +1148,9 @@ public sealed class PlaybackPanelViewModelTests
     {
         string firstPath = Path.GetTempFileName();
         string secondPath = Path.GetTempFileName();
-        bool originalRepeat = Settings.Default.RepeatPlayMode;
-        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
-        bool originalSingle = Settings.Default.SinglePlayMode;
+        bool originalRepeat = testSettings.RepeatPlayMode;
+        bool originalFolderSkip = testSettings.FolderSkipPlayMode;
+        bool originalSingle = testSettings.SinglePlayMode;
         var player = new FakeBmsPlayer();
         var chartList = new MainChartListViewModel
         {
@@ -1165,15 +1161,15 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
-            Settings.Default.RepeatPlayMode = false;
-            Settings.Default.FolderSkipPlayMode = false;
-            Settings.Default.SinglePlayMode = false;
+            testSettings.RepeatPlayMode = false;
+            testSettings.FolderSkipPlayMode = false;
+            testSettings.SinglePlayMode = false;
             panel.Start().GetAwaiter().GetResult();
             Action<object, EventArgs> firstExit = player.ExitHandler!;
 
@@ -1196,9 +1192,9 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.RepeatPlayMode = originalRepeat;
-            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
-            Settings.Default.SinglePlayMode = originalSingle;
+            testSettings.RepeatPlayMode = originalRepeat;
+            testSettings.FolderSkipPlayMode = originalFolderSkip;
+            testSettings.SinglePlayMode = originalSingle;
             File.Delete(firstPath);
             File.Delete(secondPath);
         }
@@ -1235,7 +1231,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable()
     {
-        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        bool originalRepeat = testSettings.RepeatPlayMode;
         var chartList = new MainChartListViewModel
         {
             Rows = Enumerable.Range(0, 10000).Select(_ => (object)ChartTestValues.Empty()).ToList(),
@@ -1245,13 +1241,13 @@ public sealed class PlaybackPanelViewModelTests
             new FakeBmsPlayer(),
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
-            Settings.Default.RepeatPlayMode = true;
+            testSettings.RepeatPlayMode = true;
 
             panel.Start().GetAwaiter().GetResult();
 
@@ -1260,7 +1256,7 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.RepeatPlayMode = originalRepeat;
+            testSettings.RepeatPlayMode = originalRepeat;
         }
     }
 
@@ -1268,8 +1264,8 @@ public sealed class PlaybackPanelViewModelTests
     public void PlaybackPanel_StopsAfterManyInvalidChartsWithoutRecursiveAdvance()
     {
         string chartPath = Path.GetTempFileName();
-        bool originalRepeat = Settings.Default.RepeatPlayMode;
-        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
+        bool originalRepeat = testSettings.RepeatPlayMode;
+        bool originalFolderSkip = testSettings.FolderSkipPlayMode;
         var player = new FakeBmsPlayer { PlayStartException = new InvalidDataException("invalid chart") };
         var chartList = new MainChartListViewModel
         {
@@ -1281,14 +1277,14 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => warningCount++,
             new ChartFileOperationSynchronizer());
         try
         {
-            Settings.Default.RepeatPlayMode = false;
-            Settings.Default.FolderSkipPlayMode = false;
+            testSettings.RepeatPlayMode = false;
+            testSettings.FolderSkipPlayMode = false;
 
             panel.Start().GetAwaiter().GetResult();
 
@@ -1299,8 +1295,8 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.RepeatPlayMode = originalRepeat;
-            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
+            testSettings.RepeatPlayMode = originalRepeat;
+            testSettings.FolderSkipPlayMode = originalFolderSkip;
             File.Delete(chartPath);
         }
     }
@@ -1321,7 +1317,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1362,7 +1358,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1449,7 +1445,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1504,7 +1500,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1601,7 +1597,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1643,7 +1639,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1683,7 +1679,7 @@ public sealed class PlaybackPanelViewModelTests
 
         panel.StopCommand.Execute();
 
-        await failureNotification.WaitAsync(TimeSpan.FromSeconds(5));
+        await failureNotification;
 
         Assert.AreSame(operationFailure, dialogs.LastPlaybackFailure);
     }
@@ -1706,7 +1702,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1742,7 +1738,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1782,7 +1778,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -1806,8 +1802,8 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationClearStateWithoutClosingPlayer()
     {
-        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
-        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        bool originalLr2Body = testSettings.UsePlayerLR2body;
+        bool originalLr2Database = testSettings.OperationModeLR2DB;
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackAsyncFailure_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source");
         string installDirectory = Path.Combine(root, "Install");
@@ -1823,8 +1819,8 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         try
         {
-            Settings.Default.UsePlayerLR2body = true;
-            Settings.Default.OperationModeLR2DB = true;
+            testSettings.UsePlayerLR2body = true;
+            testSettings.OperationModeLR2DB = true;
             PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
                 chartPath,
                 installDirectory,
@@ -1864,8 +1860,8 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.UsePlayerLR2body = originalLr2Body;
-            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            testSettings.UsePlayerLR2body = originalLr2Body;
+            testSettings.OperationModeLR2DB = originalLr2Database;
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -1876,8 +1872,8 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanel_TemporaryInstallConfirmationControlsPlaybackWorkflow()
     {
-        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
-        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        bool originalLr2Body = testSettings.UsePlayerLR2body;
+        bool originalLr2Database = testSettings.OperationModeLR2DB;
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackDialog_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source");
         string installDirectory = Path.Combine(root, "Install");
@@ -1889,8 +1885,8 @@ public sealed class PlaybackPanelViewModelTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            Settings.Default.UsePlayerLR2body = true;
-            Settings.Default.OperationModeLR2DB = true;
+            testSettings.UsePlayerLR2body = true;
+            testSettings.OperationModeLR2DB = true;
 
             var acceptedPlayer = new FakeBmsPlayer();
             var acceptedDialogs = new FakePlaybackDialogService { TemporaryInstallConfirmationResult = true };
@@ -1929,8 +1925,8 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.UsePlayerLR2body = originalLr2Body;
-            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            testSettings.UsePlayerLR2body = originalLr2Body;
+            testSettings.OperationModeLR2DB = originalLr2Database;
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -1941,8 +1937,8 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanel_TemporaryInstallDialogFailureStopsAndPropagates()
     {
-        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
-        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        bool originalLr2Body = testSettings.UsePlayerLR2body;
+        bool originalLr2Database = testSettings.OperationModeLR2DB;
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackDialogFailure_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source");
         string installDirectory = Path.Combine(root, "Install");
@@ -1957,8 +1953,8 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService { TemporaryInstallConfirmationException = failure };
         try
         {
-            Settings.Default.UsePlayerLR2body = true;
-            Settings.Default.OperationModeLR2DB = true;
+            testSettings.UsePlayerLR2body = true;
+            testSettings.OperationModeLR2DB = true;
             PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
                 chartPath,
                 installDirectory,
@@ -1974,8 +1970,8 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.UsePlayerLR2body = originalLr2Body;
-            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            testSettings.UsePlayerLR2body = originalLr2Body;
+            testSettings.OperationModeLR2DB = originalLr2Database;
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -1986,8 +1982,8 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task PlaybackPanel_TableRowActivationNotifiesTemporaryInstallMoveFailure()
     {
-        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
-        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        bool originalLr2Body = testSettings.UsePlayerLR2body;
+        bool originalLr2Database = testSettings.OperationModeLR2DB;
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackActivationMoveFailure_" + Guid.NewGuid().ToString("N"));
         string sourceDirectory = Path.Combine(root, "Source");
         string installDirectory = Path.Combine(root, "Install");
@@ -2003,8 +1999,8 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         try
         {
-            Settings.Default.UsePlayerLR2body = true;
-            Settings.Default.OperationModeLR2DB = true;
+            testSettings.UsePlayerLR2body = true;
+            testSettings.OperationModeLR2DB = true;
             LibraryChartRow activationRow;
             PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
                 chartPath,
@@ -2024,7 +2020,7 @@ public sealed class PlaybackPanelViewModelTests
             {
                 Task failureNotification = dialogs.WaitForPlaybackFailureAsync();
                 Assert.IsTrue(panel.HandleTableRowActivation(0, activationRow));
-                await failureNotification.WaitAsync(TimeSpan.FromSeconds(5));
+                await failureNotification;
             }
 
             Assert.IsNotNull(dialogs.LastPlaybackFailure);
@@ -2038,8 +2034,8 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.UsePlayerLR2body = originalLr2Body;
-            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            testSettings.UsePlayerLR2body = originalLr2Body;
+            testSettings.OperationModeLR2DB = originalLr2Database;
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -2115,9 +2111,9 @@ public sealed class PlaybackPanelViewModelTests
         string firstPath = Path.GetTempFileName();
         string secondPath = Path.GetTempFileName();
         string thirdPath = Path.GetTempFileName();
-        bool originalRepeat = Settings.Default.RepeatPlayMode;
-        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
-        bool originalSingle = Settings.Default.SinglePlayMode;
+        bool originalRepeat = testSettings.RepeatPlayMode;
+        bool originalFolderSkip = testSettings.FolderSkipPlayMode;
+        bool originalSingle = testSettings.SinglePlayMode;
         var player = new FakeBmsPlayer();
         var chartList = new MainChartListViewModel
         {
@@ -2133,15 +2129,15 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
-            Settings.Default.RepeatPlayMode = false;
-            Settings.Default.FolderSkipPlayMode = false;
-            Settings.Default.SinglePlayMode = false;
+            testSettings.RepeatPlayMode = false;
+            testSettings.FolderSkipPlayMode = false;
+            testSettings.SinglePlayMode = false;
 
             panel.HandleTableSelection(chartList.Rows[1]);
             Assert.IsNotNull(panel.DisplayedChart);
@@ -2175,9 +2171,9 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.RepeatPlayMode = originalRepeat;
-            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
-            Settings.Default.SinglePlayMode = originalSingle;
+            testSettings.RepeatPlayMode = originalRepeat;
+            testSettings.FolderSkipPlayMode = originalFolderSkip;
+            testSettings.SinglePlayMode = originalSingle;
             File.Delete(firstPath);
             File.Delete(secondPath);
             File.Delete(thirdPath);
@@ -2275,7 +2271,7 @@ public sealed class PlaybackPanelViewModelTests
         {
             panel.Start().GetAwaiter().GetResult();
             next = Task.Run(() => panel.Next());
-            await enteredRow.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await TestUiDispatcherHost.AwaitNotificationAsync(enteredRow.Task, next, "playback.next-row");
             panel.BeginShutdown();
             player.BeforeClose = () => Assert.IsTrue(queue.RowResolved, "曲解決を player close が追い越さない。");
             terminal = Task.Run(() =>
@@ -2283,9 +2279,9 @@ public sealed class PlaybackPanelViewModelTests
                 terminalStarted.SetResult();
                 panel.CloseForShutdown().GetAwaiter().GetResult();
             });
-            await terminalStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await TestUiDispatcherHost.AwaitNotificationAsync(terminalStarted.Task, terminal, "playback.shutdown-worker");
             releaseRow.Set();
-            await Task.WhenAll(next, terminal).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(next, terminal);
             CollectionAssert.AreEqual(new[] { "PlayStart:" + firstPath, "Close" }, player.Commands.ToArray());
         }
         finally
@@ -2294,7 +2290,7 @@ public sealed class PlaybackPanelViewModelTests
             try
             {
                 await Task.WhenAll(next ?? Task.CompletedTask, terminal ?? Task.CompletedTask)
-                    .WaitAsync(TimeSpan.FromSeconds(5));
+                    ;
             }
             finally
             {
@@ -2321,7 +2317,7 @@ public sealed class PlaybackPanelViewModelTests
         Task? sentinel = null;
         try
         {
-            await enteredRow.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(enteredRow.Task, start, "playback.start-row");
             manualNext = panel.Next();
             player.ExitHandler?.Invoke(player, EventArgs.Empty);
             sentinel = panel.Next();
@@ -2381,7 +2377,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
             new ChartFileOperationSynchronizer());
@@ -2409,7 +2405,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanel_OwnsPanelStateTransitionsUsingViewHostAvailability()
     {
-        PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;
+        PlayerPanelState originalPanelState = testSettings.PlayerPanelState;
         PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
         try
         {
@@ -2437,7 +2433,7 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.PlayerPanelState = originalPanelState;
+            testSettings.PlayerPanelState = originalPanelState;
         }
     }
 
@@ -2459,6 +2455,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -2519,7 +2516,8 @@ public sealed class PlaybackPanelViewModelTests
                 ];
                 rows.Rows = charts.Select(chart => (object)rows.RowProjection.CreateLibraryRow(null, chart)).ToList();
                 scope.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 ImageSource defaultImage = artwork.Source;
                 Assert.IsNotNull(defaultImage);
                 Assert.IsNull(banner.Background);
@@ -2531,7 +2529,8 @@ public sealed class PlaybackPanelViewModelTests
                     selection = index == 0 ? panel.StartAtIndex(0) : panel.Next();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "ChartArtwork.selection");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(sourceChanged.Task, "ChartArtwork.image-source");
-                    FlushRenderQueue(window);
+                    window.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsNotNull(panel.DisplayedChart);
                     Assert.AreEqual(charts[index].Kind, panel.DisplayedChart.Kind);
                     Assert.AreEqual(charts[index].Path, panel.DisplayedChart.Path);
@@ -2571,6 +2570,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_CompiledTreeMaterializesCurrentSurfaceAndHeader()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2602,7 +2602,8 @@ public sealed class PlaybackPanelViewModelTests
                 var view = new PlaybackPanelView { DataContext = panel };
                 window.Content = view;
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 var playerHost = (ExternalPlayerHwndHost)view.FindName("externalPlayerHost");
                 Assert.AreEqual(Visibility.Collapsed, playerHost.Visibility);
@@ -2633,6 +2634,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_PlayerSurfaceAndOverlayPreserveHostAndPhysicalLayout()
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -2653,7 +2655,8 @@ public sealed class PlaybackPanelViewModelTests
                 ExternalPlayerHostObservation.AssertOwnedChild(handle, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.StartAtIndex(0), "external-surface-start");
                 panel.PlayerPanelState = PlayerPanelState.BMS_PLAYER;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(Visibility.Visible, host.Visibility);
                 AssertPlaybackPanelHasNoAnimationClocks(view);
                 Assert.AreEqual(587d, host.MinWidth);
@@ -2681,27 +2684,32 @@ public sealed class PlaybackPanelViewModelTests
                         // MainWindowのOverlay終了入口は、選択面を復元してから通常表示へ戻します。
                         view.RestoreSelectedSurface();
                     }
-                    FlushRenderQueue(window);
+                    window.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(overlay == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible, host.Visibility);
                     Assert.AreEqual(handle, host.Handle);
                     Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
                     AssertPlaybackPanelHasNoAnimationClocks(view);
                 }
                 panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(Visibility.Collapsed, host.Visibility);
                 Assert.AreEqual(handle, host.Handle);
                 Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
                 AssertPlaybackPanelHasNoAnimationClocks(view);
 
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
                 window.Content = null;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
                 window.Content = view;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
                 Assert.AreEqual(panel.PlayerPanelState, view.EffectivePlayerPanelState);
                 AssertPlaybackPanelFinalState(view, compact: true);
@@ -2725,6 +2733,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_InitiallySynchronizesCompactStateWithoutAnimation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2738,7 +2747,8 @@ public sealed class PlaybackPanelViewModelTests
                 window.Content = view;
 
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(PlayerPanelState.TITLE_SMALL, view.EffectivePlayerPanelState);
                 AssertPlaybackPanelFinalState(view, compact: true);
@@ -2754,6 +2764,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_InitiallySynchronizesExpandedStateWithoutAnimation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2767,7 +2778,8 @@ public sealed class PlaybackPanelViewModelTests
                 window.Content = view;
 
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(PlayerPanelState.TITLE_LARGE, view.EffectivePlayerPanelState);
                 AssertPlaybackPanelFinalState(view, compact: false);
@@ -2783,6 +2795,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_DataContextReplacementSynchronizesBothDirectionsWithoutAnimation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2797,7 +2810,8 @@ public sealed class PlaybackPanelViewModelTests
                 var view = new PlaybackPanelView { DataContext = expandedPanel };
                 window.Content = view;
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 view.DataContext = compactPanel;
                 AssertPlaybackPanelFinalState(view, compact: true);
@@ -2817,6 +2831,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_SameViewModelStateChangesUseTransitionsAndReloadSynchronizesImmediately()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2830,20 +2845,24 @@ public sealed class PlaybackPanelViewModelTests
                 view.DataContext = panel;
                 window.Content = view;
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 IntPtr hostHandle = view.PlayerHostHandle;
                 ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
 
                 panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertPlaybackPanelHasTransitionClocks(view, compactTransition: false);
 
                 window.Content = null;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(view.IsLoaded);
                 Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(hostHandle));
                 Assert.AreEqual(hostHandle, view.PlayerHostHandle);
@@ -2851,7 +2870,8 @@ public sealed class PlaybackPanelViewModelTests
 
                 panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
                 window.Content = view;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(view.IsLoaded);
                 Assert.AreEqual(hostHandle, view.PlayerHostHandle);
                 ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
@@ -2868,6 +2888,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_ReloadRejectsEventsQueuedByThePreviousSubscription()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2898,14 +2919,17 @@ public sealed class PlaybackPanelViewModelTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 long oldGeneration = panel.BeginPlayback(ChartTestValues.Empty(), 0);
                 panel.NotifyPlaybackStarted(oldGeneration);
                 window.Content = null;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.Content = view;
-                FlushRenderQueue(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 queuedDispatcher.RunAll();
                 Assert.AreEqual(0, startingCount);
@@ -2927,6 +2951,7 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -2970,7 +2995,9 @@ public sealed class PlaybackPanelViewModelTests
 
                 view.HandlePreviousButtonClick(1);
                 view.DataContext = replacementPanel;
-                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+                // 取消後に製品の遅延Restartが発生しないことだけを、既存の観測期間で確認します。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Task.Delay(700), "previous-restart-cancellation-observation");
                 Assert.IsFalse(player.Commands.Contains("Restart"));
                 Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
 
@@ -2988,7 +3015,7 @@ public sealed class PlaybackPanelViewModelTests
                     new FakeBmsPlayer(),
                     queuedDispatcher,
                     new MainChartListPlaybackQueue(new MainChartListViewModel()),
-                    new SettingsPlaybackSettingsStore(() => Settings.Default),
+                    new SettingsPlaybackSettingsStore(() => testSettings),
                     new FakePlaybackDialogService(),
                     _ => { },
                     new ChartFileOperationSynchronizer());
@@ -3022,12 +3049,14 @@ public sealed class PlaybackPanelViewModelTests
                 });
                 backgroundThread.Start();
                 backgroundThread.Join();
-                PumpDispatcherFor(TimeSpan.FromMilliseconds(50));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsNull(backgroundException);
 
                 view.HandlePreviousButtonClick(1);
                 window.Content = null;
-                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+                // 取消後に製品の遅延Restartが発生しないことだけを、既存の観測期間で確認します。
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    Task.Delay(700), "previous-restart-cancellation-observation");
 
                 Assert.IsFalse(view.IsLoaded);
                 Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
@@ -3048,10 +3077,10 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public void PlaybackPanel_OwnsPersistedPanelAndPlaybackModeBindings()
     {
-        PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;
-        bool originalRepeat = Settings.Default.RepeatPlayMode;
-        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
-        bool originalSingle = Settings.Default.SinglePlayMode;
+        PlayerPanelState originalPanelState = testSettings.PlayerPanelState;
+        bool originalRepeat = testSettings.RepeatPlayMode;
+        bool originalFolderSkip = testSettings.FolderSkipPlayMode;
+        bool originalSingle = testSettings.SinglePlayMode;
         PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
         try
         {
@@ -3060,38 +3089,38 @@ public sealed class PlaybackPanelViewModelTests
             panel.FolderSkipPlayMode = !originalFolderSkip;
             panel.SinglePlayMode = !originalSingle;
 
-            Assert.AreEqual(panel.PlayerPanelState, Settings.Default.PlayerPanelState);
-            Assert.AreEqual(panel.RepeatPlayMode, Settings.Default.RepeatPlayMode);
-            Assert.AreEqual(panel.FolderSkipPlayMode, Settings.Default.FolderSkipPlayMode);
-            Assert.AreEqual(panel.SinglePlayMode, Settings.Default.SinglePlayMode);
+            Assert.AreEqual(panel.PlayerPanelState, testSettings.PlayerPanelState);
+            Assert.AreEqual(panel.RepeatPlayMode, testSettings.RepeatPlayMode);
+            Assert.AreEqual(panel.FolderSkipPlayMode, testSettings.FolderSkipPlayMode);
+            Assert.AreEqual(panel.SinglePlayMode, testSettings.SinglePlayMode);
         }
         finally
         {
-            Settings.Default.PlayerPanelState = originalPanelState;
-            Settings.Default.RepeatPlayMode = originalRepeat;
-            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
-            Settings.Default.SinglePlayMode = originalSingle;
+            testSettings.PlayerPanelState = originalPanelState;
+            testSettings.RepeatPlayMode = originalRepeat;
+            testSettings.FolderSkipPlayMode = originalFolderSkip;
+            testSettings.SinglePlayMode = originalSingle;
         }
     }
 
     [TestMethod]
     public void PlaybackPanel_RefreshesCapabilityBindingsAfterSettingsChange()
     {
-        bool originalUbMplay = Settings.Default.UsePlayeruBMplay;
-        bool originalLr2 = Settings.Default.UsePlayerLR2body;
-        bool originalBmi = Settings.Default.UsePlayerBMIIDXView;
-        bool originalExternalPanelImage = Settings.Default.UseExternalPanelImage;
-        string originalStagefilePath = Settings.Default.StagefilePath;
+        bool originalUbMplay = testSettings.UsePlayeruBMplay;
+        bool originalLr2 = testSettings.UsePlayerLR2body;
+        bool originalBmi = testSettings.UsePlayerBMIIDXView;
+        bool originalExternalPanelImage = testSettings.UseExternalPanelImage;
+        string originalStagefilePath = testSettings.StagefilePath;
         PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
         var changed = new HashSet<string>(StringComparer.Ordinal);
         panel.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
         try
         {
-            Settings.Default.UsePlayeruBMplay = false;
-            Settings.Default.UsePlayerLR2body = true;
-            Settings.Default.UsePlayerBMIIDXView = false;
-            Settings.Default.UseExternalPanelImage = !originalExternalPanelImage;
-            Settings.Default.StagefilePath = "playback-panel-stage.png";
+            testSettings.UsePlayeruBMplay = false;
+            testSettings.UsePlayerLR2body = true;
+            testSettings.UsePlayerBMIIDXView = false;
+            testSettings.UseExternalPanelImage = !originalExternalPanelImage;
+            testSettings.StagefilePath = "playback-panel-stage.png";
             panel.NotifySettingsChanged();
 
             Assert.IsFalse(panel.CanSeek);
@@ -3105,8 +3134,8 @@ public sealed class PlaybackPanelViewModelTests
                 new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside", "UseExternalPanelImage", "StagefilePath" },
                 changed.ToArray());
 
-            Settings.Default.UsePlayeruBMplay = true;
-            Settings.Default.UsePlayerLR2body = false;
+            testSettings.UsePlayeruBMplay = true;
+            testSettings.UsePlayerLR2body = false;
             panel.NotifySettingsChanged();
             Assert.IsTrue(panel.CanSeek);
             Assert.IsTrue(panel.CanChangeHighSpeed);
@@ -3116,34 +3145,34 @@ public sealed class PlaybackPanelViewModelTests
         }
         finally
         {
-            Settings.Default.UsePlayeruBMplay = originalUbMplay;
-            Settings.Default.UsePlayerLR2body = originalLr2;
-            Settings.Default.UsePlayerBMIIDXView = originalBmi;
-            Settings.Default.UseExternalPanelImage = originalExternalPanelImage;
-            Settings.Default.StagefilePath = originalStagefilePath;
+            testSettings.UsePlayeruBMplay = originalUbMplay;
+            testSettings.UsePlayerLR2body = originalLr2;
+            testSettings.UsePlayerBMIIDXView = originalBmi;
+            testSettings.UseExternalPanelImage = originalExternalPanelImage;
+            testSettings.StagefilePath = originalStagefilePath;
         }
     }
 
-    private static PlaybackPanelViewModel CreatePanel(IBMSPlayer player)
+    private PlaybackPanelViewModel CreatePanel(IBMSPlayer player)
     {
         return CreatePanel(player, new FakePlaybackDialogService());
     }
 
-    private static PlaybackPanelViewModel CreatePanel(
+    private PlaybackPanelViewModel CreatePanel(
         IBMSPlayer player,
         FakePlaybackDialogService dialogs)
     {
-        return CreatePanel(player, new SettingsPlaybackSettingsStore(() => Settings.Default), dialogs);
+        return CreatePanel(player, new SettingsPlaybackSettingsStore(() => testSettings), dialogs);
     }
 
-    private static PlaybackPanelViewModel CreatePanel(
+    private PlaybackPanelViewModel CreatePanel(
         IBMSPlayer player,
         IPlaybackSettingsStore playbackSettings)
     {
         return CreatePanel(player, playbackSettings, new FakePlaybackDialogService());
     }
 
-    private static PlaybackPanelViewModel CreatePanel(
+    private PlaybackPanelViewModel CreatePanel(
         IBMSPlayer player,
         IPlaybackSettingsStore playbackSettings,
         FakePlaybackDialogService dialogs)
@@ -3163,7 +3192,7 @@ public sealed class PlaybackPanelViewModelTests
         return new ChartFile(kind, path, "playback-port-hash", null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 
-    private static PlaybackPanelViewModel CreateTemporaryInstallPanel(
+    private PlaybackPanelViewModel CreateTemporaryInstallPanel(
         string chartPath,
         string installDirectory,
         string songDbPath,
@@ -3179,7 +3208,7 @@ public sealed class PlaybackPanelViewModelTests
             out _);
     }
 
-    private static PlaybackPanelViewModel CreateTemporaryInstallPanel(
+    private PlaybackPanelViewModel CreateTemporaryInstallPanel(
         string chartPath,
         string installDirectory,
         string songDbPath,
@@ -3202,11 +3231,11 @@ public sealed class PlaybackPanelViewModelTests
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
-            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
             operations ?? new ChartFileOperationSynchronizer());
-        panel.AttachLibrary(new TestBmsLibrary(songDbPath));
+        panel.AttachLibrary(new TestBmsLibrary(songDbPath, settings: testSettings));
         return panel;
     }
 
@@ -3260,28 +3289,6 @@ public sealed class PlaybackPanelViewModelTests
 
     private static bool IsAnimated(DependencyObject target, DependencyProperty property) =>
         DependencyPropertyHelper.GetValueSource(target, property).IsAnimated;
-
-    private static void FlushRenderQueue(Window window)
-    {
-        window.UpdateLayout();
-        window.Dispatcher.Invoke(DispatcherPriority.Render, new Action(() => { }));
-    }
-
-    private static void PumpDispatcherFor(TimeSpan duration)
-    {
-        var frame = new DispatcherFrame();
-        var timer = new DispatcherTimer(DispatcherPriority.Background)
-        {
-            Interval = duration
-        };
-        timer.Tick += (_, _) =>
-        {
-            timer.Stop();
-            frame.Continue = false;
-        };
-        timer.Start();
-        Dispatcher.PushFrame(frame);
-    }
 
     private sealed class InMemoryPlaybackSettingsStore : IPlaybackSettingsStore
     {

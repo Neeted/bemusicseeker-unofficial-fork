@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainChartColumnSettingsBoundaryTests
 {
     [TestMethod]
+    [DoNotParallelize]
     public async Task CompositionSharesColumnSettingsStoreAcrossMainTableAndSummaryCoordinator()
     {
         var store = new FakeMainChartColumnSettingsStore();

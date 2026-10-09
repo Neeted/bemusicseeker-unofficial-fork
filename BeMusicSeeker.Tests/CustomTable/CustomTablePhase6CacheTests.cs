@@ -175,6 +175,7 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CustomTableView_MainChartListLifecycleFollowsLoadedDataContext()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>

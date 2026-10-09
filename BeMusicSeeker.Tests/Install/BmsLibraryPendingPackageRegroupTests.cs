@@ -16,10 +16,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPendingPackageRegroupTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageA");
@@ -40,7 +42,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectoryByFile_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageB");
@@ -61,7 +63,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectoryByFiles_MatchesAdapterlessBmsonPackageByChartPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonAdapterless");
@@ -89,82 +91,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    [TestMethod]
-    public void PendingInstallEstimate_InstalledCollectionChangesDuringAttempt_RebuildsPartitionAndReleasesSearchingState()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        List<int> attempts = [];
-        bool installedCollectionMutated = false;
-        BMSLibrary? observedLibrary = null;
-        string? observedInstalledPath = null;
-        var observer = new RecordingInstallEstimationExecutionObserver(
-            attemptObserver: observation =>
-            {
-                attempts.Add(observation.Attempt);
-                if (observation.Attempt == 0 && !installedCollectionMutated)
-                {
-                    BMSLibrary currentLibrary = observedLibrary!;
-                    string currentInstalledPath = observedInstalledPath!;
-                    currentLibrary.BmsCharts = [BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(currentInstalledPath))];
-                    installedCollectionMutated = true;
-                }
-            });
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            observedLibrary = library;
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "InstalledCollectionStale");
-            string candidateDirectoryPath = Path.Combine(tempRootPath, "Installed", "InstalledCollectionStale");
-            string pendingInstalledPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "installed.bms",
-                "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
-            string pendingMissingPath = CreateBmsFileWithContents(
-                sourceDirectoryPath,
-                "missing.bms",
-                "#PLAYER 1\r\n#TITLE Missing\r\n#ARTIST Test\r\n#WAVAA sound.wav\r\n#00111:AA\r\n");
-            string installedPath = CreateBmsFileWithContents(
-                candidateDirectoryPath,
-                "installed.bms",
-                "#PLAYER 1\r\n#TITLE Already Installed\r\n#ARTIST Test\r\n");
-            observedInstalledPath = installedPath;
-            File.WriteAllText(Path.Combine(candidateDirectoryPath, "sound.wav"), "audio");
-            ChartFile pendingInstalled = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingInstalledPath));
-            ChartFile pendingMissing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingMissingPath));
-            ChartPackage pendingPackage = ChartPackageTestExtensions.CreatePackage([pendingInstalled, pendingMissing]);
-            pendingPackage.path = sourceDirectoryPath;
-            pendingPackage.delete_parent = false;
-            var emptyPackage = ChartPackage.FromChartEntries([]);
-            emptyPackage.path = Path.Combine(sourceDirectoryPath, "Empty");
-            emptyPackage.delete_parent = false;
-            library.BmsCharts = [];
-            SeedPendingPackages(library, songDbPath, pendingPackage, emptyPackage);
-            SetLibraryResourceIndex(
-                library,
-                BuildDirectoryLookupCache(sourceDirectoryPath, candidateDirectoryPath));
 
-            // The public package-batch overload is the deterministic entry point for the retry pipeline;
-            // keep the second package empty so it only enables that batch shape.
-            library.SearchEstimatedInstallationDirectory([pendingPackage, emptyPackage]);
-
-            Assert.IsTrue(installedCollectionMutated);
-            CollectionAssert.AreEqual(new[] { 0, 1, 0, 1 }, attempts);
-            PackageChartEntry installedEntry = GetEntryByFileName(pendingPackage, "installed.bms");
-            PackageChartEntry missingEntry = GetEntryByFileName(pendingPackage, "missing.bms");
-            Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsFalse(missingEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsTrue(string.IsNullOrWhiteSpace(installedEntry.Chart.InstallDestination));
-            Assert.AreEqual(candidateDirectoryPath, missingEntry.Chart.InstallDestination);
-            Assert.IsFalse(installedEntry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
-            Assert.IsFalse(missingEntry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
-            Assert.IsFalse(library.GetPendingEstimateQueueStatusSnapshot().IsActive);
-            Assert.IsFalse(library.GetInstallEstimationProgressSnapshot().IsActive);
-        }, observer);
-    }
 
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MultiPackageBatchReportsExecutionPolicyAndProgress()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         const int packageCount = 2;
         int expectedWorkItemDegree = BMSLibrary.ResolveInstallEstimationDefaultDegree();
         int expectedMaxActive = Math.Min(packageCount, expectedWorkItemDegree);
@@ -219,9 +151,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         Assert.AreEqual(packageCount, observer.Attempts.Count);
         Assert.IsTrue(observer.Attempts.All(attempt =>
             attempt.Source == PendingInstallEstimateBatchSource.ManualReestimate
-            && attempt.Attempt == 0
-            && !string.IsNullOrWhiteSpace(attempt.DisplayName)
-            && attempt.CurrentnessStamp.ResourceIndexGeneration >= 0));
+            && !string.IsNullOrWhiteSpace(attempt.DisplayName)));
         CollectionAssert.AreEqual(
             Enumerable.Range(0, packageCount).ToArray(),
             observer.Attempts.Select(attempt => attempt.OrderIndex).OrderBy(order => order).ToArray());
@@ -230,9 +160,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_ObserverFailureIsPropagated()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var observer = new ThrowingInstallEstimationExecutionObserver();
-        Assert.ThrowsException<InvalidOperationException>(() =>
+        InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
             {
                 ChartPackage firstPackage = CreatePendingSingleFilePackage(
@@ -244,12 +174,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
                 library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
             }, observer));
+        Assert.AreSame(observer.Failure, failure);
     }
 
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_SingleFileRelativeResourceSelectsExternalCandidateWithoutSourceScanWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "RelativeSingleFile");
@@ -293,7 +224,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_RegroupsSplitPackagesWhenEligibleDirectoryIsSupplied()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageC");
@@ -314,7 +245,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_UsesAdapterlessBmsonEntriesForEligibility()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonRegroup");
@@ -354,7 +285,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DeduplicatesAdapterlessBmsonByChartTarget()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonDuplicateRegroup");
@@ -397,7 +328,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotApplyInstallDestinationToInstalledOnlyEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "InstalledOnlyRegroup");
@@ -430,7 +361,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_AppliesInstallDestinationOnlyToMissingEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedRegroup");
@@ -464,7 +395,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageD");
@@ -496,7 +427,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_SynchronizesRepresentativeMetadataWithoutClearingSuggestions()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageRegroupMetadata");
@@ -527,7 +458,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DurableFailureLeavesSourceEntryStateUnchanged()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageRegroupDbFailure");
@@ -577,7 +508,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotRegroupWhenDirectoryPackageAlreadyExists()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageE");
@@ -604,7 +535,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_SkipsDeferredEstimatePackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageDeferred");
@@ -626,7 +557,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_LowConfidenceLeavesInstallDestinationEmptyAndShowsRepresentativeMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageLowConfidence");
@@ -670,7 +601,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_AdapterlessBmsonLowConfidenceStaysOnChartEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonLowConfidence");
@@ -709,7 +640,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_BatchAdapterlessBmsonLowConfidenceStaysOnChartEntry()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string firstSourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonBatchLowConfidence");
@@ -753,7 +684,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageUnresolvedInstalledDestination_DefersWithoutFallbackEstimation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedUnresolved");
@@ -796,7 +727,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageUnsupportedResourcePath");
@@ -833,7 +764,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageCurrentDirectoryResourcePath");
@@ -869,7 +800,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleCandidates_UsesFinalEvaluationWinner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedWinner");
@@ -910,7 +841,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageEquivalentCandidates_UsesDirectoryUniquePrimaryHashCount()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedCountTieBreak");
@@ -958,7 +889,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleViableCandidates_ShowsInstalledDestinationAmbiguousWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMixedAmbiguous");
@@ -1006,7 +937,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSetting_AutoAppliesFirstCandidateAndKeepsAutoAppliedWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -1061,7 +992,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSettingOff_LeavesInstallDestinationEmpty()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithAutoApplyAmbiguousInstallDestination(false, delegate
         {
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -1112,7 +1043,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageWeakMetadataWithSetting_LeavesInstallDestinationEmpty()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -1158,7 +1089,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MetadataTieBreakSelectsMatchingCandidate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMetadataTieBreak");
@@ -1201,7 +1132,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_AmbiguousStrongMetadataWithSetting_AppliesDestinationAndKeepsWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithAutoApplyAmbiguousInstallDestination(true, delegate
         {
             WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
@@ -1245,7 +1176,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMetadataMismatch");
@@ -1284,7 +1215,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_HighConfidenceWithoutCandidate_DoesNotSetLowConfidenceState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageNoCandidate");
@@ -1313,7 +1244,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvedPathUpdatesRepresentativeMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMergeResolved");
@@ -1349,7 +1280,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvesBmsonFromInstalledBmsonHash()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonMergeResolved");
@@ -1380,7 +1311,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvedAdapterlessBmsonStaysAdapterless()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonMergeAdapterless");
@@ -1407,7 +1338,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchCorrectInstallationDirectoryCharts_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonWrong");
@@ -1432,7 +1363,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvesMixedBmsAndBmsonPackage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedMergeResolved");
@@ -1469,7 +1400,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_MixedSplitInstalledDirectoriesUsesMostMatchingDirectory()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedMergeSplit");
@@ -1511,7 +1442,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_MixedSplitTieFallsBackToResourceCandidate()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "MixedMergeTie");
@@ -1551,7 +1482,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SearchMergeDestinationForPendingCharts_UsesExternalCandidateOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMergeByFile");
@@ -1587,7 +1518,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_UpdatesRepresentativeMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string pendingDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageManual");
@@ -1617,7 +1548,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_UpdatesAdapterlessBmsonEntryWithoutMaterializingAdapter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string pendingDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonManual");
@@ -1647,7 +1578,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_AllowsStandaloneLibraryFileForFullScan()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Library", "Source");
@@ -1677,7 +1608,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_AllowsStandaloneLibraryBmsonForFullScanWithoutAdapter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Library", "BmsonSource");
@@ -1705,7 +1636,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_RejectsStandaloneFileThatIsNotInLibrary()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "External", "Source");
@@ -1729,7 +1660,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_FromLowConfidenceCandidates_PreservesWarningAndSuggestions()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageLowConfidenceManual");
@@ -1789,7 +1720,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_FromAdapterlessBmsonLowConfidenceCandidate_PreservesWarningAndSuggestions()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageBmsonLowConfidenceManual");
@@ -1831,7 +1762,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_WithManualDirectory_PreservesLowConfidenceState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageLowConfidenceManualFree");
@@ -1889,7 +1820,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void RemoveInstallDestination_ClearsAllAmbiguousWarningLinesAndRepresentativeMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageLowConfidenceClear");
@@ -1932,7 +1863,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     [TestMethod]
     public void SetPendingInstallDestination_MetadataMismatchEditsPreserveContextUntilExplicitClear()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "PackageMetadataMismatchClear");
@@ -2150,7 +2081,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
-    private static void WithTemporaryLibrary(
+    private void WithTemporaryLibrary(
         Action<string, string, BMSLibrary> testAction,
         IInstallEstimationExecutionObserver? installEstimationExecutionObserver = null)
     {
@@ -2161,8 +2092,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         try
         {
             TestBmsLibrary library = installEstimationExecutionObserver == null
-                ? new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService())
-                : new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), installEstimationExecutionObserver);
+                ? new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), settings: testSettings)
+                : new TestBmsLibrary(songDbPath, null!, null, null!, new RecordingDialogService(), installEstimationExecutionObserver, settings: testSettings);
             testAction(tempRootPath, songDbPath, library);
         }
         finally
@@ -2174,17 +2105,17 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         }
     }
 
-    private static void WithAutoApplyAmbiguousInstallDestination(bool enabled, Action action)
+    private void WithAutoApplyAmbiguousInstallDestination(bool enabled, Action action)
     {
-        bool original = BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination;
+        bool original = testSettings.AutoApplyAmbiguousInstallDestination;
         try
         {
-            BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination = enabled;
+            testSettings.AutoApplyAmbiguousInstallDestination = enabled;
             action();
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.AutoApplyAmbiguousInstallDestination = original;
+            testSettings.AutoApplyAmbiguousInstallDestination = original;
         }
     }
 
@@ -2192,13 +2123,13 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     {
         private readonly object gate = new();
         private readonly Barrier? workItemBarrier;
-        private readonly Action<InstallEstimationAttemptEvaluatedObservation>? attemptObserver;
+        private readonly Action<InstallEstimationAppliedObservation>? attemptObserver;
         private int activeWorkItems;
         private int maxActive;
 
         internal RecordingInstallEstimationExecutionObserver(
             int expectedMaxActive = 0,
-            Action<InstallEstimationAttemptEvaluatedObservation>? attemptObserver = null)
+            Action<InstallEstimationAppliedObservation>? attemptObserver = null)
         {
             this.attemptObserver = attemptObserver;
             if (expectedMaxActive > 1)
@@ -2211,7 +2142,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
         internal List<InstallEstimationProgressObservation> Progress { get; } = [];
 
-        internal List<InstallEstimationAttemptEvaluatedObservation> Attempts { get; } = [];
+        internal List<InstallEstimationAppliedObservation> Attempts { get; } = [];
 
         internal int MaxActive => Volatile.Read(ref maxActive);
 
@@ -2235,7 +2166,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             }
         }
 
-        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation)
+        public void ObserveResultApplied(InstallEstimationAppliedObservation observation)
         {
             lock (gate)
             {
@@ -2275,16 +2206,18 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
     private sealed class ThrowingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver
     {
+        internal readonly InvalidOperationException Failure = new("install-estimation observer failed");
+
         public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation)
         {
-            throw new InvalidOperationException("install-estimation observer failed");
+            throw Failure;
         }
 
         public void ObserveProgress(InstallEstimationProgressObservation observation)
         {
         }
 
-        public void ObserveAttemptEvaluated(InstallEstimationAttemptEvaluatedObservation observation)
+        public void ObserveResultApplied(InstallEstimationAppliedObservation observation)
         {
         }
     }

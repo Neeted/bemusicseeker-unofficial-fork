@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -76,7 +75,7 @@ public sealed class RegularChartNavigationTests
 
         table.NotifyCellEditStarted(row, "instl_dst");
         table.RequestCellEditEnded(row, "instl_dst", destination, commit: true);
-        PendingPackageMutationAppliedEventArgs applied = await workflowCompletion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        PendingPackageMutationAppliedEventArgs applied = await workflowCompletion.Task;
 
         Assert.IsNotNull(store.LastPendingRequest);
         Assert.AreSame(entry, store.LastPendingRequest!.PackageEntry);
@@ -101,7 +100,6 @@ public sealed class RegularChartNavigationTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

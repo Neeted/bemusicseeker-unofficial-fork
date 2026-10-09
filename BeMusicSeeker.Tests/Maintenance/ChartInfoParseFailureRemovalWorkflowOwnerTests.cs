@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -32,7 +33,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     [TestMethod]
     public async Task RemoveAsync_AcceptsConfirmationAndWaitsForBackgroundStore()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         try
         {
@@ -73,23 +74,31 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             Assert.IsTrue(acceptance.Accepted);
             // Acceptance completion and the background scheduling continuation are independent
             // asynchronous phases; use the store gate below to observe their deterministic order.
-            await storeStarted.Task;
-            Assert.IsFalse(operation.Completion.IsCompleted);
-            CollectionAssert.AreEqual(new[] { "library", "schedule", "store" }, order.ToArray());
-            Assert.IsNotNull(dialogs.LastConfirmationRequest);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, dialogs.LastConfirmationRequest.MessageBoxText);
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm, dialogs.LastConfirmationRequest.Caption);
-            Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
-            Assert.AreEqual(MessageBoxImage.Question, dialogs.LastConfirmationRequest.Icon);
-            Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(storeStarted.Task, operation.Completion, "parse-failure-removal-store");
+                Assert.IsFalse(operation.Completion.IsCompleted);
+                CollectionAssert.AreEqual(new[] { "library", "schedule", "store" }, order.ToArray());
+                Assert.IsNotNull(dialogs.LastConfirmationRequest);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, dialogs.LastConfirmationRequest.MessageBoxText);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm, dialogs.LastConfirmationRequest.Caption);
+                Assert.AreEqual(MessageBoxButton.OKCancel, dialogs.LastConfirmationRequest.Button);
+                Assert.AreEqual(MessageBoxImage.Question, dialogs.LastConfirmationRequest.Icon);
+                Assert.AreEqual(MessageBoxResult.Cancel, dialogs.LastConfirmationRequest.DefaultResult);
 
-            releaseStore.TrySetResult(true);
-            ChartInfoParseFailureRemovalResult result = await operation.Completion;
+                releaseStore.TrySetResult(true);
+                ChartInfoParseFailureRemovalResult result = await operation.Completion;
 
-            Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Removed, result.Status);
-            Assert.IsTrue(result.Accepted);
-            Assert.AreEqual(1, store.CallCount);
-            CollectionAssert.AreEqual(new[] { new string('a', 32) }, store.Md5s.ToArray());
+                Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Removed, result.Status);
+                Assert.IsTrue(result.Accepted);
+                Assert.AreEqual(1, store.CallCount);
+                CollectionAssert.AreEqual(new[] { new string('a', 32) }, store.Md5s.ToArray());
+            }
+            finally
+            {
+                releaseStore.TrySetResult(true);
+                await operation.Completion;
+            }
         }
         finally
         {
@@ -100,7 +109,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     [TestMethod]
     public async Task RemoveAsync_UserRejectionDoesNotScheduleOrStore()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         foreach (UiDialogResult confirmation in new[]
         {
             UiDialogResult.FromMessageBoxResult(MessageBoxResult.No),
@@ -134,7 +143,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     [TestMethod]
     public async Task RemoveAsync_DialogFailureIsExplicitAndDoesNotStore()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var failure = new InvalidOperationException("dialog unavailable");
         var dialogs = new RecordingDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
         var store = new RecordingStore();
@@ -156,7 +165,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     [TestMethod]
     public async Task RemoveAsync_AcceptedButLibraryUnavailableIsFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var dialogs = new RecordingDialogService
         {
             ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -184,7 +193,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     [TestMethod]
     public async Task RemoveAsync_StoreFailureIsPropagatedAsAcceptedFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = CreateRoot();
         try
         {
@@ -212,6 +221,40 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         {
             DeleteRoot(root);
         }
+    }
+
+    /// <summary>解析失敗削除を実adapter・DBへ接続し、L中Busyで未変更、終端後の明示要求で固定対象だけ削除します。</summary>
+    [TestMethod]
+    public async Task RealStore_RemovesOnlyAcceptedParseFailureAndReleasesAdmission()
+    {
+        string root = CreateRoot();
+        BMSLibrary? library = null;
+        try
+        {
+            library = CreateLibrary(root);
+            string db = Path.Combine(root, "song.db");
+            var gateway = new BmsLibraryDbGateway(db);
+            gateway.EnsureChartInfoSchema();
+            string selected = new string('a', 32);
+            string keeper = new string('b', 32);
+            gateway.UpsertChartInfoParseFailures([new ChartParseFailure { md5 = selected, path = "first.bms", parser_version = 1, failure_kind = "fixture", updated_at = DateTime.UtcNow },
+                new ChartParseFailure { md5 = keeper, path = "keeper.bms", parser_version = 1, failure_kind = "fixture", updated_at = DateTime.UtcNow }]);
+            var dialogs = new RecordingDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            var owner = new ChartInfoParseFailureRemovalWorkflowOwner(() => library, dialogs, Task.Run);
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
+            using (busy)
+            {
+                ChartInfoParseFailureRemovalResult rejected = await owner.BeginRemove(new([selected])).Completion;
+                Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Busy, rejected.Status);
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(2, read.Table<LR2SongDBExtended.chart_info_parse_failure>().Count());
+            }
+            Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Removed, (await owner.BeginRemove(new([selected])).Completion).Status);
+            using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+            { Assert.AreEqual(keeper, read.Table<LR2SongDBExtended.chart_info_parse_failure>().Single().md5); }
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+        }
+        finally { library?.RequestShutdown("parse-failure-entry-test"); DeleteRoot(root); }
     }
 
     private static string CreateRoot()
@@ -253,7 +296,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
 
         internal Exception Failure { get; set; } = null!;
 
-        public void Remove(BMSLibrary library, IReadOnlyList<string> md5s)
+        public void Remove(BMSLibrary library, IReadOnlyList<string> md5s, LibraryFileMutationCapability capability)
         {
             CallCount++;
             Md5s = md5s.ToArray();
@@ -273,7 +316,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {

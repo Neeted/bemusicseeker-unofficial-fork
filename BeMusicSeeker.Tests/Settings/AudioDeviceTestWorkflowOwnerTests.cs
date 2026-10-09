@@ -39,7 +39,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Task<AudioDeviceCapabilityResult> first = owner.TryQueryCapabilitiesAsync(CreateCapabilityRequest());
         try
         {
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, first, "audio-device.query-start");
             Assert.IsTrue(owner.IsRunning);
             owner.CancelCurrentQuery();
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await first);
@@ -77,7 +77,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             new DelegateAudioDeviceTestPlaybackPort(() => stops++), runtime);
         try
         {
-            await accepted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(accepted.Task, blocker, "audio-device.request-blocker");
             Assert.IsNull(await owner.TryRunAsync(CreateRequest()));
             Assert.AreEqual(0, stops);
             Assert.AreEqual(0, runtime.CallCount);
@@ -149,7 +149,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
 
         try
         {
-            await runtimeStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(runtimeStarted.Task, firstTask, "audio-device.runtime-start");
             Assert.IsTrue(owner.IsRunning);
             Assert.IsNull(await owner.TryRunAsync(request));
 
@@ -328,7 +328,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Task<AudioDeviceCapabilityResult> queryTask = owner.TryQueryCapabilitiesAsync(request);
         try
         {
-            await queryStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(queryStarted.Task, queryTask, "audio-device.capability-start");
             Assert.IsTrue(owner.IsRunning);
             Assert.IsNull(await owner.TryQueryCapabilitiesAsync(request));
             Assert.IsNull(await owner.TryRunAsync(CreateRequest()));

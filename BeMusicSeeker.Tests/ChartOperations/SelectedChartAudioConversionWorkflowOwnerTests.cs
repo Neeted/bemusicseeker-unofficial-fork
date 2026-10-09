@@ -73,6 +73,70 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>実native変換と解放をLの同じ実終端へ接続し、未受理Busyでは停止・writerを始めません。</summary>
+    [TestMethod]
+    public async Task RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup()
+    {
+        string root = CreateRoot();
+        var nativeLease = new BassAudioSessionLease();
+        var gate = new ChartFileOperationSynchronizer();
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            string path = Path.Combine(root, "chart.bmson");
+            File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave());
+            File.WriteAllText(path, "{\"info\":{\"init_bpm\":120,\"title\":\"Owned native export\"},\"sound_channels\":[{\"name\":\"tone.wav\",\"notes\":[{\"y\":0},{\"y\":0,\"x\":1}]}]}");
+            var events = new EventLog();
+            var playback = new RecordingPlayback(events);
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            int encoderCleanup = 0;
+            int sessionCleanup = 0;
+            var executor = new BassSelectedChartAudioConversionExecutor(
+                () => { Assert.IsTrue(gate.IsActive); encoderCleanup++; return BassAudioWriter.TryReleaseEncoder(); },
+                session => { Assert.IsTrue(gate.IsActive); sessionCleanup++; return BassAudioPlayer.Free(session); }, nativeLease);
+            var owner = new SelectedChartAudioConversionWorkflowOwner(
+                () => new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
+                    SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float"),
+                _ => Assert.Fail("WAVE is available."), playback, dialogs, executor, gate);
+            var request = new SelectedChartAudioConversionRequest([CreateTarget(path, ChartOperationCapabilities.ConvertToAudio)]);
+            Assert.IsTrue(gate.TryEnter(out IDisposable busy));
+            using (busy)
+            {
+                Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
+                Assert.AreEqual(0, playback.StopCalls);
+                Assert.AreEqual(0, encoderCleanup);
+                Assert.IsFalse(File.Exists(Path.Combine(root, "Owned native export.wav")));
+            }
+            SelectedChartAudioConversionResult result = await owner.RunAsync(request);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Owned native export.wav")));
+            Assert.IsTrue(encoderCleanup > 0);
+            Assert.IsTrue(sessionCleanup > 0);
+            Assert.IsNull(nativeLease.Session);
+            Assert.IsFalse(gate.IsActive);
+        }
+        finally
+        {
+            BassAudioWriter.TryReleaseEncoder();
+            if (nativeLease.Session != null) { nativeLease.TryRelease(BassAudioPlayer.Free); }
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = previousFrequency;
+            BassAudioPlayer.Format = previousFormat;
+            BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+            DeleteRoot(root);
+        }
+    }
+
     [TestMethod]
     public void Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder()
     {
@@ -661,7 +725,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 _ => { },
                 playback,
                 dialogs,
-                executor);
+                executor, new ChartFileOperationSynchronizer());
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest(
                 chartPaths.Append(warningChartPath)
@@ -945,7 +1009,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
             operation = owner.RunAsync(new SelectedChartAudioConversionRequest([CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)]));
-            await entered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "audio-conversion.playback-stop");
             Assert.IsFalse(operation.IsCompleted);
             Assert.AreEqual(0, executor.CallCount);
             cleanup.SetResult();
@@ -1208,13 +1272,12 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task RunAsync_ConcurrentRequestIsRejectedBeforeDialogAndGateReopensAfterCompletion()
+    public async Task RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion()
     {
         string root = CreateRoot();
-        var pickerEntered = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var releasePicker = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
+        var workerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseWorker = new ManualResetEventSlim();
+        Task<SelectedChartAudioConversionResult>? first = null;
         try
         {
             string chartPath = CreateChartFile(root, "song.bms");
@@ -1222,50 +1285,45 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             var dialogs = new RecordingDialogService(events)
             {
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
-                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
-                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
-            };
-            dialogs.FolderPickerHandler = async () =>
-            {
-                pickerEntered.TrySetResult();
-                await releasePicker.Task;
-                return dialogs.FolderResult;
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted)
             };
             var executor = new RecordingExecutor(events)
             {
-                ExecuteAction = (_, _, _, _, report) => report(new SelectedChartAudioConversionFileResult("song.bms"))
+                ExecuteAction = (_, _, _, _, report) =>
+                {
+                    workerEntered.TrySetResult();
+                    releaseWorker.Wait();
+                    report(new SelectedChartAudioConversionFileResult("song.bms"));
+                }
             };
-            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
+            var playback = new RecordingPlayback(events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
             ]);
-
-            Task<SelectedChartAudioConversionResult> first = owner.RunAsync(request);
-            await pickerEntered.Task;
-
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.RunAsync(request));
-            Assert.AreEqual(1, dialogs.PickerCalls);
-            Assert.AreEqual(0, executor.CallCount);
-
-            releasePicker.TrySetResult();
+            first = owner.RunAsync(request);
+            Task reached = await Task.WhenAny(workerEntered.Task, first);
+            if (reached == first) { await first; }
+            Assert.AreSame(workerEntered.Task, reached);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(1, executor.CallCount);
+            Assert.AreEqual(1, playback.StopCalls);
+            releaseWorker.Set();
             Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, (await first).Status);
-
-            Assert.AreEqual(
-                SelectedChartAudioConversionStatus.Completed,
-                (await owner.RunAsync(request)).Status);
-            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(3, dialogs.PickerCalls, "副作用のない保存先選択後に受付を判定します。");
             Assert.AreEqual(2, executor.CallCount);
         }
         finally
         {
-            releasePicker.TrySetResult();
-            DeleteRoot(root);
+            releaseWorker.Set();
+            try { if (first != null) { await first; } }
+            finally { DeleteRoot(root); }
         }
     }
 
     [TestMethod]
-    public async Task RunAsync_ProgressExceptionDrainsWorkerBeforeSingleFlightGateReopens()
+    public async Task RunAsync_ProgressExceptionDrainsWorkerBeforeLibraryAdmissionReopens()
     {
         string root = CreateRoot();
         using var releaseWorker = new ManualResetEventSlim();
@@ -1311,11 +1369,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             ]);
 
             first = owner.RunAsync(request);
-            await cancellationCallbackEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancellationCallbackEntered.Task, first, "audio-conversion.cancel-callback");
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.RunAsync(request));
-            Assert.AreEqual(1, dialogs.PickerCalls);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
 
             releaseWorker.Set();
             InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
@@ -1327,7 +1384,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(
                 SelectedChartAudioConversionStatus.Completed,
                 (await owner.RunAsync(request)).Status);
-            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(3, dialogs.PickerCalls);
             Assert.AreEqual(2, executor.CallCount);
         }
         finally
@@ -1476,10 +1533,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             ]);
 
             first = owner.RunAsync(request);
-            await cancellationCallbackEntered.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancellationCallbackEntered.Task, first, "audio-conversion.cancel-callback");
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.RunAsync(request));
-            Assert.AreEqual(1, dialogs.PickerCalls);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
+            Assert.AreEqual(2, dialogs.PickerCalls);
 
             releaseWorker.Set();
             Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, (await first).Status);
@@ -1490,7 +1547,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(
                 SelectedChartAudioConversionStatus.Completed,
                 (await owner.RunAsync(request)).Status);
-            Assert.AreEqual(2, dialogs.PickerCalls);
+            Assert.AreEqual(3, dialogs.PickerCalls);
             Assert.AreEqual(2, executor.CallCount);
         }
         finally
@@ -1536,7 +1593,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             encoder => fallbackValues?.Add(encoder),
             playback,
             dialogs,
-            executor);
+            executor, new ChartFileOperationSynchronizer());
     }
 
     private static ChartOperationTarget CreateTarget(string path, ChartOperationCapabilities capabilities)

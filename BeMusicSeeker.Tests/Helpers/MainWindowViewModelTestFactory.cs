@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -30,28 +31,57 @@ internal static class MainWindowViewModelTestFactory
     }
 
     /// <summary>テストホスト間で共有しないポータブル設定インスタンスを作成します。</summary>
-    internal static Settings CreateIsolatedSettings() => PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
-        Path.GetTempPath(),
-        "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
-        "user.config"));
-
-    internal static TestBmsLibrary CreateLibrary(string songDbPath, Settings settings)
+    internal static Settings CreateIsolatedSettings(Action<Settings>? configure = null)
     {
+        Settings settings = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
+            Path.GetTempPath(),
+            "BmsViewModelSettings-" + Guid.NewGuid().ToString("N"),
+            "user.config"));
+        configure?.Invoke(settings);
+        return settings;
+    }
+
+    /// <summary>独立fixture、または既存実画面と同じcompositionのL/Pでライブラリを作成します。</summary>
+    /// <param name="owner">実Attach先の画面。省略時は独立fixtureです。</param>
+    internal static TestBmsLibrary CreateLibrary(string songDbPath, Settings settings, MainWindowViewModel? owner = null)
+    {
+        ApplicationComposition? composition = owner == null ? null : GetComposition(owner);
         return new TestBmsLibrary(
             songDbPath,
             getLR2Config: null,
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
-            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+            operationAdmission: composition?.OperationAdmission,
+            playlistOperationAdmission: composition?.PlaylistOperationAdmission);
     }
 
-    /// <summary>専用設定と任意のスコア読取りを接続した実プレイリストを作成します。</summary>
+    /// <summary>実画面が既に所有する構成をfixture入力の接続にだけ使い、別ownerを作りません。</summary>
+    internal static ApplicationComposition GetComposition(MainWindowViewModel owner)
+        => (ApplicationComposition)(typeof(MainWindowViewModel)
+            .GetField("applicationComposition", BindingFlags.Instance | BindingFlags.NonPublic)
+            ?.GetValue(owner) ?? throw new InvalidOperationException("Actual main-window composition is unavailable."));
+
+    /// <summary>専用設定と任意のスコア読取りを接続し、実起動では同libraryの型付き能力とPを共有します。</summary>
+    /// <param name="library">実起動factoryの所有ライブラリ。純粋な独立port fixtureでは省略します。</param>
     internal static TestBmsPlaylist CreatePlaylist(
         string songDbPath,
         Settings settings,
         Func<LR2Config>? getLr2Config = null,
-        Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null)
+        Func<CancellationToken, Task<WalkureScoreInput>>? recommendationScoreReader = null,
+        BMSLibrary? library = null)
     {
+        if (library != null)
+        {
+            return new TestBmsPlaylist(
+                new BmsPlaylistLibraryBindings(library),
+                songDbPath,
+                () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+                getLr2Config,
+                () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),
+                () => BeatorajaBmtOptionsSnapshot.CreateCurrent(settings),
+                recommendationScoreReader);
+        }
         return new TestBmsPlaylist(
             songDbPath,
             getLr2Config: getLr2Config,
@@ -104,32 +134,38 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
     private readonly Func<Task<StartupInitializationOutcome>> initializeLibrary;
-    private readonly Func<Task> reloadScoresOnly;
-    private readonly Func<Task> reloadFileDiff;
+    private readonly Func<LibraryFileMutationCapability?, Task<StartupInitializationOutcome>>? initializeAcceptedLibrary;
+    private readonly Func<LibraryFileMutationCapability?, Task> reloadScoresOnly;
+    private readonly Func<LibraryFileMutationCapability?, Task> reloadFileDiff;
     private readonly Action? initializationFailed;
 
+    /// <summary>純fake継続と実ownerの受理済み継続を分け、実継続には同じ生存権限を転送します。</summary>
+    /// <param name="reloadFileDiff">実差分継続には生存権限を転送し、純fake継続は局所境界で終端を返します。</param>
     internal TestSettingsDialogStatePort(
         MainWindowViewModel owner,
         Func<Task<StartupInitializationOutcome>> initializeLibrary,
         Action? initializationFailed = null,
-        Func<Task>? reloadScoresOnly = null,
-        Func<Task>? reloadFileDiff = null)
+        Func<LibraryFileMutationCapability?, Task>? reloadScoresOnly = null,
+        Func<LibraryFileMutationCapability?, Task>? reloadFileDiff = null,
+        Func<LibraryFileMutationCapability?, Task<StartupInitializationOutcome>>? initializeAcceptedLibrary = null)
     {
+        this.initializeAcceptedLibrary = initializeAcceptedLibrary;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.initializeLibrary = initializeLibrary
             ?? throw new ArgumentNullException(nameof(initializeLibrary));
         this.initializationFailed = initializationFailed;
-        this.reloadScoresOnly = reloadScoresOnly ?? (() => Task.CompletedTask);
-        this.reloadFileDiff = reloadFileDiff ?? (() => Task.CompletedTask);
+        this.reloadScoresOnly = reloadScoresOnly ?? (_ => Task.CompletedTask);
+        this.reloadFileDiff = reloadFileDiff ?? (_ => Task.CompletedTask);
     }
 
     public bool HasActiveLibraryProfile => owner.HasActiveLibraryProfile;
 
     public bool IsLibraryOperationInProgress => owner.IsLibraryOperationInProgress;
 
-    public async Task<StartupInitializationOutcome> InitializeLibraryAsync()
+    public async Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null)
     {
-        StartupInitializationOutcome outcome = await initializeLibrary();
+        StartupInitializationOutcome outcome = await (initializeAcceptedLibrary == null
+            ? initializeLibrary() : initializeAcceptedLibrary(capability));
         if (outcome == StartupInitializationOutcome.SettingsRequired)
         {
             initializationFailed?.Invoke();
@@ -137,9 +173,14 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         return outcome;
     }
 
-    public Task ReloadScoresOnlyAsync() => reloadScoresOnly();
+    public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => reloadScoresOnly(capability);
 
-    public Task ReloadFileDiffAsync() => reloadFileDiff();
+    public Task PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
+        => ((ISettingsDialogStatePort)owner).PresentLibraryDirectoryWarningAsync(failure);
+
+    /// <summary>受理済みの実差分継続だけ同じ生存権限を渡し、純fakeは局所依存のまま実終端を返します。</summary>
+    public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+        => reloadFileDiff(capability);
 
     public event EventHandler? LibraryOperationAvailabilityChanged;
 

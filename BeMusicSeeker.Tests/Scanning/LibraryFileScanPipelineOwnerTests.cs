@@ -32,7 +32,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyFileScanDiff_InlineChartInfoFailurePublishesOwnerWarningBeforeResidual()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         try
@@ -85,7 +85,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyFileScanDiff_LatePostLeaseObserverFailureDiscardsCommittedReceipt()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         try
@@ -148,7 +148,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyActiveFileScan_NoDiffDiscardsCommittedReceiptWithoutAdvancingVersion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         try
@@ -221,7 +221,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyActiveFileScan_IncompletePrefetchDiscardsCommittedReceiptWithoutAdvancingVersion()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         try

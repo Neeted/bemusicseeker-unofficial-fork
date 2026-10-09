@@ -80,7 +80,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void ApplyPackageReferenceFacts_FullClearBuildsChartSnapshotWithoutMutatingBmsOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile file = ChartTestValues.Empty() with
@@ -124,7 +124,7 @@ public sealed class BmsLibraryStateApplierTests
     [TestMethod]
     public void ApplyPackageReferenceFacts_PathOnlyNullBuildsChartSnapshotWithoutMutatingBmsOwner()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile file = ChartTestValues.Empty() with
@@ -324,7 +324,7 @@ public sealed class BmsLibraryStateApplierTests
             ObservableCollection<ChartPackage> installed = CreatePackageCollection([keptPackage, removedPackage]);
             PackageChartEntry[] stableEntries = [.. keptPackage.ChartEntries];
             var lifecycle = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             lifecycle.SetInstalledPackages(installed);
             try
@@ -376,7 +376,7 @@ public sealed class BmsLibraryStateApplierTests
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(), owned.Collection.CreatePathSnapshot());
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).ToArray(),
                     installed.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(expectedBms, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
                 CollectionAssert.AreEquivalent(expectedBmson, readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray());
                 CollectionAssert.AreEquivalent(expectedBms.Concat(expectedBmson).Append(keptMissingPath).ToArray(),

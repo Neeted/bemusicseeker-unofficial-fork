@@ -79,18 +79,19 @@ internal sealed class MaintenanceRescanStartResult
 }
 
 /// <summary>
-/// Owns the shell lifecycle of the all-owned maintenance rescan while the library
-/// remains responsible for the durable/live catalog mutation boundary.
+/// 全所持再検査のLをworker起動前に受理し、モデル保存と必須通知・取消回収の実終端まで追跡します。
 /// </summary>
 internal sealed class MaintenanceRescanWorkflowOwner
 {
     private readonly object syncRoot = new();
 
-    private readonly Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> execute;
+    private readonly Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> execute;
 
     private readonly Func<Action, Task> schedule;
 
     private readonly Action<Action> dispatchToUi;
+
+    private readonly Func<Action, Task> dispatchTerminalToUi;
 
     private readonly Action<string> logInfo;
 
@@ -110,18 +111,21 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     private bool shutdownRequested;
 
+    /// <summary>受理済みL権限を実モデルへ渡す実行と、worker・UI通知の終端を接続します。</summary>
     internal MaintenanceRescanWorkflowOwner(
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> execute,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> execute,
         Func<Action, Task> schedule,
         Action<Action> dispatchToUi,
         Action<string> logInfo = null,
         Action<Exception> reportNotificationFailure = null,
         Action<Exception> reportWorkflowFailure = null,
-        IUiDialogService dialogs = null)
+        IUiDialogService dialogs = null,
+        Func<Action, Task> dispatchTerminalToUi = null)
     {
         this.execute = execute ?? throw new ArgumentNullException(nameof(execute));
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
+        this.dispatchTerminalToUi = dispatchTerminalToUi;
         this.logInfo = logInfo;
         this.reportWorkflowFailure = reportWorkflowFailure;
         this.reportNotificationFailure = reportNotificationFailure;
@@ -135,7 +139,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
     internal event Action<MaintenanceRescanFailure> FailurePublished;
 
     /// <summary>
-    /// Reports that the maintenance-rescan owner received a cancellation request.
+    /// 所有する再検査へ取消を要求した事実を通知します。
     /// </summary>
     internal event Action CancellationRequested;
 
@@ -153,9 +157,8 @@ internal sealed class MaintenanceRescanWorkflowOwner
     internal bool IsIdle => !IsActive;
 
     /// <summary>
-    /// Returns a receipt for the currently owned run, completing when the worker
-    /// reaches success, failure, or stale-generation retirement.  The receipt is
-    /// independent of the UI progress notification queue.
+    /// 開始済みworkerと必須終端通知、取消回収、L解放の実終端を待ちます。
+    /// 独立した途中進捗通知の表示順は完了条件に加えません。
     /// </summary>
     internal Task WaitForIdleAsync()
     {
@@ -233,8 +236,9 @@ internal sealed class MaintenanceRescanWorkflowOwner
             {
                 return false;
             }
+            if (!library.OperationAdmission.TryEnter(out IDisposable admission)) { return false; }
             generation++;
-            run = new RunContext(generation, library, new CancellationTokenSource());
+            run = new RunContext(generation, library, new CancellationTokenSource(), admission);
             activeRun = run;
         }
 
@@ -250,26 +254,13 @@ internal sealed class MaintenanceRescanWorkflowOwner
             {
                 throw new InvalidOperationException("Maintenance rescan scheduler returned no task.");
             }
-            scheduled.ContinueWith(
-                task =>
-                {
-                    if (task.IsFaulted)
-                    {
-                        CompleteFailure(run, task.Exception?.GetBaseException() ?? new InvalidOperationException("Maintenance rescan scheduler failed."));
-                    }
-                    else if (task.IsCanceled)
-                    {
-                        CompleteFailure(run, new InvalidOperationException("Maintenance rescan scheduler canceled without a cancellation request."));
-                    }
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
+            _ = ObserveScheduledAsync(run, scheduled);
             return true;
         }
         catch (Exception exception)
         {
             CompleteFailure(run, exception);
+            _ = FinishRunAsync(run);
             return true;
         }
     }
@@ -321,6 +312,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     private void Execute(RunContext run)
     {
+        Interlocked.Exchange(ref run.WorkerStarted, 1);
         MaintenanceWorkflowResult result;
         try
         {
@@ -346,7 +338,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
                         }
                         PublishProgress(run, progress);
                     },
-                    run.CancellationTokenSource.Token);
+                    run.CancellationTokenSource.Token, run.Capability);
             if (result == null)
             {
                 throw new InvalidOperationException("Maintenance rescan executor returned no result.");
@@ -368,10 +360,17 @@ internal sealed class MaintenanceRescanWorkflowOwner
             LogInfoSafely("maintenance_rescan failed scope=all_owned message=" + (exception.Message ?? string.Empty).Replace(Environment.NewLine, " "));
             CompleteFailure(run, exception);
         }
-        finally
+    }
+
+    private async Task ObserveScheduledAsync(RunContext run, Task scheduled)
+    {
+        try { await scheduled.ConfigureAwait(false); }
+        catch (Exception failure) { CompleteFailure(run, failure); }
+        if (run.WorkerStarted == 0 && run.Failure == null)
         {
-            run.DisposeCancellationTokenSource();
+            CompleteFailure(run, new InvalidOperationException("Maintenance rescan scheduler completed without executing accepted work."));
         }
+        await FinishRunAsync(run).ConfigureAwait(false);
     }
 
     private void PublishProgress(RunContext run, MaintenanceWorkflowProgress progress)
@@ -415,122 +414,87 @@ internal sealed class MaintenanceRescanWorkflowOwner
         });
     }
 
-    private void CompleteSuccess(RunContext run, MaintenanceWorkflowResult result, bool canceled)
+    private static void CompleteSuccess(RunContext run, MaintenanceWorkflowResult result, bool canceled)
     {
-        long terminalStatusVersion;
-        bool publish;
-        bool finalCanceled;
-        lock (syncRoot)
-        {
-            if (!ReferenceEquals(activeRun, run))
-            {
-                return;
-            }
-            finalCanceled = canceled
-                || run.CancelRequested
-                || run.CancellationTokenSource.IsCancellationRequested;
-            activeRun = null;
-            statusVersion++;
-            terminalStatusVersion = statusVersion;
-            publish = IsCurrentGenerationUnsafe(run);
-        }
-        run.DisposeCancellationTokenSource();
-        run.IdleCompletion.TrySetResult(true);
-        if (!publish)
-        {
-            return;
-        }
-        MaintenanceWorkflowProgress terminalProgress = CreateTerminalProgress(run, finalCanceled);
-        var receipt = new MaintenanceRescanCompletionReceipt(run.Generation, finalCanceled, result);
-        DispatchNotification(() =>
-        {
-            lock (syncRoot)
-            {
-                if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion)
-                {
-                    return;
-                }
-            }
-            InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(terminalProgress)));
-            InvokeObserverSafely(() => CompletionPublished?.Invoke(receipt));
-        });
+        run.Result = result;
+        run.Canceled = canceled;
     }
 
-    private void CompleteFailure(RunContext run, Exception exception)
+    private static void CompleteFailure(RunContext run, Exception exception) => run.Failure = exception;
+
+    private static void CompleteStale(RunContext run) => run.Stale = true;
+
+    private async Task FinishRunAsync(RunContext run)
     {
-        long terminalStatusVersion;
-        bool publish;
-        bool canceled;
-        lock (syncRoot)
+        if (Interlocked.Exchange(ref run.TerminalStarted, 1) != 0) { return; }
+        try
         {
-            if (!ReferenceEquals(activeRun, run))
-            {
-                return;
-            }
-            canceled = run.CancelRequested || run.CancellationTokenSource.IsCancellationRequested;
-            activeRun = null;
-            statusVersion++;
-            terminalStatusVersion = statusVersion;
-            publish = IsCurrentGenerationUnsafe(run);
-        }
-        run.DisposeCancellationTokenSource();
-        if (!canceled)
-        {
-            ReportWorkflowFailure(exception);
-        }
-        run.IdleCompletion.TrySetResult(true);
-        if (!publish)
-        {
-            return;
-        }
-        if (canceled)
-        {
-            MaintenanceWorkflowProgress canceledProgress = CreateTerminalProgress(run, canceled: true);
-            var canceledReceipt = new MaintenanceRescanCompletionReceipt(
-                run.Generation,
-                canceled: true,
-                new MaintenanceWorkflowResult { Canceled = true });
-            DispatchNotification(() =>
-            {
-                lock (syncRoot)
-                {
-                    if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion)
-                    {
-                        return;
-                    }
-                }
-                InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(canceledProgress)));
-                InvokeObserverSafely(() => CompletionPublished?.Invoke(canceledReceipt));
-            });
-            return;
-        }
-        MaintenanceWorkflowProgress terminalProgress = CreateTerminalProgress(run, canceled: true);
-        var failure = new MaintenanceRescanFailure(run.Generation, exception);
-        DispatchNotification(() =>
-        {
+            bool publish;
+            long terminalStatusVersion;
+            bool canceled = run.Canceled || run.CancelRequested || run.CancellationTokenSource.IsCancellationRequested;
             lock (syncRoot)
             {
-                if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion)
-                {
-                    return;
-                }
-            }
-            InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(terminalProgress)));
-            InvokeObserverSafely(() => FailurePublished?.Invoke(failure));
-        });
-    }
-
-    private void CompleteStale(RunContext run)
-    {
-        lock (syncRoot)
-        {
-            if (ReferenceEquals(activeRun, run))
-            {
-                activeRun = null;
+                publish = !run.Stale && IsCurrentGenerationUnsafe(run);
                 statusVersion++;
+                terminalStatusVersion = statusVersion;
+            }
+            if (run.Failure != null && !canceled) { ReportWorkflowFailure(run.Failure); }
+            if (!publish) { return; }
+            MaintenanceWorkflowProgress terminalProgress = CreateTerminalProgress(run, canceled || run.Failure != null);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                void PublishTerminal()
+                {
+                    try
+                    {
+                        lock (syncRoot)
+                        {
+                            if (!IsCurrentGenerationUnsafe(run) || statusVersion != terminalStatusVersion) { return; }
+                        }
+                        InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(terminalProgress)));
+                        if (run.Failure != null && !canceled)
+                        {
+                            InvokeObserverSafely(() => FailurePublished?.Invoke(new MaintenanceRescanFailure(run.Generation, run.Failure)));
+                        }
+                        else
+                        {
+                            var receipt = new MaintenanceRescanCompletionReceipt(run.Generation, canceled,
+                                run.Result ?? new MaintenanceWorkflowResult { Canceled = canceled });
+                            InvokeObserverSafely(() => CompletionPublished?.Invoke(receipt));
+                        }
+                    }
+                    catch (Exception failure) { ReportNotificationFailure(failure); }
+                    finally { completion.TrySetResult(true); }
+                }
+                if (dispatchTerminalToUi == null)
+                {
+                    dispatchToUi(PublishTerminal);
+                }
+                else
+                {
+                    await dispatchTerminalToUi(PublishTerminal).ConfigureAwait(false);
+                }
+            }
+            catch (Exception failure)
+            {
+                ReportNotificationFailure(failure);
+                completion.TrySetResult(true);
+            }
+            await completion.Task.ConfigureAwait(false);
+        }
+        catch (Exception failure) { ReportNotificationFailure(failure); }
+        finally
+        {
+            run.DisposeCancellationTokenSource();
+            run.Capability.Dispose();
+            lock (syncRoot)
+            {
+                run.Admission.Dispose();
+                if (ReferenceEquals(activeRun, run)) { activeRun = null; }
+                run.IdleCompletion.TrySetResult(true);
             }
         }
-        run.IdleCompletion.TrySetResult(true);
     }
 
     private MaintenanceWorkflowProgress CreateTerminalProgress(RunContext run, bool canceled)
@@ -671,12 +635,23 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     private sealed class RunContext
     {
-        internal RunContext(long generation, BMSLibrary library, CancellationTokenSource cancellationTokenSource)
+        internal RunContext(long generation, BMSLibrary library, CancellationTokenSource cancellationTokenSource, IDisposable admission)
         {
             Generation = generation;
             Library = library;
             CancellationTokenSource = cancellationTokenSource;
+            Admission = admission;
+            Capability = library.OperationAdmission.CreateMutationCapability(admission);
         }
+
+        internal IDisposable Admission { get; }
+        internal LibraryFileMutationCapability Capability { get; }
+        internal MaintenanceWorkflowResult Result { get; set; }
+        internal Exception Failure { get; set; }
+        internal bool Canceled { get; set; }
+        internal bool Stale { get; set; }
+        internal int TerminalStarted;
+        internal int WorkerStarted;
 
         internal long Generation { get; }
 

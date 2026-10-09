@@ -822,7 +822,7 @@ public sealed class CustomTableColumnFactoryTests
     [DataRow(2, true)]
     public void InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths(int candidateCount, bool hasDestination)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var settings = new CustomTableColumnSettings();
         settings.InstallDst.Visibility = Visibility.Visible;
         CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings)

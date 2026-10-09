@@ -12,6 +12,8 @@
 
 ### 出力先と事前検査
 
+出力配置は起動時の保存値から初期化する小不変入力を使います。user.configと必要なLR2 XMLの保存段階が完了するまで新配置を公開せず、未保存draftは通常出力・交差判定・全体同期の署名/currentnessへ反映しません。古いプロパティ画面から保存するときも、局所受付後に現行配置と正本対象へ固定します。保存失敗・部分保存・公開後失敗は[設定仕様](../runtime/settings.md)に従います。
+
 既定の通常出力先は `LR2CustomFolderOutputBaseDir`、追加先は `LR2CustomFolderAdditionalOutputBaseDirs`、ルート型は `LR2CustomFolderOutputBaseDirRootType` です。追加先はJSON文字列配列でフルパスを保存し、表示とDBの選択値には末尾のディレクトリ名を使います。
 
 表の `custom_folder_output_base_name` がNULLなら既定先、登録済み名なら追加先を選びます。保存名が設定にない場合の実効先は既定先です。設定画面で追加先を削除した場合は参照をNULLへ、改名した場合は新名へ更新します。ルート型の間も通常先の選択値は保持し、実効出力先だけルート型を優先します。
@@ -100,17 +102,26 @@ ORDER BY (SELECT last_play_at FROM bms_lr2_last_play WHERE hash = song.hash) IS 
 
 管理外の `.lr2folder` 探索は、管理表ディレクトリを列挙時の除外範囲として渡します。全件を候補化してから捨てません。保持した走査結果と現在の除外範囲が変わった場合は現在の範囲で探索し直し、出力前の古いファイル集合を出力後の同期に使いません。
 
-全体生成の準備は一つの明示的受付で外側の変更権を取得し、内部の具体的な連携処理だけに同じ権限を渡します。使用中なら待機・内部再試行・自動再開をせずfalseで終端します。進捗は既存の最新状態通知キューを使い、権限保持中に購読先を同期実行しません。購読先の例外は診断し、物理ファイル・DB・保存状態の結果を変えません。
+日常部分出力・全体生成・設定移行の受付条件と寿命は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。進捗は既存の最新状態通知キューを使い、購読先の例外は診断し、物理ファイル・DB・保存状態の結果と区別します。
+
+基点・表ディレクトリ移行は捕捉済み旧先・新先を用いて処理します。新しい先の確定後に旧先削除が失敗しても、新しい先のファイル・DB・出力状態、旧先の残余と元警告を保持します。次の通常要求は新しい先を使い、古い編集画面の配置から旧先cleanupを再開しません。永久残余履歴や自動回収は追加しません。
 
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 通信・必要公開までの受付と次明示要求 | `PlaylistExternalSyncOwner`、`PlaylistWorkspaceViewModel` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs): 実通信前から同側Busy、未受理の削除・登録が自動再実行されないこと、実DB/出力と解放後の新明示要求を確認する。 |
+| 日常の非交差並行と正本・CP932・フォルダ実反映 | `ApplicationComposition` | [`DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
+| 保存済配置、古い編集画面、公開後失敗と確定事実 | `ApplicationComposition` | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
+| 旧先削除失敗と新先状態、次通常処理で旧残余不変 | `BMSPlaylist` | [`ChangeCustomFolderBaseDirectory_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 種類・SQL・階層と保存設定 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 | 一括生成・旧出力先・状態・受付 | [`PlaylistCustomFolderOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputOwner.cs) | [`PlaylistCustomFolderOutputOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistCustomFolderOutputOwnerTests.cs)、[`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) |
 | 通常・追加先の同一登録維持と親子配置の拒否 | [`CustomFolderOutputBaseSearchRootSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/CustomFolderOutputBaseSearchRootSyncService.cs) | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) の `OutputBaseSearchRootValidation_OnlyRootOutputCanContainRegisteredDirectories`、`SyncAdditionalOutputBaseRoots_RejectsParentOrChildWithoutReplacingRegistration`、`RepairNormalOutputBaseRoots_RejectsInvalidAdditionalBeforeAddingDefault`: パス方向、全候補の変更前検証、XML・登録の保持。 |
 | ルート型先の復元と外側の親登録の保護 | [`PlaylistCustomFolderOutputMaintenanceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) | [`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) のルート同期テストと `RootOutputBaseSync_RejectsRegisteredParentWithoutChangingRootsOrFiles`: 基点・旧子登録からの復元、未生成ディレクトリの補完、禁止配置の未変更性。 |
+| 注入設定による出力先移行 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の `ChangeCustomFolderBaseDirectory` | [`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs): 同じ実library bindingsで旧ディレクトリの移行、注入先への実生成、共有設定へのfallback不在を確認する。小さい設定providerの総呼出し回数を上位の保証にはしない。 |
+| 準備中のフォルダ非保存・空入力・外部行の保存列 | [`BmsLr2SongDbSyncWorkflowRuntime`](../../../BeMusicSeeker/ViewModels/Lr2/Lr2SongDbSyncWorkflowOwner.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) の実準備case群: 所有libraryの生存権限をtyped bindingsへ接続し、実生成面・件数、空入力の正常終端と解放、外部フォルダ行の保存列を確認する。保存後の結果は実Queueの代表接続に分担する。 |
 | スキーマの互換性・既定値 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistSchemaMigrationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSchemaMigrationTests.cs) |
+
 
 ## 関連資料
 

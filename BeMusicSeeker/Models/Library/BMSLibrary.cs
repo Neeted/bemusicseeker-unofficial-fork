@@ -410,7 +410,7 @@ public partial class BMSLibrary : ObservableObject
         internal int RankingRefreshCompletedVersion;
     }
 
-    private sealed class BackgroundPendingEstimatePreparationResult
+    private sealed class PendingInstallEstimatePreparationResult
     {
         internal List<ChartPackage> EstimablePackages { get; } = [];
 
@@ -500,6 +500,8 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>新規処理の受付を止め、IR 本文受信を含む終了対象へキャンセルを通知します。</summary>
     internal void RequestShutdown(string reason)
     {
+        OperationAdmission.CloseAdmission();
+        lr2SynchronizationOwner.PlaylistOperationAdmission.CloseAdmission();
         Interlocked.Exchange(ref shutdownRequested, 1);
         GetLr2SynchronizationRuntimeState().RequestShutdown();
         irScoreShutdownCancellation.Cancel();
@@ -514,14 +516,6 @@ public partial class BMSLibrary : ObservableObject
         {
             LogInstallPerformance("shutdown cancel_lr2_song_db_sync_failed reason=" + shutdownReason + " message=" + ex.Message);
         }
-        try
-        {
-            packageLifecycleOwner?.CancelPendingEstimateQueue();
-        }
-        catch (Exception ex)
-        {
-            LogInstallPerformance("shutdown cancel_pending_estimate_failed reason=" + shutdownReason + " message=" + ex.Message);
-        }
     }
 
     /// <summary>prefetch 通信と既存 worker の実完了前には終了を許可しません。</summary>
@@ -534,8 +528,7 @@ public partial class BMSLibrary : ObservableObject
         || InstallableMaintenanceDeferredRunning
         || ScoreHydrationRunning
         || RankingRefreshRunning
-        || IrScorePrefetchRunning
-        || (packageLifecycleOwner != null && !packageLifecycleOwner.IsPendingEstimateQueueIdle);
+        || IrScorePrefetchRunning;
 
     internal string GetShutdownBlockingWorkLogFields()
     {
@@ -548,7 +541,7 @@ public partial class BMSLibrary : ObservableObject
             + " scoreHydrationRunning=" + FormatBool(ScoreHydrationRunning)
             + " rankingRefreshRunning=" + FormatBool(RankingRefreshRunning)
             + " irScorePrefetchRunning=" + FormatBool(IrScorePrefetchRunning)
-            + " pendingInstallEstimateQueueIdle=" + FormatBool(packageLifecycleOwner == null || packageLifecycleOwner.IsPendingEstimateQueueIdle);
+;
     }
 
     private static string FormatBool(bool value)
@@ -696,13 +689,13 @@ public partial class BMSLibrary : ObservableObject
 
     private bool duplicateWarningFullClearPending = true;
 
-    // Pending estimate snapshots and installed lookup publications must cross the
-    // same boundary so a digest update cannot become visible between validation
-    // and applying the corresponding package result.
-    private readonly object pendingInstallEstimateCurrentnessGate = new();
+    // 所持索引とリソース索引の短い捕捉・公開順を揃える。操作全体の受付はOperationAdmissionが所有する。
+    private readonly object ownedInputSnapshotGate = new();
 
-    // Production leaves this optional diagnostic boundary unset. Tests can use
-    // it to observe execution without exposing a public callback surface.
+    /// <summary>推定入力の必須背景更新と利用者操作が共有する論理受付です。</summary>
+    internal ChartFileOperationSynchronizer OperationAdmission { get; }
+
+    // 本番では未設定。評価・適用・終端の診断を公開APIに追加せず観測する。
     private readonly IInstallEstimationExecutionObserver installEstimationExecutionObserver;
 
     private readonly object lockInstallEstimationMetadataProfileCache = new();
@@ -727,7 +720,6 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly ReaderWriterLockSlimWrapper rwlockBMSScores = new();
 
-
     private readonly CatalogMutationOwner catalogMutationOwner;
 
     private readonly CatalogMaintenanceOwner catalogMaintenanceOwner;
@@ -738,7 +730,6 @@ public partial class BMSLibrary : ObservableObject
     private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogOwnedCollectionOwner.WriteGate;
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBInstall = new();
-
 
     private object lockChartInfoBackfill => catalogChartInfoOwner.BackfillGate;
 
@@ -808,12 +799,6 @@ public partial class BMSLibrary : ObservableObject
     {
         get => catalogChartInfoOwner.ChartInfoBackfillCompletedVersionState;
         set => catalogChartInfoOwner.ChartInfoBackfillCompletedVersionState = value;
-    }
-
-    private int chartInfoBackfillHydrationBypassUntilVersion
-    {
-        get => catalogChartInfoOwner.ChartInfoBackfillHydrationBypassUntilVersion;
-        set => catalogChartInfoOwner.ChartInfoBackfillHydrationBypassUntilVersion = value;
     }
 
     private readonly Lr2SynchronizationOwner lr2SynchronizationOwner;
@@ -890,8 +875,6 @@ public partial class BMSLibrary : ObservableObject
     private IReadOnlyList<ChartFile> _BMSFiles => catalogOwnedCollectionOwner.BmsRows;
 
     private IReadOnlyList<ChartFile> _BmsonSongs => catalogOwnedCollectionOwner.BmsonRows;
-
-
 
     private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher = new();
 
@@ -1111,8 +1094,6 @@ public partial class BMSLibrary : ObservableObject
     private static readonly Uri rankingInfoUrl = new("http://www.ribbit.xyz/bms/services/lr2ircache/ranking");
 
     private static readonly Uri rankingDataUrl = new("http://www.ribbit.xyz/bms/services/lr2ircache/ranking/");
-
-
 
     private static readonly Regex customTrimStartRegex1 = new("^(\\d+(S|D)P|midi|bms|music)[.:・\\s]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
@@ -1690,11 +1671,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    public int PendingEstimateQueueStatusVersion
-    {
-        get => packageLifecycleOwner.PendingEstimateQueueStatusVersion;
-    }
-
     public int InstallEstimationProgressVersion
     {
         get => packageLifecycleOwner.InstallEstimationProgressVersion;
@@ -1846,9 +1822,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>
-    /// chart_info のバックグラウンド構築が実行中かどうかです。
-    /// </summary>
     /// <summary>譜面情報補完の送出元要求版と件数を、同じ要求の変更不能な値として返します。</summary>
     internal ChartInfoWorkflowProgressSnapshot ChartInfoBackfillProgressSnapshot => catalogChartInfoOwner.BackfillProgressSnapshot;
 
@@ -2149,7 +2122,6 @@ public partial class BMSLibrary : ObservableObject
             libraryInitializationProgressPendingVersion++;
         }
     }
-
 
     public int LibraryDatabaseLoadCompletedVersion
     {
@@ -2516,7 +2488,7 @@ public partial class BMSLibrary : ObservableObject
         SourceSurfaceScanLimitExceeded,
         ResolvedInstalledDirectory,
         EstimatedResult,
-        SkippedAsStale
+        NotEvaluated
     }
 
     private sealed class PendingInstallEstimateEvaluationRequest
@@ -2558,8 +2530,6 @@ public partial class BMSLibrary : ObservableObject
         public LibraryResourceIndexSnapshot ResourceIndexSnapshot { get; set; }
 
         public DirectoryResourceLookupCache DirectoryLookupCacheSnapshot => ResourceIndexSnapshot.DirectoryLookupCache;
-
-        public PendingInstallEstimateCurrentnessStamp CurrentnessStamp { get; set; }
 
         public BmsLibraryOptionsSnapshot OptionsSnapshot { get; set; } = new BmsLibraryOptionsSnapshot();
     }
@@ -2613,14 +2583,6 @@ public partial class BMSLibrary : ObservableObject
 
         public InstallEstimationEvaluationData EstimationData { get; set; }
 
-        public PendingInstallEstimateCurrentnessStamp CurrentnessStamp { get; set; }
-    }
-
-    private sealed class PendingInstallEstimateRetryCapture
-    {
-        public PendingInstallEstimateEvaluationRequest Request { get; init; }
-
-        public PendingInstallEstimateEvaluationContext Context { get; init; }
     }
 
     private sealed class PendingInstallEstimateBatchCapture
@@ -2631,11 +2593,13 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Creates the library facade for a normal application composition.
+    /// 通常構成のライブラリ窓口を作り、利用者操作と背景入力更新へ同じ受付を接続します。
     /// </summary>
-    /// <param name="chartFileScanner">Optional captured chart scanner for deterministic internal fixtures; production callers leave it null.</param>
-    /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic internal fixtures; production callers leave it null.</param>
+    /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
+    /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
     /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
+    /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
+    /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2646,19 +2610,22 @@ public partial class BMSLibrary : ObservableObject
         ApplicationPathSnapshot applicationPathSnapshot,
         IChartFileScanner chartFileScanner = null,
         IRootFileEnumerator rootFileEnumerator = null,
-        IBmsLibraryIrClient irClient = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, null, chartFileScanner, rootFileEnumerator, irClient)
+        IBmsLibraryIrClient irClient = null,
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
     {
     }
 
     /// <summary>
-    /// Creates the library facade and optionally attaches a typed install-estimation
-    /// execution observer for internal behavior verification.
+    /// ライブラリ窓口を作り、内部検証用の型付き推定診断を任意に接続します。
     /// </summary>
-    /// <param name="installEstimationExecutionObserver">Optional diagnostic observer; production callers leave it null.</param>
-    /// <param name="chartFileScanner">Optional captured chart scanner for deterministic internal fixtures; production callers leave it null.</param>
-    /// <param name="rootFileEnumerator">Optional captured grouped enumerator for deterministic internal fixtures; production callers leave it null.</param>
+    /// <param name="installEstimationExecutionObserver">任意の診断観測。本番ではnullです。</param>
+    /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
+    /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
     /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
+    /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
+    /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
     internal BMSLibrary(
         string _lr2SongDB,
         Func<LR2Config> getLR2Config,
@@ -2672,7 +2639,9 @@ public partial class BMSLibrary : ObservableObject
         IInstallEstimationExecutionObserver installEstimationExecutionObserver = null,
         IChartFileScanner chartFileScanner = null,
         IRootFileEnumerator rootFileEnumerator = null,
-        IBmsLibraryIrClient irClient = null)
+        IBmsLibraryIrClient irClient = null,
+        ChartFileOperationSynchronizer operationAdmission = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null)
     {
         if (_lr2SongDB == null)
         {
@@ -2699,6 +2668,7 @@ public partial class BMSLibrary : ObservableObject
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.installEstimationExecutionObserver = installEstimationExecutionObserver;
         this.irClient = irClient ?? new BmsLibraryIrClient();
+        OperationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
@@ -2709,7 +2679,8 @@ public partial class BMSLibrary : ObservableObject
             () => IsShutdownRequested,
             TrySkipForShutdown,
             () => StartupBackgroundTaskScheduler,
-            LogInstallPerformance);
+            LogInstallPerformance,
+            OperationAdmission);
         Lr2ChartInfoCapability lr2ChartInfoCapability = new(catalogChartInfoOwner);
         catalogMutationOwner = new(
             catalogOwnedCollectionOwner,
@@ -2739,7 +2710,10 @@ public partial class BMSLibrary : ObservableObject
             lr2SynchronizationDataPort,
             lr2SynchronizationRuntimePort,
             lr2SynchronizationProjectionPort,
-            QueueLr2ObservablePropertyChange);
+            QueueLr2ObservablePropertyChange,
+            OperationAdmission,
+            rootFileEnumerator,
+            playlistOperationAdmission);
         catalogFileMutationAdmissionOwner = new(
             lr2SynchronizationOwner,
             catalogFileMutationReadinessOwner,
@@ -2771,12 +2745,11 @@ public partial class BMSLibrary : ObservableObject
             GetDisplayedExceptionMessage,
             PublishMaintenanceHydrationReceipt,
             LogInstallPerformance,
-            NotifyMaintenanceHydrationStateChanged);
+            NotifyMaintenanceHydrationStateChanged,
+            OperationAdmission);
         packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
             uiScheduler,
-            ProcessPendingInstallEstimateBatch,
-            HandlePendingEstimateBatchException,
             propertyName => RaisePropertyChanged(propertyName),
             packages => new ObservableCollection<ChartPackage>(packages),
             () => RaisePropertyChanged(() => ChartPackagesInstalled),
@@ -2805,7 +2778,7 @@ public partial class BMSLibrary : ObservableObject
             catalogMaintenanceOwner,
             resourceHealthOwner,
             playlistReferenceOwner,
-            pendingInstallEstimateCurrentnessGate,
+            ownedInputSnapshotGate,
             normalLibraryRefreshPublisher,
             CreateLr2NormalFolderCatalogMutationReceipt,
             CreateLr2NormalFolderCatalogMutationReceipt,
@@ -2821,11 +2794,13 @@ public partial class BMSLibrary : ObservableObject
             LogStartupMemoryCheckpoint,
             CreateChartFolderPathFromCharts,
             GetDuplicateInstallRepairPaths,
-            charts => ApplyCatalogMaintenance(
+            (charts, capability, postLeaseNotificationObserver) => ApplyCatalogMaintenance(
                 charts,
                 forceUpdate: true,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
-                resourceHealthMutationReason: "merge_folder"),
+                resourceHealthMutationReason: "merge_folder",
+                capability: capability,
+                postLeaseNotificationObserver: postLeaseNotificationObserver),
             LogReverseLookupMutationAndQueueWarmupIfNeeded,
             LogInstallPerformance,
             LogInstallPerformanceWarn,
@@ -3185,11 +3160,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    internal PendingInstallEstimateQueueStatusSnapshot GetPendingEstimateQueueStatusSnapshot()
-    {
-        return packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
-    }
-
     internal InstallEstimationProgressSnapshot GetInstallEstimationProgressSnapshot()
     {
         return packageLifecycleOwner.GetInstallEstimationProgressSnapshot();
@@ -3223,56 +3193,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private static int GetPendingEstimateQueuedBatchCount(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        if (snapshot == null || !snapshot.IsActive)
-        {
-            return 0;
-        }
-        return snapshot.PendingBatchCount + 1;
-    }
-
-    private void QueuePendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request)
-    {
-        if (request == null || request.PackageCount == 0)
-        {
-            return;
-        }
-        if (TrySkipForShutdown("pending_estimate_batch", request.Source.ToString()))
-        {
-            return;
-        }
-        bool queued = packageLifecycleOwner.TryEnqueuePendingEstimateBatch(
-            request,
-            TrySkipForShutdown,
-            () => LogPendingInstallEstimateAccepted(request));
-        if (queued)
-        {
-            PendingInstallEstimateQueueStatusSnapshot snapshot = packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
-            LogInstallPerformance("pending_estimate_batch queued source=" + ToPendingEstimateBatchSourceLogValue(request.Source) + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " pendingBatches=" + snapshot.PendingBatchCount);
-        }
-    }
-
-    private static void LogPendingInstallEstimateAccepted(
-        PendingInstallEstimateBatchRequest request)
-    {
-        if (!Net10PerformanceLog.IsEnabled)
-        {
-            return;
-        }
-        string details =
-            "source=" + ToPendingEstimateBatchSourceLogValue(request.Source)
-            + " packages=" + request.PackageCount;
-        Net10PerformanceLog.Write(
-            request.PerformanceInteraction,
-            "input_accepted",
-            details);
-        Net10PerformanceLog.Write(
-            request.PerformanceInteraction,
-            "owner_queued",
-            details);
-    }
-
     private void ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
     {
         if (request == null || request.PackageCount == 0)
@@ -3283,7 +3203,8 @@ public partial class BMSLibrary : ObservableObject
         string source = ToPendingEstimateBatchSourceLogValue(request.Source);
         int lowConfidenceCount = 0;
         int completed = 0;
-        var executionPolicy = InstallEstimationExecutionPolicy.ForPendingBatch(ResolvePendingInstallEstimateParallelPackageDegree());
+        var executionPolicy = InstallEstimationExecutionPolicy.ForPendingBatch(ResolvePendingInstallEstimateParallelPackageDegree(
+            (request.OptionsSnapshot ?? CurrentOptionsSnapshot).PendingInstallEstimateMaxParallelPackages));
         PerformanceInteraction performanceInteraction = request.PerformanceInteraction;
         PerformanceInteraction? firstVisibleInteraction = performanceInteraction;
         if (Net10PerformanceLog.IsEnabled)
@@ -3296,14 +3217,8 @@ public partial class BMSLibrary : ObservableObject
                 + " packageDegree=" + executionPolicy.WorkItemDegree);
         }
         LogInstallPerformance("pending_estimate_batch start source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " display=" + (request.DisplayName ?? string.Empty));
-        if (!packageLifecycleOwner.TryEnterPendingOperation(out IDisposable pendingOperationLease))
-        {
-            throw new InvalidOperationException(
-                "Pending estimate batch was deferred because a foreground pending operation is active.");
-        }
         try
         {
-            RunPendingEstimateExclusive(delegate
             {
                 SetInstallEstimationProgress(ToInstallEstimationProgressSource(request.Source), request.PackageCount, 0, request.DisplayName ?? string.Empty);
                 PendingInstallEstimateBatchCapture evaluationCapture =
@@ -3332,7 +3247,7 @@ public partial class BMSLibrary : ObservableObject
                         }
                     }
                 }
-            });
+            }
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
             if (Net10PerformanceLog.IsEnabled)
@@ -3348,57 +3263,29 @@ public partial class BMSLibrary : ObservableObject
         }
         finally
         {
-            pendingOperationLease.Dispose();
             ClearInstallEstimationProgress();
         }
     }
 
-    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContext()
+    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContextUnsafe(BmsLibraryOptionsSnapshot options = null)
     {
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        lock (ownedInputSnapshotGate)
         {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return CreatePendingInstallEstimateEvaluationContextUnsafe();
-            }
+            return CreatePendingInstallEstimateEvaluationContextUnderOwnedInputGateUnsafe(options);
         }
     }
 
-    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContextUnsafe()
-    {
-        lock (pendingInstallEstimateCurrentnessGate)
-        {
-            return CreatePendingInstallEstimateEvaluationContextUnderCurrentnessGateUnsafe();
-        }
-    }
-
-    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContextUnderCurrentnessGateUnsafe()
+    private PendingInstallEstimateEvaluationContext CreatePendingInstallEstimateEvaluationContextUnderOwnedInputGateUnsafe(BmsLibraryOptionsSnapshot options = null)
     {
         LibraryResourceIndexSnapshot resourceSnapshot = libraryResourceIndexOwner.CaptureSnapshot();
         (InstalledChartLookupIndexSnapshot Snapshot, long Generation) installedSnapshot =
-            CreateInstalledChartLookupVersionedSnapshotUnderCurrentnessGateUnsafe();
+            CreateInstalledChartLookupVersionedSnapshotUnderOwnedInputGateUnsafe();
         return new PendingInstallEstimateEvaluationContext
         {
             InstalledChartLookupIndex = installedSnapshot.Snapshot,
             ResourceIndexSnapshot = resourceSnapshot,
-            CurrentnessStamp = new PendingInstallEstimateCurrentnessStamp(
-                resourceSnapshot.Generation,
-                catalogOwnedCollectionOwner.OwnedCollectionVersion,
-                installedSnapshot.Generation,
-                libraryMutationOwner.OwnedDigestMutationGeneration),
-            OptionsSnapshot = CurrentOptionsSnapshot
+            OptionsSnapshot = options ?? CurrentOptionsSnapshot
         };
-    }
-
-    private bool IsPendingInstallEstimateCurrentUnderGateUnsafe(
-        PendingInstallEstimateCurrentnessStamp stamp)
-    {
-        return libraryResourceIndexOwner.CaptureSnapshot().Generation == stamp.ResourceIndexGeneration
-            && catalogOwnedCollectionOwner.OwnedCollectionVersion == stamp.OwnedCollectionVersion
-            && catalogOwnedCollectionOwner.IsInstalledChartLookupGenerationCurrent(
-                stamp.InstalledLookupGeneration)
-            && libraryMutationOwner.OwnedDigestMutationGeneration == stamp.DigestMutationGeneration
-            && !libraryMutationOwner.IsOwnedDigestMutationWindowActive();
     }
 
     private PendingInstallEstimateBatchCapture CapturePendingInstallEstimateBatch(
@@ -3410,10 +3297,10 @@ public partial class BMSLibrary : ObservableObject
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    lock (pendingInstallEstimateCurrentnessGate)
+                    lock (ownedInputSnapshotGate)
                     {
                         PendingInstallEstimateEvaluationContext context =
-                            CreatePendingInstallEstimateEvaluationContextUnderCurrentnessGateUnsafe();
+                            CreatePendingInstallEstimateEvaluationContextUnderOwnedInputGateUnsafe(request?.OptionsSnapshot);
                         List<PendingInstallEstimateEvaluationRequest> requests = [];
                         if (request == null)
                         {
@@ -3425,9 +3312,7 @@ public partial class BMSLibrary : ObservableObject
                         }
 
                         int orderIndex = 0;
-                        bool canReusePreparedState = request.BatchSourceSnapshot?.PackageStates.Count > 0
-                            && request.BatchSourceSnapshot.PreparationCurrentnessStamp == context.CurrentnessStamp
-                            && !libraryMutationOwner.IsOwnedDigestMutationWindowActive();
+                        bool canReusePreparedState = request.BatchSourceSnapshot?.PackageStates.Count > 0;
                         if (canReusePreparedState)
                         {
                             foreach (PendingEstimateSourceBatchPackageState state in request.BatchSourceSnapshot.PackageStates.Where(state => state?.Package != null))
@@ -3557,76 +3442,73 @@ public partial class BMSLibrary : ObservableObject
         List<PendingInstallEstimateEvaluationRequest> searchingRequests = [];
         int nextDispatchIndex = 0;
         int nextApplyIndex = 0;
+        List<Exception> failures = [];
+        var cancellationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using CancellationTokenRegistration cancellationRegistration = token.Register(() => cancellationObserved.TrySetResult(true));
         try
         {
             while (nextApplyIndex < evaluationRequests.Count)
             {
+                if (token.IsCancellationRequested) { break; }
+                Task<PendingInstallEstimateEvaluationResult> faulted = inFlight.Select(item => item.Task).FirstOrDefault(task => task.IsFaulted);
+                if (faulted != null) { faulted.GetAwaiter().GetResult(); }
                 while (!token.IsCancellationRequested && nextDispatchIndex < evaluationRequests.Count && inFlight.Count < executionPolicy.WorkItemDegree)
                 {
-                    PendingInstallEstimateEvaluationRequest dispatchRequest = evaluationRequests[nextDispatchIndex];
+                    if (inFlight.Any(item => item.Task.IsFaulted)) { break; }
+                    PendingInstallEstimateEvaluationRequest dispatchRequest = evaluationRequests[nextDispatchIndex++];
                     SetPendingInstallEstimateSearchingState(dispatchRequest, isSearching: true);
                     searchingRequests.Add(dispatchRequest);
-                    Task<PendingInstallEstimateEvaluationResult> evaluateTask = Task.Run(
-                        () => EvaluatePendingInstallEstimateRequest(
-                            request.Source,
-                            dispatchRequest,
-                            evaluationContext,
-                            executionPolicy,
-                            token),
-                        token);
-                    inFlight.Add((dispatchRequest, evaluateTask));
-                    nextDispatchIndex++;
+                    Task<PendingInstallEstimateEvaluationResult> evaluationTask = Task.Run(() => EvaluatePendingInstallEstimateRequest(
+                        request.Source, dispatchRequest, evaluationContext, executionPolicy, token), token);
+                    inFlight.Add((dispatchRequest, evaluationTask));
                 }
-
-                int applySlotIndex = inFlight.FindIndex(item => item.Request.OrderIndex == nextApplyIndex);
-                if (applySlotIndex < 0)
+                if (inFlight.Any(item => item.Task.IsFaulted)) { continue; }
+                int slot = inFlight.FindIndex(item => item.Request.OrderIndex == nextApplyIndex);
+                if (slot < 0) { break; }
+                (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item = inFlight[slot];
+                if (!item.Task.IsCompleted)
                 {
-                    if (token.IsCancellationRequested)
-                    {
-                        break;
-                    }
-                    throw new InvalidOperationException("Pending install estimate pipeline lost request order.");
+                    // 先頭の未完判定と列挙の間に全評価が終わっても、そのTaskを必ず観測する。
+                    Task.WhenAny(inFlight.Where(entry => !ReferenceEquals(entry.Task, item.Task) && !entry.Task.IsCompleted)
+                        .Select(entry => (Task)entry.Task).Append(item.Task)
+                        .Append(cancellationObserved.Task)).GetAwaiter().GetResult();
+                    continue;
                 }
-
-                (PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) applySlot = inFlight[applySlotIndex];
-                PendingInstallEstimateEvaluationResult evaluationResult = applySlot.Task.GetAwaiter().GetResult();
-                inFlight.RemoveAt(applySlotIndex);
-                ApplyPendingInstallEstimateEvaluationResult(
-                    request,
-                    source,
-                    applySlot.Request,
-                    evaluationResult,
-                    executionPolicy,
-                    token,
-                    ref completed,
-                    ref lowConfidenceCount,
-                    ref firstVisibleInteraction);
-                searchingRequests.Remove(applySlot.Request);
+                if (token.IsCancellationRequested) { break; }
+                PendingInstallEstimateEvaluationResult result = item.Task.GetAwaiter().GetResult();
+                inFlight.RemoveAt(slot);
+                ApplyPendingInstallEstimateEvaluationResult(request, source, item.Request, result,
+                    executionPolicy, token, ref completed, ref lowConfidenceCount, ref firstVisibleInteraction);
+                searchingRequests.Remove(item.Request);
                 nextApplyIndex++;
             }
-
-            foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
-            {
-                PendingInstallEstimateEvaluationResult evaluationResult = item.Task.GetAwaiter().GetResult();
-                ApplyPendingInstallEstimateEvaluationResult(
-                    request,
-                    source,
-                    item.Request,
-                    evaluationResult,
-                    executionPolicy,
-                    token,
-                    ref completed,
-                    ref lowConfidenceCount,
-                    ref firstVisibleInteraction);
-                searchingRequests.Remove(item.Request);
-            }
+        }
+        catch (Exception exception)
+        {
+            failures.Add(exception);
         }
         finally
         {
+            // 受付は呼出元が保持する。開始済み兄弟を全て観測し、未適用結果を再利用・後から適用しない。
+            if (token.IsCancellationRequested || failures.Count > 0)
+            {
+                try { installEstimationExecutionObserver?.ObserveDispatchStopped(); }
+                catch (Exception exception) { failures.Add(exception); }
+            }
+            foreach ((PendingInstallEstimateEvaluationRequest Request, Task<PendingInstallEstimateEvaluationResult> Task) item in inFlight)
+            {
+                try { item.Task.GetAwaiter().GetResult(); }
+                catch (Exception exception)
+                {
+                    if (!failures.Contains(exception)) { failures.Add(exception); }
+                }
+            }
             SetPendingInstallEstimateSearchingEntries(
-                searchingRequests.SelectMany(searchingRequest => searchingRequest?.MissingEntries ?? []),
-                isSearching: false);
+                searchingRequests.SelectMany(searchingRequest => searchingRequest?.MissingEntries ?? []), isSearching: false);
         }
+        if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures); }
+        token.ThrowIfCancellationRequested();
     }
 
     private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequest(
@@ -3648,7 +3530,9 @@ public partial class BMSLibrary : ObservableObject
                 request?.DisplayName ?? string.Empty,
                 executionPolicy?.WorkItemDegree ?? 1,
                 executionPolicy?.CandidateEvaluationDegree ?? 1));
-        return EvaluatePendingInstallEstimateRequestCore(request, evaluationContext, executionPolicy, token);
+        PendingInstallEstimateEvaluationResult result = EvaluatePendingInstallEstimateRequestCore(request, evaluationContext, executionPolicy, token);
+        installEstimationExecutionObserver.ObserveEvaluationCompleted(new(source, request.OrderIndex, request.DisplayName));
+        return result;
     }
 
     private PendingInstallEstimateEvaluationResult EvaluatePendingInstallEstimateRequestCore(PendingInstallEstimateEvaluationRequest request, PendingInstallEstimateEvaluationContext evaluationContext, InstallEstimationExecutionPolicy executionPolicy, CancellationToken token)
@@ -3656,12 +3540,11 @@ public partial class BMSLibrary : ObservableObject
         var result = new PendingInstallEstimateEvaluationResult
         {
             Request = request,
-            OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp,
-            CurrentnessStamp = evaluationContext?.CurrentnessStamp ?? default
+            OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp
         };
         if (token.IsCancellationRequested || request == null || request.Package == null || !request.WasPendingAtPreparation)
         {
-            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SkippedAsStale;
+            result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NotEvaluated;
             return result;
         }
         if (!request.HasMissingFiles)
@@ -3681,7 +3564,6 @@ public partial class BMSLibrary : ObservableObject
         if (request.AttemptInstalledResolve)
         {
             result.InstalledResolution = request.BatchState?.PreparationInstalledResolution?.Success == true
-                && request.BatchState.PreparationCurrentnessStamp == evaluationContext?.CurrentnessStamp
                 ? request.BatchState.PreparationInstalledResolution
                 : EvaluateInstalledDestinationFromPackage(request.Package, request.MissingEntries, evaluationContext);
             if (result.InstalledResolution.Success)
@@ -3780,63 +3662,16 @@ public partial class BMSLibrary : ObservableObject
             DeferPackageEntryNotifications((request?.Package?.ChartEntries ?? []).Concat(dispatchedSearchingEntries));
         try
         {
-            for (int attempt = 0; attempt < 2; attempt++)
+            if (token.IsCancellationRequested) { return; }
+            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+            using (rwlockPendingInstallCharts.GetWriterGuard())
+            using (rwlockBMSFiles.GetReaderGuard())
+            using (rwlockSongDBInstall.GetWriterGuard())
             {
-                if (installEstimationExecutionObserver != null)
-                {
-                    installEstimationExecutionObserver.ObserveAttemptEvaluated(
-                        new InstallEstimationAttemptEvaluatedObservation(
-                            batchRequest.Source,
-                            request?.OrderIndex ?? dispatchedRequest?.OrderIndex ?? -1,
-                            currentDisplayName,
-                            attempt,
-                            evaluationResult?.CurrentnessStamp ?? default));
-                }
-                bool stale;
-                using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                {
-                    using (rwlockPendingInstallCharts.GetWriterGuard())
-                    {
-                        using (rwlockBMSFiles.GetReaderGuard())
-                        {
-                            using (rwlockSongDBInstall.GetWriterGuard())
-                            {
-                                lock (pendingInstallEstimateCurrentnessGate)
-                                {
-                                    stale = !IsPendingInstallEstimateCurrentUnderGateUnsafe(
-                                        evaluationResult.CurrentnessStamp);
-                                    if (!stale)
-                                    {
-                                        isLowConfidence =
-                                            ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (!stale)
-                {
-                    break;
-                }
-                if (attempt > 0)
-                {
-                    LogInstallPerformance(
-                        "pending_estimate_batch skipped reason=currentness_changed_twice package="
-                        + (evaluationResult.Request?.Package?.path ?? string.Empty));
-                    break;
-                }
-
-                PendingInstallEstimateRetryCapture retryCapture =
-                    CapturePendingInstallEstimateRetry(evaluationResult.Request);
-                evaluationResult = EvaluatePendingInstallEstimateRequest(
-                    batchRequest.Source,
-                    retryCapture.Request,
-                    retryCapture.Context,
-                    executionPolicy,
-                    token);
+                isLowConfidence = ApplyPendingInstallEstimateEvaluationResultUnsafe(evaluationResult);
             }
+            installEstimationExecutionObserver?.ObserveResultApplied(new InstallEstimationAppliedObservation(
+                batchRequest.Source, request?.OrderIndex ?? -1, currentDisplayName));
         }
         finally
         {
@@ -3865,54 +3700,7 @@ public partial class BMSLibrary : ObservableObject
             lowConfidenceCount++;
         }
         SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
-        packageLifecycleOwner.ReportPendingEstimateBatchProgress(completed);
         LogInstallPerformance("pending_estimate_batch progress source=" + source + " packageDegree=" + executionPolicy.WorkItemDegree + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
-    }
-
-    private PendingInstallEstimateRetryCapture CapturePendingInstallEstimateRetry(
-        PendingInstallEstimateEvaluationRequest previousRequest)
-    {
-        ChartPackage package = previousRequest?.Package;
-        if (package == null)
-        {
-            return new PendingInstallEstimateRetryCapture
-            {
-                Request = previousRequest,
-                Context = CreatePendingInstallEstimateEvaluationContext()
-            };
-        }
-
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetReaderGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    lock (pendingInstallEstimateCurrentnessGate)
-                    {
-                        PendingPackageChartEntryPartition partition =
-                            BuildPendingPackageChartEntryPartitionUnsafe(package);
-                        PendingInstallEstimateEvaluationContext context =
-                            CreatePendingInstallEstimateEvaluationContextUnderCurrentnessGateUnsafe();
-                        return new PendingInstallEstimateRetryCapture
-                        {
-                            Request = new PendingInstallEstimateEvaluationRequest
-                            {
-                                OrderIndex = previousRequest.OrderIndex,
-                                Package = package,
-                                DisplayName = previousRequest.DisplayName,
-                                AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
-                                MissingEntries = partition.MissingEntries,
-                                EstimateMode = previousRequest.EstimateMode,
-                                WasPendingAtPreparation = ChartPackagesPending.Contains(package),
-                                BatchState = previousRequest.BatchState
-                            },
-                            Context = context
-                        };
-                    }
-                }
-            }
-        }
     }
 
     private bool ApplyPendingInstallEstimateEvaluationResultUnsafe(PendingInstallEstimateEvaluationResult evaluationResult)
@@ -4181,15 +3969,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void HandlePendingEstimateBatchException(Exception ex)
-    {
-        if (ex == null)
-        {
-            return;
-        }
-        NLogWrapper.FileLogger?.Error(ex, "pending_estimate_batch failed");
-    }
-
     private static string ToPendingEstimateBatchSourceLogValue(PendingInstallEstimateBatchSource source)
     {
         return source switch
@@ -4229,42 +4008,20 @@ public partial class BMSLibrary : ObservableObject
         LogInstallPerformance(message);
     }
 
-    private void RunPendingEstimateExclusive(Action action)
-    {
-        packageLifecycleOwner.RunPendingEstimateExclusive(action);
-    }
-
-    /// <summary>
-    /// Attempts to reserve the owner admission shared by foreground pending
-    /// mutations and background pending-estimate publication.
-    /// </summary>
-    internal bool TryEnterPendingOperation(out IDisposable lease)
-    {
-        if (packageLifecycleOwner == null)
-        {
-            lease = null;
-            return false;
-        }
-        return packageLifecycleOwner.TryEnterPendingOperation(out lease);
-    }
-
-    internal bool IsPendingOperationAdmissionReady => packageLifecycleOwner != null;
-
-    private BackgroundPendingEstimatePreparationResult PrepareBackgroundPendingEstimatePackagesUnsafe(IEnumerable<ChartPackage> packages, PendingInstallEstimateBatchSource source)
+    /// <summary>同じ取り込み操作の推定へ渡す分割・入力資源・保留理由を一度準備します。</summary>
+    private PendingInstallEstimatePreparationResult PreparePendingEstimatePackagesUnsafe(IEnumerable<ChartPackage> packages, PendingInstallEstimateBatchSource source, BmsLibraryOptionsSnapshot options)
     {
         List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null).Distinct()];
         if (packageList.Count == 0)
         {
-            return new BackgroundPendingEstimatePreparationResult();
+            return new PendingInstallEstimatePreparationResult();
         }
 
         string sourceLogValue = ToPendingEstimateBatchSourceLogValue(source);
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
-        for (int attempt = 0; attempt < 2; attempt++)
         {
             PendingInstallEstimateEvaluationContext preparationContext =
-                CreatePendingInstallEstimateEvaluationContextUnsafe();
+                CreatePendingInstallEstimateEvaluationContextUnsafe(options);
             PendingEstimateSourceBatchSnapshot candidateSnapshot =
                 BuildPendingEstimateSourceBatchSnapshotUnsafe(
                     packageList,
@@ -4291,47 +4048,35 @@ public partial class BMSLibrary : ObservableObject
                 };
             }
 
-            if (TryCommitPendingEstimatePreparationUnsafe(
-                candidateSnapshot,
-                out BackgroundPendingEstimatePreparationResult result))
-            {
-                LogInstallPerformance("pending_estimate_source_batch_build source=" + sourceLogValue
-                    + " packages=" + packageList.Count
-                    + " roots=" + candidateSnapshot.RootCount
-                    + " chunks=" + candidateSnapshot.ChunkCount
-                    + " nativeBridgeMs=" + candidateSnapshot.NativeBridgeMs
-                    + " managedDecodeMs=" + candidateSnapshot.ManagedDecodeMs
-                    + " managedMaterializeMs=" + candidateSnapshot.ManagedMaterializeMs
-                    + " trackedFiles=" + candidateSnapshot.TrackedFileCount
-                    + " resourceFiles=" + candidateSnapshot.ResourceFileCount
-                    + " scanLimitExceeded=" + candidateSnapshot.ScanLimitExceeded.ToString().ToLowerInvariant()
-                    + " visitedEntries=" + candidateSnapshot.VisitedFileSystemEntryCount
-                    + " maxVisitedEntries=" + candidateSnapshot.MaxVisitedFileSystemEntryCount
-                    + " elapsedMs=" + candidateSnapshot.ElapsedMs);
-                LogInstallPerformance("pending_estimate_source_batch_prefilter source=" + sourceLogValue
-                    + " packages=" + packageList.Count
-                    + " estimable=" + result.EstimablePackages.Count
-                    + " deferred=" + result.DeferredPackages.Count
-                    + " elapsedMs=" + result.BatchSourceSnapshot.PrefilterMs);
-                return result;
-            }
-
-            LogInstallPerformance("pending_estimate_source_batch retry reason=currentness_changed attempt=" + (attempt + 1));
+            PendingInstallEstimatePreparationResult result = CommitPendingEstimatePreparationUnsafe(candidateSnapshot);
+            LogInstallPerformance("pending_estimate_source_batch_build source=" + sourceLogValue
+                + " packages=" + packageList.Count
+                + " roots=" + candidateSnapshot.RootCount
+                + " chunks=" + candidateSnapshot.ChunkCount
+                + " nativeBridgeMs=" + candidateSnapshot.NativeBridgeMs
+                + " managedDecodeMs=" + candidateSnapshot.ManagedDecodeMs
+                + " managedMaterializeMs=" + candidateSnapshot.ManagedMaterializeMs
+                + " trackedFiles=" + candidateSnapshot.TrackedFileCount
+                + " resourceFiles=" + candidateSnapshot.ResourceFileCount
+                + " scanLimitExceeded=" + candidateSnapshot.ScanLimitExceeded.ToString().ToLowerInvariant()
+                + " visitedEntries=" + candidateSnapshot.VisitedFileSystemEntryCount
+                + " maxVisitedEntries=" + candidateSnapshot.MaxVisitedFileSystemEntryCount
+                + " elapsedMs=" + candidateSnapshot.ElapsedMs);
+            LogInstallPerformance("pending_estimate_source_batch_prefilter source=" + sourceLogValue
+                + " packages=" + packageList.Count
+                + " estimable=" + result.EstimablePackages.Count
+                + " deferred=" + result.DeferredPackages.Count
+                + " elapsedMs=" + result.BatchSourceSnapshot.PrefilterMs);
+            return result;
         }
-
-        LogInstallPerformance("pending_estimate_source_batch skipped reason=currentness_changed_twice source=" + sourceLogValue);
-        return new BackgroundPendingEstimatePreparationResult();
     }
 
-    private bool TryCommitPendingEstimatePreparationUnsafe(
-        PendingEstimateSourceBatchSnapshot candidateSnapshot,
-        out BackgroundPendingEstimatePreparationResult result)
+    private PendingInstallEstimatePreparationResult CommitPendingEstimatePreparationUnsafe(
+        PendingEstimateSourceBatchSnapshot candidateSnapshot)
     {
-        result = null;
-        var committedResult = new BackgroundPendingEstimatePreparationResult();
+        var committedResult = new PendingInstallEstimatePreparationResult();
         var estimableSnapshot = new PendingEstimateSourceBatchSnapshot
         {
-            PreparationCurrentnessStamp = candidateSnapshot.PreparationCurrentnessStamp,
             RootCount = candidateSnapshot.RootCount,
             ChunkCount = candidateSnapshot.ChunkCount,
             NativeBridgeMs = candidateSnapshot.NativeBridgeMs,
@@ -4347,14 +4092,8 @@ public partial class BMSLibrary : ObservableObject
         };
 
         var prefilterStopwatch = Stopwatch.StartNew();
-        lock (pendingInstallEstimateCurrentnessGate)
+        lock (ownedInputSnapshotGate)
         {
-            if (!IsPendingInstallEstimateCurrentUnderGateUnsafe(
-                candidateSnapshot.PreparationCurrentnessStamp))
-            {
-                return false;
-            }
-
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
                 if (HasUnsupportedResourcePath(state.MissingEntries))
@@ -4402,8 +4141,7 @@ public partial class BMSLibrary : ObservableObject
         prefilterStopwatch.Stop();
         estimableSnapshot.PrefilterMs = prefilterStopwatch.ElapsedMilliseconds;
         committedResult.BatchSourceSnapshot = estimableSnapshot;
-        result = committedResult;
-        return true;
+        return committedResult;
     }
 
     private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(
@@ -4412,10 +4150,7 @@ public partial class BMSLibrary : ObservableObject
         PendingInstallEstimateEvaluationContext preparationContext)
     {
         ArgumentNullException.ThrowIfNull(preparationContext);
-        var snapshot = new PendingEstimateSourceBatchSnapshot
-        {
-            PreparationCurrentnessStamp = preparationContext.CurrentnessStamp
-        };
+        var snapshot = new PendingEstimateSourceBatchSnapshot();
         var stopwatch = Stopwatch.StartNew();
         var sourceSurfaceByRoot = new Dictionary<string, SourceSurfaceEntryView>(StringComparer.OrdinalIgnoreCase);
         var rootsToScan = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -4436,8 +4171,7 @@ public partial class BMSLibrary : ObservableObject
                 AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
                 MissingEntries = partition.MissingEntries,
                 ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingEntries.Select(entry => entry.Chart)),
-                EstimateMode = ChartInstallationEstimateMode.Normal,
-                PreparationCurrentnessStamp = preparationContext.CurrentnessStamp
+                EstimateMode = ChartInstallationEstimateMode.Normal
             };
             if (state.AttemptInstalledResolve)
             {
@@ -5021,22 +4755,32 @@ public partial class BMSLibrary : ObservableObject
         Initialize(tasksContinuation, semaphore, LibraryInitializeMode.Startup);
     }
 
+    /// <summary>起動の必須ファイル初期化を同じ受理済み権限で行います。独立した受理済み背景更新は先行操作の実終端後に実行します。</summary>
     internal void InitializeStartup(
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
-        in PerformanceInteraction performanceInteraction)
+        in PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability = null)
     {
         InitializeCore(
             tasksContinuation,
             semaphore,
             LibraryInitializeMode.Startup,
-            performanceInteraction);
+            performanceInteraction, capability);
     }
+
+    /// <summary>受理済み共通権限の内部継続として再初期化します。</summary>
+    internal void ReinitializeUnderAdmission(LibraryFileMutationCapability capability)
+        => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability);
 
     public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
     {
         Initialize(tasksContinuation, semaphore, LibraryInitializeMode.FullReinitialize);
     }
+
+    /// <summary>受理済みの同owner生存権限を借用してスコアだけを更新し、公開と後片付けの終端後に戻ります。</summary>
+    /// <param name="capability">呼出元が終端まで保持する共通受付の権限。nullは新規の非待機受付です。</param>
+    internal void InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability)
+        => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability);
 
     public void InitializeScoresOnly(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
     {
@@ -5059,7 +4803,7 @@ public partial class BMSLibrary : ObservableObject
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
         LibraryInitializeMode mode,
-        PerformanceInteraction? parentPerformanceInteraction)
+        PerformanceInteraction? parentPerformanceInteraction, LibraryFileMutationCapability capability = null)
     {
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
@@ -5086,7 +4830,7 @@ public partial class BMSLibrary : ObservableObject
         bool isScoreOnly = mode == LibraryInitializeMode.ScoreOnly;
         bool isStartup = mode == LibraryInitializeMode.Startup;
         if (mode == LibraryInitializeMode.FullReinitialize
-            && TryBlockLr2SongDbSyncMutation(nameof(Reinitialize)))
+            && capability == null && TryBlockLr2SongDbSyncMutation(nameof(Reinitialize)))
         {
             return;
         }
@@ -5094,7 +4838,7 @@ public partial class BMSLibrary : ObservableObject
 
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(Initialize),
-            showMessage: !isScoreOnly);
+            showMessage: !isScoreOnly, capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -5103,7 +4847,7 @@ public partial class BMSLibrary : ObservableObject
         try
         {
             mutationCapability = mutationReservation.CreateMutationCapability();
-            mutationCapability.Validate(lr2SynchronizationOwner);
+            mutationCapability.Validate(OperationAdmission);
         }
         catch
         {
@@ -5202,7 +4946,7 @@ public partial class BMSLibrary : ObservableObject
                                 fileScanGeneration: fileScanGeneration,
                                 fileScanReason: isStartup ? "initialize" : "full_reinitialize",
                                 postLeaseEffectObserver: initializationPostLeaseEffects.Add,
-                                directoryPreflightRequest: directoryPreflightRequest);
+                                directoryPreflightRequest: directoryPreflightRequest, mutationCapability: mutationCapability);
                             if (scanPreparation?.Request != null)
                             {
                                 libraryFileScanPipelineOwner.ApplyPreparedLr2FolderFileDiffForFileMutation(
@@ -5311,7 +5055,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 using LibraryFileMutationLease repairReservation = TryBeginLr2SongDbSyncBlockedMutation(
                     nameof(Initialize) + ".leap_year_repair",
-                    showMessage: true);
+                    showMessage: true, capability: capability);
                 if (repairReservation != null)
                 {
                     leapYearRepairResult = initializationService.RepairLeapYearFolderTimestamps(
@@ -5347,7 +5091,6 @@ public partial class BMSLibrary : ObservableObject
         int bmsonRowCount = 0;
         int resourceIndexDirectoryCount = 0;
         int pendingPackageCount = 0;
-        int pendingEstimateQueueBatchCount = 0;
         using (rwlockBMSFiles.GetReaderGuard())
         {
             installableLookupCacheSnapshot = libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
@@ -5359,7 +5102,6 @@ public partial class BMSLibrary : ObservableObject
         {
             pendingPackageCount = ChartPackagesPending.Count;
         }
-        pendingEstimateQueueBatchCount = GetPendingEstimateQueuedBatchCount(GetPendingEstimateQueueStatusSnapshot());
         long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
         bool scheduleDeferredMaintenanceHydration = !isScoreOnly && songTblLoad;
         if (packageLifecycleOwner.StartupReadiness.TryMarkInstallEstimationReady())
@@ -5370,7 +5112,6 @@ public partial class BMSLibrary : ObservableObject
                 + " resourceIndexReady=" + packageLifecycleOwner.StartupReadiness.DestinationResourceIndexReady.ToString().ToLowerInvariant()
                 + " resourceIndexDirectories=" + resourceIndexDirectoryCount
                 + " pendingPackages=" + pendingPackageCount
-                + " pendingEstimateQueueBatches=" + pendingEstimateQueueBatchCount
                 + " lazy_hash_cache_entries=" + (installableLookupCacheSnapshot?.LazyHashCacheEntryCount ?? 0)
                 + " lazy_hash_build_ms=" + (installableLookupCacheSnapshot?.LazyHashBuildMs ?? 0L)
                 + " lazy_hash_lookup_count=" + (installableLookupCacheSnapshot?.LazyHashLookupCount ?? 0L));
@@ -5560,7 +5301,7 @@ public partial class BMSLibrary : ObservableObject
         string fileScanReason = "initialize",
         Action<SongTableLoadResult> songTableLoadResultObserver = null,
         Action<Action> postLeaseEffectObserver = null,
-        LibraryDirectoryPreflightRequest directoryPreflightRequest = null)
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null, LibraryFileMutationCapability mutationCapability = null)
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long songTblLoadMs = 0L;
@@ -5723,7 +5464,7 @@ public partial class BMSLibrary : ObservableObject
                 fileScanGeneration,
                 trackLibraryFileCheckProgress,
                 installDestinationStateOwner.CreateCleanupSnapshot(),
-                postLeaseEffectObserver);
+                postLeaseEffectObserver, mutationCapability);
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -5778,17 +5519,21 @@ public partial class BMSLibrary : ObservableObject
         return fileScanPreparation;
     }
 
-    public void ReloadFileDiff()
+    /// <summary>新しい差分要求として共通受付を取得します。Busyは変更前に拒否し、受理時はDB確定とcleanupまで保持します。</summary>
+    public void ReloadFileDiff() => ReloadFileDiff(null);
+
+    /// <summary>受理済み差分の共通権限を借用し、ファイル検査・DB確定・cleanupを完了します。</summary>
+    internal void ReloadFileDiff(LibraryFileMutationCapability capability)
     {
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
-        if (TryBlockLr2SongDbSyncMutation(nameof(ReloadFileDiff)))
+        if (capability == null && TryBlockLr2SongDbSyncMutation(nameof(ReloadFileDiff)))
         {
             return;
         }
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(ReloadFileDiff),
-            showMessage: true);
+            showMessage: true, capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -5808,7 +5553,7 @@ public partial class BMSLibrary : ObservableObject
             using (mutationReservation)
             using (LibraryFileMutationCapability mutationCapability = mutationReservation.CreateMutationCapability())
             {
-                mutationCapability.Validate(lr2SynchronizationOwner);
+                mutationCapability.Validate(OperationAdmission);
                 ResetCatalogPathConvergence();
                 options = CurrentOptionsSnapshot;
                 directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
@@ -5848,7 +5593,7 @@ public partial class BMSLibrary : ObservableObject
                         fileScanGeneration,
                         trackLibraryFileCheckProgress: true,
                         installDestinationCleanupSnapshot: installDestinationStateOwner.CreateCleanupSnapshot(),
-                        postLeaseEffectObserver: action => postLeaseEffects.Add(action));
+                        postLeaseEffectObserver: action => postLeaseEffects.Add(action), capability: mutationCapability);
                     SongTableFileCheckResult result = scanPreparation?.FileCheckResult;
                     if (scanPreparation?.Request != null)
                     {
@@ -6144,44 +5889,32 @@ public partial class BMSLibrary : ObservableObject
         LogInstallPerformance("chart_digest_backfill skipped reason=combined_chart_info_pipeline");
     }
 
-    internal Lr2SongDbSyncStatusSnapshot QueueLr2SongDbSync(
+    /// <summary>LR2準備から実同期・終端状態保存・後片付けまで共通受付を保持します。</summary>
+    /// <param name="capability">受理済み必須継続の生存権限。nullは新規受付です。</param>
+    /// <param name="prepareGeneratedData">生存leaseと同じ操作で捕捉した設定入力から準備面を返す処理。生成ファイルの確定後もworker終端まで受付を保持します。</param>
+    /// <param name="capturePreparationInputs">共通受付内で非同期準備の開始前に生成設定入力を捕捉する処理。</param>
+    /// <param name="optionsSnapshot">受理済み継続で既に捕捉した設定入力。nullは受付取得後に一度捕捉します。</param>
+    /// <param name="acceptedBackground">独立した受理済み背景更新だけが先行操作の実終端を非同期で待ちます。</param>
+    /// <returns>実終端後の同期状態。Busyは副作用前に現在状態を返し、実失敗・取消は元例外で伝播します。</returns>
+    internal Task<Lr2SongDbSyncStatusSnapshot> QueueLr2SongDbSyncAsync(
         string reason,
         bool force = false,
-        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
+        Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
         bool allowIncompleteToQueue = true,
-        bool allowCommittedPathReceipt = false)
+        bool allowCommittedPathReceipt = false,
+        LibraryFileMutationCapability capability = null, bool acceptedBackground = false,
+        BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null)
     {
-        return Lr2SongDbSyncRequestCoordinator.Queue(
+        return Lr2SongDbSyncRequestCoordinator.QueueAsync(
             lr2SynchronizationOwner,
             reason,
             force,
             prepareGeneratedData,
             allowIncompleteToQueue,
-            allowCommittedPathReceipt);
+            allowCommittedPathReceipt, capability, acceptedBackground, optionsSnapshot, capturePreparationInputs, playlistCapability, admissionResult);
     }
 
-    internal bool TryRunLr2SongDbSyncDataPreparation(
-        string reason,
-        Func<LibraryFileMutationLease, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
-        Action queueAfterPreparation = null)
-    {
-        if (prepareGeneratedData == null || CurrentOptionsSnapshot?.OperationModeLR2DB != true)
-        {
-            return false;
-        }
 
-        bool prepared = Lr2SongDbSyncRequestCoordinator.TryRunDataPreparation(
-            lr2SynchronizationOwner,
-            reason,
-            prepareGeneratedData);
-        if (!prepared)
-        {
-            return false;
-        }
-
-        queueAfterPreparation?.Invoke();
-        return true;
-    }
 
     internal void PublishLr2SongDbSyncExternalStageProgress(string stage, int processedCount, int totalCount, string detail = null)
     {
@@ -6213,30 +5946,29 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-
     private bool TryBlockLr2SongDbSyncMutation(string operation, bool showMessage = true)
     {
         return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage);
     }
 
-    private LibraryFileMutationLease TryBeginLr2SongDbSyncBlockedMutation(string operation, bool showMessage = true)
+    private LibraryFileMutationLease TryBeginLr2SongDbSyncBlockedMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage);
+        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage, capability);
     }
 
-    private bool TryBlockCatalogFileMutation(string operation, bool showMessage = true)
+    private bool TryBlockCatalogFileMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
     {
-        return catalogFileMutationAdmissionOwner.TryBlockMutation(operation, showMessage);
+        return catalogFileMutationAdmissionOwner.TryBlockMutation(operation, showMessage, capability);
     }
 
     private LibraryFileMutationLease TryBeginCatalogFileMutationPreservingBusyFailure(
         string operation,
-        bool showMessage = true)
+        bool showMessage = true, LibraryFileMutationCapability capability = null)
     {
         return catalogFileMutationAdmissionOwner.TryBeginFileOperationMutation(
             operation,
             showMessage,
-            showBusyMessage: false);
+            showBusyMessage: false, capability: capability);
     }
 
     /// <summary>
@@ -6267,11 +5999,6 @@ public partial class BMSLibrary : ObservableObject
     internal void MarkCatalogPathConvergenceCompleted()
     {
         catalogFileMutationReadinessOwner.MarkConverged();
-    }
-
-    private void RunLr2SongDbSync(string reason, string signature, int requestVersion, bool allowCommittedPathReceipt)
-    {
-        Lr2SongDbSyncRequestCoordinator.Run(lr2SynchronizationOwner, reason, signature, requestVersion, allowCommittedPathReceipt);
     }
 
     private static bool ArePathSetsEqual(IEnumerable<string> first, IEnumerable<string> second)
@@ -6543,23 +6270,10 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.QueueDeferredHydration(reason, queueFullBackfillAfterHydration);
     }
 
-
-
-
-
-
-
-
-
-
-
-
     internal BeMusicSeeker.Models.ChartDetails ResolveChartInfo(string sha256, string md5)
     {
         return catalogChartInfoOwner.ResolveChartInfo(sha256, md5);
     }
-
-
 
     private static bool IsCurrentChartInfoRow(BeMusicSeeker.Models.ChartDetails row)
     {
@@ -6719,7 +6433,6 @@ public partial class BMSLibrary : ObservableObject
         return chart == null ? null : ResolveChartInfo(chart.Sha256, chart.Md5);
     }
 
-
     private static bool TryGetChartInfoSha256(BeMusicSeeker.Models.ChartDetails row, out string sha256)
     {
         sha256 = row?.sha256;
@@ -6763,7 +6476,6 @@ public partial class BMSLibrary : ObservableObject
     {
         return catalogChartInfoOwner.LoadChartInfosByMd5(dbGateway, md5s);
     }
-
 
     /// <summary>
     /// 導入した譜面の chart_info と派生索引を反映し、入力変更区間の解放後に通知します。
@@ -7596,8 +7308,6 @@ public partial class BMSLibrary : ObservableObject
         public int ExcludedCustomOutputRootCount { get; set; }
     }
 
-
-
     internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
     {
         return GetOwnedChartHashIndexSnapshot(CancellationToken.None);
@@ -7659,7 +7369,6 @@ public partial class BMSLibrary : ObservableObject
             SnapshotVersion = snapshot?.Version ?? 0,
             InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
             OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
-
 
             StaleRetryCount = staleRetryCount
         };
@@ -8023,8 +7732,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-
-
     private List<ChartFile> CreateOwnedDirectChildChartFilesUnsafe(
         IEnumerable<string> directoryPaths,
         bool includeWarningSnapshot,
@@ -8136,7 +7843,6 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-
     private void DispatchWarningPresentationChanged(string reason)
     {
         libraryMutationOwner.DispatchWarningPresentationChanged(reason);
@@ -8187,14 +7893,14 @@ public partial class BMSLibrary : ObservableObject
     private (InstalledChartLookupIndexSnapshot Snapshot, long Generation)
         CreateInstalledChartLookupVersionedSnapshotUnsafe()
     {
-        lock (pendingInstallEstimateCurrentnessGate)
+        lock (ownedInputSnapshotGate)
         {
-            return CreateInstalledChartLookupVersionedSnapshotUnderCurrentnessGateUnsafe();
+            return CreateInstalledChartLookupVersionedSnapshotUnderOwnedInputGateUnsafe();
         }
     }
 
     private (InstalledChartLookupIndexSnapshot Snapshot, long Generation)
-        CreateInstalledChartLookupVersionedSnapshotUnderCurrentnessGateUnsafe()
+        CreateInstalledChartLookupVersionedSnapshotUnderOwnedInputGateUnsafe()
     {
         return catalogOwnedCollectionOwner.CreateInstalledChartLookupVersionedSnapshot(
             catalogOwnedCollectionOwner,
@@ -8666,7 +8372,6 @@ public partial class BMSLibrary : ObservableObject
             resourceHealthInputVersion);
     }
 
-
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
     {
         return resourceHealthOwner.TryGetCurrentProjection(chart);
@@ -8769,7 +8474,9 @@ public partial class BMSLibrary : ObservableObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.DeltaOnUpdates,
-        string resourceHealthMutationReason = null)
+        string resourceHealthMutationReason = null,
+        LibraryFileMutationCapability capability = null,
+        Action<Action> postLeaseNotificationObserver = null)
     {
         if (charts == null)
         {
@@ -8777,7 +8484,8 @@ public partial class BMSLibrary : ObservableObject
         }
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             "catalog_maintenance",
-            showMessage: false);
+            showMessage: false,
+            capability: capability);
         if (mutationReservation == null)
         {
             return new MaintenanceWorkflowResult { Canceled = true };
@@ -8809,7 +8517,14 @@ public partial class BMSLibrary : ObservableObject
             mutationReservation.Dispose();
             throw;
         }
-        TryInvokePostLeaseNotification(postCommitEffect, "catalog_maintenance_publication_failed");
+        if (postLeaseNotificationObserver == null)
+        {
+            TryInvokePostLeaseNotification(postCommitEffect, "catalog_maintenance_publication_failed");
+        }
+        else
+        {
+            postLeaseNotificationObserver(postCommitEffect);
+        }
         return workflowResult;
     }
 
@@ -8838,11 +8553,11 @@ public partial class BMSLibrary : ObservableObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
-        string resourceHealthMutationReason = null)
+        string resourceHealthMutationReason = null, LibraryFileMutationCapability capability = null)
     {
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             "owned_catalog_maintenance",
-            showMessage: false);
+            showMessage: false, capability: capability);
         if (mutationReservation == null)
         {
             return new MaintenanceWorkflowResult { Canceled = true };
@@ -8902,8 +8617,9 @@ public partial class BMSLibrary : ObservableObject
         string reason,
         Action<Action> postLeaseEffectObserver,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
     {
+        capability?.Validate(OperationAdmission);
         if (!CanUseHydratedMaintenanceSnapshotForInstallableMaintenance())
         {
             return ApplyOwnedCatalogMaintenanceUnderExistingReservation(
@@ -8979,7 +8695,6 @@ public partial class BMSLibrary : ObservableObject
         return CreateResourceMaintenanceTargetSet(targets);
     }
 
-
     internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<ChartFile> charts, bool forceUpdate = false, bool isInIgnoredList = false)
     {
         bool useOwnedSnapshot = charts == null;
@@ -9030,14 +8745,14 @@ public partial class BMSLibrary : ObservableObject
     internal MaintenanceWorkflowResult RescanResourceHealthCharts(
         IEnumerable<ChartFile> charts,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
     {
         MaintenanceWorkflowResult result = ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             progressReporter: progressReporter,
             cancellationToken: cancellationToken,
-            resourceHealthMutationReason: "resource_health_rescan");
+            resourceHealthMutationReason: "resource_health_rescan", capability: capability);
         return result;
     }
 
@@ -9047,25 +8762,28 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
+    /// <param name="capability">親操作が保持する生存L権限。nullは新規非待機受付です。</param>
     /// <returns>再スキャン結果。</returns>
     internal MaintenanceWorkflowResult RescanAllOwnedChartMaintenance(
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
     {
         MaintenanceWorkflowResult result = ApplyOwnedCatalogMaintenance(
             "manual_rescan_all_owned",
             forceUpdate: true,
             progressReporter: progressReporter,
-            cancellationToken: cancellationToken);
+            cancellationToken: cancellationToken, capability: capability);
         return result;
     }
 
-    internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
+    /// <summary>Lを保持して警告無視を保存し、参照公開まで同じ権限で処理します。</summary>
+    /// <param name="capability">同じ受理済みL権限。nullは新規非待機受付です。</param>
+    internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false, LibraryFileMutationCapability capability = null)
     {
         string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             reason,
-            showMessage: false);
+            showMessage: false, capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -9086,7 +8804,6 @@ public partial class BMSLibrary : ObservableObject
         // The BMS-file lock is only a snapshot boundary.  The catalog
         // owner performs the DB transaction under its own narrow guard.
         CatalogMaintenanceOperationReceipt receipt = catalogMaintenanceOwner.ApplyWarningIgnore(targets, unset, reason);
-        mutationReservation.Dispose();
         libraryMutationOwner.ApplyCatalogMaintenanceWarningIgnore(receipt, reason);
     }
 
@@ -9105,7 +8822,7 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// 指定された BMS ファイル群のエンコーディングを上書き設定し、song.db と maintenance テーブルに反映します。
     /// </summary>
-    internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "")
+    internal void SetBMSFilesEncoding(IEnumerable<ChartFile> charts, string encoding = "", LibraryFileMutationCapability capability = null)
     {
         if (charts == null)
         {
@@ -9115,13 +8832,13 @@ public partial class BMSLibrary : ObservableObject
         {
             return;
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(SetBMSFilesEncoding)))
+        if (capability == null && TryBlockLr2SongDbSyncMutation(nameof(SetBMSFilesEncoding)))
         {
             return;
         }
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(SetBMSFilesEncoding),
-            showMessage: false);
+            showMessage: false, capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -9134,15 +8851,20 @@ public partial class BMSLibrary : ObservableObject
                 result = catalogMaintenanceOwner.ApplyEncoding(charts, encoding);
             }
         }
-        mutationReservation.Dispose();
         libraryMutationOwner.DispatchWarningPresentationChanged("encoding_changed", changedCharts: result.ChangedCharts, basicValuesChanged: result.SongsToUpsert.Count > 0);
     }
 
     /// <summary>
     /// chart_info 上のノート数が 0 のファイルについて、実際のファイルを再確認して可視ノート風記述がないか検出します。
     /// </summary>
-    public void RecheckZeroNoteWarnings()
+    public void RecheckZeroNoteWarnings() => RecheckZeroNoteWarnings(null);
+
+    /// <summary>受理済みLの下でノート警告を再確認し、確定値の公開まで保持します。</summary>
+    /// <param name="capability">親操作の生存L権限。nullは新規非待機受付です。</param>
+    internal void RecheckZeroNoteWarnings(LibraryFileMutationCapability capability)
     {
+        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("zero_note_recheck", showMessage: false, capability: capability);
+        if (accepted == null) { return; }
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
         {
@@ -9219,8 +8941,14 @@ public partial class BMSLibrary : ObservableObject
         return string.Format(CultureInfo.CurrentCulture, Resources.Warning_ChartInfoParseFailure, reason, message);
     }
 
-    public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
+    /// <summary>解析失敗記録をLの非待機受付で削除します。</summary>
+    public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s) => RemoveChartInfoParseFailuresByMd5(md5s, null);
+
+    /// <summary>同じ解析失敗削除の生存L権限を借用してDB削除の実終端まで保持します。</summary>
+    internal void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s, LibraryFileMutationCapability capability)
     {
+        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("chart_info_parse_failure_removal", showMessage: false, capability: capability);
+        if (accepted == null) { return; }
         catalogChartInfoOwner.RemoveParseFailuresByMd5(md5s);
     }
 
@@ -10053,8 +9781,11 @@ public partial class BMSLibrary : ObservableObject
     }
 
     private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir)
+        => CreateChartFolderPathFromCharts(chartFiles, parentDir, CurrentOptionsSnapshot);
+
+    /// <summary>同一操作で捕捉した設定を使ってフォルダ名を計算し、準備後のUI編集値を再読しません。</summary>
+    private string CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir, BmsLibraryOptionsSnapshot options)
     {
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         int maxFolderNameBytes = 128;
         var encoding = Encoding.GetEncoding("Shift_JIS");
         string commonTitle = GetLongestCommonChartInfo((chartFiles ?? []).Select(f => f?.Title ?? string.Empty));
@@ -10085,17 +9816,18 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Executes the internal duplicate-folder merge route and returns immutable maintenance facts.
+    /// 統合と必須保守を同じ生存権限で実行し、確定事実と保守の元失敗・取消を返します。
     /// </summary>
-    /// <param name="src">Source directory.</param>
-    /// <param name="dst">Destination directory.</param>
-    /// <param name="operationId">Operation identifier used by the merge lock boundary.</param>
-    /// <param name="reportAtTerminal">Whether the caller owns receipt-backed failure notification.</param>
-    /// <returns>Merge and intermediate resource-health dispatch facts.</returns>
+    /// <param name="src">統合元ディレクトリ。</param>
+    /// <param name="dst">統合先ディレクトリ。</param>
+    /// <param name="operationId">統合操作の診断識別子。</param>
+    /// <param name="reportAtTerminal">結果に基づく失敗通知を呼出元の操作終端へ委ねるか。</param>
+    /// <param name="capability">同じL受付の生存権限。省略時は新規受付を取得し、必須保守・後片付けまで保持します。借用時は外側が通知・cleanup終端まで保持します。</param>
+    /// <returns>統合の永続確定とリソース保守の結果。保守失敗で確定済み統合を戻しません。</returns>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string src, string dst, long operationId,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
-        return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, reportAtTerminal);
+        return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, reportAtTerminal, capability);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
@@ -10130,10 +9862,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>Returns repair movement, deletion, and terminal facts without retrying or inferring filesystem state.</summary>
-    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
+    /// <summary>同じ共通権限で修復を実行し、実移転・削除・終端の事実を返します。再実行やファイル状態からの成功推測は行いません。</summary>
+    /// <param name="charts">修復対象の譜面。</param>
+    /// <param name="approvedDuplicateRemovalChartPaths">確認済みの重複削除パス。</param>
+    /// <param name="capability">受理済み操作の同じ生存権限。省略時は新規受付を判定します。</param>
+    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null, LibraryFileMutationCapability capability = null)
     {
-        return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
+        return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths, capability);
     }
 
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
@@ -10283,6 +10018,20 @@ public partial class BMSLibrary : ObservableObject
             includeResourceReferences: false);
     }
 
+    /// <summary>実変更範囲が保存済みLR2管理出力へ交差する場合だけPを非待機取得します。呼出元は停止・物理変更前に呼び、公開・通知・cleanup終端まで保持します。</summary>
+    /// <param name="paths">固定した実sourceとdestination。全件譜面の走査は行いません。</param>
+    /// <param name="recursive">祖先フォルダ全体の移動・削除も交差に含めるか。</param>
+    /// <param name="lease">交差時のP所有lease。非交差はnull、Busyは未取得です。</param>
+    /// <param name="capability">外側の生存L権限。既存P権限があれば借用し、外側の権限を解放しません。</param>
+    /// <returns>非交差または取得/借用成功ならtrue。Busyはfalseで返し、外側が結果を通知します。</returns>
+    internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive,
+        out LibraryFileMutationLease lease, LibraryFileMutationCapability capability)
+    {
+        ArgumentNullException.ThrowIfNull(capability);
+        capability.Validate(OperationAdmission);
+        return lr2SynchronizationOwner.TryEnterManagedOutputMutation(paths, recursive, out lease, capability);
+    }
+
     /// <summary>
     /// 譜面フォルダを新しい名前にリネームし、song.db のパス情報を更新します。
     /// </summary>
@@ -10292,15 +10041,15 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// Returns folder mutation facts. An explicit terminal reporter owns receipt-backed
-    /// failures only; preflight and compatibility callers retain model notifications.
+    /// 同じ受付の生存権限でフォルダ名を変更し、確定事実を返します。
+    /// 結果に基づく失敗通知は明示した終端担当へ委ね、事前検査と従来入口の通知を維持します。
     /// </summary>
     internal LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         string srcDir,
         string newName,
         bool? unregister = false,
         bool renameRootFolder = false,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
         if (srcDir == null)
         {
@@ -10310,7 +10059,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(newName));
         }
-        if (TryBlockCatalogFileMutation(nameof(RenameChartFolder)))
+        if (TryBlockCatalogFileMutation(nameof(RenameChartFolder), capability: capability))
         {
             return null;
         }
@@ -10320,7 +10069,7 @@ public partial class BMSLibrary : ObservableObject
             newName,
             unregister,
             renameRootFolder,
-            reportAtTerminal);
+            reportAtTerminal, capability);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
@@ -10328,12 +10077,21 @@ public partial class BMSLibrary : ObservableObject
         MoveLibraryRootFolderWithReceipt(charts, dstDir, unregister);
     }
 
-    /// <summary>Returns operation-scoped folder mutation facts, optionally transferring failure reporting to the terminal caller.</summary>
+    /// <summary>取得済みLの内側で実移動計画を一回固定します。短いモデル保護を解放してから条件付きP・停止へ進みます。</summary>
+    internal IReadOnlyList<FolderAutoRenamePlan> PrepareLibraryRootMovePlans(IEnumerable<LibraryChartRef> charts, string destination)
+    {
+        List<FolderAutoRenamePlan> plans = null;
+        libraryMutationOwner.RunWithFolderMoveSnapshotLocks(() => plans = libraryMutationOwner.BuildRootFolderMovePlans(
+            charts.Select(chart => chart.ToChartFileIdentity()), destination));
+        return plans.ToArray();
+    }
+
+    /// <summary>同じ受付の生存権限でフォルダを移動し、操作単位の確定事実を返します。失敗通知を終端担当へ委ねられます。</summary>
     internal LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister = false,
-        bool reportAtTerminal = false)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
     {
         if (charts == null)
         {
@@ -10343,7 +10101,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(dstDir));
         }
-        if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder)))
+        if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder), capability: capability))
         {
             return LibraryMutationSessionReceipt.Empty;
         }
@@ -10352,7 +10110,7 @@ public partial class BMSLibrary : ObservableObject
             charts,
             dstDir,
             unregister,
-            reportAtTerminal);
+            reportAtTerminal, capability, preparedPlans);
     }
 
     /// <summary>
@@ -10405,24 +10163,25 @@ public partial class BMSLibrary : ObservableObject
     /// <returns>一回のセッションの確定結果。未受理の場合は空の結果。</returns>
     internal LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
         IEnumerable<LibraryFileExtensionRenameBatch> batches,
-        bool? unregister = false)
+        bool? unregister = false, LibraryFileMutationCapability capability = null)
     {
-        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensionsWithReceipt)))
+        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensionsWithReceipt), capability: capability))
         {
             return LibraryMutationSessionReceipt.Empty;
         }
         return InvalidExtensionRenameCoordinator.RenameBMSFilesExtensionsWithReceipt(
             libraryMutationOwner,
             batches,
-            unregister);
+            unregister, capability);
     }
 
-    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
+    /// <summary>保留譜面の拡張子を同じ受理済み権限で変更し、実変更を一つのセッションへ反映します。</summary>
+    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt, LibraryFileMutationCapability capability = null)
     {
         InvalidExtensionRenameCoordinator.RenamePendingBmsFormatChartFileExtensions(
             libraryMutationOwner,
             charts,
-            newExt);
+            newExt, capability);
     }
 
     /// <summary>削除の最初の確認前に、現在hash・安全属性と確認候補を固定します。</summary>
@@ -10435,19 +10194,20 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>確認前に固定した同じ要求を、本受付後の鮮度検査と削除へ渡します。</summary>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
-        bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
-        => libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths);
+        bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null, LibraryFileMutationCapability capability = null)
+        => libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, capability);
 
     /// <summary>拡張子変更の確認前に生存tokenの現在値と安全属性を固定します。</summary>
     internal LibraryFileExtensionRenameBatch PrepareLibraryFileExtensionRenameBatch(IEnumerable<ChartFile> charts, string newExtension)
         => libraryMutationOwner.PrepareLibraryFileExtensionRenameBatch(charts, newExtension);
 
-    internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
+    /// <summary>保留譜面の物理削除と一括確定を実行します。受理済み権限は借用し、外側が後片付け終端まで保持します。</summary>
+    internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false, LibraryFileMutationCapability capability = null)
     {
         libraryMutationOwner.RemovePendingCharts(
             charts,
             sendToRecycleBin,
-            deleteContainingPackageFoldersWhenNoBms);
+            deleteContainingPackageFoldersWhenNoBms, capability);
     }
 
     private void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)

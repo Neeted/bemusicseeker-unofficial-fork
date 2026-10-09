@@ -60,10 +60,11 @@ internal sealed class AutoRenameBatchCoordinator
             diagnostics);
         var moveLoopStopwatch = Stopwatch.StartNew();
         ExceptionDispatchInfo primaryFailure = null;
-        LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
+        using LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
             "auto_rename_folders",
             postLeaseNotifications);
+        session.ProtectManagedOutput(planList.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), recursive: true);
 
         if (planList.Any(IsDriveRootSourcePlan))
         {

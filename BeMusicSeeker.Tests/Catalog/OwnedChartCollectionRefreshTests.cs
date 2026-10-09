@@ -17,7 +17,7 @@ public sealed class OwnedChartCollectionRefreshTests
         WithTemporarySongDb(songDbPath =>
         {
             var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
             ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
             {
@@ -93,7 +93,7 @@ public sealed class OwnedChartCollectionRefreshTests
     [TestMethod]
     public void ApplyFileScanCatalogResidual_UpdatesInstallDestinationProjectionThroughTypedFacts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual.bms");
@@ -130,7 +130,7 @@ public sealed class OwnedChartCollectionRefreshTests
     [TestMethod]
     public void ApplyFileScanCatalogResidual_EmptyFactsDoNotAddMutationOrNotification()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual-empty.bms");

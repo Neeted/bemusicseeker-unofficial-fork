@@ -23,16 +23,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspacePresentationStateTests
 {
-    [TestInitialize]
-    public void TestInitialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-    }
-
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryConfiguration_IsOwnedByPlaylistWorkspace()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         var columns = new PlaylistSummaryColumnSettings();
         var propertyNames = new List<string>();
         var rootPropertyNames = new List<string>();
@@ -61,9 +57,12 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryKeywordSearchAssistance_IsFieldsOnlyAndIncludesOutput()
     {
-        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = owner.SettingDialog;
+        PlaylistWorkspaceViewModel workspace = owner.PlaylistWorkspace;
 
         KeywordSearchPresentationState state = workspace.PlaylistSummaryKeywordSearchAssistanceOwner.Focus("ou", 2);
 
@@ -91,7 +90,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -159,7 +157,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -323,7 +320,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -423,7 +419,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -484,7 +479,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -616,7 +610,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -677,7 +670,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -727,7 +719,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -786,9 +777,11 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspaceSummaryApplyCommitsRowsAndTextWithoutSelectionRestore()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
@@ -842,7 +835,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -931,7 +923,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -982,9 +973,12 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspaceSummaryApplyKeepsStableSourceAndSkipsSamePresentationIdentity()
     {
-        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = owner.SettingDialog;
+        PlaylistWorkspaceViewModel workspace = owner.PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         ObservableCollection<PlaylistSummaryRow> stableSource = workspace.PlaylistSummaryView;
         int resetCount = 0;
@@ -1032,9 +1026,11 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspaceSummaryTerminalCommitsRowsBeforeVisibleMode()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
         var publicationOrder = new List<string>();
         workspace.PlaylistSummaryView.CollectionChanged += (_, e) =>
@@ -1076,9 +1072,12 @@ public sealed class PlaylistWorkspacePresentationStateTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistWorkspaceSummaryCacheSurvivesModeExitUntilCatalogInvalidation()
     {
-        PlaylistWorkspaceViewModel workspace = MainWindowViewModelTestFactory.Create().PlaylistWorkspace;
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = owner.SettingDialog;
+        PlaylistWorkspaceViewModel workspace = owner.PlaylistWorkspace;
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
@@ -1159,7 +1158,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Assert.IsTrue(
                 failure!.ToString().Contains("bmt sort persistence failure", StringComparison.Ordinal));
             Assert.AreEqual(0, refreshRequestCount);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual(
                     1,

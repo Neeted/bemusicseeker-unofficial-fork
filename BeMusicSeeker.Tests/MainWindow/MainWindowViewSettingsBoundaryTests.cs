@@ -9,7 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainWindowViewSettingsBoundaryTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void ViewSettingsStoreCapturesViewStateAndForwardsDraftChanges()
     {

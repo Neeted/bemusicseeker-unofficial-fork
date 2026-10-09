@@ -17,7 +17,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
-            playlistDownloadBlocked: false,
             paths =>
             {
                 acquiredPaths = paths;
@@ -40,7 +39,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
-            playlistDownloadBlocked: false,
             _ =>
             {
                 acquisitionCalled = true;
@@ -62,7 +60,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
-            playlistDownloadBlocked: false,
             _ => throw new AssertFailedException("Acquisition must not run."));
 
         Assert.AreEqual(DragDropEffects.None, decision.Effects);
@@ -80,7 +77,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
-            playlistDownloadBlocked: false,
             _ => throw new AssertFailedException("Acquisition must not run."));
 
         Assert.AreEqual(DragDropEffects.None, decision.Effects);
@@ -97,7 +93,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             data,
-            playlistDownloadBlocked: false,
             _ => DroppedInstallIngressAcquisitionResult.Failure(
                 DroppedInstallIngressFailureKind.QueueRejected,
                 expected));
@@ -106,24 +101,6 @@ public sealed class DroppedInstallDropTerminalTests
         Assert.IsFalse(decision.ExpandPendingTree);
         Assert.AreEqual(DroppedInstallDropWarningKind.QueueUnavailable, decision.WarningKind);
         Assert.AreSame(expected, decision.Exception);
-    }
-
-    [TestMethod]
-    public void Evaluate_PlaylistBlockDoesNotTouchExternalDataProvider()
-    {
-        var data = new TestDataObject(
-            null,
-            presenceFailure: new InvalidOperationException("must not be observed"));
-
-        DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
-            data,
-            playlistDownloadBlocked: true,
-            _ => throw new AssertFailedException("Acquisition must not run."));
-
-        Assert.AreEqual(DragDropEffects.None, decision.Effects);
-        Assert.IsFalse(decision.ExpandPendingTree);
-        Assert.AreEqual(DroppedInstallDropWarningKind.PlaylistDownloadBlocked, decision.WarningKind);
-        Assert.AreEqual(0, data.PresenceProbeCount);
     }
 
     private sealed class TestDataObject(

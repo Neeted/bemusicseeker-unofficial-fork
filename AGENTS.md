@@ -22,7 +22,7 @@
 | --- | --- |
 | 構成・責務の分担 | [アーキテクチャ](devdocs/spec/core/architecture.md) |
 | DB、索引、キャッシュ、パッケージ処理、並列度 | [性能とデータ規模](devdocs/spec/core/performance-and-scale.md) |
-| 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md) |
+| 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md)、[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md) |
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
 | 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
@@ -40,7 +40,7 @@
 
 処理速度を最優先とし、通常の設計では約21万譜面・約3万譜面フォルダ・800万規模のリソース逆引きキーを想定します。これは入力上限ではありません。少数の変更のために全件走査・複製を繰り返さず、処理完了までの時間を同じ条件で比較します。低メモリ・低CPU使用率や最初の表示の早さだけで、完了時間の退行を正当化しません。
 
-一回のライブラリ変更は、一つの変更セッションに成功した対象を集めて反映します。対象ごとの物理処理が逐次でも、DB・索引・通知を対象ごとに完結させません。競合する未受理要求は原則として待たずに拒否しますが、受理済みの導入予約、自動推定、設定利用などの既存の許可条件は維持します。
+一回のライブラリ変更は、一つの変更セッションに成功した対象を集めて反映します。対象ごとの物理処理が逐次でも、DB・索引・通知を対象ごとに完結させません。競合する要求の分類・受付開始と終端は[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md)を正本とし、受理済み継続を新規要求の予約と区別します。
 
 ## ログと表示文言
 

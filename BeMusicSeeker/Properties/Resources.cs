@@ -452,7 +452,7 @@ public class Resources
 
     public static string Drop_install_queue_extracting_sub_label_format => ResourceManager.GetString("Drop_install_queue_extracting_sub_label_format", resourceCulture);
 
-    public static string Pending_estimate_queue_label_format => ResourceManager.GetString("Pending_estimate_queue_label_format", resourceCulture);
+    public static string Install_estimation_label_format => ResourceManager.GetString("Install_estimation_label_format", resourceCulture);
 
     public static string Playlist_url_download_progress_label_format => ResourceManager.GetString("Playlist_url_download_progress_label_format", resourceCulture);
 
@@ -1642,7 +1642,6 @@ public class Resources
     public static string Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue", resourceCulture);
 
 
-    public static string Warn_DropInstallBlockedByPlaylistUrlDownload => ResourceManager.GetString("Warn_DropInstallBlockedByPlaylistUrlDownload", resourceCulture);
 
 
     public static string Warn_DropInstallUnsupportedFormat => ResourceManager.GetString("Warn_DropInstallUnsupportedFormat", resourceCulture);

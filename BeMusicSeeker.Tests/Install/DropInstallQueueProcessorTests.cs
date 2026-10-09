@@ -90,72 +90,7 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
-    [TestMethod]
-    public async Task TerminalStatusReenqueue_CompletesOldIdleReceiptAndCreatesNewLifecycleReceipt()
-    {
-        using var firstStarted = new ManualResetEventSlim(false);
-        using var releaseFirst = new ManualResetEventSlim(false);
-        var secondProcessed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var secondIdleCaptured = new TaskCompletionSource<Task>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        DropInstallQueueProcessor? processor = null;
-        int terminalEnqueueCount = 0;
-        processor = new DropInstallQueueProcessor(
-            CompleteBatch((request, _) =>
-            {
-                if (request.DisplayName == "first.zip")
-                {
-                    firstStarted.Set();
-                    releaseFirst.Wait();
-                }
-                else
-                {
-                    secondProcessed.TrySetResult(true);
-                }
-            }),
-            snapshot =>
-            {
-                if (!snapshot.IsActive
-                    && Interlocked.Exchange(ref terminalEnqueueCount, 1) == 0)
-                {
-                    Assert.IsTrue(processor!.TryEnqueue(
-                        new DroppedInstallBatchRequest(["second.zip"])));
-                    secondIdleCaptured.TrySetResult(processor.WaitForIdleAsync());
-                }
-            });
 
-        Task? firstIdle = null;
-        Task? secondIdle = null;
-        try
-        {
-            Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["first.zip"])));
-            firstStarted.Wait();
-            firstIdle = processor.WaitForIdleAsync();
-            releaseFirst.Set();
-
-            secondIdle = await secondIdleCaptured.Task;
-            Assert.AreNotSame(firstIdle, secondIdle, "Each queue lifecycle must own a distinct idle receipt.");
-            await firstIdle;
-            await secondProcessed.Task;
-            await secondIdle;
-        }
-        finally
-        {
-            releaseFirst.Set();
-            if (secondIdle == null)
-            {
-                secondIdle = await secondIdleCaptured.Task;
-            }
-            if (firstIdle != null)
-            {
-                await firstIdle;
-            }
-            if (secondIdle != null)
-            {
-                await secondIdle;
-            }
-        }
-    }
 
     [TestMethod]
     public async Task Enqueue_RejectsAdditionalRequestWithoutReservationAndAcceptsFreshRequest()
@@ -172,13 +107,16 @@ public sealed class DropInstallQueueProcessorTests
         try
         {
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["first.zip"])));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.started");
             Assert.IsFalse(processor.TryEnqueue(new DroppedInstallBatchRequest(["rejected.zip"])));
+            Task firstIdle = processor.WaitForIdleAsync();
             release.TrySetResult(true);
-            await processor.WaitForIdleAsync();
+            await firstIdle;
             CollectionAssert.AreEqual(new[] { "first.zip" }, processed);
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["fresh.zip"])));
-            await processor.WaitForIdleAsync();
+            Task freshIdle = processor.WaitForIdleAsync();
+            Assert.AreNotSame(firstIdle, freshIdle, "先行実終端後の明示要求は独立したidle寿命を持ちます。");
+            await freshIdle;
             CollectionAssert.AreEqual(new[] { "first.zip", "fresh.zip" }, processed);
         }
         finally
@@ -285,7 +223,7 @@ public sealed class DropInstallQueueProcessorTests
         await processor.WaitForIdleAsync();
         processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"]));
 
-        await secondFinished.Task;
+        await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
 
         lock (syncRoot)
         {
@@ -334,7 +272,7 @@ public sealed class DropInstallQueueProcessorTests
             secondEnqueued = processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"]));
             Assert.IsTrue(secondEnqueued);
 
-            await secondFinished.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
             idle = AssertProcessorIdleAsync(processor);
             await idle!;
             Assert.AreEqual(2, Volatile.Read(ref processCalls));
@@ -353,7 +291,7 @@ public sealed class DropInstallQueueProcessorTests
             }
             if (secondEnqueued)
             {
-                await secondFinished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
             }
         }
     }
@@ -402,7 +340,7 @@ public sealed class DropInstallQueueProcessorTests
 
             currentWorkReported.Wait();
             releaseBatch.Set();
-            await queueBecameInactive.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(queueBecameInactive.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.queueBecameInactive");
             idle = AssertProcessorIdleAsync(processor);
             await idle!;
 
@@ -460,7 +398,7 @@ public sealed class DropInstallQueueProcessorTests
         {
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(
                 [first, second], ["a.bms", "b.bms"], [root], DeleteDirectory, null)));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.started");
             Assert.IsTrue(File.Exists(first));
             Assert.IsTrue(File.Exists(second));
             release.TrySetResult(true);
@@ -597,11 +535,11 @@ public sealed class DropInstallQueueProcessorTests
                     releaseCleanup.Wait();
                     DeleteDirectory(path);
                 }, null)));
-            await started.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.started");
             processor.CancelAll();
-            await cancelled.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancelled.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.cancelled");
             Assert.IsFalse(transferredAfterCancellation);
-            await cleanupStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupStarted.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.cleanupStarted");
             Assert.IsFalse(processor.IsIdle);
             Assert.IsFalse(processor.WaitForIdleAsync().IsCompleted);
             Assert.IsFalse(processor.TryEnqueue(new DroppedInstallBatchRequest(["rejected.zip"])));
@@ -668,12 +606,12 @@ public sealed class DropInstallQueueProcessorTests
 
             processor.CancelAll();
 
-            await cleanupFailureReported.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupFailureReported.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.cleanupFailureReported");
             await AssertProcessorIdleAsync(processor);
             Assert.IsTrue(Directory.Exists(failedCleanupRoot));
             Assert.IsNull(backgroundFailure);
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["fresh.zip"])));
-            await freshProcessed.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(freshProcessed.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.freshProcessed");
             await AssertProcessorIdleAsync(processor);
         }
         finally

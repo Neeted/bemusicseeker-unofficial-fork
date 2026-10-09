@@ -18,7 +18,22 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal interface IPackageInstallMutationPort
 {
-    PackageInstallCommandResult InstallWithProgress(
+    /// <summary>受理済み操作の共通権限を、本番の内部取り込みと必須継続へ渡します。</summary>
+    Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
+        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability)
+        => InstallWithProgressAsync(library, paths, token, progress);
+
+    /// <summary>必要な物理scopeを確定してから停止し、交差Pを入力cleanupの終端まで外側へ引き渡します。</summary>
+    async Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths,
+        CancellationToken token, IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability,
+        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease)
+    {
+        await beforePhysicalMutation().ConfigureAwait(false);
+        return await InstallUnderAdmissionAsync(library, paths, token, progress, capability).ConfigureAwait(false);
+    }
+
+    /// <summary>取り込みの確定後も同じ受理操作の直接推定を待ち、実失敗と確定事実を返します。</summary>
+    Task<PackageInstallCommandResult> InstallWithProgressAsync(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
@@ -27,14 +42,27 @@ internal interface IPackageInstallMutationPort
 
 internal sealed class BmsLibraryPackageInstallMutationPort : IPackageInstallMutationPort
 {
-    public PackageInstallCommandResult InstallWithProgress(
+    /// <summary>共通権限を借用し、取り込み・必須LR2反映・推定の実終端を返します。</summary>
+    public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
+        IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability)
+        => library.InstallChartPackagesAutoWithProgressAsync(paths, token, progress, reportAtTerminal: true, capability: capability);
+
+    /// <summary>候補準備後に必要なPを取得し、物理停止と実導入・推定を同じL内で待ちます。P寿命は外側の入力回収まで保持します。</summary>
+    public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths,
+        CancellationToken token, IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability,
+        Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease)
+        => library.InstallChartPackagesAutoWithProgressAsync(paths, token, progress, reportAtTerminal: true,
+            capability: capability, beforePhysicalMutation: beforePhysicalMutation, retainPlaylistLease: retainPlaylistLease);
+
+    /// <summary>本モデルの取り込みと直接推定を、一つの終端Taskとして実行します。</summary>
+    public Task<PackageInstallCommandResult> InstallWithProgressAsync(
         BMSLibrary library,
         IEnumerable<string> installPaths,
         CancellationToken token,
         IPackageInstallProgressWriter progressWriter)
     {
         ArgumentNullException.ThrowIfNull(library);
-        return library.InstallChartPackagesAutoWithProgress(
+        return library.InstallChartPackagesAutoWithProgressAsync(
             installPaths,
             token,
             progressWriter, reportAtTerminal: true);
@@ -460,18 +488,9 @@ internal sealed class PackageInstallWorkflowOwner
             return;
         }
 
-        // queueの既存受付が新しい再生を拒否します。同期の通知scopeを開く前に停止を終えます。
-        await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
-        if (token.IsCancellationRequested || !IsCurrentGeneration(currentGeneration, currentLibrary)) { return; }
-
         var progressWriter = new PackageInstallProgressWriter(this, context);
-        PackageInstallCommandResult commandResult = ExecuteInstallBatch(
-            currentGeneration,
-            currentLibrary,
-            request,
-            token,
-            progressWriter,
-            out Exception terminalFailure);
+        (PackageInstallCommandResult commandResult, Exception terminalFailure) = await ExecuteInstallBatchAsync(
+            currentGeneration, currentLibrary, request, token, progressWriter, context.OperationLease, lease => context.PlaylistLease = lease).ConfigureAwait(false);
         commandResult ??= new PackageInstallCommandResult([], null);
         IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
         if (!IsCurrentGeneration(currentGeneration, currentLibrary))
@@ -508,20 +527,20 @@ internal sealed class PackageInstallWorkflowOwner
         });
     }
 
-    private PackageInstallCommandResult ExecuteInstallBatch(
+    private async Task<(PackageInstallCommandResult Result, Exception Failure)> ExecuteInstallBatchAsync(
         long expectedGeneration,
         BMSLibrary library,
         DroppedInstallBatchRequest request,
         CancellationToken token,
-        IPackageInstallProgressWriter progressWriter,
-        out Exception terminalFailure)
+        IPackageInstallProgressWriter progressWriter, IDisposable operationLease, Action<LibraryFileMutationLease> retainPlaylistLease)
     {
-        terminalFailure = null;
+        using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationLease);
+        Exception terminalFailure = null;
         string[] normalizedInstallPaths = [.. (request?.Paths ?? [])
             .Where(path => !string.IsNullOrWhiteSpace(path))];
         if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
         {
-            return new PackageInstallCommandResult([], null);
+            return (new PackageInstallCommandResult([], null), null);
         }
 
         BMSLibrary.OperationDialogScope dialogScope = null;
@@ -550,12 +569,23 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 else
                 {
-                    commandResult = mutationPort.InstallWithProgress(
-                        library,
-                        normalizedInstallPaths,
-                        token,
-                        progressWriter)
+                    Task<PackageInstallCommandResult> installation;
+                    try
+                    {
+                        installation = mutationPort.InstallUnderAdmissionAsync(library, normalizedInstallPaths, token, progressWriter, capability,
+                            playback.StopPlaybackForMutationAsync, retainPlaylistLease);
+                    }
+                    finally
+                    {
+                        // ThreadStaticの通知scopeは同期取り込みだけを囲み、推定Taskを待つ前に同じスレッドで閉じる。
+                        dialogScope.Dispose();
+                    }
+                    commandResult = await installation.ConfigureAwait(false)
                         ?? throw new InvalidOperationException("Package install mutation returned no result.");
+                    if (commandResult.EstimationFailure != null)
+                    {
+                        failures.Add(ExceptionDispatchInfo.Capture(commandResult.EstimationFailure));
+                    }
                 }
             }
         }
@@ -580,7 +610,8 @@ internal sealed class PackageInstallWorkflowOwner
             if (dialogScope != null)
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
-                IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = dialogScope.Messages;
+                IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = [.. dialogScope.Messages,
+                    .. commandResult?.OperationMessages ?? []];
                 if (messages.Count > 0)
                 {
                     // OK-only の情報通知で worker を止めない。確認が必要な入力は mutation 前に解決済み。
@@ -600,21 +631,21 @@ internal sealed class PackageInstallWorkflowOwner
         {
             terminalFailure = failures.Count == 1 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException));
-            return commandResult;
+            return (commandResult, terminalFailure);
         }
         switch (failures.Count)
         {
             case 0:
-                return mutationAllowed
+                return (mutationAllowed
                     ? commandResult
-                    : new PackageInstallCommandResult([], commandResult?.SessionReceipt);
+                    : new PackageInstallCommandResult([], commandResult?.SessionReceipt), null);
             case 1:
                 failures[0].Throw();
                 break;
             default:
                 throw new AggregateException(failures.Select(failure => failure.SourceException));
         }
-        return new PackageInstallCommandResult([], commandResult?.SessionReceipt);
+        return (new PackageInstallCommandResult([], commandResult?.SessionReceipt), null);
     }
 
     private void PublishRefreshSuppressionChanged(bool isSuppressed)
@@ -648,6 +679,8 @@ internal sealed class PackageInstallWorkflowOwner
                 // 遅い inactive 通知の間に追加された batch の lease は解放しない。
                 if (context.Processor.IsIdle)
                 {
+                    context.PlaylistLease?.Dispose();
+                    context.PlaylistLease = null;
                     context.OperationLease?.Dispose();
                     context.OperationLease = null;
                     terminalNotifications = [.. context.TerminalNotifications];
@@ -973,6 +1006,9 @@ internal sealed class PackageInstallWorkflowOwner
 
         /// <summary>最初の受理から worker・未引渡し source cleanup の終端まで所有する共通受付。</summary>
         internal IDisposable OperationLease { get; set; }
+
+        /// <summary>物理scopeの確定後に追加取得したP。全workerと受理入力cleanupの実終端で解放します。</summary>
+        internal LibraryFileMutationLease PlaylistLease { get; set; }
 
         /// <summary>短命な入力確保をロック外で実行し、終了・世代切替時にも回収終端まで追跡します。</summary>
         internal TaskCompletionSource<bool> InputAcquisitionCompletion { get; set; }

@@ -23,7 +23,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     [DoNotParallelize]
     public async Task CaptureAsync_keepsChartInfoShaSeparateAndUsesItForBeatorajaLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
             string md5 = new('a', 32);
@@ -74,7 +74,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     [DoNotParallelize]
     public async Task CaptureAsync_historicalSourceFactoryFailure_is_nonterminal_for_latest_and_historical_queries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
             var library = new TestBmsLibrary(
@@ -129,7 +129,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     [DoNotParallelize]
     public async Task Source_raisesChangedWhenChartInfoIndexVersionChanges()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
             string md5 = new('b', 32);
@@ -170,7 +170,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
 
             InvokeDeferredChartInfoHydration(library, "playlist_lamp_dependency_test", queueFullBackfillAfterHydration: false);
             await AwaitChartInfoHydrationAsync(library);
-            PlaylistLampViewerSourceChangedEventArgs notification = await changed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            PlaylistLampViewerSourceChangedEventArgs notification = await changed.Task;
 
             Assert.IsTrue(notification.Sequence > 0);
             Assert.IsTrue(library.ChartInfoIndexVersion > 0);

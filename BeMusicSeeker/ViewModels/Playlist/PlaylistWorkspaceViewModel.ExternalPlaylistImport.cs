@@ -26,9 +26,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         return EnqueueExternalPlaylistBMSTableImports([source.url]);
     }
 
-    /// <summary>内蔵表のURIを既存の取込みキューへ受理します。生成完了はキューの終端通知で確認します。</summary>
+    /// <summary>実行可能な内蔵表の一要求を通信前にPで受理します。競合要求は予約せず拒否し、必要出力と公開まで直接待ちます。</summary>
     /// <param name="rawTag">種類・推薦方針を指定するメニューのURI。</param>
-    /// <returns>準備待ちも含め、要求を受理した場合は true。</returns>
+    /// <returns>同じ要求の全入力を受理した場合だけtrue。準備未完・Busyではfalse。</returns>
     internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
     {
         Uri uri = new(rawTag);
@@ -72,40 +72,32 @@ public sealed partial class PlaylistWorkspaceViewModel
     private bool EnqueueExternalPlaylistBMSTableImports(IEnumerable<Uri> uris)
     {
         BMSPlaylist tables = getPlaylistStore();
-        StartupReadinessCoordinator readiness = tables?.StartupReadiness;
-        if (tables == null
-            || readiness == null
-            || !readiness.TryAdmitExternalPlaylistImports(uris, out bool shouldStartDrain))
+        IReadOnlyList<Uri> batch = [.. (uris ?? []).Where(uri => uri?.IsAbsoluteUri == true)];
+        if (tables?.StartupReadiness.IsRequiredPlaylistReady != true || tables.IsShutdownRequested || batch.Count == 0)
         {
             return false;
         }
-        if (shouldStartDrain)
+        if (!tables.TryEnterPlaylistMutation(out IDisposable admission))
         {
-            DrainExternalPlaylistImportQueueAsync().ObserveFault("DrainExternalPlaylistImportQueueAsync");
+            ShowSummaryPropertyEditMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                "Playlist import Busy").ObserveFault("Playlist import Busy notification");
+            return false;
         }
+        ImportExternalPlaylistsAsync(tables, batch, admission).ObserveFault("ImportExternalPlaylistsAsync");
         return true;
     }
 
-    private async Task DrainExternalPlaylistImportQueueAsync()
+    private async Task ImportExternalPlaylistsAsync(BMSPlaylist tables, IReadOnlyList<Uri> batch, IDisposable admission)
     {
         const int ExternalPlaylistImportPostProgressStepCount = 4;
         List<ExternalPlaylistImportOutcome> outcomes = [];
-        BMSPlaylist tables = getPlaylistStore();
-        StartupReadinessCoordinator readiness = tables?.StartupReadiness;
-        if (tables == null || readiness == null)
-        {
-            return;
-        }
-        if (!readiness.TryBeginExternalPlaylistImportDrain())
-        {
-            return;
-        }
+        StartupReadinessCoordinator readiness = tables.StartupReadiness;
         CancellationToken cancellationToken = readiness.ShutdownToken;
+        LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(admission);
         bool progressStarted = false;
         PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = null;
         try
         {
-            await readiness.WaitForRequiredPlaylistReadinessAsync(cancellationToken).ConfigureAwait(false);
             ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
             if (tables.IsShutdownRequested)
             {
@@ -114,8 +106,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             notificationSession = tables.OperationNotificationOwner.BeginSession();
             BeginPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             progressStarted = true;
-            IReadOnlyList<Uri> batch;
-            while ((batch = readiness.DequeueExternalPlaylistImportBatch()).Count > 0)
             {
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
                 int totalCount = batch.Count;
@@ -126,7 +116,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     .Select(uri => new ExternalPlaylistImportWorkItem(uri))];
                 if (loadItems.Count == 0)
                 {
-                    continue;
+                    return;
                 }
                 ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
                 UpdateExternalPlaylistImportProgress(0, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_load_tables);
@@ -175,62 +165,29 @@ public sealed partial class PlaylistWorkspaceViewModel
                 postProgressCompletedCount++;
 
                 List<ExternalPlaylistImportWorkItem> registeredItems = [];
+                Exception registrationFailure = null;
                 if (registrationItems.Count > 0)
                 {
-                    List<ExternalPlaylistImportWorkItem> pendingRegistrationItems = registrationItems;
-                    while (pendingRegistrationItems.Count > 0)
+                    try
                     {
-                        try
+                        ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
+                        UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty,
+                            BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_register_playlists);
+                        await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
+                            registrationItems.Select(item => item.LoadedTable), renameDuplicateName: false,
+                            "external_playlist_import", cancellationToken, authority).ConfigureAwait(false);
+                        registeredItems = registrationItems;
+                    }
+                    catch (OperationCanceledException) when (IsExternalPlaylistImportShutdownRequested(tables, cancellationToken)) { throw; }
+                    catch (Exception failure)
+                    {
+                        registrationFailure = failure;
+                        WriteExternalPlaylistImportWarning(failure, "external_playlist_import_batch_registration_failed");
+                        registeredItems = [.. registrationItems.Where(item => tables.ContainsBMSTable(item.LoadedTable))];
+                        foreach (ExternalPlaylistImportWorkItem item in registrationItems)
                         {
-                            ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                            UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_register_playlists);
-                            await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
-                                pendingRegistrationItems.Select(item => item.LoadedTable),
-                                renameDuplicateName: false,
-                                "external_playlist_import",
-                                cancellationToken).ConfigureAwait(false);
-                            ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                            registeredItems = pendingRegistrationItems;
-                            break;
-                        }
-                        catch (OperationCanceledException) when (IsExternalPlaylistImportShutdownRequested(tables, cancellationToken))
-                        {
-                            throw;
-                        }
-                        catch (PlaylistAlreadyExistsException ex)
-                        {
-                            ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                            List<ExternalPlaylistImportWorkItem> duplicateItems = [.. pendingRegistrationItems
-                                .Where(item => string.Equals(item.LoadedTable?.name, ex.PlaylistName, StringComparison.Ordinal))];
-                            if (duplicateItems.Count == 0)
-                            {
-                                WriteExternalPlaylistImportWarning(ex, "external_playlist_import_batch_registration_failed_duplicate_name_unknown");
-                                foreach (ExternalPlaylistImportWorkItem item in pendingRegistrationItems)
-                                {
-                                    ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                                    outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, ex));
-                                    RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
-                                }
-                                break;
-                            }
-                            foreach (ExternalPlaylistImportWorkItem item in duplicateItems)
-                            {
-                                ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                                RecordExternalPlaylistImportDuplicateNameSkip(item, ex.PlaylistName, ex, outcomes);
-                            }
-                            pendingRegistrationItems = [.. pendingRegistrationItems.Where(item => !duplicateItems.Contains(item))];
-                        }
-                        catch (Exception ex)
-                        {
-                            ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                            WriteExternalPlaylistImportWarning(ex, "external_playlist_import_batch_registration_failed");
-                            foreach (ExternalPlaylistImportWorkItem item in pendingRegistrationItems)
-                            {
-                                ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
-                                outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, ex));
-                                RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
-                            }
-                            break;
+                            outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, failure));
+                            RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, failure));
                         }
                     }
                 }
@@ -259,7 +216,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         referenceUpdateException = ex;
                         WriteExternalPlaylistImportWarning(ex, "external_playlist_import_reference_update_failed");
                     }
-                    if (referenceUpdateException == null)
+                    if (referenceUpdateException == null && registrationFailure == null)
                     {
                         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
                         foreach (ExternalPlaylistImportWorkItem item in registeredItems)
@@ -284,6 +241,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     foreach (ExternalPlaylistImportWorkItem item in registeredItems)
                     {
                         ThrowIfExternalPlaylistImportShutdownRequested(tables, cancellationToken);
+                        if (registrationFailure != null) { continue; }
                         if (referenceUpdateException != null)
                         {
                             outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, referenceUpdateException));
@@ -308,41 +266,36 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            if (progressStarted && !readiness.IsShutdownRequested && !tables.IsShutdownRequested)
+            try
             {
-                EndPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
+                if (progressStarted && !readiness.IsShutdownRequested && !tables.IsShutdownRequested)
+                {
+                    EndPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
+                }
+                if (notificationSession != null
+                    && !readiness.IsShutdownRequested
+                    && !readiness.IsRequiredPlaylistReadinessFaulted
+                    && !tables.IsShutdownRequested)
+                {
+                    PlaylistOperationNotificationPresentationRequested?.Invoke(
+                        this,
+                        new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                            notificationSession.TakeReceipt(),
+                            "external playlist import notification"));
+                    ExternalPlaylistImportQueueSummaryReady?.Invoke(
+                        this,
+                        new ExternalPlaylistImportQueueSummaryReadyEventArgs(
+                            new ExternalPlaylistImportQueueSummary(outcomes)));
+                }
             }
-            if (notificationSession != null
-                && !readiness.IsShutdownRequested
-                && !readiness.IsRequiredPlaylistReadinessFaulted
-                && !tables.IsShutdownRequested)
+            finally
             {
-                PlaylistOperationNotificationPresentationRequested?.Invoke(
-                    this,
-                    new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                        notificationSession?.TakeReceipt(),
-                        "external playlist import notification"));
-            }
-            notificationSession?.Dispose();
-            bool drainComplete = readiness.CompleteExternalPlaylistImportDrain();
-            if (!drainComplete
-                && !readiness.IsShutdownRequested
-                && !readiness.IsRequiredPlaylistReadinessFaulted
-                && !tables.IsShutdownRequested)
-            {
-                DrainExternalPlaylistImportQueueAsync().ObserveFault("DrainExternalPlaylistImportQueueAsync");
+                notificationSession?.Dispose();
+                authority?.Dispose();
+                admission?.Dispose();
+
             }
         }
-        if (readiness.IsShutdownRequested
-            || readiness.IsRequiredPlaylistReadinessFaulted
-            || tables.IsShutdownRequested)
-        {
-            return;
-        }
-        ExternalPlaylistImportQueueSummaryReady?.Invoke(
-            this,
-            new ExternalPlaylistImportQueueSummaryReadyEventArgs(
-                new ExternalPlaylistImportQueueSummary(outcomes)));
     }
 
     private static bool IsExternalPlaylistImportShutdownRequested(
@@ -437,13 +390,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             LabelFormat = BeMusicSeeker.Properties.Resources.Playlist_import_progress_label_format,
             SingleLabel = BeMusicSeeker.Properties.Resources.Playlist_import_progress_single_label
         });
-    }
-
-    internal static int ResolveExternalPlaylistImportQueueProgressTotal(int completedCount, bool hasActiveImport, int pendingCount)
-    {
-        int normalizedCompletedCount = Math.Max(0, completedCount);
-        int normalizedPendingCount = Math.Max(0, pendingCount);
-        return Math.Max(normalizedCompletedCount + (hasActiveImport ? 1 : 0) + normalizedPendingCount, normalizedCompletedCount);
     }
 
     private static string BuildExternalPlaylistImportProgressDetail(string phaseText, string currentTableName)

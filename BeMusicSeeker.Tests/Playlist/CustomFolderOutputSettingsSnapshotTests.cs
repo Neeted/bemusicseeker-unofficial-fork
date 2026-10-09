@@ -6,7 +6,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomFolderOutputSettingsSnapshotTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
     [TestMethod]
     public void CreateCurrentCapturesCustomFolderOutputResolutionSettings()
     {
@@ -39,6 +39,14 @@ public sealed class CustomFolderOutputSettingsSnapshotTests
             Assert.IsTrue(snapshot.EnableDownloadLr2IrScoreAndDetectUnsent);
             Assert.AreEqual(23, snapshot.PlaylistDefaultIgnoreFolderOutput);
             Assert.IsTrue(snapshot.ShowRecommUpdatedMsg);
+
+            testSettings.LR2CustomFolderOutputBaseDir = "edited-output-base";
+            testSettings.PlaylistDefaultIgnoreFolderOutput = 42;
+            Assert.AreEqual("output-base", snapshot.LR2CustomFolderOutputBaseDir, "捕捉Aは共有Valuesの後続編集で変わりません。");
+            Assert.AreEqual(23, snapshot.PlaylistDefaultIgnoreFolderOutput);
+            var next = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+            Assert.AreEqual("edited-output-base", next.LR2CustomFolderOutputBaseDir, "次の捕捉Bは編集後の値を使います。");
+            Assert.AreEqual(42, next.PlaylistDefaultIgnoreFolderOutput);
         }
         finally
         {

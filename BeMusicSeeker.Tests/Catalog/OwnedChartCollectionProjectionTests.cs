@@ -16,7 +16,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void FromStorageRows_BuildsBmsAndBmsonOwnedChartSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -47,7 +47,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
         ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
@@ -80,7 +80,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void ChartStorageTargetSet_FromChartsRejectsInvalidBmsAndBmsonIdentities()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
         ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
@@ -104,7 +104,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void CreateSnapshot_MatchesDirectStorageRowProjection()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -125,7 +125,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void CurrentApplicationKeepsCapturedValuesAndReprojectsCurrentIndexes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Old", "chart.bms"), new string('b', 64));
         var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], []));
         string newPath = Path.Combine("C:\\Installed", "New", "chart.bms");
@@ -150,7 +150,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void CreateCollectionView_ReturnsCommonValuesAndExactPathLookup()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile bmsonSong = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "cccccccccccccccccccccccccccccccc");
         ChartFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
@@ -173,7 +173,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void CreateNormalLibrarySourceChartView_SortsBmsonRowsAndExcludesPathlessRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
         ChartFile secondBms = CreateFile("ffffffffffffffffffffffffffffffff", Path.Combine("C:\\Installed", "Bms", "a.bms"), new string('1', 64));
         ChartFile lateBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "z.bmson"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
@@ -216,7 +216,7 @@ public sealed class OwnedChartCollectionProjectionTests
     [TestMethod]
     public void CreateFileScanRemovedCharts_UsesOwnedCurrentOwners()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
         ChartFile deletedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "deleted.bms"));
         ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty);

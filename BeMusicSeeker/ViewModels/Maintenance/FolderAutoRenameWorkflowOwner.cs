@@ -18,6 +18,15 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal interface IFolderAutoRenameMutationPort
 {
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
+
+    /// <summary>実移動計画を固定した窓口を返します。純portの検証では独立した対象判断を維持します。</summary>
+    IFolderAutoRenameMutationPort PreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
+        string parentDirectory, bool allFolders, LibraryFileMutationCapability capability,
+        out LibraryFileMutationLease playlistLease)
+    { playlistLease = null; return this; }
+
     bool HasTargets(BMSLibrary library, string parentDirectory);
 
     FolderAutoRenameExecutionResult RenameSelectedWithProgress(
@@ -33,9 +42,32 @@ internal interface IFolderAutoRenameMutationPort
 
 internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
 {
+    private readonly LibraryFileMutationCapability capability;
+    private readonly IReadOnlyList<FolderAutoRenamePlan> preparedPlans;
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    internal BmsLibraryFolderAutoRenameMutationPort(LibraryFileMutationCapability capability = null,
+        IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
+    { this.capability = capability; this.preparedPlans = preparedPlans; }
+    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
+    public IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryFolderAutoRenameMutationPort(capability, preparedPlans);
+
+    /// <summary>同じLで計画を捕捉し、交差する物理作用の前にPを取得します。取得失敗では停止も変更も行いません。</summary>
+    public IFolderAutoRenameMutationPort PreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
+        string parentDirectory, bool allFolders, LibraryFileMutationCapability capability,
+        out LibraryFileMutationLease playlistLease)
+    {
+        IReadOnlyList<FolderAutoRenamePlan> plans = library.PrepareAutoRenamePlans(request?.Charts ?? [], parentDirectory, allFolders);
+        if (!library.TryEnterManagedOutputMutation(plans.Where(plan => plan.FailureException == null && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase))
+            .SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, capability))
+        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        return new BmsLibraryFolderAutoRenameMutationPort(capability, plans);
+    }
+
     public bool HasTargets(BMSLibrary library, string parentDirectory)
     {
-        return library?.HasAutoRenameAllChartFolderTargets(parentDirectory) == true;
+        return preparedPlans != null
+            ? preparedPlans.Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory) && !string.IsNullOrWhiteSpace(plan.DestinationDirectory))
+            : library?.HasAutoRenameAllChartFolderTargets(parentDirectory) == true;
     }
 
     public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
@@ -47,7 +79,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithProgress(
             request?.Charts ?? [],
             renameRootFolder: false,
-            progressWriter, reportAtTerminal: true)
+            progressWriter, reportAtTerminal: true, capability: capability, preparedPlans: preparedPlans)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         return FolderAutoRenameExecutionResult.From(result);
     }
@@ -60,7 +92,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         ArgumentNullException.ThrowIfNull(progressWriter);
         return library?.AutoRenameAllChartFoldersWithProgress(
             parentDirectory,
-            progressWriter, reportAtTerminal: true)
+            progressWriter, reportAtTerminal: true, capability: capability, preparedPlans: preparedPlans)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 }
@@ -510,6 +542,11 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 CompleteStale(run);
                 return;
             }
+            using (LibraryFileMutationCapability preparationCapability = chartFileOperations.CreateMutationCapability(run.OperationGate))
+            {
+                run.PreparedPort = mutationPort.PreparePhysicalMutation(run.Library, run.SelectedRequest,
+                    run.ParentDirectory, run.AllFolders, preparationCapability, out run.PlaylistLease);
+            }
             if (run.AllFolders)
             {
                 bool hasTargets;
@@ -519,7 +556,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                     if (!await ExecuteMutation(
                         run,
                         stopPlayback: false,
-                        mutation: () => hasTargets = mutationPort.HasTargets(run.Library, run.ParentDirectory),
+                        mutation: operationPort => hasTargets = operationPort.HasTargets(run.Library, run.ParentDirectory),
                         refreshSuppression: false,
                         releaseAcquiredOperationGate: false))
                     {
@@ -546,10 +583,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 if (!await ExecuteMutation(
                     run,
                     stopPlayback: true,
-                    () =>
+                    operationPort =>
                     {
                         result = FolderAutoRenameExecutionResult.From(
-                            mutationPort.RenameAllWithReceiptWithProgress(
+                            operationPort.RenameAllWithReceiptWithProgress(
                                 run.Library,
                                 run.ParentDirectory,
                                 run.ProgressWriter));
@@ -566,9 +603,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 if (!await ExecuteMutation(
                     run,
                     stopPlayback: true,
-                    () =>
+                    operationPort =>
                     {
-                        result = mutationPort.RenameSelectedWithProgress(
+                        result = operationPort.RenameSelectedWithProgress(
                             run.Library,
                             run.SelectedRequest,
                             run.ProgressWriter);
@@ -606,7 +643,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
     private async Task<bool> ExecuteMutation(
         RunContext run,
         bool stopPlayback,
-        Action mutation,
+        Action<IFolderAutoRenameMutationPort> mutation,
         bool refreshSuppression,
         bool releaseAcquiredOperationGate = true)
     {
@@ -638,7 +675,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 {
                     PublishRefreshSuppressionChanged(isSuppressed: true);
                 }
-                mutation();
+                using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
+                using LibraryFileMutationCapability playlistCapability = run.PlaylistLease?.CreateMutationCapability();
+                using LibraryFileMutationCapability combinedCapability = playlistCapability == null ? null : capability.WithPlaylistCapability(playlistCapability);
+                mutation((run.PreparedPort ?? mutationPort).ForAcceptedOperation(combinedCapability ?? capability));
             }
         }
         catch (Exception exception)
@@ -817,7 +857,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
     private void CompleteSuccess(RunContext run, FolderAutoRenameExecutionResult result)
     {
         BeginProgressTerminalization(run);
-        ReleaseOperationGate(run);
         long terminalStatusVersion;
         bool publish;
         lock (syncRoot)
@@ -826,13 +865,11 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 return;
             }
-            activeRun = null;
             statusVersion++;
             terminalStatusVersion = statusVersion;
             publish = IsCurrentGenerationUnsafe(run);
             if (publish)
             {
-                activeRun = run;
                 run.TerminalPending = true;
             }
         }
@@ -875,7 +912,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
         FolderAutoRenameExecutionResult executionResult = null)
     {
         BeginProgressTerminalization(run);
-        ReleaseOperationGate(run);
         long terminalStatusVersion;
         bool publish;
         lock (syncRoot)
@@ -884,13 +920,11 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 return;
             }
-            activeRun = null;
             statusVersion++;
             terminalStatusVersion = statusVersion;
             publish = IsCurrentGenerationUnsafe(run);
             if (publish)
             {
-                activeRun = run;
                 run.TerminalPending = true;
             }
         }
@@ -939,7 +973,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
         {
             if (ReferenceEquals(activeRun, run) && run.TerminalPending)
             {
-                activeRun = null;
                 run.TerminalPending = false;
                 if (ReferenceEquals(activeProgressPublication?.Run, run))
                 {
@@ -958,15 +991,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
     private void CompleteStale(RunContext run)
     {
         BeginProgressTerminalization(run);
-        ReleaseOperationGate(run);
-        lock (syncRoot)
-        {
-            if (ReferenceEquals(activeRun, run))
-            {
-                activeRun = null;
-                statusVersion++;
-            }
-        }
         CompleteIdle(run);
     }
 
@@ -987,13 +1011,24 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    private static void CompleteIdle(RunContext run)
+    /// <summary>受付解放後にのみidleを公開し、次要求と終端Taskの観測を同じ境界へ揃えます。</summary>
+    private void CompleteIdle(RunContext run)
     {
-        run.IdleCompletion.TrySetResult(true);
+        ReleaseOperationGate(run);
+        lock (syncRoot)
+        {
+            if (ReferenceEquals(activeRun, run))
+            {
+                activeRun = null;
+                statusVersion++;
+            }
+            run.IdleCompletion.TrySetResult(true);
+        }
     }
 
     private static void ReleaseOperationGate(RunContext run)
     {
+        Interlocked.Exchange(ref run.PlaylistLease, null)?.Dispose();
         IDisposable operationGate = Interlocked.Exchange(ref run.OperationGate, null);
         operationGate?.Dispose();
     }
@@ -1214,6 +1249,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
         internal FolderAutoRenameProgressWriter ProgressWriter { get; set; }
 
         internal IDisposable OperationGate;
+        internal LibraryFileMutationLease PlaylistLease;
+        internal IFolderAutoRenameMutationPort PreparedPort;
 
         internal FolderAutoRenameProgressSnapshot LastProgress { get; set; }
 

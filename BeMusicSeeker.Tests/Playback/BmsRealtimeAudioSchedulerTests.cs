@@ -851,7 +851,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 "Pause中seekの失敗はcallback healthへ反映されます。");
             Assert.IsTrue(native.SetPositionCalls >= 2,
                 "一回目のposition設定は旧voice停止、二回目はseek先voice準備です。");
-            await stopping.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await stopping.Task;
 
             Assert.IsFalse(start.IsCompleted,
                 "Startはcleanup所有者が完了するまで終了扱いになりません。");
@@ -888,7 +888,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Exception? startFailure = null;
             try
             {
-                await start.WaitAsync(TimeSpan.FromSeconds(3));
+                await start;
             }
             catch (Exception exception)
             {
@@ -896,7 +896,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
             }
 
             Assert.IsNotNull(startFailure, "The Start Task must report the seek failure.");
-            Assert.IsFalse(startFailure is TimeoutException, "Playback cleanup did not complete after release.");
             Assert.IsTrue(GetExceptionChain(startFailure).Any(exception => exception is BmsScheduledAudioException),
                 "The Start Task must retain the original scheduled seek failure.");
             Assert.AreEqual(PlayState.Stopped, player.PlayState);
@@ -916,7 +915,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             {
                 try
                 {
-                    await start.WaitAsync(TimeSpan.FromSeconds(3));
+                    await start;
                 }
                 catch
                 {
@@ -999,7 +998,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Assert.AreEqual(1, session.GetPlayerStreams().Count,
                 "失敗した予約voiceはrollbackされ、既存voiceだけが終了ownerのcleanupまで残ります。");
 
-            await stopping.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            await stopping.Task;
             Assert.IsFalse(start.IsCompleted,
                 "PlayStartはcleanup ownerが実際に解放するまで完了しません。");
             Assert.IsTrue(session.IsCallbackOutputPaused);
@@ -1008,7 +1007,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Exception? startFailure = null;
             try
             {
-                await start.WaitAsync(TimeSpan.FromSeconds(3));
+                await start;
             }
             catch (Exception exception)
             {
@@ -1037,7 +1036,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             {
                 try
                 {
-                    await start.WaitAsync(TimeSpan.FromSeconds(3));
+                    await start;
                 }
                 catch
                 {

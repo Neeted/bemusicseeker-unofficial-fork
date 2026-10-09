@@ -32,6 +32,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryBulkEditTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     public void ResolvePlaylistSummaryCustomFolderOutputState_ReturnsValueWhenAllTablesMatch()
     {
@@ -113,6 +115,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryBulkEditDialogViewModel_AllowsLastPlaySortFolderRegardlessOfSchemaStatus()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -129,8 +132,8 @@ public sealed class PlaylistSummaryBulkEditTests
     [TestCategory("Playlist")]
     public async Task PlaylistSummaryBulkExternalPropertyInitialization_DurableFailureSuppressesLatePresentation()
     {
-        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
-        Settings.Default.EnablePlaylistUrlCompletion = false;
+        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
+        testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
             nameof(PlaylistSummaryBulkEditTests),
@@ -153,7 +156,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 songDbPath,
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(
                     songDbPath,
-                    CustomFolderOutputPhysicalSurface.Empty));
+                    CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
             table.playlist_id = 8101;
             table.name = "Local Name";
@@ -210,7 +213,7 @@ public sealed class PlaylistSummaryBulkEditTests
         }
         finally
         {
-            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -218,7 +221,98 @@ public sealed class PlaylistSummaryBulkEditTests
         }
     }
 
+    [DataTestMethod]
+    [DataRow("bmt")]
+    [DataRow("sync")]
+    [DataRow("root")]
+    [DataRow("mask")]
+    [DataRow("base")]
+    public async Task BulkHeaderSaveFailure_RestoresCurrentTableAndSameDraftCanSave(string operation)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistSummaryBulkEditTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string songDb = CreateTempSongDbPath(root);
+            PlaylistPersistenceRepository.EnsureSchema(songDb);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            settings.OperationModeLR2DB = false;
+            settings.EnableBeatorajaBmtOutput = false;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(root, "Secondary")]);
+            var playlist = new TestBmsPlaylist(songDb, settings: settings);
+            var table = new BMSTable
+            {
+                playlist_id = 8102,
+                name = "Bulk save",
+                is_bmt_output = false,
+                is_external_sync = false,
+                is_root_folder = false,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None,
+                Header_url = new Uri("https://example.invalid/header"),
+                Data_url = new Uri("https://example.invalid/data")
+            };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableHeadersToDB([table]);
+            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, null!,
+                settingsProvider: () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
+            var draft = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(workspace, [new PlaylistSummaryRow { TableRef = table }]);
+            draft.BmtOutputOption = draft.OnOption;
+            draft.ExternalSyncOption = draft.OnOption;
+            draft.RootFolderOption = draft.OnOption;
+            draft.OutputUserFolder = false;
+            draft.OutputBaseOption = draft.OutputBaseOptions.Single(option => option.BaseName == "Secondary");
+            Func<Task> apply = operation switch
+            {
+                "bmt" => draft.ApplyBmtOutputAsync,
+                "sync" => draft.ApplyExternalSyncAsync,
+                "root" => draft.ApplyRootFolderAsync,
+                "mask" => draft.ApplyCustomFolderOutputTypesAsync,
+                "base" => draft.ApplyOutputBaseAsync,
+                _ => throw new AssertFailedException(operation)
+            };
+            string column = operation switch
+            {
+                "bmt" => "is_bmt_output",
+                "sync" => "is_external_sync",
+                "root" => "is_root_folder",
+                "mask" => "ignore_folder_output",
+                "base" => "custom_folder_output_base_name",
+                _ => throw new AssertFailedException(operation)
+            };
+            string readSql = "SELECT CAST(COALESCE(" + column + ", '') AS TEXT) FROM playlist WHERE playlist_id = ?;";
+            string before;
+            using (var database = new LR2SongDBExtended(songDb))
+            {
+                before = database.ExecuteScalar<string>(readSql, table.playlist_id);
+                database.Execute("CREATE TRIGGER fail_bulk_save BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced bulk DB failure'); END;");
+            }
+            Exception? failure = null;
+            try { await apply(); }
+            catch (Exception exception) { failure = exception; }
+            Assert.IsNotNull(failure);
+            Assert.IsFalse(failure is PlaylistMutationPostCommitException);
+            Assert.AreSame(table, playlist.BMSTables.Single());
+            Assert.IsFalse(table.is_bmt_output);
+            Assert.IsFalse(table.is_external_sync);
+            Assert.IsFalse(table.is_root_folder);
+            Assert.AreEqual(LR2SongDBExtended.playlist.CustomFolderType.None, table.ignore_folder_output);
+            Assert.IsNull(table.custom_folder_output_base_name);
+            using (var database = new LR2SongDBExtended(songDb))
+            {
+                Assert.AreEqual(before, database.ExecuteScalar<string>(readSql, table.playlist_id));
+                database.Execute("DROP TRIGGER fail_bulk_save;");
+            }
+            await apply();
+            using (var database = new LR2SongDBExtended(songDb))
+            {
+                Assert.AreNotEqual(before, database.ExecuteScalar<string>(readSql, table.playlist_id), "同じdraftの再反映も、正本判定を通り実保存します。");
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_LastPlaySortFolderRemainsEnabledWithoutSchemaStatus()
     {
         string tempDirectory = Path.Combine(
@@ -239,10 +333,12 @@ public sealed class PlaylistSummaryBulkEditTests
                 entry_type = LR2SongDBExtended.playlist.EntryUnitType.File,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None
             };
-            var playlist = new TestBmsPlaylist(songDbPath)
+            TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
+                songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                BMSTables = new ObservableCollection<BMSTable>([table])
-            };
+                values.OperationModeLR2DB = false;
+            }));
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => null!,
@@ -287,21 +383,21 @@ public sealed class PlaylistSummaryBulkEditTests
                     AssertEffectiveTwoWayBinding(checkBox, type.ToString());
 
                     dialog.ignore_folder_output = type;
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(false, checkBox.IsChecked, type.ToString());
                     dialog.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None;
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(true, checkBox.IsChecked, type.ToString());
 
                     checkBox.IsChecked = false;
                     checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsFalse(
                         LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(dialog.ignore_folder_output, type),
                         type.ToString());
                     checkBox.IsChecked = true;
                     checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsTrue(
                         LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(dialog.ignore_folder_output, type),
                         type.ToString());
@@ -324,6 +420,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_RendersHistoricalUpdateDateWithoutTime()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -351,6 +448,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_TopNavigationKeepsSingleSelectionAndDraftsAcrossCategories()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -390,10 +488,10 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsTrue(nameEditor.IsVisible, "The initially selected category must expose the name field.");
                 nameEditor.Text = "draft playlist";
                 nameEditor.GetBindingExpression(TextBox.TextProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 navigationState.ItemsByCategory[PropertyNavigationCategory.CustomFolder].Provider.Select();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.CustomFolder);
                 Assert.IsFalse(nameEditor.IsVisible, "Unselected category fields must not remain visible.");
                 TextBox outputDirectoryEditor = FindBoundElement<TextBox>(
@@ -409,16 +507,16 @@ public sealed class PlaylistSummaryBulkEditTests
                     contentScrollViewer.ScrollableHeight > 0,
                     "Test-induced overflow must expose a scrollable viewport for reset coverage.");
                 contentScrollViewer.ScrollToVerticalOffset(contentScrollViewer.ScrollableHeight);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(contentScrollViewer.VerticalOffset > 0);
 
                 navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.Folder);
                 Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
                 Assert.IsFalse(outputDirectoryEditor.IsVisible, "The deselected Custom Folder fields must be hidden.");
                 navigationState.ItemsByCategory[PropertyNavigationCategory.General].Provider.Select();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 AssertSelectedPropertyCategory(navigationState, PropertyNavigationCategory.General);
                 Assert.IsTrue(nameEditor.IsVisible, "Returning to General must restore its observable fields.");
                 Assert.AreEqual("draft playlist", nameEditor.Text);
@@ -433,6 +531,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_PreservesInventoryBindingsAndAvailabilityGates()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -623,10 +722,10 @@ public sealed class PlaylistSummaryBulkEditTests
                 PropertyNavigationItem customNavigationItem = navigationState.ItemsByCategory[PropertyNavigationCategory.CustomFolder];
                 Assert.IsTrue(customNavigationItem.Peer.IsEnabled(), "Custom Folder navigation must initially be available.");
                 fixture.OperationModeLR2DB = false;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(customNavigationItem.Peer.IsEnabled(), "Custom Folder navigation must follow OperationModeLR2DB.");
                 fixture.OperationModeLR2DB = true;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(customNavigationItem.Peer.IsEnabled(), "Custom Folder navigation must recover when the mode returns.");
 
                 TextBox pageUrl = FindBoundElement<TextBox>(
@@ -636,11 +735,11 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsTrue(pageUrl.IsEnabled);
                 externalSync.IsChecked = true;
                 externalSync.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(pageUrl.IsEnabled);
                 externalSync.IsChecked = false;
                 externalSync.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(pageUrl.IsEnabled);
 
                 Button moveUp = FindButtonByAutomationId(view, "PlaylistPropertyFolderMoveUp");
@@ -649,16 +748,16 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsTrue(moveDown.IsEnabled);
                 autoSort.IsChecked = true;
                 autoSort.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(moveUp.IsEnabled);
                 Assert.IsFalse(moveDown.IsEnabled);
                 autoSort.IsChecked = false;
                 autoSort.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 entryType.SelectedItem = Resources.Folder;
                 entryType.GetBindingExpression(Selector.SelectedItemProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 CheckBox levelFolder = outputCheckBoxes.Single(checkBox =>
                     string.Equals(
                         (string?)((Binding)BindingOperations.GetBindingBase(checkBox, ToggleButton.IsCheckedProperty)!).ConverterParameter,
@@ -667,7 +766,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsFalse(levelFolder.IsEnabled);
                 entryType.SelectedItem = Resources.File;
                 entryType.GetBindingExpression(Selector.SelectedItemProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(levelFolder.IsEnabled);
             }
             finally
@@ -678,6 +777,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_ConceptAShellAndGeneralUseTheApprovedResponsiveViewport()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -726,13 +826,13 @@ public sealed class PlaylistSummaryBulkEditTests
                 for (int categoryIndex = 0; categoryIndex < navigationList.Items.Count; categoryIndex++)
                 {
                     navigationList.SelectedIndex = categoryIndex;
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     view.UpdateLayout();
                     AssertNoVisiblePageEnclosingChrome(contentHost, bodyViewport, categoryIndex);
                     AssertSelectedPageRetainsMajorSectionHierarchy(view, categoryIndex);
                 }
                 navigationList.SelectedIndex = 0;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 view.UpdateLayout();
 
                 TextBox name = FindBoundElement<TextBox>(view, TextBox.TextProperty, nameof(PlaylistPropertyPresentationFixture.name));
@@ -782,7 +882,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 double pageWidthBeforeResize = pageUrl.ActualWidth;
                 view.Width += 160d;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(symbol.ActualWidth > symbolWidthBeforeResize);
                 Assert.IsTrue(name.ActualWidth > nameWidthBeforeResize);
                 Assert.IsTrue(pageUrl.ActualWidth > pageWidthBeforeResize);
@@ -791,7 +891,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 view.Width = view.MinWidth;
                 view.Height = view.MinHeight;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
                     "General must not create horizontal overflow at minimum window size.");
                 Assert.IsTrue(
@@ -800,7 +900,7 @@ public sealed class PlaylistSummaryBulkEditTests
                         .All(bounds => bounds.Left >= -0.5d && bounds.Right <= bodyViewport.ViewportWidth + 0.5d),
                     "General editors must remain horizontally reachable at minimum window size.");
                 bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Rect minimumDataBounds = GetBounds(dataUrl, bodyViewport);
                 Assert.IsTrue(
                     minimumDataBounds.Top >= -0.5d && minimumDataBounds.Bottom <= bodyViewport.ViewportHeight + 0.5d,
@@ -814,6 +914,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_ConceptAFolderOrderOwnsScrollingAndGrowsWithWindow()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -836,7 +937,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 windowTest.ShowAndWaitForContentRendered(view);
                 ((ListBox)view.FindName("propertyNavigation")).SelectedIndex = 1;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 view.UpdateLayout();
 
                 var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
@@ -868,7 +969,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 double listHeightBeforeResize = folderOrder.ActualHeight;
                 view.Height += 160d;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(folderOrder.ActualHeight > listHeightBeforeResize,
                     "The dominant folder-order viewport must gain height when the window becomes taller.");
 
@@ -881,7 +982,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 view.Width = view.MinWidth;
                 view.Height = view.MinHeight;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d,
                     "Folder must not create horizontal overflow at minimum window size.");
@@ -890,7 +991,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.IsTrue(listViewport.ScrollableHeight > 0d,
                     "The Folder list must retain independent vertical extent at minimum window size.");
                 bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Rect minimumMoveUpBounds = GetBounds(moveUp, bodyViewport);
                 Rect minimumMoveDownBounds = GetBounds(moveDown, bodyViewport);
                 Assert.IsTrue(
@@ -910,6 +1011,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistPropertyDialog_ConceptACustomOutputFolderPrecedesNaturalFlowDestination()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -928,7 +1030,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 view.Width = view.MinWidth;
                 ((ListBox)view.FindName("propertyNavigation")).SelectedIndex = 2;
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 view.UpdateLayout();
 
                 var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
@@ -976,14 +1078,14 @@ public sealed class PlaylistSummaryBulkEditTests
                 double outputDirectoryWidthBeforeResize = outputDirectory.ActualWidth;
                 view.Width += 160d;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(outputBase.ActualWidth > outputBaseWidthBeforeResize);
                 Assert.IsTrue(outputDirectory.ActualWidth > outputDirectoryWidthBeforeResize);
 
                 double destinationTopBeforeHeightResize = GetBounds(outputBase, bodyViewport).Top;
                 view.Height += 160d;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(
                     destinationTopBeforeHeightResize,
                     GetBounds(outputBase, bodyViewport).Top,
@@ -998,7 +1100,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 wrappingProbe.Content = string.Join(" ", Enumerable.Repeat("Long localized output option", 12));
                 view.Width = view.MinWidth;
                 view.UpdateLayout();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(wrappingProbe.ActualHeight > ordinaryFlagHeight,
                     "A long localized output caption must wrap instead of remaining a clipped single line.");
                 Assert.AreEqual(0d, bodyViewport.ScrollableWidth, 0.01d);
@@ -1015,13 +1117,15 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlaylistSummaryBulkEditDialog_BindsAllCustomFolderOptionsTwoWayAndLocalized()
     {
-        var settings = new Settings
-        {
-            OperationModeLR2DB = true
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+            });
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
         BMSTable table = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.None);
         var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
             owner.PlaylistWorkspace,
@@ -1058,32 +1162,34 @@ public sealed class PlaylistSummaryBulkEditTests
                 AssertEffectiveTwoWayBinding(checkBox, propertyName);
 
                 SetBulkFolderValue(dialog, propertyName, false);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(false, checkBox.IsChecked, propertyName);
                 SetBulkFolderValue(dialog, propertyName, true);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(true, checkBox.IsChecked, propertyName);
 
                 checkBox.IsChecked = false;
                 checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(false, GetBulkFolderValue(dialog, propertyName), propertyName);
                 checkBox.IsChecked = true;
                 checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(true, GetBulkFolderValue(dialog, propertyName), propertyName);
             }
         });
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void SettingDialog_CustomFolderOutputDefaultsRenderLocalizedTwoWayFolderOptions()
     {
-        var settings = new Settings
-        {
-            OperationModeLR2DB = true
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+            });
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
 
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -1095,7 +1201,7 @@ public sealed class PlaylistSummaryBulkEditTests
             };
             windowTest.ShowAndWaitForContentRendered(window);
             ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 5;
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             var page = (PlaylistSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
 
             var checkBoxes = FindDescendants<CheckBox>(page)
@@ -1121,19 +1227,19 @@ public sealed class PlaylistSummaryBulkEditTests
                 AssertEffectiveTwoWayBinding(checkBox, propertyName);
 
                 SetDefaultFolderValue(owner.SettingDialog, propertyName, false);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(false, checkBox.IsChecked, propertyName);
                 SetDefaultFolderValue(owner.SettingDialog, propertyName, true);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(true, checkBox.IsChecked, propertyName);
 
                 checkBox.IsChecked = false;
                 checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(false, GetDefaultFolderValue(owner.SettingDialog, propertyName), propertyName);
                 checkBox.IsChecked = true;
                 checkBox.GetBindingExpression(ToggleButton.IsCheckedProperty)!.UpdateSource();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(true, GetDefaultFolderValue(owner.SettingDialog, propertyName), propertyName);
             }
         });
@@ -1479,7 +1585,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 {
                     rejected = true;
                 }
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(
                     rejected || !item.Provider.IsSelected,
                     "A disabled property navigation provider must reject Automation selection.");
@@ -1491,7 +1597,7 @@ public sealed class PlaylistSummaryBulkEditTests
             else
             {
                 item.Provider.Select();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 category = IdentifyVisiblePropertyCategory(contentHost);
             }
 
@@ -1510,7 +1616,7 @@ public sealed class PlaylistSummaryBulkEditTests
             itemsByCategory[PropertyNavigationCategory.General],
             "The captured initial SelectionItem must be the provider mapped to General.");
         initiallySelectedItem.Provider.Select();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         return new PropertyNavigationObservation(selectionProvider, itemsByCategory, initiallySelectedItem);
     }
 

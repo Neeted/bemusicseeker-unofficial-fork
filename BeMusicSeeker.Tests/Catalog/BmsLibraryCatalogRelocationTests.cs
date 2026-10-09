@@ -18,7 +18,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_UpdatesStorageRowsAndInstalledPackages()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));
@@ -189,7 +189,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_BatchPathReplacePreservesUserColumnsMaintenanceDigestAndFolderMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierBatch_" + Guid.NewGuid().ToString("N"));
@@ -411,7 +411,7 @@ public sealed class BmsLibraryCatalogRelocationTests
     [TestMethod]
     public void ApplyCatalogRelocation_PathReplaceUsesSharedLr2CompatibilityNormalizer()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplier_" + Guid.NewGuid().ToString("N"));

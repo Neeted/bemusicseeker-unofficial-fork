@@ -19,7 +19,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_PublishesWarningRefreshWhenWarningsChange()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());
@@ -54,7 +54,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_DoesNotRaiseChartFilesZeroNoteWhenWarningsDoNotChange()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
@@ -89,7 +89,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
@@ -117,7 +117,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
     [TestMethod]
     public async Task ChartFilesZeroNote_UsesOwnedBmsSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         await WithTemporarySongDb(async songDbPath =>
         {
             var library = new TestBmsLibrary(songDbPath, null, null, null, new RecordingDialogService());

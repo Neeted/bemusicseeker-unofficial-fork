@@ -17,7 +17,7 @@ internal sealed partial class LibraryMutationOwner
     /// merge の確定事実を返し、必要に応じて receipt に基づく失敗表示を操作終端へ委ねます。
     /// </summary>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
-        long operationId, bool reportAtTerminal = false)
+        long operationId, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
         if (sourceDirectory == null)
         {
@@ -27,7 +27,7 @@ internal sealed partial class LibraryMutationOwner
         {
             throw new ArgumentNullException(nameof(destinationDirectory));
         }
-        if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true))
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true, capability: capability))
         {
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
@@ -38,16 +38,24 @@ internal sealed partial class LibraryMutationOwner
         LibraryMutationSessionReceipt sessionReceipt = LibraryMutationSessionReceipt.Empty;
         List<ChartFile> destinationMaintenanceCharts = null;
         bool mergeApplied;
+        MaintenanceWorkflowResult maintenanceResult = null;
         try
         {
-            using (LibraryFileMutationLease mutationLease = EnterMergeWriteScope())
+            using (LibraryFileMutationLease mutationLease = synchronization.EnterMergeWriteScope(capability))
             {
                 if (mutationLease == null)
                 {
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
-                using LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability();
-                mutationCapability.Validate(lr2SynchronizationOwner);
+                if (!TryEnterManagedOutputMutation([sourceDirectory, destinationDirectory], recursive: true, out LibraryFileMutationLease playlistLease, capability))
+                {
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                }
+                using LibraryFileMutationLease playlistOperation = playlistLease;
+                using LibraryFileMutationCapability primaryCapability = mutationLease.CreateMutationCapability();
+                using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
+                using LibraryFileMutationCapability mutationCapability = primaryCapability.WithPlaylistCapability(playlistCapability);
+                mutationCapability.Validate(lr2SynchronizationOwner.OperationAdmission);
                 bool mergePrepared = false;
                 List<ChartFile> preparedSourceCharts = [];
                 IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
@@ -80,7 +88,7 @@ internal sealed partial class LibraryMutationOwner
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
-                LibraryMutationSession session = BeginLibraryMutationSession(
+                using LibraryMutationSession session = BeginLibraryMutationSession(
                     mutationCapability,
                     "duplicate_merge_catalog_transition op=" + operationId,
                     postLeaseNotifications);
@@ -138,28 +146,29 @@ internal sealed partial class LibraryMutationOwner
                 }
                 sessionReceipt = session.Commit();
                 mergeApplied = sessionReceipt.DurableCommit && !sessionReceipt.HasDurableFinalizationFailure;
+                if (mergeApplied)
+                {
+                    // 必須保守は同じ受理操作の生存権限を借用します。通知を既存の延期先へ
+                    // 集め、確定済み統合と後片付けの事実は保守失敗でも保持します。
+                    try
+                    {
+                        maintenanceResult = applyMergeFolderMaintenance(destinationMaintenanceCharts, mutationCapability, postLeaseNotifications.Add);
+                        if (maintenanceResult.Canceled)
+                        {
+                            sessionReceipt = sessionReceipt.WithFinalizationFailure(
+                                new OperationCanceledException(Resources.Error_MergePostCommitMaintenanceIncomplete));
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
+                    }
+                }
             }
 
             InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-            MaintenanceWorkflowResult maintenanceResult = null;
             if (mergeApplied)
             {
-                // maintenance は独自の既存 reservation を取得するため、merge lease の
-                // 解放後に実行します。任意通知ではなく同じ session の PostCommitMaintenance
-                // phase とし、失敗しても確定済み merge と cleanup の結果を失いません。
-                try
-                {
-                    maintenanceResult = applyMergeFolderMaintenanceAfterRelease(destinationMaintenanceCharts);
-                    if (maintenanceResult.Canceled)
-                    {
-                        sessionReceipt = sessionReceipt.WithFinalizationFailure(
-                            new OperationCanceledException(Resources.Error_MergePostCommitMaintenanceIncomplete));
-                    }
-                }
-                catch (Exception exception)
-                {
-                    sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
-                }
                 LogInstallPerformance("duplicate_merge_model done op=" + operationId
                     + " movedCharts=" + sessionReceipt.CatalogChartPathChangeCount
                     + " maintenanceFailed=" + sessionReceipt.HasDurableFinalizationFailure

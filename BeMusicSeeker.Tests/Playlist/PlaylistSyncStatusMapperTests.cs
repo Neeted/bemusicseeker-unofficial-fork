@@ -8,13 +8,6 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSyncStatusMapperTests
 {
-    [TestInitialize]
-    public void Initialize()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        ResourceService.Current.ChangeCulture("ja-JP");
-    }
-
     [TestMethod]
     public void CreateNone_ReturnsNonFailureDash()
     {

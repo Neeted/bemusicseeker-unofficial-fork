@@ -208,14 +208,17 @@ public partial class MainWindowViewModel : ViewModel,
 
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
-    Task<StartupInitializationOutcome> ISettingsDialogStatePort.InitializeLibraryAsync()
-        => InitializeLibraryAsync(isNormalStartup: false);
+    Task<StartupInitializationOutcome> ISettingsDialogStatePort.InitializeLibraryAsync(LibraryFileMutationCapability capability)
+        => InitializeLibraryAsync(isNormalStartup: false, capability);
 
-    Task ISettingsDialogStatePort.ReloadScoresOnlyAsync()
-        => ReloadScoresOnlyAsync();
+    Task ISettingsDialogStatePort.ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+        => ReloadScoresOnlyAsync(capability);
 
-    Task ISettingsDialogStatePort.ReloadFileDiffAsync()
-        => ReloadFileDiffAsync();
+    Task ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability)
+        => ReloadFileDiffUnderAdmissionAsync(capability);
+
+    Task ISettingsDialogStatePort.PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
+        => PresentLibraryDirectoryWarningAsync(failure, LibraryDirectoryWarningPhase.Late, "Settings reload directory preflight warning");
 
     event EventHandler ISettingsDialogStatePort.LibraryOperationAvailabilityChanged
     {
@@ -755,7 +758,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
 
-    private readonly ChartFileOperationSynchronizer chartFileOperations = new();
+    private readonly ChartFileOperationSynchronizer chartFileOperations;
 
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindowViewModel");
 
@@ -2522,26 +2525,27 @@ public partial class MainWindowViewModel : ViewModel,
             schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
         }
 
-        Func<Action, Task> startupScheduler = action =>
+        Func<Func<Task>, Task> startupScheduler = action =>
         {
-            startupBackgroundTaskScheduler.Queue(
-                "lr2_song_db_sync_enrollment",
-                reason,
-                null,
-                () =>
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool accepted = startupBackgroundTaskScheduler.Queue(
+                "lr2_song_db_sync_enrollment", reason, null,
+                async () =>
                 {
-                    if (!IsCurrentStartupPostInitializationCallback(
-                            operationToken,
-                            schedulerGeneration,
-                            IsStartupCompletionTokenCurrent,
-                            startupBackgroundTaskScheduler.IsCurrentGeneration))
+                    try
                     {
-                        return Task.CompletedTask;
+                        if (IsCurrentStartupPostInitializationCallback(operationToken, schedulerGeneration,
+                            IsStartupCompletionTokenCurrent, startupBackgroundTaskScheduler.IsCurrentGeneration))
+                        {
+                            await action().ConfigureAwait(false);
+                        }
+                        completion.TrySetResult();
                     }
-                    action();
-                    return Task.CompletedTask;
-                });
-            return Task.CompletedTask;
+                    catch (Exception failure) { completion.TrySetException(failure); throw; }
+                },
+                _ => completion.TrySetResult());
+            if (!accepted) { completion.TrySetResult(); }
+            return completion.Task;
         };
         Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason, scheduler: startupScheduler);
     }
@@ -2830,6 +2834,7 @@ public partial class MainWindowViewModel : ViewModel,
             throw new ArgumentNullException(nameof(startupLibraryFactory));
         }
         applicationComposition = composition;
+        chartFileOperations = composition.OperationAdmission;
         playHistoryRuntimeEventReporter = new PlayHistoryRuntimeEventReporter(ReportPlayHistoryRuntimeEvent);
         startupLibraryConstructionOwner = new StartupLibraryConstructionOwner(startupLibraryFactory);
         startupLibraryInitializationWorkflowOwner = new StartupLibraryInitializationWorkflowOwner(_semaphore);
@@ -2880,7 +2885,6 @@ public partial class MainWindowViewModel : ViewModel,
             () => PlaylistWorkspace.PlaylistTreeTables,
             LogPlaylistViewApply,
             LogPlaylistRetention,
-            () => PackageInstallWorkflow?.IsActive == true,
             paths =>
             {
                 if (PackageInstallWorkflow == null)
@@ -2911,7 +2915,7 @@ public partial class MainWindowViewModel : ViewModel,
                 reason,
                 "playlist_entries_hydration",
                 work,
-                shutdownReason => PlaylistWorkspace.DiscardDeferredExternalPlaylistSyncForShutdown(shutdownReason)),
+                shutdownReason => { }),
             (reason, work) => startupBackgroundTaskScheduler.Queue(
                 "playlist_ref_apply",
                 reason,
@@ -2919,22 +2923,18 @@ public partial class MainWindowViewModel : ViewModel,
                 work,
                 shutdownReason => PlaylistWorkspace.PlaylistReferenceApplyWorkflow.DiscardForShutdown(shutdownReason)),
             ApplyMainChartListPresentationActionAsync,
-            () => uiScheduler.CanExecuteInline);
+            () => uiScheduler.CanExecuteInline,
+            () => PackageInstallWorkflow.WaitForIdleAsync());
         PlaylistWorkspace.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
         PlaylistWorkspace.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
         PlaylistWorkspace.PlaylistReferenceApplyWorkflow.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
         PlaylistWorkspace.PlaylistReferenceApplyWorkflow.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
         PlaylistWorkspace.ConfigureCatalogNotificationQueue(QueueMainChartListAction);
         PlaylistTablesReloadWorkflow = new PlaylistTablesReloadWorkflowOwner(
-            request => Task.Run(() =>
-                tables.ReloadTables(
-                    queueBeatorajaBmtExportAfterHydration:
-                        request.QueueBeatorajaBmtExportAfterHydration)),
-            request => PlaylistWorkspace.QueueExternalPlaylistSync(
-                request.Reason,
-                request.FromReloadTables,
-                request.PublishReferenceReceipt,
-                request.OperationToken));
+            request => tables.ReloadTablesAsync(exportBeatorajaBmt: false, request.Capability),
+            request => PlaylistWorkspace.RunExternalPlaylistSyncAsync(
+                request.Reason, request.FromReloadTables, request.PublishReferenceReceipt,
+                request.OperationToken, request.Capability));
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistLampNavigationRequested += PlaylistWorkspacePlaylistLampNavigationRequested;
         PlaylistWorkspace.PlaylistPresentationRefreshRequested += PlaylistWorkspacePlaylistPresentationRefreshRequested;
@@ -2965,7 +2965,7 @@ public partial class MainWindowViewModel : ViewModel,
              new UiDialogCoordinator(),
             startupProgressWorkflowOwner,
             ReportPackageInstallWorkflowNotificationFailure,
-            (library, progress, cancellationToken) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken),
+            (library, progress, cancellationToken, capability) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken, capability),
             action => Task.Run(action),
             message => NLogWrapper.FileLogger?.Info(message),
             ReportMaintenanceRescanWorkflowNotificationFailure,
@@ -3055,10 +3055,10 @@ public partial class MainWindowViewModel : ViewModel,
         SelectedChartAudioConversion = childComposition.SelectedChartAudioConversion;
         Lr2SongDbSyncWorkflow = childComposition.Lr2SongDbSyncWorkflow;
         FileDiffReloadWorkflow = fileDiffReloadWorkflow ?? new FileDiffReloadWorkflowOwner(
-            _ => Task.Run(delegate
+            request => Task.Run(delegate
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
-                files.ReloadFileDiff();
+                files.ReloadFileDiff(request.Capability);
             }),
             Lr2SongDbSyncWorkflow,
             request =>
@@ -3067,10 +3067,10 @@ public partial class MainWindowViewModel : ViewModel,
                 LogInitStage("deferred_playlist_ref_queued", request.Reason);
             });
         ScoreOnlyReloadWorkflow = scoreOnlyReloadWorkflow ?? new ScoreOnlyReloadWorkflowOwner(
-            () => Task.Run(delegate
+            capability => Task.Run(delegate
             {
                 LogInitStage("score_reload_call", "ReloadScoresOnly");
-                files.InitializeScoresOnly(null);
+                files.InitializeScoresOnlyUnderAdmission(capability);
             }));
         RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
@@ -3208,6 +3208,8 @@ public partial class MainWindowViewModel : ViewModel,
             FolderAutoRenameWorkflow,
             PlaybackPanel,
             applicationComposition.SettingsEditSession,
+            applicationComposition.OperationAdmission,
+            applicationComposition.PlaylistOperationAdmission,
             _semaphore,
             startupProgressWorkflowOwner,
             applicationLifetime.MarkCoordinatedShutdownStarted,
@@ -3671,8 +3673,8 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
-    /// バックグラウンドで初期化を行い、更新完了後に外部同期などを再スケジュールします。
+    /// 対象解決前にPを非待機取得し、DB一覧・必須項目読込み・外部同期・出力と参照公開の実終端を同じ権限で待ちます。
+    /// 競合要求はBusyとして未開始で終了し、予約・再実行しません。
     /// </summary>
     internal async Task ReloadTablesAsync()
     {
@@ -3680,13 +3682,20 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
+        if (!tables.TryEnterPlaylistMutation(out IDisposable admission))
+        {
+            await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            return;
+        }
+        using IDisposable accepted = admission;
+        using LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(accepted);
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
             await PlaylistTablesReloadWorkflow
-                .ReloadAsync(new PlaylistTablesReloadRequest(operationToken))
+                .ReloadAsync(new PlaylistTablesReloadRequest(operationToken, authority))
                 .LoggingAndPropagate("ReloadTables");
         }
         catch (Exception ex)
@@ -3732,7 +3741,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>
     /// score source / score.db 設定変更を、playlist/table reload を伴わずに反映します。
     /// </summary>
-    internal async Task ReloadScoresOnlyAsync()
+    internal async Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability = null)
     {
         if (!initializationStatePort.IsInitializationCompleted)
         {
@@ -3746,7 +3755,7 @@ public partial class MainWindowViewModel : ViewModel,
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
             playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
             LogInitStage("score_reload_task_start", "ReloadScoresOnly");
-            await ScoreOnlyReloadWorkflow.ReloadAsync()
+            await ScoreOnlyReloadWorkflow.ReloadAsync(capability)
                 .LoggingAndPropagate("ReloadScoresOnly");
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             LogInitStage("score_reload_done", "ReloadScoresOnly");
@@ -3775,22 +3784,66 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    internal async Task ReloadFileDiffAsync()
+    /// <summary>差分再読込みの停止・変更・後片付けまで共通受付を所有し、失敗通知は解放後に行います。</summary>
+    internal Task ReloadFileDiffAsync()
+        => RunLibraryInputOperationAsync(ReloadFileDiffUnderAdmissionAsync, "ReloadFileDiff");
+
+    /// <summary>新しい入力変更を非待機で受け付け、実処理終端後に受付を解放して失敗を通知します。</summary>
+    /// <param name="operation">取得済み受付内で実行する停止・変更・後片付け。</param>
+    /// <param name="routeName">失敗通知の診断用経路名。</param>
+    /// <param name="requiresPlaylist">全再構築などPも必要な操作。片側Busyでは停止・変更を始めず、取得済み権限を解放します。</param>
+    /// <returns>受付判定、実処理終端と解放後の通知までを表すTask。元の変更例外は通知後も伝播します。</returns>
+    private async Task RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task> operation, string routeName, bool requiresPlaylist = false)
+    {
+        if (!chartFileOperations.TryEnter(out IDisposable lease))
+        {
+            await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation));
+            return;
+        }
+        IDisposable playlistLease = null;
+        if (requiresPlaylist && !applicationComposition.PlaylistOperationAdmission.TryEnter(out playlistLease))
+        {
+            lease.Dispose();
+            await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            return;
+        }
+        try
+        {
+            using IDisposable acceptedLibrary = lease;
+            using IDisposable acceptedPlaylist = playlistLease;
+            using LibraryFileMutationCapability playlistCapability = (playlistLease as LibraryFileMutationLease)?.CreateMutationCapability();
+            using LibraryFileMutationCapability original = chartFileOperations.CreateMutationCapability(lease);
+            using LibraryFileMutationCapability capability = original.WithPlaylistCapability(playlistCapability);
+            await operation(capability);
+        }
+        catch (LibraryDirectoryPreflightException failure)
+        {
+            await PresentLibraryDirectoryWarningAsync(failure, LibraryDirectoryWarningPhase.Late,
+                routeName + " directory preflight warning");
+            throw;
+        }
+    }
+
+    /// <summary>受理済み操作の内部継続として、同じ共通受付の中で入力を再読込みします。</summary>
+    private async Task ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
         if (!initializationStatePort.IsInitializationCompleted)
         {
             return;
         }
+        await PlaybackPanel.StopPlaybackForMutationAsync();
         LogInitStage("start", "ReloadFileDiff");
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
-        LibraryDirectoryPreflightException directoryFailure = null;
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
             LogInitStage("file_diff_reload_task_start", "ReloadFileDiff");
             await FileDiffReloadWorkflow
-                .ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", operationToken))
+                .ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", operationToken, capability))
                 .LoggingAndPropagate("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
@@ -3803,9 +3856,8 @@ public partial class MainWindowViewModel : ViewModel,
                 StartupProgressPhase.PlaylistReferenceApplied,
                 StartupProgressPhase.PlaylistEntriesHydrationDone);
         }
-        catch (LibraryDirectoryPreflightException exception)
+        catch (LibraryDirectoryPreflightException)
         {
-            directoryFailure = exception;
             startupProgressWorkflowOwner.FailStartupProgressOperation(
                 BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
             throw;
@@ -3823,27 +3875,25 @@ public partial class MainWindowViewModel : ViewModel,
             LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
             _semaphore.Release();
             startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-            if (directoryFailure != null)
-            {
-                await PresentLibraryDirectoryWarningAsync(
-                    directoryFailure,
-                    LibraryDirectoryWarningPhase.Late,
-                    "ReloadFileDiff directory preflight warning");
-            }
         }
     }
 
-    internal async Task ReinitializeLibraryAsync()
+    /// <summary>全再初期化の停止・変更・後片付けまで共通受付を所有し、失敗通知は解放後に行います。</summary>
+    internal Task ReinitializeLibraryAsync()
+        => RunLibraryInputOperationAsync(ReinitializeLibraryUnderAdmissionAsync, "FullReinitialize", requiresPlaylist: true);
+
+    /// <summary>受理済み操作の内部継続として、同じ共通受付の中で入力を再読込みします。</summary>
+    private async Task ReinitializeLibraryUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
         if (!initializationCompleted)
         {
             return;
         }
+        await PlaybackPanel.StopPlaybackForMutationAsync();
         LogInitStage("start", "FullReinitialize");
         bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
-        LibraryDirectoryPreflightException directoryFailure = null;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
@@ -3852,7 +3902,7 @@ public partial class MainWindowViewModel : ViewModel,
             await Task.Run(delegate
             {
                 LogInitStage("files_initialize_call", "FullReinitialize");
-                files.Reinitialize();
+                files.ReinitializeUnderAdmission(capability);
             }).LoggingAndPropagate("FullReinitialize");
             LogInitStage("files_initialize_done", "FullReinitialize");
             scheduleDeferredPlaylistRef = true;
@@ -3861,9 +3911,8 @@ public partial class MainWindowViewModel : ViewModel,
                 LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
             }
         }
-        catch (LibraryDirectoryPreflightException exception)
+        catch (LibraryDirectoryPreflightException)
         {
-            directoryFailure = exception;
             startupProgressWorkflowOwner.FailStartupProgressOperation(
                 BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
             throw;
@@ -3891,13 +3940,6 @@ public partial class MainWindowViewModel : ViewModel,
                 MarkNonStartupBackgroundSchedulingComplete();
                 _semaphore.Release();
                 startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-                if (directoryFailure != null)
-                {
-                    await PresentLibraryDirectoryWarningAsync(
-                        directoryFailure,
-                        LibraryDirectoryWarningPhase.Late,
-                        "FullReinitialize directory preflight warning");
-                }
             }
         }
         startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
@@ -4128,26 +4170,34 @@ public partial class MainWindowViewModel : ViewModel,
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
-    void IStartupLibraryApplicationPort.AttachStartupLibrary(BMSLibrary library)
+    /// <summary>
+    /// 起動・受理済み再構築の共通受付を取得または借用してライブラリを画面の各管理主体へ接続し、
+    /// 一時導入試聴の参照交換にも同ownerの生存権限を渡します。
+    /// </summary>
+    /// <param name="library">今回構築した非nullのライブラリ。</param>
+    /// <param name="capability">外側の受理済み操作の権限。通常起動ではnullで非待機取得します。</param>
+    void IStartupLibraryApplicationPort.AttachStartupLibrary(BMSLibrary library, LibraryFileMutationCapability capability)
     {
         if (library == null)
         {
             throw new ArgumentNullException(nameof(library));
         }
 
-        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+        IDisposable operationGate = capability == null ? null : chartFileOperations.Borrow(capability);
+        if (operationGate == null && !chartFileOperations.TryEnter(out operationGate))
         {
             throw new InvalidOperationException("A chart-file operation is already active during startup attachment.");
         }
         using (operationGate)
         {
+            using LibraryFileMutationCapability attachmentCapability = chartFileOperations.CreateMutationCapability(operationGate);
             files = library;
             ShellShutdownWorkflow.AttachLibrary(files);
             PackageInstallWorkflow.AttachLibrary(files);
             MaintenanceRescanWorkflow.AttachLibrary(files);
             FolderAutoRenameWorkflow.AttachLibrary(files);
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
-            PlaybackPanel.AttachLibrary(files);
+            PlaybackPanel.AttachLibrary(files, attachmentCapability);
         }
     }
 
@@ -4189,7 +4239,7 @@ public partial class MainWindowViewModel : ViewModel,
     internal async Task<bool> InitializeAsync()
         => await InitializeLibraryAsync(isNormalStartup: true) == StartupInitializationOutcome.Succeeded;
 
-    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool isNormalStartup)
+    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool isNormalStartup, LibraryFileMutationCapability capability = null)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
@@ -4204,7 +4254,7 @@ public partial class MainWindowViewModel : ViewModel,
             outcome = await InitializeCoreAsync(
                 phase => directoryWarningPhase = phase,
                 message => settingsValidationFailure = message,
-                settings => initializedSettings = settings);
+                settings => initializedSettings = settings, capability);
         }
         catch (LibraryDirectoryPreflightException exception)
         {
@@ -4218,6 +4268,8 @@ public partial class MainWindowViewModel : ViewModel,
 
         if (directoryFailure != null)
         {
+            // 設定の必須継続では外側leaseのcleanup・解放後に通知し、通知からの再試行を妨げません。
+            if (capability != null) { throw directoryFailure; }
             await PresentLibraryDirectoryWarningAsync(
                 directoryFailure,
                 directoryWarningPhase,
@@ -4262,7 +4314,7 @@ public partial class MainWindowViewModel : ViewModel,
     private async Task<StartupInitializationOutcome> InitializeCoreAsync(
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<string> recordSettingsValidationFailure,
-        Action<StartupSettingsSnapshot> recordStartupSettings)
+        Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability)
     {
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
@@ -4346,7 +4398,7 @@ public partial class MainWindowViewModel : ViewModel,
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings, startupLr2Config);
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
-                this);
+                this, capability);
             files = libraryServices.Library;
             tables = libraryServices.Playlist;
             LibraryFolderTree.AttachLibrary(files);
@@ -4519,15 +4571,10 @@ public partial class MainWindowViewModel : ViewModel,
         {
             UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot());
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.PendingEstimateQueueStatusVersion, delegate
-        {
-            UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.InstallEstimationProgressVersion, delegate
         {
             UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         });
-        UpdatePendingEstimateQueueStatus(files.GetPendingEstimateQueueStatusSnapshot());
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
@@ -4592,14 +4639,6 @@ public partial class MainWindowViewModel : ViewModel,
                 }
             }
         }
-        var semaphore = new SemaphoreSlim(1, 1);
-        void taskAdd1()
-        {
-            tables.Initialize(
-                reloadExtPlaylist: false,
-                semaphore: semaphore,
-                queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad);
-        }
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();
@@ -4624,11 +4663,12 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyOperableReached = false;
         bool startupLibraryInitialized = await InitializeStartupLibraryFilesAsync(
             () => files.InitializeStartup(
-                [taskAdd1],
-                semaphore,
-                startupPerformanceInteraction),
+                [],
+                null,
+                startupPerformanceInteraction, capability),
             operationToken,
-            startupCustomFolderSettings);
+            startupCustomFolderSettings,
+            () => tables.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: startupSettings.SkipInitPlaylistLoad, capability: capability?.PlaylistCapability));
         if (!startupLibraryInitialized)
         {
             return StartupInitializationOutcome.SettingsRequired;
@@ -4695,7 +4735,8 @@ public partial class MainWindowViewModel : ViewModel,
     internal async Task<bool> InitializeStartupLibraryFilesAsync(
         Action initializeStartup,
         long operationToken,
-        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings)
+        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings,
+        Func<Task> initializePlaylist = null)
     {
         if (initializeStartup == null)
         {
@@ -4710,7 +4751,11 @@ public partial class MainWindowViewModel : ViewModel,
                 | UiRefreshChannel.DuplicateTree);
         try
         {
-            await startupLibraryInitializationWorkflowOwner.InitializeAsync(initializeStartup);
+            Task filesTask = startupLibraryInitializationWorkflowOwner.InitializeAsync(initializeStartup);
+            Task playlistTask;
+            try { playlistTask = initializePlaylist?.Invoke() ?? Task.CompletedTask; }
+            catch (Exception failure) { playlistTask = Task.FromException(failure); }
+            await Task.WhenAll(filesTask, playlistTask);
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
             LogInitStage("files_initialize_done", "Initialize");
@@ -4729,8 +4774,12 @@ public partial class MainWindowViewModel : ViewModel,
             startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
             try
             {
-                startupLibraryInitializationFailurePresenter.Present(
-                    new StartupLibraryInitializationFailurePresentation(ex));
+                // 起動の実Taskは回収し元失敗を保持しますが、終了開始後に新しい失敗画面を開きません。
+                if (ShellShutdownWorkflow?.IsClosingOrClosed != true)
+                {
+                    startupLibraryInitializationFailurePresenter.Present(
+                        new StartupLibraryInitializationFailurePresentation(ex));
+                }
             }
             catch (Exception presentationException)
             {
@@ -5589,37 +5638,43 @@ public partial class MainWindowViewModel : ViewModel,
 
     private async void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)
     {
-        if (receipt?.Packages.Count > 0)
+        try
         {
-            FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages));
+            if (receipt?.Packages.Count > 0)
+            {
+                FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages));
+            }
+            await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+                BeMusicSeeker.Properties.Resources.Install, receipt?.SessionReceipt);
         }
-        await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-            BeMusicSeeker.Properties.Resources.Install, receipt?.SessionReceipt);
+        catch (Exception exception) { ReportPackageInstallWorkflowNotificationFailure(exception); }
     }
 
     private async void PackageInstallWorkflowFailurePublished(PackageInstallFailure failure)
     {
-        if (failure?.Exception == null)
+        try
         {
-            return;
-        }
-        if (failure.CommandResult?.SessionReceipt != null)
-        {
-            if (failure.CommandResult.RegisteredPackages.Count > 0)
+            if (failure?.Exception == null) { return; }
+            if (failure.CommandResult?.SessionReceipt != null)
             {
-                FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
+                if (failure.CommandResult.RegisteredPackages.Count > 0)
+                {
+                    FileDbMutationReport.NotifyBestEffort(() => PlaylistWorkspace.AttachInstalledPackageReferences(failure.CommandResult.RegisteredPackages));
+                }
+                await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
+                    BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
+                return;
             }
-
-            await FileDbMutationReport.ShowAsync(FileDbMutationDialogs,
-                BeMusicSeeker.Properties.Resources.Install, failure.CommandResult.SessionReceipt, failure.Exception);
-            return;
+            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + failure.Exception.Message,
+                BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(result, "Package install failure notification");
         }
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Msg_failed_installation
-                + Environment.NewLine
-                + failure.Exception.Message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxImage.Hand);
+        catch (Exception exception)
+        {
+            // 非同期receiverの通知失敗はPublish側の同期catchへ戻らないため、この境界で報告します。
+            ReportPackageInstallWorkflowNotificationFailure(exception);
+        }
     }
 
     private void PackageInstallWorkflowRefreshSuppressionChanged(
@@ -5645,10 +5700,7 @@ public partial class MainWindowViewModel : ViewModel,
         NLogWrapper.FileLogger?.Error(exception, "package_install_workflow_notification_failed");
     }
 
-    private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        DispatchMainChartListAction(() => ProgressHub.UpdatePendingEstimateQueueStatus(snapshot));
-    }
+
 
     private void UpdateInstallEstimationProgressStatus(InstallEstimationProgressSnapshot snapshot)
     {

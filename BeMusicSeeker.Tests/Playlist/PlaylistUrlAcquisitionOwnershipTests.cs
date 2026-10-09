@@ -22,7 +22,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistUrlAcquisitionOwnershipTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new();
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
     private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
 
@@ -708,7 +708,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
-    public async Task PlaylistUrlCommandGateBlocksConcurrentRouteDuringConfirmation()
+    public async Task PlaylistUrlReadOnlyRouteRemainsAllowedDuringUnacceptedConfirmation()
     {
         var dialogs = new RecordingPlaylistUrlDialogService
         {
@@ -726,15 +726,19 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             isDiffUrl: false);
         Assert.IsFalse(first.IsCompleted);
 
-        await workspace.RunSinglePlaylistUrlAsync(
-            new Uri("https://example.invalid/second-during-confirmation/"));
-
-        Assert.AreEqual(1, dialogs.Confirmations.Count);
-        Assert.AreEqual(0, browserOpenCount);
-
-        dialogs.PendingConfirmation.SetResult(
-            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-        await first;
+        try
+        {
+            await workspace.RunSinglePlaylistUrlAsync(
+                new Uri("https://example.invalid/second-during-confirmation/"));
+            Assert.AreEqual(1, dialogs.Confirmations.Count);
+            Assert.AreEqual(1, browserOpenCount);
+            Assert.IsFalse(first.IsCompleted);
+        }
+        finally
+        {
+            dialogs.PendingConfirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            await first;
+        }
     }
 
     [TestMethod]
@@ -854,24 +858,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
-    public void PlaylistUrlContextMenuAvailability_DisablesExternalLookupWhileInstallQueueIsActive()
-    {
-        PlaylistDetailRow externalRow = CreatePlaylistExternalPackageRow(
-            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-        PlaylistWorkspaceViewModel availableWorkspace = CreateWorkspace(action => action());
-        PlaylistWorkspaceViewModel blockedWorkspace = CreateWorkspace(
-            action => action(),
-            installQueueActiveProvider: () => true);
-
-        Assert.IsTrue(
-            availableWorkspace.CapturePlaylistUrlContextMenuAvailability(externalRow, [externalRow])
-                .CanFindExternalPackage);
-        Assert.IsFalse(
-            blockedWorkspace.CapturePlaylistUrlContextMenuAvailability(externalRow, [externalRow])
-                .CanFindExternalPackage);
-    }
-
-    [TestMethod]
     public async Task PlaylistUrlContextMenuAvailability_DoesNotTreatPendingConfirmationAsDownload()
     {
         var dialogs = new RecordingPlaylistUrlDialogService
@@ -879,18 +865,12 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PendingConfirmation = new TaskCompletionSource<UiDialogResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously)
         };
-        int installQueueProviderCalls = 0;
         PlaylistDetailRow row = CreatePlaylistUrlRow(
             "https://example.invalid/pending/",
             "https://example.invalid/pending-diff/");
         PlaylistWorkspaceViewModel workspace = CreateWorkspace(
             action => action(),
-            dialogService: dialogs,
-            installQueueActiveProvider: () =>
-            {
-                installQueueProviderCalls++;
-                return false;
-            });
+            dialogService: dialogs);
 
         Task acquisition = workspace.RunPlaylistUrlBatchAsync([new Uri("https://example.invalid/pending/")], isDiffUrl: false);
         Assert.IsFalse(acquisition.IsCompleted);
@@ -902,14 +882,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.IsTrue(availability.CanOpenUrl);
         Assert.IsTrue(availability.CanOpenDiffUrl);
         Assert.IsFalse(availability.CanFindExternalPackage);
-        Assert.AreEqual(2, installQueueProviderCalls);
 
         dialogs.PendingConfirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
         await acquisition;
     }
 
     [TestMethod]
-    public async Task PlaylistUrlContextMenuAvailability_ShortCircuitsInstallQueueProviderWhileDownloading()
+    public async Task PlaylistUrlContextMenuAvailability_DisablesActionsWhileDownloading()
     {
         string temporaryDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -924,25 +903,18 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            int installQueueProviderCalls = 0;
             PlaylistDetailRow row = CreatePlaylistUrlRow(
                 "https://example.invalid/running.zip",
                 "https://example.invalid/running-diff.zip");
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
                 acquisitionWorkflow: acquisitionWorkflow,
-                dialogService: dialogs,
-                installQueueActiveProvider: () =>
-                {
-                    installQueueProviderCalls++;
-                    return false;
-                });
+                dialogService: dialogs);
 
             Task acquisition = workspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/running.zip")],
                 isDiffUrl: false);
             await gateway.ReadStarted.Task;
-            int callsBeforeAvailability = installQueueProviderCalls;
 
             PlaylistUrlContextMenuAvailability availability = workspace.CapturePlaylistUrlContextMenuAvailability(
                 row,
@@ -951,7 +923,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsFalse(availability.CanOpenUrl);
             Assert.IsFalse(availability.CanOpenDiffUrl);
             Assert.IsFalse(availability.CanFindExternalPackage);
-            Assert.AreEqual(callsBeforeAvailability, installQueueProviderCalls);
 
             gateway.Response.TrySetResult(new AppHttpResponse(
                 new Uri("https://example.invalid/running.zip"),
@@ -1046,7 +1017,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(1, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
-            Assert.IsTrue(File.Exists(capturedPaths[0]));
+            Assert.IsFalse(File.Exists(capturedPaths[0]), "入力使用の終端後にアプリ所有stagingを回収します。");
         }
         finally
         {
@@ -1100,7 +1071,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
             foreach (string path in capturedPaths)
             {
-                Assert.IsTrue(File.Exists(path));
+                Assert.IsFalse(File.Exists(path), "入力使用の終端後にアプリ所有stagingを回収します。");
             }
         }
         finally
@@ -1126,7 +1097,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null,
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -1280,7 +1250,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     [DataRow("api")]
     public async Task DownloadedPackages_BusyHandoffWarnsWithoutFallbackOrReplay(string ingress)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var gate = new ChartFileOperationSynchronizer();
@@ -1334,7 +1304,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 browserSink: _ => browserCount++,
                 treeExpansionSink: () => expansionCount++,
                 dialogService: dialogs,
-                installQueueActiveProvider: () => installOwner.IsActive,
                 externalLookupService: new PlaylistExternalPackageLookupService([new HandoffLookupProvider(first)]));
             if (ingress == "api")
             {
@@ -1367,7 +1336,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 _ => ["first.zip"]
             };
             CollectionAssert.AreEqual(expectedNames, downloaded.Select(Path.GetFileName).ToArray());
-            Assert.IsTrue(downloaded.All(File.Exists), "未受理を理由に取得済み source を削除しない。");
+            Assert.IsTrue(downloaded.All(path => !File.Exists(path)), "未受理入力は取得側が回収を待ちます。");
             Assert.AreEqual(1, dialogs.Messages.Count(message => message.Icon == MessageBoxImage.Warning));
             Assert.IsFalse(dialogs.Messages.Any(message => message.Icon == MessageBoxImage.Error));
             Assert.AreEqual(ingress == "single" ? 1 : 2, dialogs.Messages.Count);
@@ -1385,7 +1354,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             competingOperation?.Dispose();
             if (installOwner != null)
             {
-                await installOwner.WaitForIdleAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                await installOwner.WaitForIdleAsync();
             }
 
             Directory.Delete(root, recursive: true);
@@ -1393,6 +1362,72 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     /// <summary>取得先だけを固定し、外部 API 検索 owner の実引渡し経路を通す provider。</summary>
+    /// <summary>実導入ownerへの一回引渡しと入力使用終端を通し、P中の読取り取得とstagingの回収時機を確認します。</summary>
+    [TestMethod]
+    public async Task DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? acquisition = null;
+        IDisposable? playlistLease = null;
+        PackageInstallWorkflowOwner? installer = null;
+        string? capturedPath = null;
+        int handoffs = 0;
+        try
+        {
+            string db = Path.Combine(root, "song.db");
+            File.WriteAllBytes(db, []);
+            var library = new TestBmsLibrary(db, null, null, string.Empty);
+            installer = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(),
+                library.OperationAdmission, new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, paths, _, _) =>
+                {
+                    Assert.IsTrue(File.Exists(capturedPath));
+                    entered.TrySetResult();
+                    release.Task.GetAwaiter().GetResult();
+                    Assert.IsTrue(File.Exists(capturedPath));
+                    return new PackageInstallCommandResult([], null);
+                }), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
+            installer.AttachLibrary(library);
+            var gateway = new FakePlaylistUrlDownloadGateway(root, [1, 2, 3]);
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                paths => { handoffs++; capturedPath = paths.Single(); return installer.Enqueue(paths); },
+                installCompletion: installer.WaitForIdleAsync,
+                captureStore: store =>
+                {
+                    Assert.IsTrue(store.TryEnterPlaylistMutation(out IDisposable lease));
+                    playlistLease = lease;
+                });
+            acquisition = workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/owned.zip"));
+            Task reached = await Task.WhenAny(entered.Task, acquisition);
+            if (reached == acquisition) { await acquisition; }
+            Assert.AreSame(entered.Task, reached);
+            Assert.IsFalse(acquisition.IsCompleted);
+            Assert.IsTrue(File.Exists(capturedPath));
+            Assert.AreEqual(1, handoffs);
+            release.TrySetResult();
+            await acquisition;
+            Assert.IsFalse(File.Exists(capturedPath));
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.AreEqual(1, handoffs);
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { if (acquisition != null) { await acquisition; } }
+            finally
+            {
+                if (installer != null) { await installer.WaitForIdleAsync(); }
+                playlistLease?.Dispose();
+                Directory.Delete(root, true);
+            }
+        }
+    }
+
     private sealed class HandoffLookupProvider(Uri downloadUri) : IPlaylistExternalPackageLookupProvider
     {
         public string ProviderId => "handoff-test";
@@ -1412,12 +1447,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         bool useDefaultTreeExpansionSink = true,
         IUiDialogService? dialogService = null,
         Func<Action, Task>? presentationScheduler = null,
-        Func<bool>? installQueueActiveProvider = null,
-        PlaylistExternalPackageLookupService? externalLookupService = null)
+        PlaylistExternalPackageLookupService? externalLookupService = null,
+        Func<Task>? installCompletion = null, Action<BMSPlaylist>? captureStore = null)
     {
         PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         ownedPlaylistStores.Add(ownedPlaylistStore);
+        captureStore?.Invoke(ownedPlaylistStore.Store);
         Func<Action, Task> urlPresentationScheduler = presentationScheduler
             ?? (action =>
             {
@@ -1438,7 +1474,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             acquisitionWorkflow ?? PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             externalLookupService ?? PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            installQueueActiveProvider ?? PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             useDefaultBrowserSink
                 ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
@@ -1464,7 +1499,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogService);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, dialogService, playlistUrlInstallCompletionProvider: installCompletion);
         workspace.PlaylistUrlInstallTreeExpansionRequested += actualTreeExpansionSink;
         return workspace;
     }
@@ -1491,7 +1526,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             externalWarningLog,
@@ -1537,7 +1571,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,

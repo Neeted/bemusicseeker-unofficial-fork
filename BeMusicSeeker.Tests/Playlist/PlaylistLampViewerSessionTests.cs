@@ -37,7 +37,7 @@ public sealed class PlaylistLampViewerSessionTests
         try
         {
             await session.StartAsync();
-            await loadingPublished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await loadingPublished.Task;
 
             Assert.IsTrue(session.IsDisposed);
             Assert.AreEqual(1, source.AddCount);
@@ -95,7 +95,7 @@ public sealed class PlaylistLampViewerSessionTests
 
         PlaylistLampAggregationResult secondResult = executor.AggregateBuild(1);
         executor.Complete(1, secondResult);
-        PlaylistLampAggregationResult accepted = await acceptedSecond.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        PlaylistLampAggregationResult accepted = await acceptedSecond.Task;
 
         Assert.AreSame(secondResult, accepted);
         Assert.AreSame(secondResult, session.Current);
@@ -163,7 +163,7 @@ public sealed class PlaylistLampViewerSessionTests
 
         PlaylistLampAggregationResult secondResult = executor.AggregateBuild(1);
         executor.Complete(1, secondResult);
-        await acceptedSecond.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await acceptedSecond.Task;
         int acceptedCountAfterSecond;
         lock (acceptedReadyResults)
         {
@@ -275,7 +275,7 @@ public sealed class PlaylistLampViewerSessionTests
         source.Raise("playlist", 1);
         await executorB.WaitForBuildCountAsync(2);
         executorB.Complete(1, executorB.AggregateBuild(1));
-        await acceptedB.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await acceptedB.Task;
 
         Assert.AreEqual(1, executorA.BuildCount);
         Assert.AreEqual(2, executorB.BuildCount);
@@ -341,7 +341,7 @@ public sealed class PlaylistLampViewerSessionTests
 
         PlaylistLampAggregationResult secondResult = executor.AggregateBuild(2);
         executor.Complete(2, secondResult);
-        PlaylistLampAggregationResult acceptedSecond = await secondAccepted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        PlaylistLampAggregationResult acceptedSecond = await secondAccepted.Task;
 
         // The gate deliberately ignores cancellation. Completing Q1 after Q2 was accepted
         // exercises the generation check rather than relying on cooperative cancellation.
@@ -376,7 +376,7 @@ public sealed class PlaylistLampViewerSessionTests
             {
                 completion.TrySetResult(session.Current);
             }
-            await completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await completion.Task;
         }
         finally
         {
@@ -606,7 +606,7 @@ public sealed class PlaylistLampViewerSessionTests
                     }
                     changedTask = buildChanged.Task;
                 }
-                await changedTask.WaitAsync(TimeSpan.FromSeconds(5));
+                await changedTask;
             }
         }
 

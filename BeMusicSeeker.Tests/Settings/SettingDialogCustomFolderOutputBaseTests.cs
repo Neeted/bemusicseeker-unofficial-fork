@@ -18,11 +18,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = new()
-    {
-        RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-    };
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(
+        values => values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson);
     [TestMethod]
+    [DoNotParallelize]
     public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
         bool previousShowNewPackageInstallConfirmMsg = testSettings.ShowNewPackageInstallConfirmMsg;
@@ -32,6 +31,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         try
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -81,12 +81,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PendingSettingsRemainIndependentOfActiveLibraryProfile()
     {
         bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
         try
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
@@ -106,6 +108,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -119,6 +122,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             }
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
             BMSTable tableA = CreatePresetTable(101, "Satellite", "SAT");
             BMSTable tableB = CreatePresetTable(202, "Satellite", "SAT");
@@ -341,6 +345,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryFolderDisplayPresetEditor_ResetSettingsRestoresSavedDraft()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -362,6 +367,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             ]);
             testSettings.PlayHistoryDisplayTargetSetsJson = savedJson;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             dialog.AddPlayHistoryFolderDisplayPreset();
@@ -383,6 +389,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_PersistsSelectedIdentity()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -392,6 +399,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -414,6 +422,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_RestoresWhenSavedTargetAppearsLater()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -423,6 +432,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
 
@@ -441,6 +451,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_IgnoresTransientEmptyIdentity()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -450,6 +461,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -475,6 +487,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_PersistsExplicitAllIdentity()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -484,6 +497,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
@@ -508,6 +522,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_BeginPlayHistoryRequestReappliesSavedIdentity()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -517,6 +532,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
@@ -538,6 +554,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges()
     {
         string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
@@ -547,6 +564,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
             testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved", playlistId: 101)
@@ -581,6 +599,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -646,6 +665,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CheckValidationBeforeSave_RejectsNestedLr2JukeboxRoots()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -710,6 +730,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CheckValidationBeforeSave_RejectsPreviousNormalOutputCoveredOnlyByManualParentRoot()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -774,6 +795,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RootOutputBase_ChildJukeboxRowsDoNotInvalidateRootOutputBase()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -822,6 +844,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RootOutputBaseSync_ReplacesAdoptedRootBaseWithPlaylistOutputRoots()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -869,6 +892,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RootOutputBaseSync_RegistersAndCreatesMissingPlaylistOutputRoot()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -914,6 +938,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RootOutputBaseSync_RejectsRegisteredParentWithoutChangingRootsOrFiles()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -971,6 +996,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
+    [DoNotParallelize]
     public void NormalOutputBase_AllowsRegisteredRootWithOrWithoutSavedOutputSetting(bool restoreOutput)
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -1051,6 +1077,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void NormalOutputBase_CannotAdoptPreviousAdditionalOutputBaseAsNewNormalRoot()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -1116,6 +1143,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void NormalOutputBase_CannotAdoptPreviousRootOutputBaseAsNewNormalRoot()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -1177,6 +1205,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void RootOutputBase_CanAdoptManualBmsRootParentWithSaveWarning()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -1224,6 +1253,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void AdditionalOutputBaseRename_InvalidNameDoesNotChangeList()
     {
         string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
@@ -1297,6 +1327,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void StartupRepair_DoesNotRewriteManagedOutputInstallDir()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -1364,6 +1395,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void StartupRepair_UsesCapturedSettingsAfterEditSessionChanges()
     {
         bool previousOperationMode = testSettings.OperationModeLR2DB;
@@ -1433,6 +1465,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
         config.Save();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         // The test factory intentionally does not run startup initialization. Keep the
         // in-memory LR2 configuration that owns the prepared fixture available to the
         // workspace's typed custom-folder output port.

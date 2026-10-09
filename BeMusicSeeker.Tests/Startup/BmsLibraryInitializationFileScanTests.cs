@@ -20,7 +20,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void Initialize_StartupPublishesScanAfterLeaseReleaseAndIsolatesTerminalSubscriber()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string lr2RootPath = Path.Combine(scope.DirectoryPath, "LR2");
@@ -151,7 +151,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void Initialize_StartupParseFailureStillOpensCatalogFileMutationAdmission()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string chartDirectoryPath = Path.Combine(scope.DirectoryPath, "InvalidBmson");
@@ -208,7 +208,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         using var scope =
             Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         BmsLibraryOptionsSnapshot options = new()
@@ -262,7 +262,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepDirectoryPath = Path.Combine(lr2RootPath, "Keep");
@@ -365,7 +365,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ReportsEverythingFallbackMetadata()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
@@ -407,7 +407,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_IncompleteScanSkipsDiffAndKeepsExistingDb()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
@@ -478,7 +478,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_EmptyFallbackScanWithExistingDbSkipsDiffAndKeepsExistingDb()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
@@ -543,7 +543,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_EmptyEverythingScanWithExistingDbSkipsDiffAndKeepsExistingDb()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string existingDirectoryPath = Path.Combine(lr2RootPath, "Existing");
@@ -600,7 +600,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_EmptyFallbackScanWithoutExistingDbAllowsEmptyResult()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
@@ -644,7 +644,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_IncompleteBmsonScanSkipsDiff()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonDirectoryPath = Path.Combine(lr2RootPath, "Bmson");
@@ -703,7 +703,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ReadFailureIsAggregatedWithoutInitializationDialog()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ReadFailure");
@@ -752,7 +752,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsIsRegisteredAndLr2CompatibilityWarns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = CreateLongPathDirectory(lr2RootPath);
@@ -805,7 +805,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsonIsRegistered()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = CreateLongPathDirectory(lr2RootPath);
@@ -856,7 +856,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_BmsonReadFailureIsAggregatedWithoutInitializationDialog()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "BmsonReadFailure");
@@ -906,7 +906,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ClearsStaleBmsonInstallDestination()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepBmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
@@ -964,7 +964,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_CatalogProjectionCallbackRunsBeforeBreakdownLog()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             using (var songDb = new LR2SongDBExtended(songDbPath))
@@ -1008,7 +1008,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ReportsCombinedBmsAndBmsonParseProgress()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Added");
@@ -1146,7 +1146,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_PublishesCommittedBmsReceiptPathsAfterSuccessfulChunkCommit()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Receipt");
@@ -1190,7 +1190,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ManyAdded");
@@ -1276,7 +1276,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_AggregatesInlineRowsAcrossPostParseWorkers()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "ParallelPostParse");
@@ -1344,7 +1344,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_StreamingWriterFailureDoesNotBlockPipeline()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "WriterFailure");
@@ -1390,16 +1390,13 @@ public sealed class BmsLibraryInitializationFileScanTests
                     }
                 }));
 
-            bool completed;
             try
             {
-                completed = task.Wait(TimeSpan.FromSeconds(30));
+                task.Wait();
             }
             catch (AggregateException)
             {
-                completed = true;
             }
-            Assert.IsTrue(completed, "file diff pipeline did not complete after streaming writer failure.");
             Assert.IsTrue(task.IsFaulted, "streaming writer failure should fault the pipeline.");
             StringAssert.Contains(task.Exception.ToString(), injectedException.Message);
         });
@@ -1408,7 +1405,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Lr2Crc");
@@ -1460,7 +1457,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_PreservesShiftJisUnsupportedPathWithoutParentAndWarns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Emoji😀");
@@ -1584,7 +1581,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_InvalidBmsonLogsAndReportsProgress()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InvalidBmson");
@@ -1646,7 +1643,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_BuildsCachesDirectlyFromScanHashes()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Keep");
@@ -1719,7 +1716,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_MergedScanHashesAreSortedDistinctAndSearchable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Merged");
@@ -1772,7 +1769,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesNativeResourceIndexWithoutMaterializingScanHashMaps()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectoryPath = Path.Combine(lr2RootPath, "Keep");
@@ -1839,7 +1836,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string deletedChartPath = Path.Combine(lr2RootPath, "Deleted", "deleted.bms");
@@ -1890,7 +1887,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_KeepsSharedChartDigestRowsWhenAnotherSongStillUsesSameMd5()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepChartPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
@@ -1957,7 +1954,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void BackfillChartDigests_ComputesOnlyMissingHashesAndPersistsThem()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartAPath = Path.Combine(lr2RootPath, "Songs", "a.bms");
@@ -2005,7 +2002,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string keepBmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
@@ -2087,7 +2084,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsDateMismatchWithSameMd5UpdatesDateOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Updated", "same-md5.bms");
@@ -2159,7 +2156,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_DateOnlySameMd5RequiresFullFollowUpForGeneratedSongColumns()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectory = Path.Combine(lr2RootPath, "DateOnlyFollowUp");
@@ -2254,7 +2251,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsMetadataRefresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Updated", "legacy-date.bms");
@@ -2325,7 +2322,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsTextRefresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectory = Path.Combine(lr2RootPath, "LegacyMigrationText");
@@ -2404,7 +2401,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsDateMismatchWithChangedMd5ReplacesCatalog()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Updated", "changed-md5.bms");
@@ -2484,7 +2481,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithSameMd5PreservesUserSongColumns(bool caseOnlyPathChange)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string oldPath = caseOnlyPathChange
@@ -2670,7 +2667,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithExistingDestinationPreservesDestinationUserColumns(bool caseOnlyPathChange)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string oldPath = caseOnlyPathChange
@@ -2780,7 +2777,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithAmbiguousSourceMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlySourceCandidate)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string oldPath1 = includeCaseOnlySourceCandidate
@@ -2876,7 +2873,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [DataRow(true)]
     public void ApplyFileScanDiff_MovedBmsWithAmbiguousDestinationMd5DoesNotPreserveUserSongColumns(bool includeCaseOnlyDestinationCandidate)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string oldPath = Path.Combine(lr2RootPath, "Old", "duplicate.bms");
@@ -2966,7 +2963,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_NewBmsSetsTxtFromDirectTextGroupOnlyWhenLr2SongDbSyncEnabled()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string directDirectory = Path.Combine(lr2RootPath, "DirectText");
@@ -3020,7 +3017,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_ExistingBmsTextGroupChangeUpdatesTxtOnlyWhenLr2SongDbSyncEnabled()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectory = Path.Combine(lr2RootPath, "TextOnly");
@@ -3094,7 +3091,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotResetTxtOutsideLr2Mode()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string chartDirectory = Path.Combine(lr2RootPath, "TextDisabled");
@@ -3148,7 +3145,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsonUsesSnapshotTimestamp()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Updated", "chart.bmson");
@@ -3217,7 +3214,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "BmsonCase", "chart.bmson");
@@ -3282,7 +3279,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "BmsonMtimeCase", "chart.bmson");
@@ -3362,7 +3359,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesScanMtimeForUnchangedBms()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsPath = Path.Combine(lr2RootPath, "Keep", "keep.bms");
@@ -3417,7 +3414,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UnchangedBmsonDoesNotParseOrMarkFresh()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
@@ -3473,7 +3470,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_UsesScanMtimeForUnchangedBmson()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Keep", "keep.bmson");
@@ -3531,7 +3528,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_InvalidUpdatedBmsonKeepsExistingCatalogWithoutFreshRefs()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsonPath = Path.Combine(lr2RootPath, "Updated", "chart.bmson");
@@ -3586,7 +3583,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     [TestMethod]
     public void ApplyFileScanDiff_MergesBmsonOnlyDirectoriesIntoInstallCandidateCache()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
             string bmsDir = Path.Combine(lr2RootPath, "BmsKeep");

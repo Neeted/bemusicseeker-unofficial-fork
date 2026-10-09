@@ -92,7 +92,7 @@ public sealed class Lr2SongRowEnricherTests
     [TestMethod]
     public void EnrichGeneratedSong_DoesNotThrowForCp932UnsupportedPath()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var file = new TestableBmsFile
         {
             path = @"C:\BMS\😀\chart.bms"

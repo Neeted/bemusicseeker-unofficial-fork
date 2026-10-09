@@ -19,20 +19,22 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsPlaylistExternalLoadTests
 {
+    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+
     [TestMethod]
     [TestCategory("Playlist")]
     [DoNotParallelize]
     public void CreateBMSTable_UsesPlaylistDefaultIgnoreFolderOutputSetting()
     {
-        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
-        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
+        testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -43,7 +45,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -56,10 +58,10 @@ public sealed class BmsPlaylistExternalLoadTests
     [DoNotParallelize]
     public async Task LoadExternalTableAsync_NewExternalTableUsesPlaylistDefaultIgnoreFolderOutputSetting()
     {
-        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
+        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
             | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
-        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
+        testSettings.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -70,7 +72,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -78,7 +80,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -91,8 +93,8 @@ public sealed class BmsPlaylistExternalLoadTests
     [DoNotParallelize]
     public async Task LoadExternalTableAsync_BaseTablePreservesIgnoreFolderOutput()
     {
-        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
-        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
+        testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.UserFolder
             | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
@@ -106,7 +108,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 ignore_folder_output = expectedMask
@@ -118,7 +120,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -140,7 +142,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -174,7 +176,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -294,7 +296,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllText(htmlPath, "<html><head><title>No header</title></head><body>moved</body></html>", Encoding.UTF8);
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath)));
         }
@@ -328,7 +330,7 @@ public sealed class BmsPlaylistExternalLoadTests
                 "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath));
 
@@ -360,7 +362,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"sha256\":\"" + sha256 + "\",\"title\":\"Sha Song\",\"artist\":\"Sha Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -392,7 +394,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Dual Song\",\"artist\":\"Dual Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -423,7 +425,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"sha256\":\"invalid\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -454,7 +456,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"title\":\"Title Only\"},{\"title\":\"\",\"artist\":\"\",\"folder\":\"\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
@@ -487,7 +489,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -525,7 +527,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -561,7 +563,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song 1\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Song 2\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
             var baseTable = new BMSTable
             {
                 name = "Existing",
@@ -596,7 +598,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"./score.json\",\"folder_order\":[\"EXTERNAL 1\"]}"));
             BMSTable first = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -629,7 +631,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"0\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath);
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
 
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
@@ -650,8 +652,8 @@ public sealed class BmsPlaylistExternalLoadTests
     [DoNotParallelize]
     public async Task RegistrateExternalTableAsync_NonCp932TagPersistsLegacyPrefix()
     {
-        bool previousEnablePlaylistUrlCompletion = BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion;
-        BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = false;
+        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
+        testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -662,7 +664,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -679,7 +681,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -692,8 +694,8 @@ public sealed class BmsPlaylistExternalLoadTests
     [DoNotParallelize]
     public async Task RegistrateExternalTableAsync_ExistingPlaylistNameThrowsSpecificException()
     {
-        bool previousEnablePlaylistUrlCompletion = BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion;
-        BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = false;
+        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
+        testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -704,7 +706,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath)
+            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { new BMSTable { name = "DuplicateImport" } })
             };
@@ -720,7 +722,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            BeMusicSeeker.Properties.Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

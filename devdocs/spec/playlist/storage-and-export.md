@@ -49,7 +49,7 @@ HTMLはアプリのHTTP管理主体が取得した本文だけを解析し、パ
 
 取得と解析はUIスレッド外で行います。集合の書込みロックは重複確認・採番・出力先算出など短い状態変更に限定し、DB保存はその外で行います。確定後の表示集合への追加・置換はUIスケジューラーへ渡し、その処理の `Completion` を待って成功とします。UI完了を待つ間は表・集合・UIのロックを保持しません。
 
-置換の受付拒否、取消、中断、例外は再読込み失敗です。独自の時間切れで成功を推定したり、旧表示のまま成功扱いにしたりしません。再読込み予約は成功・失敗のどちらでも `finally` で解放します。
+置換の受付拒否、取消、中断、例外は再読込み失敗です。独自の時間切れで成功を推定したり、旧表示のまま成功扱いにしたりしません。受付と継続は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従い、必要出力・公開・cleanupの実Taskを待ちます。
 
 URL指定の複数行取込みは、取得を既存の上限内で並列化し、登録をまとめて行います。既存名と同じバッチの予約名に重複する表は改名せず省略し、完了時に件数と名前を通知します。ライブラリ参照、サマリー、URL補完は登録済み集合へ一括反映します。取得後の登録・参照・完了処理も進捗に含めます。
 
@@ -57,36 +57,7 @@ URL指定の複数行取込みは、取得を既存の上限内で並列化し�
 
 #### DB保存と画面反映の完了
 
-変更がある外部表の再読込みで、DB保存から画面反映までの主な境界を示します。矢印は処理順です。新規登録や変更なしの経路は含めません。対象表の読取りロックと内部の同期ロックはDB保存を保護しますが、UI反映の完了待ちへ持ち越しません。
-
-```mermaid
-sequenceDiagram
-    participant Owner as 再読込みの管理主体
-    participant State as 対象表・保存管理主体
-    participant DB as DB窓口
-    participant UI as UIスケジューラー
-    Owner->>Owner: UI外で取得・解析・変更内容を準備
-    Owner->>State: 再読込み適用を依頼
-    State->>State: 再読込み予約を取得
-    State->>State: 対象表の読取りロック・内部同期ロックで鮮度確認
-    State->>DB: 必要な変更を保存
-    DB-->>State: 確定・接続解放
-    State->>State: DB保護ロックを解放（再読込み予約は保持）
-    State->>UI: 表示集合の置換を予約
-    Note over State,UI: 表・集合・DBのロックを保持せずCompletionを待つ
-    alt UI反映完了
-        UI-->>State: 成功
-    else 拒否・取消・中断・例外
-        UI-->>State: 再読込み失敗
-        State->>State: 現在の公開状態に合わせてDBを再整合
-    end
-    State->>State: finallyで再読込み予約を解放
-    State-->>Owner: 成功・失敗
-```
-
-DB保存だけでは再読込み成功になりません。画面への置換が失敗した場合は現在の公開状態に合わせてDBの再整合を試み、その失敗も成功として扱いません。
-
-手動編集の保存前復元と、DB確定後のLR2/BMT出力失敗は「手動編集と失敗」に従います。特に非同期BMT出力の完了まで元編集の受付を延長しません。
+DB接続・短いモデルロックを解放してからUIスケジューラーによる実置換を待ちます。DB保存だけでは再読込み成功になりません。置換が拒否・取消・中断・例外で失敗した場合は現在の公開状態に合わせて既存のDB再整合を試み、その失敗も結果へ残します。必要なLR2/BMT出力と参照公開は保存済み事実を用いて行い、公開失敗で実施済みDBや出力を消しません。
 
 内蔵難度推定表・リコメンドの入力と計算は [専用仕様](local-recommendations.md)に従い、生成結果を同じ登録・再読込み統合へ渡します。
 
@@ -111,13 +82,19 @@ DB保存だけでは再読込み成功になりません。画面への置換が
 
 ### 手動編集と失敗
 
-フォルダ作成・改名・削除、譜面削除、ドロップを一つの編集として扱います。DB保存前の失敗では、同じ表・譜面オブジェクトを維持しながら集合、編集可能な値、フォルダ順、更新日時、譜面の版を開始時へ戻します。全表の交換や無条件の再読込み、永続的な取消履歴・再試行は使いません。複数表の削除は表ごとの既存保存単位を維持し、成功済みの別表を戻しません。
+フォルダ作成・改名・削除、譜面削除、ドロップを一つの編集として扱います。DB保存前の失敗では、同じ表・譜面オブジェクトを維持しながら集合、編集可能な値、フォルダ順、更新日時、譜面の版を開始時へ戻します。全表の交換や無条件の再読込み、永続的な取消履歴・再試行は使いません。複数表の削除は受理した有限の対象を一回のDB保存へまとめます。DB確定後の出力・公開失敗で成功済み事実を戻しません。
 
 永続化成功後だけ詳細表示の同期、成功通知、`afterApply` を進めます。サマリーの一括変更も同様で、失敗後の索引・検索候補・整列・表示更新やダイアログ終了を成功経路で実行しません。モデルの途中失敗でプロパティ通知を公開せず、復元後の現在状態を通常の通知処理へ渡します。
 
-必要な通知と後片付けが終わるまで編集の論理的な受付を保持し、その間の新規編集は待たずに使用中として拒否します。既に受理された遅延同期だけは、既存の集約キュー内で編集終端を待てます。購読先の実行前に集合・表・DBのロックを解放します。
+受付条件・draftの現行性確認は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。新規draftは保存まで正本外です。購読先の実行前に集合・表・DBのロックを解放し、必要な出力・公開は同じ処理のTaskとして直接待ちます。
 
-DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻しません。対象と元の原因を警告・エラーへ残し、現在の参照と表示は確定した内容へ揃えます。非同期BMT出力には独立した既存の完了処理があり、元編集の受付を保持し続けません。
+再同期完了後の古い詳細行からの保存は拒否し、最新行を選んで再操作するよう通知します。同じID・hash等への旧編集の引継ぎは行わず、再同期後のlevel・URL・保存値と表示を保ちます。最新行からの明示編集は通常どおり保存できます。
+
+詳細セルの保存は正本の現行項目に限ります。ローカル表では本体・差分の有効URLをDB原値へ材料化し、更新日時を表ヘッダーと一致させます。外部同期表の補完URLは派生値のまま保持します。所持譜面によるhash補完を含めて同じ項目を一意に保存し、bmsonの両hash・Org_md5を保ちます。level変更に必要なLR2出力も同じ受理操作で反映します。
+
+DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻しません。対象と元の原因を警告・エラーへ残し、現在の参照と表示は確定した内容へ揃えます。BMT生成・削除・manifest・Table URL反映の失敗も元操作の部分失敗として返します。
+
+詳細セルはDB確定からLR2/BMT出力と通知終端までを一つの確定後境界として扱います。設定捕捉・準備・書込みの失敗、shutdownによるBMT取消、必要通知の失敗でも、確定後の失敗分類で元例外・取消を保持します。通知が二次的に失敗した場合は元の失敗を置換せず、その例外も保持します。DB、正本の項目、詳細一覧の入力値を確定した値へ揃えます。DB未確定時だけ正本と編集した一属性の表示値を戻し、旧入力snapshotとの整合と同じ入力の再保存を保ちます。
 
 ### フォルダ単位のドロップ
 
@@ -127,15 +104,16 @@ DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻�
 
 通常譜面、プレイリスト詳細、解決済みの `PlayHistoryRow.ResolvedChart` を入力にできます。未解決の履歴行を含む選択は部分追加しません。
 
-### SQLバックアップと復元
+### JSON出力・SQLバックアップと復元
 
-バックアップは選択先と同じディレクトリの一時ファイルへUTF-8・BOMなしで書き、閉じた後に置換または移動で公開します。先に既存先を消したり、直接上書きへ切り替えたりしません。後片付け失敗も診断に残し、成功通知は公開後だけです。
+JSON出力は必要な正本入力を読取り境界内で捕捉し、保存先に応じたData_urlは出力用値だけへ反映します。シリアライズ中も正本Data_urlを一時変更しません。
+
+
+バックアップは整合読取りを使い、選択先と同じディレクトリの一時ファイルへUTF-8・BOMなしで書き、閉じた後に置換または移動で公開します。先に既存先を消したり、直接上書きへ切り替えたりしません。後片付け失敗も診断に残し、成功通知は公開後だけです。
 
 復元はファイル読込み、DB復元、表示一覧への反映を分けます。DBのMonitor、トランザクション、確定後のヘッダー読込み、接続解放は同じワーカーの同期範囲で完結させます。UIへの一覧反映を予約する前にその範囲を抜け、予約の受付だけでなく完了を待ちます。譜面行は引き続き遅延読込みです。
 
-復元予約は登録・一覧再読込み・個別再読込み・読込み結果公開の予約と競合する場合、DB変更前に拒否します。復元中は保存・削除・登録・再読込み・読込み結果公開を拒否し、UI反映の成功または失敗まで保持します。通常の再読込みの許可条件は変えず、購読通知そのものの全寿命まで公開予約を延長しません。
-
-読込み・復元確定前の失敗は旧DBと一覧を保持します。確定後のヘッダー読込みやUI反映の失敗は復元済みDBを保持し、エラーを返します。UIの途中適用は補償しません。確定後の永続化世代と開始時の集合を適用へ渡し、自身の確定で古くなった世代を理由に誤って拒否しません。
+復元の受付分類は[競合ポリシー](../core/operation-concurrency-policy.md#設定全体操作終了)に従います。読込み・復元確定前の失敗は旧DBと一覧を保持します。確定後のヘッダー読込みやUI反映の失敗は復元済みDBを保持し、元エラーを返します。UIの途中適用は補償しません。必須hydration・出力修復も同じ受理操作のTaskとして実終端を待ち、表示用の独立した版・対象識別は維持します。
 
 復元後に開始した必須のプレイリスト準備は、出力先同期等が失敗した場合も同じ元例外で終端します。復元処理と準備を待つ外部取込みの両方へ失敗を返し、待機を残しません。準備開始前の失敗では既存の準備状態を変えません。失敗時に成功表示、追加出力、設定画面終了、アプリ終了の許可を出しません。
 
@@ -154,9 +132,12 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 所持参照解決索引の所有・版・差分と旧捕捉値 | [`CatalogOwnedCollectionOwner.Playlist`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Playlist.cs) | [`PlaylistSummaryResolveIndexTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryResolveIndexTests.cs)、[`PlaylistSummaryMutationAndWarmTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryMutationAndWarmTests.cs)、[`PlaylistSummaryOwnedHashTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryOwnedHashTests.cs) |
 | 復元の排他・DB待機・UI完了・準備失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
 | 見出し・項目の型と不正なJSONの失敗 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) |
+| 現行詳細編集のURL材料化・非材料化、日時、hash一意性・補完、bmson、削除済対象拒否、level出力 | [`PlaylistWorkspaceViewModel.DetailEditing`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailEditing.cs)、[`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs)の実詳細保存とDB原値、[`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)の表・項目削除後拒否、[`BmsPlaylistCustomFolderOutputTests.DetailEdit_ReoutputsLr2FolderRowsForLevelProjection`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)のprovider優先・実DB/ファイル・確定後のLR2/BMT失敗・shutdown取消・通知失敗時のDB/正本/入力保持、DB未確定失敗時の旧値保持と二次通知失敗の識別 |
 | 項目の題名の永続化 | [`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`Lr2PlaylistEntryPersistenceTests`](../../../BeMusicSeeker.Tests/Playlist/Lr2PlaylistEntryPersistenceTests.cs) |
 | 借用した読取りの解放、参照先の確定と操作の受付 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) |
 
 ## 関連資料
 
 [LR2出力](lr2-custom-folders.md)、[BMT出力](bmt-export.md)、[プロパティ画面](../ui/playlist-properties.md)、[データと索引](../core/data-and-indexes.md)を参照します。
+
+詳細セルの旧行拒否と再操作は [`MainWindowPlaylistWorkspaceWpfTests.ResyncedDetailEdit_RejectsOldRowThroughOwnedNotificationAndSavesCurrentRow`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が、実再同期、小DB、実MainWindowの通知購読と所有windowを接続して確認します。取消・URI検査・通常編集は既存 `PlaylistViewPipelineTests`、一般の永続化・表示参照更新は `BmsPlaylistPersistenceLifecycleTests` が分担します。

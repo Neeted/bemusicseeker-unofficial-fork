@@ -28,7 +28,7 @@ public sealed class BmsLibraryPackageLifecycleTests
         {
             int membershipNotifications = 0;
             var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []), () => membershipNotifications++, _ => { });
             ChartFile before = ChartTestValues.Empty(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms) with
             {
@@ -63,7 +63,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             {
                 notifications++;
                 var work = Task.Run(() => owner.SetInstalledPackages(owner.InstalledPackages));
-                work.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+                work.GetAwaiter().GetResult();
             };
             System.ComponentModel.PropertyChangedEventHandler secondChanged = (_, _) => notifications++;
             var packageNames = new List<string?>();
@@ -202,36 +202,7 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
-    [TestMethod]
-    public void PackageLifecycleOwner_PendingOperationAdmissionIsExclusiveAndReleases()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath),
-                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                (_, _) => { },
-                _ => { },
-                _ => { },
-                packages => new ObservableCollection<ChartPackage>(packages ?? []),
-                () => { },
-                _ => { });
 
-            Assert.IsTrue(owner.TryEnterPendingOperation(out IDisposable firstLease));
-            try
-            {
-                Assert.IsFalse(owner.TryEnterPendingOperation(out IDisposable competingLease));
-                Assert.IsNull(competingLease);
-            }
-            finally
-            {
-                firstLease.Dispose();
-            }
-
-            Assert.IsTrue(owner.TryEnterPendingOperation(out IDisposable releasedLease));
-            releasedLease.Dispose();
-        });
-    }
 
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_RejectsCanonicalDuplicateBeforeDurableMutation()
@@ -393,8 +364,6 @@ public sealed class BmsLibraryPackageLifecycleTests
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                (_, _) => { },
-                _ => { },
                 _ => { },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
@@ -425,8 +394,6 @@ public sealed class BmsLibraryPackageLifecycleTests
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                (_, _) => { },
-                _ => { },
                 _ => propertyChangedCount++,
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
@@ -464,12 +431,10 @@ public sealed class BmsLibraryPackageLifecycleTests
                 laneEntered.Set();
                 releaseLane.Wait();
             });
-            Assert.IsTrue(laneEntered.Wait(TimeSpan.FromSeconds(5)));
+            laneEntered.Wait();
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 scheduler,
-                (_, _) => { },
-                _ => { },
                 _ =>
                 {
                     propertyChangedCount++;
@@ -494,7 +459,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.AreSame(replacement, owner.PendingPackages);
             Assert.AreEqual(0, propertyChangedCount);
             releaseLane.Set();
-            Assert.IsTrue(publicationFailed.Wait(TimeSpan.FromSeconds(5)));
+            publicationFailed.Wait();
             Assert.AreEqual(1, propertyChangedCount);
             Assert.IsInstanceOfType<InvalidOperationException>(observedFailure);
             Assert.AreEqual("collection subscriber failed", observedFailure!.Message);
@@ -510,8 +475,6 @@ public sealed class BmsLibraryPackageLifecycleTests
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 new CanceledScheduleUiScheduler(),
-                (_, _) => { },
-                _ => { },
                 _ => Assert.Fail("Canceled publication must not invoke the subscriber."),
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },

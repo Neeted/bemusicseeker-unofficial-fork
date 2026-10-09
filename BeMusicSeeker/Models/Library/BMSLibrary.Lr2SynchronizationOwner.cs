@@ -35,23 +35,72 @@ public partial class BMSLibrary
 
         private readonly Action<string> queueObservablePropertyChange;
 
-        private readonly object mutationSequenceGate = new();
+        private readonly ChartFileOperationSynchronizer operationAdmission;
 
-        private long nextMutationLeaseId;
+        private readonly IRootFileEnumerator rootFileEnumerator;
 
-        private long activeMutationLeaseId;
 
+
+
+        /// <summary>LR2準備・同期を生存する共通受付の権限で実行し、独立した同期版と状態を管理します。</summary>
+        /// <param name="operationAdmission">準備から状態保存・後片付けまで保持する共通受付。</param>
+        /// <param name="rootFileEnumerator">入力更新とLR2が共用するグループ列挙境界。nullは通常の列挙経路です。</param>
+        /// <param name="playlistOperationAdmission">構成の寿命で共有するP受付。省略時は独立構成の専用受付を作ります。同期状態や終了状態はこのownerだけが所有します。</param>
         internal Lr2SynchronizationOwner(
             ILr2SynchronizationDataPort data,
             ILr2SynchronizationRuntimePort runtime,
             ILr2SynchronizationProjectionPort projection,
-            Action<string> queueObservablePropertyChange)
+            Action<string> queueObservablePropertyChange,
+            ChartFileOperationSynchronizer operationAdmission,
+            IRootFileEnumerator rootFileEnumerator = null,
+            ChartFileOperationSynchronizer playlistOperationAdmission = null)
         {
+            PlaylistOperationAdmission = playlistOperationAdmission ?? new ChartFileOperationSynchronizer();
+            this.rootFileEnumerator = rootFileEnumerator;
+            this.operationAdmission = operationAdmission ?? throw new ArgumentNullException(nameof(operationAdmission));
             this.data = data ?? throw new ArgumentNullException(nameof(data));
             this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
             this.projection = projection ?? throw new ArgumentNullException(nameof(projection));
             this.queueObservablePropertyChange = queueObservablePropertyChange
                 ?? throw new ArgumentNullException(nameof(queueObservablePropertyChange));
+        }
+
+        /// <summary>モデルの変更権限を発行する共通受付。</summary>
+        internal ChartFileOperationSynchronizer OperationAdmission => operationAdmission;
+
+        /// <summary>構成から接続されたP受付。再構築前後で生存権限を借用できますが、個別のstore・対象・終了状態の有効性は変えません。</summary>
+        internal ChartFileOperationSynchronizer PlaylistOperationAdmission { get; }
+
+        /// <summary>実変更scopeが現行管理領域へ交差する場合だけPを非待機取得します。非交差ではleaseはnullです。</summary>
+        /// <param name="paths">最初の副作用前に固定した実変更先と変更元。</param>
+        /// <param name="recursive">祖先フォルダの移動・再帰削除も交差として扱うか。</param>
+        /// <param name="lease">交差時に後片付けまで保持するP。競合時は取得せずfalseを返します。</param>
+        internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease, LibraryFileMutationCapability capability = null, IEnumerable<string> recursivePaths = null)
+        {
+            lease = null;
+            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+            if (!options.OperationModeLR2DB) { return true; }
+            if (capability?.PlaylistCapability != null)
+            {
+                lease = PlaylistOperationAdmission.Borrow(capability.PlaylistCapability);
+                return true;
+            }
+            var regions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string directory in new[] { options.LR2CustomFolderOutputBaseDir, options.LR2CustomFolderOutputBaseDirRootType }
+                .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs))
+            {
+                if (!string.IsNullOrWhiteSpace(directory)) { regions.Add(directory); }
+            }
+            // 正本の対象数だけを読み、全所持譜面を列挙しません。読取不能は元例外で止めます。
+            regions.UnionWith(data.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure: true).Directories);
+            var recursiveTargets = new HashSet<string>(recursivePaths ?? [], StringComparer.OrdinalIgnoreCase);
+            bool intersects = (paths ?? []).Concat(recursiveTargets).Where(path => !string.IsNullOrWhiteSpace(path)).Any(path => regions.Any(region =>
+                CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, region)
+                || ((recursive || recursiveTargets.Contains(path)) && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(region, path))));
+            if (!intersects) { return true; }
+            if (!PlaylistOperationAdmission.TryEnter(out IDisposable accepted)) { return false; }
+            lease = (LibraryFileMutationLease)accepted;
+            return true;
         }
 
         internal object RequestGate { get; } = new();
@@ -68,13 +117,11 @@ public partial class BMSLibrary
 
         internal int FailedVersion { get; set; }
 
+
         internal bool Running { get; set; }
 
-        internal bool PreparationInProgress { get; set; }
 
-        internal bool StatusPublicationInProgress { get; set; }
 
-        internal int MutationInProgress { get; set; }
 
         internal CancellationTokenSource Cancellation { get; set; }
 
@@ -132,10 +179,12 @@ public partial class BMSLibrary
             LibraryFileMutationCapability mutationCapability) =>
             SyncPlaylistLr2FolderFileRows(operation, request, mutationCapability);
 
-        internal Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
+        /// <summary>同じ操作で捕捉した設定から生成管理領域を構成します。最新性確認での省略時は現設定を使います。</summary>
+        /// <param name="options">受理済み操作の変更不能設定。nullは現設定を捕捉します。</param>
+        internal Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope(BmsLibraryOptionsSnapshot options = null)
         {
             Lr2SongDbSyncAppManagedOutputScope scope =
-                data.CaptureLr2SongDbSyncAppManagedOutputScope(data.CurrentOptionsSnapshot);
+                data.CaptureLr2SongDbSyncAppManagedOutputScope(options ?? data.CurrentOptionsSnapshot);
             if (!scope.IsComplete)
             {
                 BMSLibrary.LogInstallPerformanceWarn(
@@ -144,12 +193,14 @@ public partial class BMSLibrary
             return scope;
         }
 
+        /// <summary>生存する共通権限と捕捉した設定入力で組込folder行を同期し、後続全体同期へ準備入力を返します。</summary>
         internal Lr2SongDbSyncPreparedDataSurface SyncLr2BuiltinCustomFolderRows(
             string reason,
-            LibraryFileMutationCapability mutationCapability)
+            LibraryFileMutationCapability mutationCapability,
+            BmsLibraryOptionsSnapshot options = null)
         {
             RequireMutationCapability(mutationCapability);
-            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+            options ??= CurrentOptionsSnapshot;
             if (options?.OperationModeLR2DB != true)
             {
                 return Lr2SongDbSyncPreparedDataSurface.Empty;
@@ -195,19 +246,34 @@ public partial class BMSLibrary
                 candidates.DiscoveryComplete);
         }
 
-        internal void SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(string reason)
+        /// <summary>受理済み設定後更新を、共通受付と物理変更権限を揃えて実終端まで実行します。</summary>
+        /// <param name="reason">設定変更の既存受付理由。</param>
+        /// <param name="capability">設定側が保持する共通権限。nullは新しい非待機受付です。</param>
+        /// <param name="playlistCapability">同じ設定保存の局所権限。管理外探索も両受付を保持し、開始競合を元Busy失敗として返します。</param>
+        /// <returns>実行した外部LR2行更新・cleanupの終端Task。元失敗・取消を伝播します。</returns>
+        internal async Task SyncExternalLr2FolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null)
         {
             if (CurrentOptionsSnapshot?.OperationModeLR2DB != true)
             {
                 return;
             }
 
+            using LibraryFileMutationLease mutationLease = capability == null
+                ? TryBeginMutation("lr2folder_settings_output_base_sync", showMessage: false)
+                : operationAdmission.Borrow(capability);
+            if (mutationLease == null) { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
+            playlistCapability ??= capability?.PlaylistCapability;
+            LibraryFileMutationLease playlistLease;
+            if (playlistCapability != null) { playlistLease = PlaylistOperationAdmission.Borrow(playlistCapability); }
+            else if (PlaylistOperationAdmission.TryEnter(out IDisposable acquired)) { playlistLease = (LibraryFileMutationLease)acquired; }
+            else { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
+            using LibraryFileMutationLease playlistOperation = playlistLease;
+            using LibraryFileMutationCapability playlistAuthority = playlistLease.CreateMutationCapability();
+            playlistCapability = playlistAuthority;
+            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             bool queuePreparedSync;
-            using (LibraryFileMutationLease mutationLease = BeginMutationWhenAvailable(
-                "lr2folder_settings_output_base_sync"))
             using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
             {
-                BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
                 if (options?.OperationModeLR2DB != true)
                 {
                     return;
@@ -221,7 +287,7 @@ public partial class BMSLibrary
                     List<string> roots = [.. rootSnapshot.Roots];
                     List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
                     List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
-                    Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
+                    Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope(options);
                     if (!appManagedOutputScope.IsComplete)
                     {
                         BMSLibrary.LogInstallPerformance("lr2folder_settings_output_base_sync skipped"
@@ -296,13 +362,14 @@ public partial class BMSLibrary
 
             if (queuePreparedSync)
             {
-                Lr2SongDbSyncRequestCoordinator.Queue(
+                using LibraryFileMutationCapability continuation = mutationLease.CreateMutationCapability();
+                await Lr2SongDbSyncRequestCoordinator.QueueAsync(
                     this,
                     reason,
                     force: true,
                     prepareGeneratedData: null,
                     allowIncompleteToQueue: true,
-                    allowCommittedPathReceipt: false);
+                    allowCommittedPathReceipt: false, capability: continuation, optionsSnapshot: options, playlistCapability: playlistCapability).ConfigureAwait(false);
             }
         }
 
@@ -364,7 +431,8 @@ public partial class BMSLibrary
                 builtinCustomFolderSettings,
                 BMSLibrary.LogEverythingScan,
                 data.EverythingNative,
-                excludedDirectories);
+                excludedDirectories,
+                rootFileEnumerator);
         }
 
         private static List<string> NormalizeDistinctDirectories(IEnumerable<string> directories)
@@ -412,7 +480,8 @@ public partial class BMSLibrary
                 request.DirectoryEntries,
                 request.Lr2FolderDiscoveryDirectories,
                 parentDirectoryTargets,
-                data.EverythingNative);
+                data.EverythingNative,
+                rootFileEnumerator);
             long entryMs = RestartElapsed(stopwatchStage);
             request.DirectoryEntries = MergeMissingLr2DirectoryEntrySurface(
                 request.DirectoryEntries,
@@ -439,7 +508,7 @@ public partial class BMSLibrary
                     []);
             }
 
-            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, data.EverythingNative);
+            return CreateLr2SongDbSyncTextMetadataCandidates(rootDirectories, targetDirectories, data.EverythingNative, rootFileEnumerator);
         }
 
         private static void ApplyLr2TextMetadataCandidatesToRequest(
@@ -758,12 +827,13 @@ public partial class BMSLibrary
             }
         }
 
+        /// <summary>同じ共通ownerに属する生存権限でplaylistのfolder行を保存し、元の部分成功・失敗結果を返します。</summary>
         internal Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
             string operation,
             Lr2FolderFileDbSyncRequest request,
             LibraryFileMutationCapability mutationCapability)
         {
-            RequireMutationCapability(mutationCapability);
+            mutationCapability.Validate(PlaylistOperationAdmission);
             if (request == null)
             {
                 return null;
@@ -795,6 +865,7 @@ public partial class BMSLibrary
             }
         }
 
+        /// <summary>確定済みの譜面変更receiptを同じ生存権限でLR2へ反映します。確定済み変更を巻き戻さず必須反映失敗を伝播します。</summary>
         internal void SyncLr2NormalFoldersForCatalogMutation(
             Lr2NormalFolderCatalogMutationReceipt receipt,
             string reason,
@@ -835,6 +906,11 @@ public partial class BMSLibrary
                         {
                             IReadOnlyCollection<string> directoryMetadataTargets =
                                 Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths);
+                            if (!TryEnterManagedOutputMutation(directoryMetadataTargets.Concat(syncInput.PruneExactDirectories),
+                                recursive: false, out LibraryFileMutationLease playlistLease, capability: mutationCapability,
+                                recursivePaths: syncInput.PruneScopeDirectories))
+                            { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
+                            using LibraryFileMutationLease playlistOperation = playlistLease;
                             Lr2OwnedMutationDirectoryMetadataSurface metadataSurface =
                                 CreateLr2OwnedMutationDirectoryMetadataSurface(directoryMetadataTargets);
                             Lr2NormalFolderDbSyncResult syncResult = data.ApplyLr2NormalFolderSync(
@@ -1157,44 +1233,6 @@ public partial class BMSLibrary
             }
         }
 
-        /// <summary>
-        /// Reserves the LR2 preparation route and, when generated output is
-        /// requested, returns the same exclusive logical lease used by other
-        /// file mutations.  The lease is the only authorization that may be
-        /// passed to nested playlist/catalog apply work.
-        /// </summary>
-        internal bool TryReserveLr2SongDbSyncPreparation(
-            bool requiresPreparation,
-            out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot,
-            out LibraryFileMutationLease preparationLease)
-        {
-            preparationLease = null;
-            lock (mutationSequenceGate)
-            {
-                lock (RequestGate)
-                {
-                    if (Running || StatusPublicationInProgress || PreparationInProgress || MutationInProgress > 0)
-                    {
-                        blockingSnapshot = CreateRuntimeSnapshotUnsafe();
-                        return false;
-                    }
-                    if (requiresPreparation)
-                    {
-                        long leaseId = ++nextMutationLeaseId;
-                        MutationInProgress = 1;
-                        activeMutationLeaseId = leaseId;
-                        PreparationInProgress = true;
-                        preparationLease = new LibraryFileMutationLease(
-                            this,
-                            () => IsMutationLeaseActive(leaseId),
-                            () => EndPreparation(leaseId));
-                    }
-                    blockingSnapshot = CreateRuntimeSnapshotUnsafe();
-                    return true;
-                }
-            }
-        }
-
         internal Lr2SongDbSyncStatusSnapshot GetLr2SongDbSyncStatusSnapshot()
         {
             return GetStatusSnapshot();
@@ -1289,49 +1327,11 @@ public partial class BMSLibrary
         internal void ClearLr2SongDbSyncPreparedDataSurface(string reason) =>
             ClearPreparedDataSurface(reason);
 
-        internal bool TryBeginLr2SongDbSyncRequest(out int requestVersion)
+        /// <summary>取得済み共通権限の内部継続として実行表示と取消を開始します。受付は追加しません。</summary>
+        internal int BeginRequest(LibraryFileMutationCapability capability)
         {
-            lock (RequestGate)
-            {
-                if (Running || StatusPublicationInProgress || MutationInProgress > 0)
-                {
-                    requestVersion = RequestedVersion;
-                    return false;
-                }
-                requestVersion = BeginLr2SongDbSyncRequestUnsafe();
-                return true;
-            }
-        }
-
-        /// <summary>
-        /// Atomically transfers an accepted preparation lease into the running
-        /// LR2 synchronization request so no other request can observe an idle
-        /// owner between those phases.
-        /// </summary>
-        internal int BeginLr2SongDbSyncRequestFromPreparation(
-            LibraryFileMutationLease preparationLease)
-        {
-            ArgumentNullException.ThrowIfNull(preparationLease);
-            using LibraryFileMutationCapability capability = preparationLease.CreateMutationCapability();
-            lock (mutationSequenceGate)
-            {
-                lock (RequestGate)
-                {
-                    RequireMutationCapability(capability);
-                    if (!PreparationInProgress || MutationInProgress != 1 || Running || StatusPublicationInProgress)
-                    {
-                        throw new InvalidOperationException(
-                            "The LR2 preparation reservation cannot be transferred to a running request.");
-                    }
-
-                    int requestVersion = BeginLr2SongDbSyncRequestUnsafe();
-                    MutationInProgress = 0;
-                    activeMutationLeaseId = 0;
-                    PreparationInProgress = false;
-                    Monitor.PulseAll(RequestGate);
-                    return requestVersion;
-                }
-            }
+            capability.Validate(operationAdmission);
+            lock (RequestGate) { return BeginLr2SongDbSyncRequestUnsafe(); }
         }
 
         internal void CompleteLr2SongDbSyncRequest(int requestVersion, string stage)
@@ -1348,17 +1348,17 @@ public partial class BMSLibrary
             FailRequest(requestVersion, status, stage, message);
         }
 
-        internal void RunLr2SongDbSync(
-            string reason,
-            string signature,
-            int requestVersion,
-            bool allowCommittedPathReceipt) =>
-            Lr2SongDbSyncRequestCoordinator.Run(
-                this,
-                reason,
-                signature,
-                requestVersion,
-                allowCommittedPathReceipt);
+        /// <summary>生存共通権限で受理済み同期の実処理と後片付けを実行します。自己受付を取り直しません。</summary>
+        /// <param name="capability">同じ受付の生存中の所有者に属する権限。</param>
+        /// <param name="options">署名と生成準備から継続して渡す受理済み操作の変更不能設定。</param>
+        /// <returns>実処理と後片付けの終端。失敗と取消は呼出し元へ伝播します。</returns>
+        internal Task RunLr2SongDbSyncAsync(string reason, string signature, int requestVersion,
+            bool allowCommittedPathReceipt, LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
+        {
+            capability.Validate(operationAdmission);
+            Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion, allowCommittedPathReceipt, options);
+            return Task.CompletedTask;
+        }
 
         internal CancellationToken GetLr2SongDbSyncCancellationToken()
         {
@@ -1368,22 +1368,26 @@ public partial class BMSLibrary
             }
         }
 
-        internal Lr2SongDbSyncInput CreateLr2SongDbSyncInput()
+        /// <summary>受理済み操作のoptionsから署名とworkerへ渡す同期入力を構成します。独立した最新性照合は維持します。</summary>
+        /// <param name="options">受付後に捕捉した変更不能設定。省略時は呼出し時の設定を捕捉します。</param>
+        /// <returns>所持集合、探索面、生成準備と設定が一致した同期入力。</returns>
+        internal Lr2SongDbSyncInput CreateLr2SongDbSyncInput(BmsLibraryOptionsSnapshot options = null)
         {
+            options ??= CurrentOptionsSnapshot;
             var inputStopwatch = Stopwatch.StartNew();
             var rowSnapshotStopwatch = Stopwatch.StartNew();
             Lr2SongDbSyncInputRowSnapshot rowSnapshot = CreateLr2SongDbSyncInputRowSnapshot();
             rowSnapshotStopwatch.Stop();
 
             var rootsStopwatch = Stopwatch.StartNew();
-            Lr2SongDbSyncInputRootSnapshot rootSnapshot = CreateLr2SongDbSyncInputRootSnapshot();
+            Lr2SongDbSyncInputRootSnapshot rootSnapshot = CreateLr2SongDbSyncInputRootSnapshot(options);
             rootsStopwatch.Stop();
 
             var builtinSettingsStopwatch = Stopwatch.StartNew();
             Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot = CreateLr2SongDbSyncInputSettingsSnapshot(
                 rowSnapshot.SongRows,
                 rootSnapshot.CapturedAtUtc,
-                rootSnapshot.RootDirectories);
+                rootSnapshot.RootDirectories, options);
             builtinSettingsStopwatch.Stop();
 
             var scanSurfaceStopwatch = Stopwatch.StartNew();
@@ -1396,10 +1400,11 @@ public partial class BMSLibrary
             var inputBuilder = new Lr2SongDbSyncInputBuilder(
                 BMSLibrary.LogEverythingScan,
                 BMSLibrary.LogInstallPerformance,
-                data.EverythingNative);
+                data.EverythingNative,
+                rootFileEnumerator);
 
             var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
-            Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
+            Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope(options);
 
             return inputBuilder.Create(
                 rowSnapshot,
@@ -1434,11 +1439,10 @@ public partial class BMSLibrary
             return data.CaptureLr2SynchronizationInputRowSnapshot();
         }
 
-        private Lr2SongDbSyncInputRootSnapshot CreateLr2SongDbSyncInputRootSnapshot()
+        private Lr2SongDbSyncInputRootSnapshot CreateLr2SongDbSyncInputRootSnapshot(BmsLibraryOptionsSnapshot options)
         {
             DateTime capturedAtUtc = DateTime.UtcNow;
             List<string> rootDirectories = [.. data.CaptureBmsDirectories().Roots];
-            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             return new Lr2SongDbSyncInputRootSnapshot(
                 capturedAtUtc,
                 rootDirectories,
@@ -1449,9 +1453,8 @@ public partial class BMSLibrary
         private Lr2SongDbSyncInputSettingsSnapshot CreateLr2SongDbSyncInputSettingsSnapshot(
             IEnumerable<ChartFile> songRows,
             DateTime nowUtc,
-            IEnumerable<string> rootDirectories)
+            IEnumerable<string> rootDirectories, BmsLibraryOptionsSnapshot options)
         {
-            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
             return new Lr2SongDbSyncInputSettingsSnapshot(
                 Lr2BuiltinCustomFolderSettings.CreateFromAddDates(
@@ -1749,9 +1752,11 @@ public partial class BMSLibrary
             }
         }
 
+        /// <summary>同じ受付中に生成準備結果を探索面へ反映し、受理済み設定と対応させます。</summary>
+        /// <param name="options">生成準備とworkerへ共通に渡す変更不能設定。省略時は現設定を捕捉します。</param>
         internal void ApplyLr2SongDbSyncPreparedDataSurface(
             string reason,
-            Lr2SongDbSyncPreparedDataSurface preparedSurface)
+            Lr2SongDbSyncPreparedDataSurface preparedSurface, BmsLibraryOptionsSnapshot options = null)
         {
             var applyStopwatch = Stopwatch.StartNew();
             var lockWaitStopwatch = Stopwatch.StartNew();
@@ -1763,7 +1768,7 @@ public partial class BMSLibrary
             long textFileDirsMs = 0;
             string mergeResult = "unknown";
             preparedSurface ??= Lr2SongDbSyncPreparedDataSurface.Empty;
-            BmsLibraryOptionsSnapshot currentSettings = data.CurrentOptionsSnapshot;
+            BmsLibraryOptionsSnapshot currentSettings = options ?? data.CurrentOptionsSnapshot;
             Lr2SongDbSyncScanSurfaceSnapshot snapshot = null;
             lock (ScanSurfaceGate)
             {
@@ -2010,9 +2015,6 @@ public partial class BMSLibrary
             return true;
         }
 
-        internal bool TryBeginRequest(out int requestVersion) =>
-            TryBeginLr2SongDbSyncRequest(out requestVersion);
-
         internal void CompleteRequest(int requestVersion, string stage)
         {
             lock (RequestGate)
@@ -2029,28 +2031,16 @@ public partial class BMSLibrary
                 Running = false;
                 SetObservableRunning(false);
                 DisposeCancellationUnsafe();
-                StatusPublicationInProgress = true;
             }
-            try
-            {
-                PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
-                    Lr2SongDbSyncStatusKind.Completed,
-                    GetStatusSnapshot().Signature,
-                    ObservableStage,
-                    ObservableProcessedCount,
-                    ObservableTotalCount,
-                    lastError: null,
-                    ObservableStageProcessedCount,
-                    ObservableStageTotalCount));
-            }
-            finally
-            {
-                lock (RequestGate)
-                {
-                    StatusPublicationInProgress = false;
-                    Monitor.PulseAll(RequestGate);
-                }
-            }
+            PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
+                Lr2SongDbSyncStatusKind.Completed,
+                GetStatusSnapshot().Signature,
+                ObservableStage,
+                ObservableProcessedCount,
+                ObservableTotalCount,
+                lastError: null,
+                ObservableStageProcessedCount,
+                ObservableStageTotalCount));
         }
 
         internal void FailRequest(
@@ -2068,28 +2058,16 @@ public partial class BMSLibrary
                 Running = false;
                 SetObservableRunning(false);
                 DisposeCancellationUnsafe();
-                StatusPublicationInProgress = true;
             }
-            try
-            {
-                PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
-                    status,
-                    GetStatusSnapshot().Signature,
-                    ObservableStage,
-                    ObservableProcessedCount,
-                    ObservableTotalCount,
-                    ObservableFailureMessage,
-                    ObservableStageProcessedCount,
-                    ObservableStageTotalCount));
-            }
-            finally
-            {
-                lock (RequestGate)
-                {
-                    StatusPublicationInProgress = false;
-                    Monitor.PulseAll(RequestGate);
-                }
-            }
+            PublishStatus(BMSLibrary.CreateRuntimeLr2SongDbSyncStatus(
+                status,
+                GetStatusSnapshot().Signature,
+                ObservableStage,
+                ObservableProcessedCount,
+                ObservableTotalCount,
+                ObservableFailureMessage,
+                ObservableStageProcessedCount,
+                ObservableStageTotalCount));
         }
 
         /// <summary>
@@ -2152,157 +2130,36 @@ public partial class BMSLibrary
             }
         }
 
-        internal bool TryBlockMutation(string operation, bool showMessage = true)
+        /// <summary>共通受付の保持だけで新しい変更のBusyを判定します。</summary>
+        internal bool TryBlockMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
         {
-            bool blocked;
-            string stage;
-            int processed;
-            int total;
-            lock (RequestGate)
-            {
-                blocked = Running
-                    || StatusPublicationInProgress
-                    || MutationInProgress > 0
-                    || PreparationInProgress;
-                stage = ObservableStage ?? string.Empty;
-                processed = ObservableProcessedCount;
-                total = ObservableTotalCount;
-            }
-            if (!blocked)
-            {
-                return false;
-            }
-            LogInstallPerformance("lr2_song_db_sync_mutation_blocked operation=" + (operation ?? "(unknown)")
-                + " stage=" + stage
-                + " processed=" + processed
-                + " total=" + total);
+            if (capability != null) { capability.Validate(operationAdmission); return false; }
+            if (!operationAdmission.IsActive) { return false; }
             if (showMessage)
             {
-                runtime.ShowOperationDialog(
-                    Resources.Warn_LibraryOperationBusy,
-                    Resources.MessageBoxTitle_Warning,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK);
+                runtime.ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
             }
             return true;
         }
 
-        internal LibraryFileMutationLease TryBeginMutation(
-            string operation,
-            bool showMessage = true)
+        /// <summary>新要求は非待機で共通受付を取得し、受理済み継続は明示権限を検査して借用します。</summary>
+        internal LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage = true,
+            LibraryFileMutationCapability capability = null)
         {
-            string stage;
-            int processed;
-            int total;
-            bool preparing;
-            lock (mutationSequenceGate)
-            {
-                lock (RequestGate)
-                {
-                    if (!Running
-                        && !StatusPublicationInProgress
-                        && MutationInProgress == 0
-                        && !PreparationInProgress)
-                    {
-                        long leaseId = ++nextMutationLeaseId;
-                        MutationInProgress = 1;
-                        activeMutationLeaseId = leaseId;
-                        return new LibraryFileMutationLease(
-                            this,
-                            () => IsMutationLeaseActive(leaseId),
-                            () => EndMutation(leaseId));
-                    }
-                    stage = ObservableStage ?? string.Empty;
-                    processed = ObservableProcessedCount;
-                    total = ObservableTotalCount;
-                    preparing = PreparationInProgress;
-                }
-            }
-            LogInstallPerformance("lr2_song_db_sync_mutation_blocked operation=" + (operation ?? "(unknown)")
-                + " stage=" + stage
-                + " processed=" + processed
-                + " total=" + total
-                + " preparing=" + preparing.ToString().ToLowerInvariant());
-            if (showMessage)
-            {
-                runtime.ShowOperationDialog(
-                    Resources.Warn_LibraryOperationBusy,
-                    Resources.MessageBoxTitle_Warning,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK);
-            }
+            if (capability != null) { return operationAdmission.Borrow(capability); }
+            if (operationAdmission.TryEnter(out IDisposable lease)) { return (LibraryFileMutationLease)lease; }
+            TryBlockMutation(operation, showMessage);
             return null;
         }
 
-        /// <summary>
-        /// Waits for an in-flight LR2 synchronization/preparation to finish, then reserves
-        /// the catalog-mutation slot. Settings-driven background work uses this so a valid
-        /// request is retried instead of being silently discarded when synchronization is busy.
-        /// </summary>
-        internal LibraryFileMutationLease BeginMutationWhenAvailable(string operation)
-        {
-            while (true)
-            {
-                lock (RequestGate)
-                {
-                    if (Running
-                        || StatusPublicationInProgress
-                        || PreparationInProgress
-                        || MutationInProgress > 0)
-                    {
-                        if (runtime.IsShutdownRequested)
-                        {
-                            throw new InvalidOperationException("LR2 synchronization is unavailable during shutdown.");
-                        }
+        /// <summary>受理済み背景処理が先行操作の実終端後に共通受付を取得します。</summary>
+        internal async Task<LibraryFileMutationLease> AcquireAcceptedBackgroundMutationAsync(string operation)
+            => (LibraryFileMutationLease)await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
 
-                        Monitor.Wait(RequestGate, TimeSpan.FromMilliseconds(250));
-                        continue;
-                    }
-                }
-
-                LibraryFileMutationLease mutationReservation = TryBeginMutation(operation, showMessage: false);
-                if (mutationReservation != null)
-                {
-                    return mutationReservation;
-                }
-            }
-        }
-
-        internal void WaitForLr2SongDbSyncPreparationAvailability(string operation)
-        {
-            lock (RequestGate)
-            {
-                while (Running
-                    || StatusPublicationInProgress
-                    || PreparationInProgress
-                    || MutationInProgress > 0)
-                {
-                    if (runtime.IsShutdownRequested)
-                    {
-                        throw new InvalidOperationException("LR2 synchronization is unavailable during shutdown.");
-                    }
-
-                    Monitor.Wait(RequestGate, TimeSpan.FromMilliseconds(250));
-                }
-            }
-        }
-
-        internal void ThrowIfLr2SongDbSyncMutationBlocked(
-            string operation,
-            LibraryFileMutationCapability mutationCapability)
-        {
-            RequireMutationCapability(mutationCapability);
-        }
-
-        private bool IsMutationLeaseActive(long leaseId)
-        {
-            lock (RequestGate)
-            {
-                return MutationInProgress == 1 && activeMutationLeaseId == leaseId;
-            }
-        }
+        /// <summary>本モデルの共通受付から発行した生存権限だけを検査します。</summary>
+        internal void ThrowIfLr2SongDbSyncMutationBlocked(string operation, LibraryFileMutationCapability mutationCapability)
+            => RequireMutationCapability(mutationCapability);
 
         private int BeginLr2SongDbSyncRequestUnsafe()
         {
@@ -2322,40 +2179,13 @@ public partial class BMSLibrary
             return requestVersion;
         }
 
-        private void EndMutation(long leaseId)
-        {
-            lock (RequestGate)
-            {
-                if (MutationInProgress == 1 && activeMutationLeaseId == leaseId)
-                {
-                    MutationInProgress = 0;
-                    activeMutationLeaseId = 0;
-                }
-                Monitor.PulseAll(RequestGate);
-            }
-        }
-
-        private void EndPreparation(long leaseId)
-        {
-            lock (RequestGate)
-            {
-                if (MutationInProgress == 1 && activeMutationLeaseId == leaseId)
-                {
-                    MutationInProgress = 0;
-                    activeMutationLeaseId = 0;
-                    PreparationInProgress = false;
-                }
-                Monitor.PulseAll(RequestGate);
-            }
-        }
-
         private void RequireMutationCapability(LibraryFileMutationCapability mutationCapability)
         {
             if (mutationCapability == null)
             {
                 throw new ArgumentNullException(nameof(mutationCapability));
             }
-            mutationCapability.Validate(this);
+            mutationCapability.Validate(operationAdmission);
         }
 
 
@@ -2364,8 +2194,6 @@ public partial class BMSLibrary
             return new Lr2SongDbSyncRuntimeSnapshot
             {
                 Running = Running,
-                Preparing = PreparationInProgress,
-                MutationInProgress = MutationInProgress,
                 RequestedVersion = ObservableRequestedVersion,
                 Stage = ObservableStage ?? string.Empty,
                 ProcessedCount = ObservableProcessedCount,

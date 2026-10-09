@@ -231,7 +231,7 @@ public sealed class RightClickActionSettingsEditorTests
     public void InvalidDraftIsRejectedAndSavedSettingsValueIsNotMutatedByPrepare()
     {
         string original = RightClickActionSettingsDefaults.SerializedJson;
-        var settings = new BeMusicSeeker.Properties.Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
         settings.RightClickActionsJson = original;
         var editor = new RightClickActionSettingsEditor(original);
         editor.SelectedWebAction.UrlTemplate = "https://example.test/no-placeholder";

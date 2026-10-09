@@ -25,7 +25,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void BuildResourceHealthWarnings_DoesNotMutateSourceWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 1 };
@@ -42,7 +42,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ImmutableResourceHealthSnapshot_PreservesMutableWarningProjection()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 2, BgaFilesDefined = 1, BgaFilesExisting = 0, MovieFilesDefined = 0, MovieFilesExisting = 0, StagefileDefined = true, StagefileExisting = false, BannerDefined = false, BannerExisting = false, BackbmpDefined = true, BackbmpExisting = true, FilesWarningIgnored = true };
         ResourceHealthMaintenanceSnapshot snapshot = info;
 
@@ -62,7 +62,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void LazyMaintenancePlaceholder_IsNotAValidResourceHealthSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
@@ -131,7 +131,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetMaintenanceInfo_ProjectsLr2CompatibilityWarningsFromFacts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var info = new ResourceHealthMaintenanceSnapshot
         {
@@ -156,7 +156,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetMaintenanceInfo_ClearsLr2CompatibilityWarningsWhenEvaluatedClean()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Lr2WarningFlags = (int)Lr2CompatibilityWarningFlags.None };
@@ -170,7 +170,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetMaintenanceInfo_DoesNotClearLr2CompatibilityWarningsWithoutFacts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported), ChartWarning.Create(ChartWarningKind.Lr2PathEncodingUnsupported, Resources.Warning_Lr2PathEncodingUnsupported)] };
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5 };
@@ -721,7 +721,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
@@ -753,7 +753,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void LibraryChartRow_ResourceProjectionSuppressesStaleSourceResourceWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ResourceWavMissing), ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "pending resource warning")] };
         file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 2 });
@@ -768,7 +768,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_GroupsActiveAndIgnoredWithoutMutatingWarnings()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         active = active with { Path = @"C:\Library\active.bms" };
@@ -793,7 +793,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_DoesNotTreatLr2CompatibilityWarningsAsResourceTargets()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         file = file with { Path = @"C:\Library\active.bms" };
@@ -819,7 +819,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_BuildsBmsonTargetFromChartFile()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -842,7 +842,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetChartsNeedResourceFix_UsesCurrentResourceHealthIndexSnapshot()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -866,7 +866,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ChartFilesNeedResourceFix_WaitsForCatalogStorageWriterBeforeColdResourceHealthRead()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "missing-resource.bms");
@@ -923,7 +923,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetChartsNeedResourceFix_CaseOnlyExactPathsKeepIndependentResourceHealthProjections()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             const string sharedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -971,7 +971,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void RescanResourceHealthCharts_PublishesMaintenanceRefreshThroughOwnedDispatcher()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "chart.bms");
@@ -1025,7 +1025,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [DataRow(128)]
     public void RescanResourceHealthCharts_UpdatesCurrentResourceHealthIndexByDelta(int backgroundCount)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1119,7 +1119,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void RescanAllOwnedChartMaintenance_PreservesBothCurrentValuesAfterRefreshSubscriberFailure()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1176,7 +1176,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetChartsNeedResourceFix_SubsetForceUpdateDoesNotBuildFullOwnedIndexWhenCurrentIndexUnavailable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1205,7 +1205,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1241,7 +1241,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void DeferredMaintenanceHydration_UsesCurrentSchedulerAndPublishesState()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             var library = new TestBmsLibrary(songDbPath);
@@ -1284,7 +1284,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void DeferredMaintenanceHydration_AttachesRowsRemovesStaleAndPublishesResourceHealth()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1334,7 +1334,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetChartResourceWarningsIgnored_InvalidatesInsteadOfFullRebuildWhenCurrentIndexUnavailable()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -1360,7 +1360,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void NormalLibraryRefreshNotificationBatch_MixedWarningProducersKeepWarningRefreshEffect()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string root = Path.GetDirectoryName(songDbPath)!;
@@ -1400,7 +1400,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsEncodingMaintenanceDoesNotMutateDigest()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService(1);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -1453,7 +1453,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         active = active with { Path = @"C:\Library\active.bms" };
@@ -1533,7 +1533,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_PreservesWarningOrderAndOldSnapshotAcrossLocalDelta()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         const string activeAPath = @"C:\Library\active-a.bms";
         const string activeUnchangedPath = @"C:\Library\active-unchanged.bms";
@@ -1654,7 +1654,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_LocalDeltaSharesUnchangedSequenceAndProjectionStorage()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         (int HealthyBackground, int WarningBackground)[] backgrounds =
         [
@@ -1789,7 +1789,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ResourceHealthIndexSnapshot_CaseOnlyExactPathsRemainIndependentAcrossDeltaAndRehash()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile upperInitial = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         upperInitial = upperInitial with { Path = @"C:\Library\Delta.bms" };
@@ -1899,7 +1899,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetZeroNoteCharts_FiltersOnlyZeroNoteCharts()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile = ChartFileProjection.WithChartInfo(zeroNoteFile, new BeMusicSeeker.Models.ChartDetails { md5 = zeroNoteFile.Md5, sha256 = zeroNoteFile.Sha256, notes = 1200 });
@@ -1926,7 +1926,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetZeroNoteCharts_UsesResolverChartInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         ChartFile chart = (file);
@@ -1943,7 +1943,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetZeroNoteCharts_DoesNotFallbackWhenResolverMisses()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         ChartFile chart = (file);
@@ -1956,7 +1956,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void BmsonMaintenanceOperations_UseChartEntryPoints()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile bmsonSong = CreateBmsonSong("C:\\Library\\chart.bmson", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         bmsonSong = bmsonSong with { ResourceHealthMaintenanceSnapshot = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmsonSong.Path, hash = bmsonSong.Md5, encoding = "utf-8" }) };
@@ -1979,7 +1979,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void SetChartResourceWarningsIgnored_TogglesOnlyMatchingEntries()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, FilesWarningIgnored = false };
@@ -1995,7 +1995,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void GetGarbledFiles_IncludesUnknownEncodingInRegularAndFixedLists()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile unknownFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         unknownFile = ChartFileProjection.WithMaintenance(unknownFile, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = unknownFile.Path, Hash = unknownFile.Md5, Encoding = "unknown", EncodingFixed = false });
@@ -2020,7 +2020,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ChartFileSubsets_ProjectGarbledAndLr2CompatibilityWarningRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporarySongDb(delegate (string songDbPath)
         {
             ChartFile garbled = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -2061,7 +2061,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile = ChartFileProjection.WithChartInfo(zeroNoteFile, new BeMusicSeeker.Models.ChartDetails { md5 = zeroNoteFile.Md5, sha256 = zeroNoteFile.Sha256, notes = 0 });
@@ -2084,7 +2084,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void RecheckZeroNoteWarnings_UsesResolverChartInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
@@ -2106,7 +2106,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void RecheckZeroNoteWarnings_DoesNotFallbackWhenResolverMisses()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         ChartFile zeroNoteFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         zeroNoteFile = zeroNoteFile with { Warnings = [.. zeroNoteFile.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
@@ -2126,7 +2126,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ApplyEncoding_ReloadsWhenEncodingMatchesButDecodedMetadataDiffers()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2176,7 +2176,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ApplyEncoding_SkipsSongReloadWhenDecodedMetadataMatchesButUpdatesEncoding()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2221,7 +2221,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ApplyEncoding_ReloadsWhenComposedMetadataMatchesButRawMetadataDiffers()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2274,7 +2274,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ApplyEncoding_RaisesEncodingPropertyChangedWhenEncodingOnlyChanges()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2321,7 +2321,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void ApplyEncoding_SkipsEntireUpdateWhenDecodedMetadataAndEncodingMatch()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2363,7 +2363,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_RejectsDurableWriterThatReturnsNoReceipt()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -2405,7 +2405,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_ReturnsChangedCurrentValueAfterDurableCommit()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2455,7 +2455,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonResourceHealth_UpsertsMaintenanceOnly()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2511,7 +2511,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonSongInputUpdatesSourceMaintenanceInfo()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2558,7 +2558,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonUsesFreshResourceReferencesWithoutReparse()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2616,7 +2616,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonFreshReferencesAreStaleWhenTimestampChanges()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2665,7 +2665,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [DataRow(true)]
     public void UpdateMaintenanceInfo_BmsonParseFailureDoesNotPersistStaleMaintenanceInfo(bool forceUpdate)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2715,7 +2715,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonNonFreshRowReparsesResourceReferences()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2770,7 +2770,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonForceUpdateReparsesFreshResourceReferences()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2819,7 +2819,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [DataRow(true, true)]
     public void UpdateMaintenanceInfo_BmsonDurableFailureRestoresOnlyOriginalResources(bool forceUpdate, bool hadResources)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string directory = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
@@ -2862,7 +2862,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_MixedBmsAndBmsonResourceHealth_ScansBothButDoesNotCreateBmsonSongRows()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2939,7 +2939,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_UsesMaintenanceHealthDegreeOverride()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService(0);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -2994,7 +2994,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_NoTargetsReportsSummaryAndSkipsWork()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService(1);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -3048,7 +3048,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsMissingEncodingOnlySkipsResourceHealthScan()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService(1);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -3106,7 +3106,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsResourceHealthPreservesIgnoredFlagUnlessForced()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService(1);
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -3159,7 +3159,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_CacheAwareHealthMatchesFileExistsPathAndAvoidsFallback()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         Directory.CreateDirectory(Path.Combine(tempDirectoryPath, "audio"));
@@ -3227,7 +3227,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_ReportsFallbackKinds()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
         string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
@@ -3265,7 +3265,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonParseFailure_DoesNotAbortMaintenance()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);
@@ -3364,7 +3364,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     [DataRow("ks_c_5601-1987", "\ud55c\uad6d\uc5b4\uc81c\ubaa9", "\ud55c\uad6d\uc5b4\uc791\uac00")]
     public void ApplyEncoding_ReloadsRequestedEncodingAndMarksFixed(string encoding, string expectedTitle, string expectedArtist)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         var service = new BmsLibraryMaintenanceService();
         string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectoryPath);

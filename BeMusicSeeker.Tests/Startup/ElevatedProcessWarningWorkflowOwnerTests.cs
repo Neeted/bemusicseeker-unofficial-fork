@@ -172,13 +172,20 @@ public sealed class ElevatedProcessWarningWorkflowOwnerTests
         owner.PresentationRequested += _ => presentationCount++;
 
         Task<bool> startTask = Task.Run(() => owner.Start(() => true));
-        await probeEntered.Task;
-        Assert.IsTrue(owner.NotifyClosing());
-        probeRelease.SetResult(true);
-        Assert.IsTrue(await startTask);
-
-        Assert.AreEqual(ElevatedProcessWarningWorkflowOutcome.Closing, await owner.Completion);
-        Assert.AreEqual(0, presentationCount);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(probeEntered.Task, startTask, "elevated-warning.probe");
+            Assert.IsTrue(owner.NotifyClosing());
+            probeRelease.SetResult(true);
+            Assert.IsTrue(await startTask);
+            Assert.AreEqual(ElevatedProcessWarningWorkflowOutcome.Closing, await owner.Completion);
+            Assert.AreEqual(0, presentationCount);
+        }
+        finally
+        {
+            probeRelease.TrySetResult(true);
+            await startTask;
+        }
     }
 
     [TestMethod]
@@ -189,6 +196,7 @@ public sealed class ElevatedProcessWarningWorkflowOwnerTests
         owner.PresentationRequested += request => requestReceived.SetResult(request);
 
         Assert.IsTrue(owner.Start(() => true));
+        await TestUiDispatcherHost.AwaitNotificationAsync(requestReceived.Task, owner.Completion, "pending-elevated-warning-presentation");
         ElevatedProcessWarningPresentationRequest request = await requestReceived.Task;
         Assert.IsTrue(owner.NotifyClosing());
         request.Complete(true);

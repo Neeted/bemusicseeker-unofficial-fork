@@ -77,6 +77,8 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 事前に判断できるスキップ・衝突・古い対象は通常結果に集約します。予期しない例外は安全でない後続を止め、成功済みと未確認の対象を残します。全対象を元へ戻す擬似トランザクションは要求しません。具体的な保証は[ライブラリ変更](../library/mutations.md)と[整合性](../library/file-db-consistency.md)に従います。
 
+取り込みの自動推定は、確定後も同じ論理受付内で直接待ちます。準備済み入力元リソースと所持・未所持の分割を同一操作内で再利用し、競合後の再捕捉・再評価を通常コストに含めません。単一対象の候補並列度は`max(1, CPU数-1)`、一括対象は外側並列・候補内側1を維持します。受付は全開始Taskと後片付けの終端まで保持します。
+
 ### 計測する完了範囲
 
 主指標は操作の実時間です。CPU時間、割当量、GC、常駐量は原因調査に使います。処理量は譜面/秒、リソース/秒、バイト/秒など単位を示します。
@@ -111,7 +113,7 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 呼出し直前に加算し、途中失敗でも到達した段階を残します。未到達は0、変更なしは全0で、失敗後に成功用固定値へ置き換えません。正常な複数対象操作で、同じ反映が対象数に比例する状態は構造上の退行です。
 
-この計測点はセッションの反映範囲であり、操作全体の完了ではありません。統合後の予約再取得を伴う `PostCommitMaintenance` と最終表示は後続します。その失敗は同じ結果の `WithFinalizationFailure` へ保持し、既に数えた反映回数は変えません。
+この計測点はセッションの反映範囲であり、操作全体の完了ではありません。同じ受理操作の権限を借用する `PostCommitMaintenance` と最終表示は後続します。その失敗は同じ結果の `WithFinalizationFailure` へ保持し、既に数えた反映回数は変えません。
 
 ### 比較条件と受入
 
@@ -123,13 +125,15 @@ DBは問い合わせ数だけでなく、読み出す行数・列・索引を確
 
 受入では、結果・安全性・警告を維持し、操作別の再現する悪化を他操作の短縮で相殺しません。局所変更で全件仕事を増やさず、反映回数と実測を確認し、後処理や次操作への遅延付替えも調べます。未測定・条件不足は制約として示し、機能テスト成功を大規模性能の成功としません。固定の秒数目標や許容退行率は、基準データと反復測定なしには定めません。検証実行の300秒等はアプリの性能予算ではありません。
 
+管理出力との交差判定は保存適用済み基点と現在の正本対象を使い、全所持譜面の走査・複製を追加しません。日常の非交差library/playlist反映は並行し、全体同期の一括生成・短期DB保護・大規模入力reuseを維持します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 複数フォルダ・拡張子の反映集約とDB失敗 | `LibraryMutationSession`、`CommitCatalogSessionChanges` | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh`、`MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification`、`MoveLibraryRootFolder_DatabaseApplyFailureKeepsConfirmedPhysicalMoves`、`RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession`: 反映数をファイル・SQLite・通知・索引と対照する。 |
 | 複数パッケージと失敗時の非公開 | `CommitInstalledSessionChanges` | [BmsLibraryPackageInstallServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `PendingResourcePackages_InstallThroughLibraryAndPreserveEarlierResourceSnapshot`、`InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication`: 旧世代と成功後の対象集合も確認する。 |
-| 修正・削除・統合・LR2失敗 | ライブラリ変更主体と統合後保守 | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction`、`RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange`、`AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess` と [BmsLibraryDuplicateServiceTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesAfterReleasingMutationReservation`。 |
+| 修正・削除・統合・LR2失敗 | ライブラリ変更主体と統合後保守 | [BmsLibraryFolderRenameRefreshTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) の `FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction`、`RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange`、`AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess` と [BmsLibraryDuplicateServiceTests](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation`。 |
 | 実際のフォルダ行数 | `BmsLibraryDbGateway.ReplaceFolderRecords` | [CatalogMutationOwnerTests](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) の `ApplyRelocation_CombinedBmsBmsonAndFolderEmitsDurableReceipt`: 対象行数と移転後の行を確認する。 |
 | 候補と解析の仕事量 | 導入先推定・解析器 | [BmsLibraryInstallEstimationServiceTests](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `EstimateInstallationDirectory_BuildsEachCandidateResourceViewOnce` は候補8・64・512件。[Net10ScanParserPerformanceTests](../../../BeMusicSeeker.Tests/Performance/Net10ScanParserPerformanceTests.cs) は1,000・4,000・16,000ノートを使う。 |
 | 合成データと実規模の区別 | [benchmark-net10-performance.ps1](../../../scripts/benchmark-net10-performance.ps1)、`Net10PerformanceCorpus` | 1,000・25,000・200,000行の合成データは、実DBや800万キーの逆引きを自動構築しない。代表操作の実時間は別の比較で確認する。 |

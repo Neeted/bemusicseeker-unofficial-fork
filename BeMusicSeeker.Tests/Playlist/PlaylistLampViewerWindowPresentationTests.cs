@@ -209,7 +209,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp historical date first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 SelectDisplayMode(window, true);
@@ -228,7 +228,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     session.RefreshAsync(),
                     "playlist lamp historical date range refresh");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Assert.IsTrue(picker.IsEnabled, "a non-empty provider history must enable the calendar");
@@ -262,7 +262,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     selectedAccepted.Task,
                     "playlist lamp historical selected result");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Assert.IsTrue(viewModel.IsCountMode);
@@ -280,7 +280,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     latestAccepted.Task,
                     "playlist lamp historical latest result");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Assert.IsTrue(viewModel.IsCountMode);
@@ -317,6 +317,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var requests = new List<PlaylistLampViewerNavigationRequest>();
+            var navigationApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var source = new FixedLampSource(CreateRequest(ActiveScoreSource.Beatoraja));
             var session = new PlaylistLampViewerSession("playlist", source);
             var viewModel = new PlaylistLampViewerViewModel(
@@ -324,7 +325,11 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 "Presentation fixture",
                 session,
                 TestUiDispatcherHost.Dispatcher,
-                requests.Add);
+                request =>
+                {
+                    requests.Add(request);
+                    navigationApplied.TrySetResult();
+                });
             var owner = new Window
             {
                 Width = 480,
@@ -340,7 +345,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Assert.IsInstanceOfType<ThemedWindow>(window);
@@ -526,7 +531,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         Colors.Black);
 
                     ((IInvokeProvider)peer.GetPattern(PatternInterface.Invoke)).Invoke();
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(navigationApplied.Task, "lamp-folder-navigation-applied");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     SetViewerPaletteBrush(window, assistResourceKey, Color.FromRgb(24, 24, 24));
                     AssertControlledContrast(
@@ -545,7 +551,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 finally
                 {
                     window.Resources[assistResourceKey] = originalAssistBrush;
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     window.UpdateLayout();
                 }
 
@@ -580,6 +586,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             var requests = new List<PlaylistLampViewerNavigationRequest>();
+            var clearNavigationApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var rankNavigationApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var source = new FixedLampSource(CreateRequest(ActiveScoreSource.Beatoraja));
             var session = new PlaylistLampViewerSession("playlist", source);
             var viewModel = new PlaylistLampViewerViewModel(
@@ -587,7 +595,18 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 "Global invocation fixture",
                 session,
                 TestUiDispatcherHost.Dispatcher,
-                requests.Add);
+                request =>
+                {
+                    requests.Add(request);
+                    if (request.Kind == PlaylistLampSegmentKind.Clear)
+                    {
+                        clearNavigationApplied.TrySetResult();
+                    }
+                    else
+                    {
+                        rankNavigationApplied.TrySetResult();
+                    }
+                });
             var owner = new Window
             {
                 Width = 480,
@@ -603,7 +622,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer global invocation first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Border clearHost = FindByAutomationId<Border>(window, "PlaylistLampViewerClearGraphHost");
@@ -654,7 +673,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 AutomationPeer rankPeer = UIElementAutomationPeer.CreatePeerForElement(rankButton)
                     ?? throw new AssertFailedException("The global rank segment has no Automation peer.");
                 ((IInvokeProvider)clearPeer.GetPattern(PatternInterface.Invoke)).Invoke();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(clearNavigationApplied.Task, "lamp-global-clear-navigation-applied");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 var clearSegment = (PlaylistLampViewerSegmentViewModel)clearButton.DataContext;
                 Assert.IsTrue(clearSegment.IsSelected);
                 Assert.AreSame(clearSegment, viewModel.SelectedSegment);
@@ -667,7 +687,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         .All(button => button.BorderThickness.Left == 0d));
 
                 ((IInvokeProvider)rankPeer.GetPattern(PatternInterface.Invoke)).Invoke();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(rankNavigationApplied.Task, "lamp-global-rank-navigation-applied");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 var rankSegment = (PlaylistLampViewerSegmentViewModel)rankButton.DataContext;
                 Assert.IsTrue(rankSegment.IsSelected);
                 Assert.IsFalse(clearSegment.IsSelected);
@@ -723,7 +744,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer width-aware first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 Border clearHost = FindByAutomationId<Border>(window, "PlaylistLampViewerClearGraphHost");
@@ -809,7 +830,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer default legend first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 StackPanel clearHost = FindByAutomationId<StackPanel>(
@@ -892,7 +913,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer folder width first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 TextBlock[] initialMediumLabels = FindDescendants<TextBlock>(window)
@@ -920,7 +941,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAsync(),
                     "playlist lamp viewer folder width live refresh");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 TextBlock[] longLabels = FindDescendants<TextBlock>(window)
@@ -979,7 +1000,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer count width first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 PlaylistLampViewerFolderRowViewModel initialRow = viewModel.FolderRows
@@ -1010,7 +1031,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAsync(),
                     "playlist lamp viewer count width live refresh");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
                 PlaylistLampViewerFolderRowViewModel cappedRow = viewModel.FolderRows
@@ -1100,7 +1121,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     viewModel.StartAndWaitForPresentableAsync(),
                     "playlist lamp viewer LR2 first presentable result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 SelectDisplayMode(window, true);
                 Assert.IsFalse(viewModel.ClearSegments.Any(segment =>
@@ -1130,7 +1151,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.StartAsync(),
                     "playlist lamp viewer degraded refresh");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsTrue(viewModel.IsCountMode);
                 RadioButton percentageMode = FindByAutomationId<RadioButton>(window, "PlaylistLampViewerPercentageMode");
@@ -1156,7 +1177,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     });
                 source.Replace(CreateRequest(ActiveScoreSource.Lr2));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "LR2 score recovery");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(viewModel.IsCountMode);
                 Assert.IsTrue(countMode.IsEnabled);
@@ -1201,7 +1222,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             {
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.StartAndWaitForPresentableAsync(), "common scale initial result");
                 windowTest.ShowAndWaitForContentRendered(window);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(viewModel.IsPercentageMode);
                 Assert.AreEqual(150, viewModel.CurrentResult.Statistics.TotalCount);
@@ -1235,7 +1256,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 selected.Invoke();
                 ScrollViewer scroll = FindByAutomationId<ScrollViewer>(window, "PlaylistLampViewerFolderScrollViewer");
                 scroll.ScrollToVerticalOffset(1d);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(scroll.VerticalOffset > 0d);
                 double offset = scroll.VerticalOffset;
@@ -1284,7 +1305,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.AreEqual(1, requests.Count);
                 }
                 scroll.ScrollToEnd();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Border maximum = FindRenderedFolder(window, "maximum");
                 Button maximumButton = FindDescendants<Button>(maximum).First();
@@ -1300,9 +1321,9 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 }
                 source.Replace(CreateScaleRequest(200));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "common scale changed maximum");
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 scroll.ScrollToHome();
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(viewModel.IsCountMode);
                 Assert.AreEqual(200d, viewModel.FolderBarScale);
@@ -1417,7 +1438,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     source.Replace(new PlaylistLampAggregationRequest("playlist", folders, [], CreateWidthAwareRequest().ScoreSnapshot));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "empty scale refresh");
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     window.UpdateLayout();
                     Assert.IsTrue(viewer.IsCountMode);
                     Assert.AreEqual(0d, viewer.FolderBarScale);
@@ -1452,9 +1473,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             count ? "PlaylistLampViewerCountMode" : "PlaylistLampViewerPercentageMode");
         Assert.IsTrue(radio.IsEnabled);
         radio.IsChecked = true;
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         window.UpdateLayout();
-        TestUiDispatcherHost.Drain();
         window.UpdateLayout();
     }
 
@@ -1621,9 +1641,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         Color color)
     {
         window.Resources[resourceKey] = new SolidColorBrush(color);
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         window.UpdateLayout();
-        TestUiDispatcherHost.Drain();
         window.UpdateLayout();
     }
 

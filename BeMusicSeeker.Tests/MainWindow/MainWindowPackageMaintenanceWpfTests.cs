@@ -1,14 +1,15 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using System.Windows.Interop;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -39,7 +40,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 settings,
-                (viewModel, window) => TestUiDispatcherHost.RunWindowTest(scope =>
+                (scope, viewModel, window) =>
                 {
                     string source = Path.Combine(root, "source");
                     Directory.CreateDirectory(source);
@@ -55,7 +56,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         db.CreateTable<LR2SongDB.song>();
                         db.CreateTable<LR2SongDBExtended.bmson_song>();
                     }
-                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath, settings);
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath, settings, viewModel);
                     library.BmsCharts = [bms];
                     library.BmsonCharts = [bmson];
                     bms = library.BmsCharts.Single();
@@ -97,8 +98,21 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     {
                         viewModel.MainChartList.PropertyChanged -= rowsChanged;
                     }
-                    TestUiDispatcherHost.Drain();
                     IList rows = viewModel.MainChartList.Rows;
+                    var bindingApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var itemsSource = DependencyPropertyDescriptor.FromProperty(CustomTableView.ItemsSourceProperty, typeof(CustomTableView));
+                    EventHandler bindingChanged = (_, _) =>
+                    {
+                        if (ReferenceEquals(rows, table.ItemsSource)) { bindingApplied.TrySetResult(); }
+                    };
+                    itemsSource.AddValueChanged(table, bindingChanged);
+                    try
+                    {
+                        bindingChanged(table, EventArgs.Empty);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(bindingApplied.Task, "installed rows binding applied");
+                    }
+                    finally { itemsSource.RemoveValueChanged(table, bindingChanged); }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreSame(rows, table.ItemsSource, "Rows公開と実表bindingの反映を別々に完了させてから編集を開始します。");
                     Assert.AreEqual(2, rows.Count);
                     LibraryChartRow[] realized = rows.Cast<LibraryChartRow>().ToArray();
@@ -140,7 +154,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         library.RenameChartFolder(source, "moved");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(entryPublished.Task, "installed entry publication");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed current refresh");
-                        TestUiDispatcherHost.Drain();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         string moved = Path.Combine(root, "moved");
                         Assert.AreEqual(0, rowsReplacing);
                         Assert.AreSame(rows, viewModel.MainChartList.Rows);
@@ -164,7 +178,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         CollectionAssert.AreEqual(new[] { moved }, index.Md5Directories[bms.Md5].ToArray());
                         NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
                         Assert.AreEqual(2, batch.ChangedCharts.Count);
-                        using var readback = new LR2SongDBExtended(dbPath);
+                        using LR2SongDBExtended readback = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
                         Assert.IsNotNull(readback.Find<LR2SongDB.song>(first.Chart.Path));
                         Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(second.Chart.Path));
                     }
@@ -177,7 +191,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         viewModel.MainChartList.CellEditBeginningRequested -= allowEdit;
                         library.ChartPackagesInstalled.Clear();
                     }
-                }));
+                });
         }
         finally
         {
@@ -231,6 +245,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
                     db.Execute("CREATE TRIGGER fail_report_finalizer BEFORE INSERT ON folder WHEN NEW.path LIKE '%ReceiptTarget%' BEGIN SELECT RAISE(ABORT, 'consumer-finalizer-marker'); END;");
                 }
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    fileDbMutationDialogService: dialogs);
                 var library = new TestBmsLibrary(dbPath, () => config, null,
                     new ResilientFileMutationService(), dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -239,18 +259,19 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         OperationModeLR2DB = true,
                         LR2RootPath = lr2Root,
                         FolderNameFormat = "[%ARTIST%] %TITLE%"
-                    })
+                    }, operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission)
                 { BmsCharts = [chart], SearchTargets = [root] };
-                viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
+                viewModel = composition.CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
                 bool activityInactive = false;
-                bool leaseReleased = false;
+                bool leaseBusy = false;
                 dialogs.OnMessage = () =>
                 {
                     activityInactive = !viewModel.ChartMutationActivity.IsActive;
                     using LibraryFileMutationLease gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
-                    leaseReleased = gate != null;
+                    leaseBusy = gate == null;
                 };
                 if (reporterThrows)
                 {
@@ -274,7 +295,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
 
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.WaitForIdleAsync(), "B1 terminal");
                 Assert.IsTrue(activityInactive);
-                Assert.IsTrue(leaseReleased);
+                Assert.IsTrue(leaseBusy, "必要な失敗通知中も論理受付を保持する。");
+                using (LibraryFileMutationLease next = library.TryBeginLibraryFileMutation("after-report", showMessage: false))
+                {
+                    Assert.IsNotNull(next, "通知の実終端後は次の明示変更を受理する。");
+                }
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(0, dialogs.ModelMessages);
                 Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
@@ -289,7 +314,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 ChartFile current = library.BmsCharts.Single();
                 Assert.AreEqual(sourceChart, chart.Path);
                 Assert.IsTrue(File.Exists(current.Path));
-                using var verifyDb = new LR2SongDBExtended(dbPath);
+                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
                 Assert.IsNotNull(verifyDb.Find<LR2SongDB.song>(current.Path));
             }
             finally
@@ -344,6 +369,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     : new ResilientFileMutationService();
                 // Register only the destination. Including DropSource in a BMS
                 // root would correctly skip it before this receipt test's mutation.
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    fileDbMutationDialogService: dialogs);
                 var library = new TestBmsLibrary(dbPath, null, null, files, dialogs,
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     () => new BmsLibraryOptionsSnapshot
@@ -352,9 +383,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         FolderNameFormat = "%TITLE%",
                         BMSInstallDir = installRoot,
                         KeepInstallablePackagesPending = false
-                    })
+                    }, operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission)
                 { BmsCharts = [], SearchTargets = [installRoot] };
-                viewModel = MainWindowViewModelTestFactory.Create(new Settings(), dialogs);
+                viewModel = composition.CreateMainWindowViewModelForTest();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
                 PackageInstallCompletionReceipt? outcome = null;
@@ -387,7 +419,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         failureKind == 1 ? "injected-destination-delete-failure" : "drop-primary-marker");
                     StringAssert.Contains(dialogs.Messages[0].MessageBoxText, source);
                 }
-                using var verifyDb = new LR2SongDBExtended(dbPath);
+                using LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(failureKind != 2, verifyDb.Find<LR2SongDB.song>(Path.Combine(destination, "chart.bms")) != null);
                 Assert.AreEqual(failureKind != 0, Directory.Exists(source));
             }
@@ -406,10 +438,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
     [TestMethod]
     public void ResourceHealthMaintenanceNotificationRefreshesRealizedNormalRowBeforeDisplay()
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         string root = Path.Combine(Path.GetTempPath(), "resource-health-wpf-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var settings = new Settings { StartupSelectInstallPending = false };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.StartupSelectInstallPending = false;
+            });
         try
         {
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -437,12 +472,18 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         songDb.CreateTable<LR2SongDBExtended.bmson_song>();
                     }
 
-                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings);
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, settings, viewModel);
                     library.BmsCharts = [];
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
 
                     library.BmsCharts = [chart];
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            (Task)(typeof(RegularChartListOwner).GetField(
+                                "normalLibraryRefreshDrainCompletion", BindingFlags.Instance | BindingFlags.NonPublic)
+                                ?.GetValue(viewModel.RegularChartList)
+                                ?? throw new InvalidOperationException("Normal library refresh task is missing.")),
+                            "normal-library-refresh-applied");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(1, library.BmsCharts.Count);
                     Assert.IsTrue(library.NormalLibraryRefreshNotificationVersion > 0);
                     Assert.IsNotNull(viewModel.MainChartList.LastCompletion);
@@ -473,7 +514,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)
                             && rowsAfterSourceRefresh == null)
                         {
-                            TestUiDispatcherHost.Drain();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            (Task)(typeof(RegularChartListOwner).GetField(
+                                "normalLibraryRefreshDrainCompletion", BindingFlags.Instance | BindingFlags.NonPublic)
+                                ?.GetValue(viewModel.RegularChartList)
+                                ?? throw new InvalidOperationException("Normal library refresh task is missing.")),
+                            "normal-library-refresh-applied");
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
                         }
                     };
                     viewModel.RegularChartList.NormalLibraryRefreshApplied += refreshApplied;
@@ -487,7 +534,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                             operationId: 1);
                         Assert.IsTrue(merge.MergeApplied, merge.SessionReceipt.PrimaryFailure?.ToString());
                         Assert.IsTrue(merge.ResourceHealthIndexDeferred);
-                        TestUiDispatcherHost.Drain();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            (Task)(typeof(RegularChartListOwner).GetField(
+                                "normalLibraryRefreshDrainCompletion", BindingFlags.Instance | BindingFlags.NonPublic)
+                                ?.GetValue(viewModel.RegularChartList)
+                                ?? throw new InvalidOperationException("Normal library refresh task is missing.")),
+                            "normal-library-refresh-applied");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.IsNotNull(rowsAfterSourceRefresh);
                         Assert.IsTrue(presentationRefreshObserved);
                         Assert.AreSame(rowsAfterSourceRefresh, rowsAfterPresentationRefresh);
@@ -538,7 +591,10 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         File.WriteAllText(Path.Combine(candidateBDirectory, "sound.wav"), "candidate");
         string songDbPath = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        var settings = new Settings { StartupSelectInstallPending = false };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.StartupSelectInstallPending = false;
+            });
         MainWindowViewModel? preparedViewModel = null;
         Task<bool>? navigationTask = null;
         var maintenanceTreeTerminal = new MainWindowMaintenanceTreeTerminal(
@@ -557,21 +613,9 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 [candidateBDirectory] = ["sound.wav"]
             },
             [root]);
-        var library = new TestBmsLibrary(
-            songDbPath,
-            getLR2Config: null,
-            _lr2ScoreDB: null,
-            startupRequiredFileScanReason: null,
-            optionsSnapshotProvider: () => options,
-            applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
-            chartFileScanner: scanner)
-        {
-            SearchTargets = [root],
-            StartupBackgroundTaskScheduler = (_, _, _, _) => false
-        };
+        TestBmsLibrary? initializedLibrary = null;
         try
         {
-            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 settings,
                 (viewModel, window) =>
@@ -677,12 +721,29 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 prepareViewModel: viewModel =>
                 {
                     preparedViewModel = viewModel;
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                    var library = new TestBmsLibrary(
+                        songDbPath,
+                        getLR2Config: null,
+                        _lr2ScoreDB: null,
+                        startupRequiredFileScanReason: null,
+                        optionsSnapshotProvider: () => options,
+                        applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                        chartFileScanner: scanner,
+                        operationAdmission: composition.OperationAdmission,
+                        playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                    {
+                        SearchTargets = [root],
+                        StartupBackgroundTaskScheduler = (_, _, _, _) => false
+                    };
+                    initializedLibrary = library;
+                    library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
                 });
         }
         finally
         {
-            library.RequestShutdown("correct-install-destination-presentation-test");
+            initializedLibrary?.RequestShutdown("correct-install-destination-presentation-test");
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -751,7 +812,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var installedMenu = (ContextMenu)window.FindResource("treeViewInstalledContextMenu");
@@ -843,7 +904,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var pendingInstallationTerminal = new MainWindowPendingInstallationTerminal(
             _ => Complete(), _ => Complete(), _ => Complete());
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 ContextMenu menu;
@@ -899,7 +960,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var libraryMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -938,7 +999,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             _ => Task.CompletedTask);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 ChartFile bmsFile = ChartTestValues.Empty() with
@@ -1019,30 +1080,44 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
-                var pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
-                MenuItem advanced = pendingMenu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
-
-                TaskCompletionSource<object?>[] completions =
-                [deleteSources, overwriteResources, renameZeroNotes];
-                string[] expected = ["delete-sources", "overwrite-resources", "rename-zero-notes"];
-                MenuItem[] commands = advanced.Items.OfType<MenuItem>().ToArray();
-                Assert.AreEqual(3, commands.Length);
-                for (int i = 0; i < commands.Length; i++)
+                try
                 {
-                    var args = new RoutedEventArgs(MenuItem.ClickEvent, commands[i]);
-                    commands[i].RaiseEvent(args);
-                    Assert.IsTrue(args.Handled);
-                    Assert.IsFalse(completions[i].Task.IsCompleted);
-                    completions[i].SetResult(null);
-                    TestUiDispatcherHost.Drain();
-                    Assert.AreEqual(expected[i], calls[i]);
+
+                    var pendingMenu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
+                    MenuItem advanced = pendingMenu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
+
+                    TaskCompletionSource<object?>[] completions =
+                    [deleteSources, overwriteResources, renameZeroNotes];
+                    string[] expected = ["delete-sources", "overwrite-resources", "rename-zero-notes"];
+                    MenuItem[] commands = advanced.Items.OfType<MenuItem>().ToArray();
+                    Assert.AreEqual(3, commands.Length);
+                    for (int i = 0; i < commands.Length; i++)
+                    {
+                        var args = new RoutedEventArgs(MenuItem.ClickEvent, commands[i]);
+                        commands[i].RaiseEvent(args);
+                        Assert.IsTrue(args.Handled);
+                        Assert.IsFalse(completions[i].Task.IsCompleted);
+                        completions[i].SetResult(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completions[i].Task, "compiled-terminal-delegate-result");
+                        Assert.AreEqual(expected[i], calls[i]);
+                    }
+                    Assert.AreEqual(3, calls.Count);
                 }
-                Assert.AreEqual(3, calls.Count);
+                finally
+                {
+                    deleteSources.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(deleteSources.Task, "compiled-finally-delegate");
+                    renameZeroNotes.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(renameZeroNotes.Task, "compiled-finally-delegate");
+                    overwriteResources.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(overwriteResources.Task, "compiled-finally-delegate");
+                }
+
             },
             pendingBulkMaintenanceTerminal: bulkTerminal);
     }
@@ -1077,153 +1152,157 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
-            (viewModel, window) =>
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (scope, viewModel, window) =>
             {
-                window.Width = 900d;
-                window.Height = 700d;
-                using var visualHost = new HwndSource(new HwndSourceParameters("MainWindowDuplicateRouteTest")
+                try
                 {
-                    Width = 900,
-                    Height = 700,
-                    PositionX = 0,
-                    PositionY = 0
-                });
-                visualHost.RootVisual = (System.Windows.Media.Visual)window.Content;
-                window.Measure(new Size(window.Width, window.Height));
-                window.Arrange(new Rect(0d, 0d, window.Width, window.Height));
-                window.UpdateLayout();
-                ChartFile sourceChart = ChartTestValues.Empty() with
-                {
-                    Path = @"C:\wave6e-duplicate\source\chart.bms",
-                    Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    RawTitle = "Duplicate"
-                };
-                var group = new DuplicateGroup(
-                    [(sourceChart)],
-                    [@"C:\wave6e-duplicate\source", @"C:\wave6e-duplicate\destination"]);
-                var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
-                duplicateRoot.ItemsSource = new[] { group };
-                duplicateRoot.IsExpanded = true;
-                duplicateRoot.ApplyTemplate();
-                duplicateRoot.Measure(new Size(900d, 700d));
-                duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
-                duplicateRoot.UpdateLayout();
-                window.UpdateLayout();
-                var groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(
-                    groupItem,
-                    $"duplicate group container was not generated (items={duplicateRoot.Items.Count}, status={duplicateRoot.ItemContainerGenerator.Status}, visibility={duplicateRoot.Visibility}, expanded={duplicateRoot.IsExpanded}, parent={duplicateRoot.Parent?.GetType().Name ?? "none"})");
-                groupItem!.IsExpanded = true;
-                groupItem!.UpdateLayout();
-                var folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(folderItem, "duplicate folder container was not generated");
-                Assert.IsNotNull(groupItem!.ItemContainerStyle, "duplicate folder style was not loaded");
-                folderItem!.Style = groupItem!.ItemContainerStyle;
-                folderItem!.ContextMenu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
-                Assert.IsInstanceOfType(folderItem!.DataContext, typeof(string));
-                Assert.AreEqual(2, group.Folders.Count);
-                Assert.AreEqual(
-                    DuplicateFolderKeyboardActionKind.Merge,
-                    viewModel.DuplicateMaintenanceWorkflow.CaptureDuplicateFolderKeyboardAction(
-                        group,
-                        (string)folderItem!.DataContext).Kind);
-                ContextMenu menu = folderItem!.ContextMenu;
-                menu.PlacementTarget = folderItem!;
-                var mergeMenu = (MenuItem)menu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
-                menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
-                mergeMenu.ApplyTemplate();
-                mergeMenu.Measure(new Size(400d, 200d));
-                mergeMenu.Arrange(new Rect(0d, 0d, 400d, 200d));
-                mergeMenu.UpdateLayout();
-                Assert.IsNotNull(mergeMenu.ItemContainerStyle, "duplicate merge target style was not loaded");
-                mergeMenu.ItemsSource = null;
-                mergeMenu.Items.Clear();
-                var target = new MenuItem
-                {
-                    DataContext = @"C:\wave6e-duplicate\destination",
-                    Tag = folderItem!,
-                    Style = mergeMenu.ItemContainerStyle
-                };
-                mergeMenu.Items.Add(target);
-                var contextArgs = new RoutedEventArgs(MenuItem.ClickEvent, target);
-                target!.RaiseEvent(contextArgs);
-                Assert.IsTrue(contextArgs.Handled);
-                Assert.IsFalse(mergeCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, mergeCalls.Count);
-                Assert.AreEqual(@"C:\wave6e-duplicate\source", mergeCalls[0].Source);
-                Assert.AreEqual(@"C:\wave6e-duplicate\destination", mergeCalls[0].Destination);
-                Assert.AreSame(group, mergeCalls[0].Group);
-                mergeCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
-                TestUiDispatcherHost.Drain();
 
-                // Applying the context-menu result may recycle the generated TreeViewItem.
-                // Resolve the current visual container before driving the keyboard route.
-                groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(groupItem);
-                groupItem!.IsExpanded = true;
-                groupItem!.UpdateLayout();
-                folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(folderItem);
-                folderItem!.Style = groupItem!.ItemContainerStyle;
-                folderItem!.ContextMenu = menu;
+                    window.Width = 900d;
+                    window.Height = 700d;
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    ChartFile sourceChart = ChartTestValues.Empty() with
+                    {
+                        Path = @"C:\wave6e-duplicate\source\chart.bms",
+                        Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        RawTitle = "Duplicate"
+                    };
+                    var group = new DuplicateGroup(
+                        [(sourceChart)],
+                        [@"C:\wave6e-duplicate\source", @"C:\wave6e-duplicate\destination"]);
+                    var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+                    duplicateRoot.ItemsSource = new[] { group };
+                    duplicateRoot.IsExpanded = true;
+                    duplicateRoot.ApplyTemplate();
+                    duplicateRoot.Measure(new Size(900d, 700d));
+                    duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
+                    duplicateRoot.UpdateLayout();
+                    window.UpdateLayout();
+                    var groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(
+                        groupItem,
+                        $"duplicate group container was not generated (items={duplicateRoot.Items.Count}, status={duplicateRoot.ItemContainerGenerator.Status}, visibility={duplicateRoot.Visibility}, expanded={duplicateRoot.IsExpanded}, parent={duplicateRoot.Parent?.GetType().Name ?? "none"})");
+                    groupItem!.IsExpanded = true;
+                    groupItem!.UpdateLayout();
+                    var folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(folderItem, "duplicate folder container was not generated");
+                    Assert.IsNotNull(groupItem!.ItemContainerStyle, "duplicate folder style was not loaded");
+                    folderItem!.Style = groupItem!.ItemContainerStyle;
+                    folderItem!.ContextMenu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
+                    Assert.IsInstanceOfType(folderItem!.DataContext, typeof(string));
+                    Assert.AreEqual(2, group.Folders.Count);
+                    Assert.AreEqual(
+                        DuplicateFolderKeyboardActionKind.Merge,
+                        viewModel.DuplicateMaintenanceWorkflow.CaptureDuplicateFolderKeyboardAction(
+                            group,
+                            (string)folderItem!.DataContext).Kind);
+                    ContextMenu menu = folderItem!.ContextMenu;
+                    menu.PlacementTarget = folderItem!;
+                    var mergeMenu = (MenuItem)menu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
+                    menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+                    mergeMenu.ApplyTemplate();
+                    mergeMenu.Measure(new Size(400d, 200d));
+                    mergeMenu.Arrange(new Rect(0d, 0d, 400d, 200d));
+                    mergeMenu.UpdateLayout();
+                    Assert.IsNotNull(mergeMenu.ItemContainerStyle, "duplicate merge target style was not loaded");
+                    mergeMenu.ItemsSource = null;
+                    mergeMenu.Items.Clear();
+                    var target = new MenuItem
+                    {
+                        DataContext = @"C:\wave6e-duplicate\destination",
+                        Tag = folderItem!,
+                        Style = mergeMenu.ItemContainerStyle
+                    };
+                    mergeMenu.Items.Add(target);
+                    var contextArgs = new RoutedEventArgs(MenuItem.ClickEvent, target);
+                    target!.RaiseEvent(contextArgs);
+                    Assert.IsTrue(contextArgs.Handled);
+                    Assert.IsFalse(mergeCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, mergeCalls.Count);
+                    Assert.AreEqual(@"C:\wave6e-duplicate\source", mergeCalls[0].Source);
+                    Assert.AreEqual(@"C:\wave6e-duplicate\destination", mergeCalls[0].Destination);
+                    Assert.AreSame(group, mergeCalls[0].Group);
+                    mergeCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(mergeCompletion.Task, "compiled-terminal-delegate-result");
 
-                var keyArgs = new KeyEventArgs(
-                    Keyboard.PrimaryDevice,
-                    PresentationSource.FromVisual((System.Windows.Media.Visual)window.Content),
-                    0,
-                    Key.G)
-                {
-                    RoutedEvent = UIElement.KeyDownEvent,
-                    Source = folderItem!
-                };
-                Assert.AreEqual(Key.G, keyArgs.Key);
-                Assert.AreSame(viewModel, window.DataContext);
-                Assert.AreEqual(@"C:\wave6e-duplicate\source", folderItem!.DataContext);
-                Assert.AreSame(group, WPFUtil.FindVisualParent<TreeViewItem>(folderItem)?.DataContext);
-                folderItem!.RaiseEvent(keyArgs);
-                Assert.AreEqual(1, shortcutProbe);
-                Assert.IsTrue(keyArgs.Handled);
-                Assert.IsFalse(keyboardMergeCompletion.Task.IsCompleted);
-                Assert.AreEqual(2, mergeCalls.Count);
-                keyboardMergeCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
-                TestUiDispatcherHost.Drain();
+                    // Applying the context-menu result may recycle the generated TreeViewItem.
+                    // Resolve the current visual container before driving the keyboard route.
+                    groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(groupItem);
+                    groupItem!.IsExpanded = true;
+                    groupItem!.UpdateLayout();
+                    folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(folderItem);
+                    folderItem!.Style = groupItem!.ItemContainerStyle;
+                    folderItem!.ContextMenu = menu;
 
-                var singleFolderGroup = new DuplicateGroup(
-                    [(sourceChart)],
-                    [@"C:\wave6e-duplicate\source"]);
-                duplicateRoot.ItemsSource = new[] { singleFolderGroup };
-                duplicateRoot.IsExpanded = true;
-                duplicateRoot.ApplyTemplate();
-                duplicateRoot.Measure(new Size(900d, 700d));
-                duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
-                duplicateRoot.UpdateLayout();
-                groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(groupItem);
-                groupItem!.IsExpanded = true;
-                groupItem!.UpdateLayout();
-                folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
-                Assert.IsNotNull(folderItem);
-                folderItem!.ContextMenu = menu;
-                var cleanupArgs = new KeyEventArgs(
-                    Keyboard.PrimaryDevice,
-                    PresentationSource.FromVisual((System.Windows.Media.Visual)window.Content),
-                    0,
-                    Key.G)
+                    var keyArgs = new KeyEventArgs(
+                        Keyboard.PrimaryDevice,
+                        PresentationSource.FromVisual(folderItem),
+                        0,
+                        Key.G)
+                    {
+                        RoutedEvent = UIElement.KeyDownEvent,
+                        Source = folderItem!
+                    };
+                    Assert.AreEqual(Key.G, keyArgs.Key);
+                    Assert.AreSame(viewModel, window.DataContext);
+                    Assert.AreEqual(@"C:\wave6e-duplicate\source", folderItem!.DataContext);
+                    Assert.AreSame(group, WPFUtil.FindVisualParent<TreeViewItem>(folderItem)?.DataContext);
+                    folderItem!.RaiseEvent(keyArgs);
+                    Assert.AreEqual(1, shortcutProbe);
+                    Assert.IsTrue(keyArgs.Handled);
+                    Assert.IsFalse(keyboardMergeCompletion.Task.IsCompleted);
+                    Assert.AreEqual(2, mergeCalls.Count);
+                    keyboardMergeCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(keyboardMergeCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var singleFolderGroup = new DuplicateGroup(
+                        [(sourceChart)],
+                        [@"C:\wave6e-duplicate\source"]);
+                    duplicateRoot.ItemsSource = new[] { singleFolderGroup };
+                    duplicateRoot.IsExpanded = true;
+                    duplicateRoot.ApplyTemplate();
+                    duplicateRoot.Measure(new Size(900d, 700d));
+                    duplicateRoot.Arrange(new Rect(0d, 0d, 900d, 700d));
+                    duplicateRoot.UpdateLayout();
+                    groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(groupItem);
+                    groupItem!.IsExpanded = true;
+                    groupItem!.UpdateLayout();
+                    folderItem = groupItem!.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+                    Assert.IsNotNull(folderItem);
+                    folderItem!.ContextMenu = menu;
+                    var cleanupArgs = new KeyEventArgs(
+                        Keyboard.PrimaryDevice,
+                        PresentationSource.FromVisual(folderItem),
+                        0,
+                        Key.G)
+                    {
+                        RoutedEvent = UIElement.KeyDownEvent,
+                        Source = folderItem!
+                    };
+                    folderItem!.RaiseEvent(cleanupArgs);
+                    Assert.IsTrue(cleanupArgs.Handled);
+                    Assert.IsFalse(cleanupCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, cleanupCalls.Count);
+                    Assert.AreSame(singleFolderGroup, cleanupCalls[0].Group);
+                    Assert.AreEqual(@"C:\wave6e-duplicate\source", cleanupCalls[0].Folder);
+                    cleanupCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(cleanupCompletion.Task, "compiled-terminal-delegate-result");
+                }
+                finally
                 {
-                    RoutedEvent = UIElement.KeyDownEvent,
-                    Source = folderItem!
-                };
-                folderItem!.RaiseEvent(cleanupArgs);
-                Assert.IsTrue(cleanupArgs.Handled);
-                Assert.IsFalse(cleanupCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, cleanupCalls.Count);
-                Assert.AreSame(singleFolderGroup, cleanupCalls[0].Group);
-                Assert.AreEqual(@"C:\wave6e-duplicate\source", cleanupCalls[0].Folder);
-                cleanupCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
-                TestUiDispatcherHost.Drain();
+                    mergeCompletion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(mergeCompletion.Task, "compiled-finally-delegate");
+                    keyboardMergeCompletion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(keyboardMergeCompletion.Task, "compiled-finally-delegate");
+                    cleanupCompletion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(cleanupCompletion.Task, "compiled-finally-delegate");
+                }
+
             },
             duplicateMaintenanceTerminal: duplicateTerminal);
     }
@@ -1307,146 +1386,172 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             });
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
-                var table = (CustomTableView)window.FindName("customTableView");
-                table.ItemsSource = new List<object> { pendingRow };
-                table.SelectRowsByPredicate(_ => true);
-                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
-                var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
-                tableMenu.PlacementTarget = new FrameworkElement { DataContext = pendingRow };
-
-                MenuItem installGroup = tableMenu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
-                MenuItem[] installCommands = installGroup.Items.OfType<MenuItem>().ToArray();
-                Assert.AreEqual(5, installCommands.Length);
-                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
-                var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
-                installCommands[0].RaiseEvent(searchInstallArgs);
-                Assert.IsTrue(searchInstallArgs.Handled);
-                Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
-                Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, pendingEstimateCalls[0].Request.Kind);
-                Assert.AreEqual(1, pendingEstimateCalls.Count);
-                Assert.AreEqual(1, pendingEstimateCalls[0].Request.PackageTargets.Count);
-                Assert.AreEqual(1, pendingEstimateCalls[0].Request.SelectedRowCount);
-                Assert.AreSame(pendingEntry, pendingEstimateCalls[0].Request.PackageTargets[0].PackageEntry);
-                searchInstallCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
-
-                var searchMergeArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[1]);
-                installCommands[1].RaiseEvent(searchMergeArgs);
-                Assert.IsTrue(searchMergeArgs.Handled);
-                Assert.IsFalse(searchMergeCompletion.Task.IsCompleted);
-                Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, pendingEstimateCalls[1].Request.Kind);
-                Assert.AreEqual(2, pendingEstimateCalls.Count);
-                Assert.AreEqual(1, pendingEstimateCalls[1].Request.PackageTargets.Count);
-                Assert.AreEqual(1, pendingEstimateCalls[1].Request.SelectedRowCount);
-                Assert.AreSame(pendingEntry, pendingEstimateCalls[1].Request.PackageTargets[0].PackageEntry);
-                searchMergeCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
-
-                var manualArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[2]);
-                installCommands[2].RaiseEvent(manualArgs);
-                Assert.IsTrue(manualArgs.Handled);
-                Assert.IsFalse(manualCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, installCalls.Count);
-                Assert.AreEqual(PendingInstallPackageOperationKind.ManualInstall, installCalls[^1].Kind);
-                Assert.AreEqual(1, installCalls[^1].Targets.Count);
-                Assert.AreEqual(1, installCalls[^1].SelectedRowCount);
-                Assert.AreSame(pendingEntry, installCalls[^1].Targets[0].PackageEntry);
-                manualCompletion.SetResult(PendingPackageMutationResult.Rejected);
-                TestUiDispatcherHost.Drain();
-
-                var forceArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[3]);
-                installCommands[3].RaiseEvent(forceArgs);
-                Assert.IsTrue(forceArgs.Handled);
-                Assert.IsFalse(forceCompletion.Task.IsCompleted);
-                Assert.AreEqual(2, installCalls.Count);
-                Assert.AreEqual(PendingInstallPackageOperationKind.ForceInstall, installCalls[^1].Kind);
-                Assert.AreEqual(1, installCalls[^1].Targets.Count);
-                Assert.AreEqual(1, installCalls[^1].SelectedRowCount);
-                Assert.AreSame(pendingEntry, installCalls[^1].Targets[0].PackageEntry);
-                forceCompletion.SetResult(PendingPackageMutationResult.Rejected);
-                TestUiDispatcherHost.Drain();
-
-                var clearArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[4]);
-                installCommands[4].RaiseEvent(clearArgs);
-                Assert.IsTrue(clearArgs.Handled);
-                Assert.IsFalse(clearCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, clearPendingCalls.Count);
-                Assert.AreEqual(1, clearPendingCalls[0].PackageTargets.Count);
-                Assert.AreEqual(1, clearPendingCalls[0].PackageTargets.Count + clearPendingCalls[0].LooseTargets.Count);
-                Assert.AreSame(pendingEntry, clearPendingCalls.Single().PackageTargets[0].PackageEntry);
-                clearCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
-
-                MenuItem selectedRemoval = tableMenu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
-                var removalArgs = new RoutedEventArgs(MenuItem.ClickEvent, selectedRemoval);
-                selectedRemoval.RaiseEvent(removalArgs);
-                Assert.IsTrue(removalArgs.Handled);
-                Assert.IsFalse(catalogCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, catalogRemovalCalls.Count);
-                Assert.AreEqual(1, catalogRemovalCalls[0].Targets.Count);
-                Assert.AreSame(pendingEntry, catalogRemovalCalls.Single().Targets[0].PackageEntry);
-                catalogCompletion.SetResult(PackageCatalogMutationResult.Rejected);
-                TestUiDispatcherHost.Drain();
-
-                ChartFile installedFile = ChartTestValues.Empty() with
+                try
                 {
-                    Path = @"C:\wave6e-installed\chart.bms",
-                    Md5 = "dddddddddddddddddddddddddddddddd",
-                    RawTitle = "Installed chart"
-                };
-                var installedRow = LibraryChartRow.FromChartFile(installedFile);
-                table.ItemsSource = new List<object> { installedRow };
-                table.SelectRowsByPredicate(_ => true);
-                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                tableMenu.PlacementTarget = new FrameworkElement { DataContext = installedRow };
-                MenuItem repairGroup = tableMenu.Items
-                    .OfType<MenuItem>()
-                    .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
-                MenuItem[] repairCommands = repairGroup.Items.OfType<MenuItem>().ToArray();
-                var repairSearchArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[0]);
-                repairCommands[0].RaiseEvent(repairSearchArgs);
-                Assert.IsTrue(repairSearchArgs.Handled);
-                Assert.IsFalse(repairSearchCompletion.Task.IsCompleted);
-                Assert.AreEqual(1, repairCalls.Count);
-                Assert.AreEqual("search", repairCalls.Single().Kind);
-                Assert.AreEqual(1, repairCalls.Single().Request.Targets.Count);
-                Assert.AreSame(installedRow.Chart, repairCalls.Single().Request.Targets[0].Chart);
-                Assert.AreSame(installedFile.Token, repairCalls.Single().Request.Targets[0].Chart.Token);
-                repairSearchCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
 
-                var repairFixArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[1]);
-                repairCommands[1].RaiseEvent(repairFixArgs);
-                Assert.IsTrue(repairFixArgs.Handled);
-                Assert.IsFalse(repairFixCompletion.Task.IsCompleted);
-                Assert.AreEqual(2, repairCalls.Count);
-                Assert.AreEqual("fix", repairCalls[^1].Kind);
-                Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
-                Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
-                Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
-                repairFixCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { pendingRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                    tableMenu.PlacementTarget = new FrameworkElement { DataContext = pendingRow };
 
-                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FullScanAllChartsFilterSelected);
-                Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
-                var repairClearArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[2]);
-                repairCommands[2].RaiseEvent(repairClearArgs);
-                Assert.IsTrue(repairClearArgs.Handled);
-                Assert.IsFalse(repairClearCompletion.Task.IsCompleted);
-                Assert.AreEqual(3, repairCalls.Count);
-                Assert.AreEqual("clear", repairCalls[^1].Kind);
-                Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
-                Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
-                Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
-                repairClearCompletion.SetResult(null);
-                TestUiDispatcherHost.Drain();
+                    MenuItem installGroup = tableMenu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
+                    MenuItem[] installCommands = installGroup.Items.OfType<MenuItem>().ToArray();
+                    Assert.AreEqual(5, installCommands.Length);
+                    Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
+                    var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
+                    installCommands[0].RaiseEvent(searchInstallArgs);
+                    Assert.IsTrue(searchInstallArgs.Handled);
+                    Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
+                    Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, pendingEstimateCalls[0].Request.Kind);
+                    Assert.AreEqual(1, pendingEstimateCalls.Count);
+                    Assert.AreEqual(1, pendingEstimateCalls[0].Request.PackageTargets.Count);
+                    Assert.AreEqual(1, pendingEstimateCalls[0].Request.SelectedRowCount);
+                    Assert.AreSame(pendingEntry, pendingEstimateCalls[0].Request.PackageTargets[0].PackageEntry);
+                    searchInstallCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var searchMergeArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[1]);
+                    installCommands[1].RaiseEvent(searchMergeArgs);
+                    Assert.IsTrue(searchMergeArgs.Handled);
+                    Assert.IsFalse(searchMergeCompletion.Task.IsCompleted);
+                    Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, pendingEstimateCalls[1].Request.Kind);
+                    Assert.AreEqual(2, pendingEstimateCalls.Count);
+                    Assert.AreEqual(1, pendingEstimateCalls[1].Request.PackageTargets.Count);
+                    Assert.AreEqual(1, pendingEstimateCalls[1].Request.SelectedRowCount);
+                    Assert.AreSame(pendingEntry, pendingEstimateCalls[1].Request.PackageTargets[0].PackageEntry);
+                    searchMergeCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchMergeCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var manualArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[2]);
+                    installCommands[2].RaiseEvent(manualArgs);
+                    Assert.IsTrue(manualArgs.Handled);
+                    Assert.IsFalse(manualCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, installCalls.Count);
+                    Assert.AreEqual(PendingInstallPackageOperationKind.ManualInstall, installCalls[^1].Kind);
+                    Assert.AreEqual(1, installCalls[^1].Targets.Count);
+                    Assert.AreEqual(1, installCalls[^1].SelectedRowCount);
+                    Assert.AreSame(pendingEntry, installCalls[^1].Targets[0].PackageEntry);
+                    manualCompletion.SetResult(PendingPackageMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(manualCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var forceArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[3]);
+                    installCommands[3].RaiseEvent(forceArgs);
+                    Assert.IsTrue(forceArgs.Handled);
+                    Assert.IsFalse(forceCompletion.Task.IsCompleted);
+                    Assert.AreEqual(2, installCalls.Count);
+                    Assert.AreEqual(PendingInstallPackageOperationKind.ForceInstall, installCalls[^1].Kind);
+                    Assert.AreEqual(1, installCalls[^1].Targets.Count);
+                    Assert.AreEqual(1, installCalls[^1].SelectedRowCount);
+                    Assert.AreSame(pendingEntry, installCalls[^1].Targets[0].PackageEntry);
+                    forceCompletion.SetResult(PendingPackageMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(forceCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var clearArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[4]);
+                    installCommands[4].RaiseEvent(clearArgs);
+                    Assert.IsTrue(clearArgs.Handled);
+                    Assert.IsFalse(clearCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, clearPendingCalls.Count);
+                    Assert.AreEqual(1, clearPendingCalls[0].PackageTargets.Count);
+                    Assert.AreEqual(1, clearPendingCalls[0].PackageTargets.Count + clearPendingCalls[0].LooseTargets.Count);
+                    Assert.AreSame(pendingEntry, clearPendingCalls.Single().PackageTargets[0].PackageEntry);
+                    clearCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(clearCompletion.Task, "compiled-terminal-delegate-result");
+
+                    MenuItem selectedRemoval = tableMenu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
+                    var removalArgs = new RoutedEventArgs(MenuItem.ClickEvent, selectedRemoval);
+                    selectedRemoval.RaiseEvent(removalArgs);
+                    Assert.IsTrue(removalArgs.Handled);
+                    Assert.IsFalse(catalogCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, catalogRemovalCalls.Count);
+                    Assert.AreEqual(1, catalogRemovalCalls[0].Targets.Count);
+                    Assert.AreSame(pendingEntry, catalogRemovalCalls.Single().Targets[0].PackageEntry);
+                    catalogCompletion.SetResult(PackageCatalogMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(catalogCompletion.Task, "compiled-terminal-delegate-result");
+
+                    ChartFile installedFile = ChartTestValues.Empty() with
+                    {
+                        Path = @"C:\wave6e-installed\chart.bms",
+                        Md5 = "dddddddddddddddddddddddddddddddd",
+                        RawTitle = "Installed chart"
+                    };
+                    var installedRow = LibraryChartRow.FromChartFile(installedFile);
+                    table.ItemsSource = new List<object> { installedRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    tableMenu.PlacementTarget = new FrameworkElement { DataContext = installedRow };
+                    MenuItem repairGroup = tableMenu.Items
+                        .OfType<MenuItem>()
+                        .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
+                    MenuItem[] repairCommands = repairGroup.Items.OfType<MenuItem>().ToArray();
+                    var repairSearchArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[0]);
+                    repairCommands[0].RaiseEvent(repairSearchArgs);
+                    Assert.IsTrue(repairSearchArgs.Handled);
+                    Assert.IsFalse(repairSearchCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, repairCalls.Count);
+                    Assert.AreEqual("search", repairCalls.Single().Kind);
+                    Assert.AreEqual(1, repairCalls.Single().Request.Targets.Count);
+                    Assert.AreSame(installedRow.Chart, repairCalls.Single().Request.Targets[0].Chart);
+                    Assert.AreSame(installedFile.Token, repairCalls.Single().Request.Targets[0].Chart.Token);
+                    repairSearchCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairSearchCompletion.Task, "compiled-terminal-delegate-result");
+
+                    var repairFixArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[1]);
+                    repairCommands[1].RaiseEvent(repairFixArgs);
+                    Assert.IsTrue(repairFixArgs.Handled);
+                    Assert.IsFalse(repairFixCompletion.Task.IsCompleted);
+                    Assert.AreEqual(2, repairCalls.Count);
+                    Assert.AreEqual("fix", repairCalls[^1].Kind);
+                    Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
+                    Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
+                    Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
+                    repairFixCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairFixCompletion.Task, "compiled-terminal-delegate-result");
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FullScanAllChartsFilterSelected);
+                    Assert.AreEqual(1, table.GetSelectedRowsSnapshot().Count);
+                    var repairClearArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[2]);
+                    repairCommands[2].RaiseEvent(repairClearArgs);
+                    Assert.IsTrue(repairClearArgs.Handled);
+                    Assert.IsFalse(repairClearCompletion.Task.IsCompleted);
+                    Assert.AreEqual(3, repairCalls.Count);
+                    Assert.AreEqual("clear", repairCalls[^1].Kind);
+                    Assert.AreEqual(1, repairCalls[^1].Request.Targets.Count);
+                    Assert.AreSame(installedRow.Chart, repairCalls[^1].Request.Targets[0].Chart);
+                    Assert.AreSame(installedFile.Token, repairCalls[^1].Request.Targets[0].Chart.Token);
+                    repairClearCompletion.SetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairClearCompletion.Task, "compiled-terminal-delegate-result");
+                }
+                finally
+                {
+                    searchInstallCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-finally-delegate");
+                    searchMergeCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchMergeCompletion.Task, "compiled-finally-delegate");
+                    clearCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(clearCompletion.Task, "compiled-finally-delegate");
+                    forceCompletion.TrySetResult(PendingPackageMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(forceCompletion.Task, "compiled-finally-delegate");
+                    manualCompletion.TrySetResult(PendingPackageMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(manualCompletion.Task, "compiled-finally-delegate");
+                    repairSearchCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairSearchCompletion.Task, "compiled-finally-delegate");
+                    repairClearCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairClearCompletion.Task, "compiled-finally-delegate");
+                    repairFixCompletion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(repairFixCompletion.Task, "compiled-finally-delegate");
+                    catalogCompletion.TrySetResult(PackageCatalogMutationResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(catalogCompletion.Task, "compiled-finally-delegate");
+                }
+
             },
             packageCatalogTerminal: catalogTerminal,
             pendingInstallEstimationTerminal: pendingEstimationTerminal,
@@ -1480,6 +1585,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
 
 internal static class MainWindowPackageMaintenanceTestHarness
 {
+    /// <summary>実shutdown/Closedと設定復元を回収し、表示する親Windowは同じ外側scopeへ追跡します。</summary>
+    /// <param name="prepareWindowForPresentation">親Windowを表示するfixtureだけが、表示前に所有するscopeへ準備を接続します。</param>
     internal static void RunConstructorOnly(
         Settings settings,
         Action<MainWindowViewModel, MainWindow> test,
@@ -1498,32 +1605,51 @@ internal static class MainWindowPackageMaintenanceTestHarness
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
         Action<MainWindowViewModel>? prepareViewModel = null,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null)
+        => RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
+            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation);
+
+    /// <summary>親子Windowに同じ表示scopeを渡し、実MainWindow寿命を共通補助で回収します。</summary>
+    internal static void RunConstructorOnly(
+        Settings settings,
+        Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow> test,
+        MainWindowFolderAutoRenameTerminal? folderAutoRenameTerminal = null,
+        MainWindowDuplicateMaintenanceTerminal? duplicateMaintenanceTerminal = null,
+        MainWindowMaintenanceRescanTerminal? maintenanceRescanTerminal = null,
+        MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal = null,
+        MainWindowPackageCatalogTerminal? packageCatalogTerminal = null,
+        MainWindowPendingInstallEstimationTerminal? pendingInstallEstimationTerminal = null,
+        MainWindowPendingInstallationTerminal? pendingInstallationTerminal = null,
+        MainWindowInstalledLocationRepairTerminal? installedLocationRepairTerminal = null,
+        MainWindowPendingBulkMaintenanceTerminal? pendingBulkMaintenanceTerminal = null,
+        MainWindowMainChartCellEditTerminal? mainChartCellEditTerminal = null,
+        MainWindowSelectedChartContextMenuTerminals? selectedChartContextMenuTerminals = null,
+        MainWindowPlaybackTerminal? playbackTerminal = null,
+        MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
+        MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
+        Action<MainWindowViewModel>? prepareViewModel = null,
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null)
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel? viewModel = null;
-            MainWindow? window = null;
-            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
-            try
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: new NoOpSettingsEditSession(settings),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: lifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                playlistWorkspaceDialogService: playlistWorkspaceDialogService)
+                .CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+            ownership.Run(() =>
             {
-                viewModel = new ApplicationComposition(
-                    settingsEditSession: new NoOpSettingsEditSession(settings),
-                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    playlistWorkspaceDialogService: playlistWorkspaceDialogService)
-                    .CreateMainWindowViewModelForTest();
+                MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
                 prepareViewModel?.Invoke(viewModel);
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(
+                MainWindow window = ownership.CreateWindow(() => new MainWindow(
                     viewModel,
                     settingsWindowCreated: null,
                     libraryReloadMenuTerminal: null,
@@ -1546,55 +1672,11 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     playbackTerminal,
                     playlistWorkspaceTerminals,
                     pendingPackageMutationViewTerminal: pendingPackageMutationViewTerminal,
-                    playlistWorkspaceDialogService: playlistWorkspaceDialogService);
-                // Constructor-only tests rehost MainWindow.Content in an on-screen HwndSource when they
-                // exercise compiled pointer routes. Keep the unshown Window's transform on that same
-                // monitor so MouseEventArgs.GetPosition is not based on a saved off-screen placement.
-                window.WindowStartupLocation = WindowStartupLocation.Manual;
-                window.Left = SystemParameters.WorkArea.Left;
-                window.Top = SystemParameters.WorkArea.Top;
-                window.ShowActivated = false;
-                window.ShowInTaskbar = false;
-                window.Closed += (_, _) => windowClosed.TrySetResult();
-                TestUiDispatcherHost.Drain();
-                test(viewModel, window);
-            }
-            finally
-            {
-                try
-                {
-                    if (window != null && !windowClosed.Task.IsCompleted)
-                    {
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            lifetime.ShutdownRequested.Task,
-                            "MainWindowPackageMaintenanceTestHarness.terminal-shutdown");
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            windowClosed.Task,
-                            "MainWindowPackageMaintenanceTestHarness.window-closed");
-                    }
-                }
-                finally
-                {
-                    try
-                    {
-                        viewModel?.SettingDialog.Dispose();
-                    }
-                    finally
-                    {
-                        if (hadPreviousViewModelResource)
-                        {
-                            Application.Current.Resources["vm"] = previousViewModelResource;
-                        }
-                        else
-                        {
-                            Application.Current.Resources.Remove("vm");
-                        }
-                    }
-                }
-            }
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService));
+                prepareWindowForPresentation?.Invoke(windowTest, window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                test(windowTest, viewModel, window);
+            });
         });
     }
-
 }

@@ -1398,8 +1398,8 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Drop_install_queue_extracting_sub_label_format" xml:space="preserve">
     <value>解凍中: {0}/{1} {2}</value>
   </data>
-  <data name="Pending_estimate_queue_label_format" xml:space="preserve">
-    <value>保留パッケージの導入先推定 {0}/{1}件 (待機 {2} バッチ)</value>
+  <data name="Install_estimation_label_format" xml:space="preserve">
+    <value>保留パッケージの導入先推定 {0}/{1}件</value>
   </data>
   <data name="Playlist_url_download_progress_label_format" xml:space="preserve">
     <value>プレイリストURLからの取得 {0}/{1}件</value>
@@ -2387,10 +2387,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue" xml:space="preserve">
     <value>インストール処理が実行中のため、URL 取り込みを開始できません。
 インストール処理の完了後、またはキャンセル後に再実行してください。</value>
-  </data>
-  <data name="Warn_DropInstallBlockedByPlaylistUrlDownload" xml:space="preserve">
-    <value>URL 取り込みが実行中のため、ドラッグ＆ドロップインストールを開始できません。
-URL 取り込みの完了後に再実行してください。</value>
   </data>
   <data name="Warn_DropInstallUnsupportedFormat" xml:space="preserve">
     <value>ドロップされたデータはファイルまたはフォルダとして受け取れませんでした。</value>

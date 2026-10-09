@@ -461,6 +461,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -527,7 +528,7 @@ public sealed class MainWindowContextMenuResourceTests
             double initialVerticalOffset = scroller.VerticalOffset;
             double initialHorizontalOffset = scroller.HorizontalOffset;
             scrollProvider.Scroll(ScrollAmount.SmallIncrement, ScrollAmount.SmallIncrement);
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.IsTrue(scroller.VerticalOffset > initialVerticalOffset);
             Assert.IsTrue(scroller.HorizontalOffset > initialHorizontalOffset);
             Assert.AreEqual(scroller.VerticalOffset, vertical.Value, 0.01d);
@@ -547,7 +548,7 @@ public sealed class MainWindowContextMenuResourceTests
                 "Canonical context horizontal scrollbar");
 
             vertical.IsEnabled = false;
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.IsTrue(vertical.Opacity < 1d);
         });
     }
@@ -597,7 +598,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         double lineStartOffset = SetScrollOffsetToInterior(viewer, orientation, description);
         InvokeScrollAffordance(lineStart, description + " line-start");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, orientation) < lineStartOffset,
@@ -605,7 +606,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         double lineEndOffset = SetScrollOffsetToInterior(viewer, orientation, description);
         InvokeScrollAffordance(lineEnd, description + " line-end");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, orientation) > lineEndOffset,
@@ -613,7 +614,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         double pageStartOffset = SetScrollOffsetToInterior(viewer, orientation, description);
         InvokeScrollAffordance(pageStart, description + " page-start");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         Assert.IsTrue(
             GetScrollOffset(viewer, orientation) < pageStartOffset,
@@ -621,7 +622,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         double pageEndOffset = SetScrollOffsetToInterior(viewer, orientation, description);
         InvokeScrollAffordance(pageEnd, description + " page-end");
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         double finalOffset = GetScrollOffset(viewer, orientation);
         Assert.IsTrue(
@@ -673,7 +674,7 @@ public sealed class MainWindowContextMenuResourceTests
             viewer.ScrollToHorizontalOffset(maximum / 2d);
         }
 
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
         viewer.UpdateLayout();
         double offset = GetScrollOffset(viewer, orientation);
         Assert.IsTrue(
@@ -696,6 +697,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public void CanonicalTopNavigation_UsesSingleSelectionAndStandardAutomation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -769,12 +771,12 @@ public sealed class MainWindowContextMenuResourceTests
             var folderSelection = (ISelectionItemProvider)folderPeer.GetPattern(PatternInterface.SelectionItem);
             Assert.IsNotNull(folderSelection);
             folderSelection.Select();
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.AreEqual(1, navigation.SelectedIndex);
             Assert.IsTrue(folderSelection.IsSelected);
 
             items[2].IsEnabled = false;
-            TestUiDispatcherHost.Drain();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
             var disabledNavigationChrome = (Border)items[2].Template.FindName("NavigationItemChrome", items[2]);
             Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
             content.ApplyTemplate();
@@ -882,7 +884,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SidebarTreeViewWidthSetting_PropertyNormalizesBackingValue()
     {
-        var settings = new Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
         settings["TreeViewWidth"] = 0d;
         Assert.AreEqual(Settings.DefaultTreeViewWidth, settings.TreeViewWidth);
@@ -897,7 +899,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void AppearanceThemeSetting_NormalizesValues()
     {
-        var settings = new Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
         settings["AppearanceTheme"] = "Dark";
         Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
@@ -912,7 +914,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void CustomTableAppearanceSettings_NormalizeValues()
     {
-        var settings = new Settings();
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
         settings["CustomTableFontSize"] = double.NaN;
         settings["CustomTableRowHeight"] = double.PositiveInfinity;

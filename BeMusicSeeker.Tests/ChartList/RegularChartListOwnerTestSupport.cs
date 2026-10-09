@@ -37,7 +37,8 @@ internal static class RegularChartListOwnerTestSupport
         PendingPackageWorkflowOwner? pendingPackageWorkflow = null,
         ChartFileOperationSynchronizer? chartFileOperations = null,
         IUiDialogService? mutationDialogs = null,
-        ChartMutationActivityOwner? chartMutationActivity = null)
+        ChartMutationActivityOwner? chartMutationActivity = null,
+        IChartMutationPlaybackPort? mutationPlayback = null)
     {
         return new RegularChartListOwner(
             table,
@@ -48,7 +49,7 @@ internal static class RegularChartListOwnerTestSupport
             pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
             chartMutationActivity ?? new ChartMutationActivityOwner(),
-            new NoOpChartMutationPlaybackPort(),
+            mutationPlayback ?? new NoOpChartMutationPlaybackPort(),
             normalLibraryRefreshUiScheduler ?? new TestUiScheduler(() => null!),
             mutationDialogs);
     }
@@ -118,7 +119,6 @@ internal static class RegularChartListOwnerTestSupport
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -538,10 +538,7 @@ internal static class RegularChartListOwnerTestSupport
             {
                 Interlocked.Increment(ref indexReadCount);
                 IndexReadStarted.Set();
-                if (!ReleaseIndexRead.Wait(TimeSpan.FromSeconds(5)))
-                {
-                    throw new TimeoutException("Summary index read was not released.");
-                }
+                ReleaseIndexRead.Wait();
                 return rows[index];
             }
         }

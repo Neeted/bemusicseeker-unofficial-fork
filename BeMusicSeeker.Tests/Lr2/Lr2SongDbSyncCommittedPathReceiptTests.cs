@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -104,17 +105,29 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
     }
 
     [TestMethod]
-    public void Receipt_ManualQueueOriginDiscardsWithoutTaking()
+    public async Task Receipt_ManualQueueOriginDiscardsWithoutTaking()
     {
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary library = CreateLr2Library(scope.SongDbPath);
         var owner = (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         owner.CommittedPathReceipt = new Lr2SongDbSyncCommittedPathReceipt([ReceiptChart(Path.Combine(scope.DirectoryPath, "manual.bms"))]);
-        library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
-
-        library.QueueLr2SongDbSync("test_manual", force: true);
-
-        Assert.IsNull(owner.CommittedPathReceipt);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new System.Threading.ManualResetEventSlim();
+        Task<Lr2SongDbSyncStatusSnapshot> operation = library.QueueLr2SongDbSyncAsync("test_manual", force: true,
+            (_, _) => { entered.TrySetResult(); release.Wait(); return Lr2SongDbSyncPreparedDataSurface.Empty; });
+        try
+        {
+            await Task.WhenAny(entered.Task, operation);
+            if (!entered.Task.IsCompleted) { await operation; Assert.Fail("実準備が開始されませんでした。"); }
+            Assert.IsNull(owner.CommittedPathReceipt);
+            Assert.IsFalse(operation.IsCompleted);
+        }
+        finally
+        {
+            library.RequestShutdown("receipt-test-cleanup");
+            release.Set();
+            await operation;
+        }
     }
 
     [TestMethod]
@@ -226,9 +239,6 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
         var progressEvents = new ConcurrentQueue<Lr2SongDbSyncProgress>();
         int readerCalls = 0;
         int chartInfoResolverCalls = 0;
-        using var cancellation = new CancellationTokenSource();
-        // 停止を失敗として検出する期限。正常完了は Run の帰還で判断する。
-        cancellation.CancelAfter(TimeSpan.FromSeconds(30));
         Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "receipt-chunk-boundaries",
@@ -247,7 +257,7 @@ public sealed class Lr2SongDbSyncCommittedPathReceiptTests
                 return null;
             },
             ProgressReporter = progressEvents.Enqueue,
-            CancellationToken = cancellation.Token
+            CancellationToken = CancellationToken.None
         });
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);

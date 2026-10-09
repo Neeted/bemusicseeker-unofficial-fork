@@ -98,6 +98,8 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Search Troubleshooting](#search-troubleshooting)
 - [References](#references)
 
+Playlist saving, synchronization and import run one at a time through downloading and required output. Additional changes are not queued; repeat the operation after it finishes. Routine library organization and playlist changes with separate output paths can run together. Settings saving and applying are rejected while either change is running. Your edits are kept, so you can save explicitly after it finishes. A chart download can succeed while installation is busy. Download and installation results are reported separately, and unused temporary inputs owned by the app are reclaimed.
+
 ## Introduction
 
 BeMusicSeeker combines BMS / bmson library management, search, audio playback, installation, playlists, and maintenance. Choose standalone mode or link your library and scores with LR2. You can also read beatoraja scores and export difficulty tables for beatoraja.
@@ -818,7 +820,7 @@ Properties such as the playlist name and folder settings are saved in the in-app
 
 ![Playlist properties general](img/プレイリストプロパティ_一般.PNG)
 
-In the `Folder` category, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted.
+In the `Folder` category, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted. If synchronization replaces a row while you are editing it, saving the old row is rejected. Select the latest row and make the edit again.
 
 ![Playlist properties folder](img/プレイリストプロパティ_フォルダ.PNG)
 
@@ -931,6 +933,10 @@ Supported inputs are BMS / bmson charts, work folders, and `.zip`, `.7z`, `.rar`
 5. Select rows that look correct, then run `Install` -> `Install to estimated install destination` from the context menu.
 
 You can drop multiple files or folders at once. To add more inputs during installation, wait for the current operation to finish and drop them again.
+
+Until install-destination estimation after import finishes, additional imports, pending-package changes, new playback starts, and saving or applying settings are unavailable. Repeat the operation after processing finishes. You can still browse, search, sort, select rows, and view, edit, or cancel settings. Cancelling estimation preserves registered packages and already applied results; you can manually estimate the remaining pending packages.
+
+During full LR2 synchronization, new playback starts and saving or applying settings are also unavailable. Your settings draft remains intact; save it explicitly after synchronization finishes. You can still browse, search, select rows, edit settings, and cancel. DB synchronization alone does not stop existing playback. Routine playlist editing and output can run alongside library operations that do not intersect managed output directories. Custom folder destinations change after settings are saved and applied; unsaved destination edits are not used.
 
 Use [multiple-row selection](#selecting-and-editing-rows) to estimate and install several packages together.
 

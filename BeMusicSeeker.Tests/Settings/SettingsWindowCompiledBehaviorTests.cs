@@ -41,20 +41,20 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true,
-                UseBeatorajaScoreDb = false,
-                EnableBeatorajaBmtOutput = false,
-                UsePlayeruBMplay = false,
-                UsePlayerLR2body = false,
-                UsePlayerBMIIDXView = false
-            });
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+            }));
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -106,18 +106,18 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true,
-                UsePlayeruBMplay = false,
-                UsePlayerLR2body = false,
-                UsePlayerBMIIDXView = false
-            });
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+            }));
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -232,21 +232,22 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            var settings = new Settings
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz,
-                PlayerFormat = SampleFormat.SAMPLE_INT_16BIT,
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true,
-                UsePlayeruBMplay = false,
-                UsePlayerLR2body = false,
-                UsePlayerBMIIDXView = false
-            };
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
+                values.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+            });
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -400,18 +401,19 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            Settings settings = new()
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                PlayerSampleRate = SampleRate.AUTO,
-                PlayerFormat = SampleFormat.AUTO,
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true
-            };
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.PlayerSampleRate = SampleRate.AUTO;
+                values.PlayerFormat = SampleFormat.AUTO;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+            });
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             var queryApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
                 new AudioDeviceCapabilityResult(
@@ -515,16 +517,17 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            Settings settings = new()
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true
-            };
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+            });
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             var queryApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             int queryCount = 0;
             AudioDeviceCapabilityRequest? capturedRequest = null;
@@ -606,16 +609,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true,
-                RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
-            });
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
+            }));
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -651,16 +654,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true,
-                RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-            });
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            }));
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -706,16 +709,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
             ResourceService.Current.ChangeCulture("en-US");
             TestUiDispatcherHost.RunWindowTest(_ =>
             {
-                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
-                {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = Path.GetTempPath(),
-                    StandaloneBmsRootPaths = Path.GetTempPath(),
-                    BMSInstallDir = Path.GetTempPath(),
-                    ScanBmsFilesOnStartup = false,
-                    SkipInitPlaylistLoad = true,
-                    RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}"
-                });
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
+            }));
                 var window = new SettingsWindow
                 {
                     DataContext = owner.SettingDialog,
@@ -826,18 +829,18 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                owner = MainWindowViewModelTestFactory.Create(new Settings
-                {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = Path.GetTempPath(),
-                    StandaloneBmsRootPaths = Path.GetTempPath(),
-                    BMSInstallDir = Path.GetTempPath(),
-                    ScanBmsFilesOnStartup = false,
-                    SkipInitPlaylistLoad = true,
-                    UseBeatorajaScoreDb = false,
-                    EnableBeatorajaBmtOutput = false,
-                    RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson
-                });
+                owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.UseBeatorajaScoreDb = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+            }));
                 window = new SettingsWindow
                 {
                     DataContext = owner.SettingDialog,
@@ -915,15 +918,15 @@ public sealed class SettingsWindowCompiledBehaviorTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(new Settings
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
-                OperationModeLR2DB = false,
-                BMSRootPath = Path.GetTempPath(),
-                StandaloneBmsRootPaths = Path.GetTempPath(),
-                BMSInstallDir = Path.GetTempPath(),
-                ScanBmsFilesOnStartup = false,
-                SkipInitPlaylistLoad = true
-            });
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = Path.GetTempPath();
+                values.StandaloneBmsRootPaths = Path.GetTempPath();
+                values.BMSInstallDir = Path.GetTempPath();
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+            }));
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -1063,15 +1066,15 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 ResourceService.Current.ChangeCulture("en-US");
-                owner = MainWindowViewModelTestFactory.Create(new Settings
-                {
-                    OperationModeLR2DB = false,
-                    BMSRootPath = firstRoot,
-                    StandaloneBmsRootPaths = string.Join(Environment.NewLine, firstRoot, secondRoot),
-                    BMSInstallDir = firstRoot,
-                    ScanBmsFilesOnStartup = false,
-                    SkipInitPlaylistLoad = true
-                });
+                owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = firstRoot;
+                values.StandaloneBmsRootPaths = string.Join(Environment.NewLine, firstRoot, secondRoot);
+                values.BMSInstallDir = firstRoot;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+            }));
                 var window = new SettingsWindow
                 {
                     DataContext = owner.SettingDialog,
@@ -1156,7 +1159,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Button restoreButton = backupButtons[1];
                 backupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, backupButton));
                 restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, dialogs.SaveFilePickerRequests.Count);
                 UiSaveFilePickerRequest saveRequest = dialogs.SaveFilePickerRequests.Single();
@@ -1218,7 +1221,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         window.Measure(new Size(820, 760));
         window.Arrange(new Rect(0, 0, 820, 760));
         window.UpdateLayout();
-        TestUiDispatcherHost.Drain();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
     }
 
     private static string? GetBindingPath(DependencyObject target, DependencyProperty property)

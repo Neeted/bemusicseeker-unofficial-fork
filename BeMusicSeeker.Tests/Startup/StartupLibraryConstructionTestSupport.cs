@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -24,10 +25,10 @@ internal static class StartupLibraryConstructionTestSupport
 
     internal static ApplicationComposition CreateComposition()
     {
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            OperationModeLR2DB = false
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+            });
         return new ApplicationComposition(
             bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
             settingsEditSession: new NoOpSettingsEditSession(settings),
@@ -218,7 +219,7 @@ internal static class StartupLibraryConstructionTestSupport
 
         internal bool ThrowOnServices { get; set; }
 
-        public void AttachStartupLibrary(BMSLibrary library)
+        public void AttachStartupLibrary(BMSLibrary library, LibraryFileMutationCapability? capability = null)
         {
             calls.Add("application-library");
             AttachedLibrary = library;

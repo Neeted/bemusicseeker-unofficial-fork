@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -23,10 +24,10 @@ public sealed class MainWindowTreePresentationWpfTests
     {
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
-            MainWindowPresentationTestHarness.RunConstructorOnly(new Settings(), (_, window) =>
+            MainWindowPresentationTestHarness.RunConstructorOnly(MainWindowViewModelTestFactory.CreateIsolatedSettings(), (_, window) =>
             {
                 var owner = new PackageLifecycleOwner(new BmsLibraryDbGateway(songDbPath),
-                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), (_, _) => { }, _ => { }, _ => { },
+                    new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), _ => { },
                     packages => new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages ?? []), () => { }, _ => { });
                 ChartFile before = ChartTestValues.Empty(ChartFileKind.Bms) with
                 {
@@ -48,7 +49,7 @@ public sealed class MainWindowTreePresentationWpfTests
                     Action publish = owner.PrepareCommittedChartApplication([before with { Title = "Z header", RawTitle = "Z header" }]);
                     Assert.AreEqual("A header", item.Header);
                     publish();
-                    TestUiDispatcherHost.Drain();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual("Z header", item.Header);
                     Assert.AreEqual(before.Path, entry.Chart.Path);
                 }
@@ -80,7 +81,7 @@ public sealed class MainWindowTreePresentationWpfTests
             });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -110,7 +111,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 createdViewModel = viewModel;
@@ -146,7 +147,7 @@ public sealed class MainWindowTreePresentationWpfTests
             });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 calls.Clear();
@@ -195,7 +196,7 @@ public sealed class MainWindowTreePresentationWpfTests
             });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 calls.Clear();
@@ -238,7 +239,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewZeroNoteContextMenu");
@@ -261,7 +262,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -308,7 +309,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var menu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -322,7 +323,7 @@ public sealed class MainWindowTreePresentationWpfTests
                     .Single(item => BindingOperations.GetBinding(item, HeaderedItemsControl.HeaderProperty) is Binding binding
                         && string.Equals(binding.Path?.Path, "Resources.Cancel_root_folder", StringComparison.Ordinal));
                 RaiseMenuClick(unregister);
-                TestUiDispatcherHost.Drain();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, reloadCalls);
                 Assert.AreEqual(1, reinitializeCalls);
@@ -336,10 +337,10 @@ public sealed class MainWindowTreePresentationWpfTests
     [TestMethod]
     public void ConstructorBindsTreePresentationThroughChildOwners()
     {
-        var settings = new Settings
-        {
-            StartupSelectInstallPending = true
-        };
+        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.StartupSelectInstallPending = true;
+            });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
         {
@@ -368,7 +369,7 @@ public sealed class MainWindowTreePresentationWpfTests
     public void ConstructorExposesSafeLibraryContextMenuAndLr2CompatibilityNode()
     {
         MainWindowPresentationTestHarness.RunConstructorOnly(
-            new Settings(),
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
             (_, window) =>
             {
                 var contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
@@ -461,6 +462,19 @@ public sealed class MainWindowTreePresentationWpfTests
 
 internal static class MainWindowPresentationTestHarness
 {
+    /// <summary>constructor-onlyの表示保証に不要な実起動を、既存のactivation境界で抑止します。</summary>
+    /// <remarks>実起動はMainWindowViewHostTestsとPlaylistのActualMainWindowFixtureが本番経路を検証します。</remarks>
+    internal static void PrepareConstructorOnlyShell(MainWindowViewModel viewModel)
+    {
+        PropertyInfo activation = typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.ShellActivationWorkflow),
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("constructor-only activation boundary is unavailable.");
+        activation.SetValue(viewModel,
+            new ShellActivationWorkflowOwner(viewModel.StartupUpdateWorkflow,
+                new ElevatedProcessWarningWorkflowOwner(() => false), () => Task.FromResult(true)));
+    }
+
+    /// <summary>実親Windowの終端と設定復元を回収してconstructor-only操作を検証します。</summary>
     internal static void RunConstructorOnly(
         Settings settings,
         Action<MainWindowViewModel, MainWindow> test,
@@ -473,31 +487,45 @@ internal static class MainWindowPresentationTestHarness
         MainWindowColumnResetTerminal? columnResetTerminal = null,
         MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null)
     {
+        ArgumentNullException.ThrowIfNull(test);
+        RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
+            allowStartupUiInteraction, libraryReloadMenuTerminal, regularLibraryTreeTerminal,
+            maintenanceTreeTerminal, installTreeTerminal, zeroNoteRecheckTerminal,
+            columnResetTerminal, rootFolderUnregisterTerminal);
+    }
+
+    /// <summary>表示する実親Windowを、終了処理を所有する同じscopeで追跡します。</summary>
+    internal static void RunConstructorOnly(
+        Settings settings,
+        Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow> test,
+        bool allowStartupUiInteraction = false,
+        MainWindowLibraryReloadMenuTerminal? libraryReloadMenuTerminal = null,
+        MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal = null,
+        MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal = null,
+        MainWindowInstallTreeTerminal? installTreeTerminal = null,
+        MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
+        MainWindowColumnResetTerminal? columnResetTerminal = null,
+        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null)
+    {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(test);
 
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel? viewModel = null;
-            MainWindow? window = null;
-            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var lifetime = new PresentationApplicationLifetime();
-            bool hadPreviousViewModelResource = Application.Current.Resources.Contains("vm");
-            object? previousViewModelResource = hadPreviousViewModelResource
-                ? Application.Current.Resources["vm"]
-                : null;
-            try
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: new NoOpSettingsEditSession(settings),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: lifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                .CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+            ownership.Run(() =>
             {
-                viewModel = new ApplicationComposition(
-                    settingsEditSession: new NoOpSettingsEditSession(settings),
-                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog())
-                    .CreateMainWindowViewModelForTest();
+                PrepareConstructorOnlyShell(viewModel);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(!allowStartupUiInteraction);
-                Application.Current.Resources["vm"] = viewModel;
-                window = new MainWindow(
+                MainWindow window = ownership.CreateWindow(() => new MainWindow(
                     viewModel,
                     settingsWindowCreated: null,
                     libraryReloadMenuTerminal: libraryReloadMenuTerminal,
@@ -506,48 +534,20 @@ internal static class MainWindowPresentationTestHarness
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: zeroNoteRecheckTerminal,
                     columnResetTerminal: columnResetTerminal,
-                    rootFolderUnregisterTerminal: rootFolderUnregisterTerminal);
-                window.Closed += (_, _) => windowClosed.TrySetResult();
-                TestUiDispatcherHost.Drain();
-                test(viewModel, window);
-            }
-            finally
-            {
-                try
-                {
-                    if (window != null && !windowClosed.Task.IsCompleted)
-                    {
-                        // 実 Close が準備と terminal を開始する。準備 Task だけでは Window は閉じない。
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            lifetime.ShutdownRequested.Task,
-                            "MainWindowPresentationTestHarness.terminal-shutdown");
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                            windowClosed.Task,
-                            "MainWindowPresentationTestHarness.window-closed");
-                    }
-                }
-                finally
-                {
-                    try
-                    {
-                        viewModel?.SettingDialog.Dispose();
-                    }
-                    finally
-                    {
-                        if (hadPreviousViewModelResource)
-                        {
-                            Application.Current.Resources["vm"] = previousViewModelResource;
-                        }
-                        else
-                        {
-                            Application.Current.Resources.Remove("vm");
-                        }
-                    }
-                }
-            }
+                    rootFolderUnregisterTerminal: rootFolderUnregisterTerminal));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                test(windowTest, viewModel, window);
+            });
         });
+    }
+
+    /// <summary>本番起動を開始せず、compiled内容とBindingを同じscopeの実Windowで描画します。</summary>
+    internal static void ShowCompiledContent(TestWindowPresentationScope scope, MainWindowViewModel viewModel, MainWindow window)
+    {
+        object content = window.Content;
+        window.Content = null;
+        var host = new Window { Content = content, DataContext = viewModel, Width = 1000, Height = 700 };
+        scope.ShowAndWaitForContentRendered(host);
     }
 
     /// <summary>実 Window の terminal 完了を観測し、共有 test Application の終了を抑止する。</summary>

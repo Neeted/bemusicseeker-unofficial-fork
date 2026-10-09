@@ -208,6 +208,8 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
 
 internal enum SelectedChartAudioConversionStatus
 {
+    /// <summary>Lで未受理のため変換・停止・保存を開始しません。</summary>
+    Busy,
     Completed,
     Cancelled
 }
@@ -273,20 +275,22 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
     private readonly ISelectedChartAudioConversionExecutor executor;
 
-    private int isRunning;
+    private readonly ChartFileOperationSynchronizer operationAdmission;
 
     internal SelectedChartAudioConversionWorkflowOwner(
         Func<SelectedChartAudioConversionSettingsSnapshot> settingsProvider,
         Action<EncoderType> applyEncoderFallback,
         ISelectedChartAudioConversionPlaybackPort playback,
         IUiDialogService dialogs,
-        ISelectedChartAudioConversionExecutor executor)
+        ISelectedChartAudioConversionExecutor executor,
+        ChartFileOperationSynchronizer operationAdmission)
     {
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.applyEncoderFallback = applyEncoderFallback ?? throw new ArgumentNullException(nameof(applyEncoderFallback));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
+        this.operationAdmission = operationAdmission ?? throw new ArgumentNullException(nameof(operationAdmission));
     }
 
     /// <summary>選択譜面の音声変換を実行します。</summary>
@@ -307,26 +311,28 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         {
             return SelectedChartAudioConversionResult.Empty;
         }
-        if (Interlocked.CompareExchange(ref isRunning, 1, 0) != 0)
-        {
-            throw new InvalidOperationException("An audio conversion workflow is already running.");
-        }
-
-        try
-        {
-            UiFolderPickerResult folderResult = await dialogs.PickFolderAsync(
+        UiFolderPickerResult folderResult = await dialogs.PickFolderAsync(
             new UiFolderPickerRequest(BeMusicSeeker.Properties.Resources.Save_to),
             cancellationToken);
-            ThrowIfPickerFailed(folderResult?.Status ?? UiDialogStatus.Failed, folderResult?.Error, "Audio conversion output folder picker");
-            if (folderResult.Status != UiDialogStatus.Accepted)
-            {
-                return SelectedChartAudioConversionResult.Create(
-                    SelectedChartAudioConversionStatus.Cancelled,
-                    request.Targets.Count,
-                    0,
-                    0);
-            }
+        ThrowIfPickerFailed(folderResult?.Status ?? UiDialogStatus.Failed, folderResult?.Error, "Audio conversion output folder picker");
+        if (folderResult.Status != UiDialogStatus.Accepted)
+        {
+            return SelectedChartAudioConversionResult.Create(
+                SelectedChartAudioConversionStatus.Cancelled,
+                request.Targets.Count,
+                0,
+                0);
+        }
 
+        if (!operationAdmission.TryEnter(out IDisposable accepted))
+        {
+            UiDialogResult busy = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            UiDialogRoute.ThrowIfNotShown(busy, "Audio conversion Busy notification");
+            return SelectedChartAudioConversionResult.Create(SelectedChartAudioConversionStatus.Busy, request.Targets.Count, 0, 0);
+        }
+        using (accepted)
+        {
             IReadOnlyList<ModelChartFile> bmsFiles = request.Targets
                 .Select(target => target.Chart)
                 .ToArray();
@@ -440,10 +446,6 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 MessageBoxResult.OK));
             UiDialogRoute.ThrowIfNotShown(completionResult, "Audio conversion completion notification");
             return result;
-        }
-        finally
-        {
-            Volatile.Write(ref isRunning, 0);
         }
     }
 

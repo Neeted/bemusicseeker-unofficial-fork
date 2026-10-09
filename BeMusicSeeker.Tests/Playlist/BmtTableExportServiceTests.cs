@@ -232,19 +232,19 @@ public sealed class BmtTableExportServiceTests
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
-            Assert.IsTrue(firstEntered.Wait(TimeSpan.FromSeconds(10)));
+            firstEntered.Wait();
             second = Task.Factory.StartNew(
                 () => publisher.PublishNext("second"),
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
-            Assert.IsTrue(second.Wait(TimeSpan.FromSeconds(10)));
+            second.Wait();
         }
         finally
         {
             releaseFirst.Set();
-            first?.Wait(TimeSpan.FromSeconds(10));
-            second?.Wait(TimeSpan.FromSeconds(10));
+            first?.Wait();
+            second?.Wait();
         }
         Task completedFirst = first!;
         Task completedSecond = second!;

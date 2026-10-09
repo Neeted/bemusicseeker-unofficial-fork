@@ -201,7 +201,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     [DataRow(true)]
     public void RemovePendingCharts_WholePackagesHonorRecyclePolicyAndKeepFailedPackage(bool sendToRecycleBin)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(tempDirectoryPath =>
         {
             string failedDirectoryPath = Path.Combine(tempDirectoryPath, "FailedPackage");
@@ -280,7 +280,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     [DataRow(true)]
     public void RemovePendingCharts_PartialThenLastSelectionHonorsWholePackageOption(bool deleteWholePackage)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(tempDirectoryPath =>
         {
             string packageDirectoryPath = Path.Combine(tempDirectoryPath, "Package");
@@ -353,7 +353,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
     [DataRow(true)]
     public void RemovePendingCharts_SingleFilePackagesKeepParentEvenWhenAllSelected(bool recursiveDiscovery)
     {
-        TestResourceInitializer.EnsureJapaneseResources();
+
         WithTemporaryDirectory(tempDirectoryPath =>
         {
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "IndependentCharts");
