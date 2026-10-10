@@ -22,8 +22,10 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 | --- | --- |
 | 起動時 | `Application_Startup` のミューテックス取得後、印のある過去セッションを非同期で削除する。起動は待たず、現在のセッションと印のない領域は除外する。 |
 | URL取得後 | 未受理では取得側がstaging回収の実終端を待つ。受理した入力は導入の入力使用終端まで保持し、取得側が残るstagingを回収する。展開先・保留は導入側が所有する。 |
-| 展開失敗・対象なし・取消 | 保留に残らない管理下の展開先を、その場で削除する。 |
+| 展開の正常終了 | 管理元アーカイブを消費し、展開先を自動導入・保留登録・直接推定へ渡す。利用者所有の元アーカイブは保持する。 |
+| 展開失敗・準備中例外・適用前の対象なし・取消 | 準備開始から操作が管理元入力と作成済み展開先を把握し、未引渡し管理入力を操作終端までに回収する。未展開の後続管理入力も含む。 |
 | 保留中 | 操作に必要な展開先は残す。 |
+| 適用開始後の失敗・取消 | 確定済み保留・導入、部分的な物理変更後の入力と確認候補を、[整合方針](../library/file-db-consistency.md)に従って保全する。外側の終端処理で無条件削除しない。 |
 | 保留一覧から削除 | パッケージのパスが管理一時パスの場合だけ削除する。利用者所有のパスは消さない。 |
 | アプリ終了 | 現在の管理一時領域を削除し、失敗しても終了を続ける。 |
 
@@ -38,6 +40,7 @@ URL取込みとアーカイブ導入で作る一時ファイルを、利用者�
 | 作成印、セッション内外、管理下にないファイルの保護 | [`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | [`TempDirectoryPublisherTests`](../../../BeMusicSeeker.Tests/FileOperations/TempDirectoryPublisherTests.cs) |
 | 並列に確保した入力の寿命と一括解放 | [`temporarilyCopyFiles`](../../../BeMusicSeeker/ViewModels/ChartOperations/temporarilyCopyFiles.cs) | [`TemporaryCopyFilesTests`](../../../BeMusicSeeker.Tests/ChartOperations/TemporaryCopyFilesTests.cs) |
 | 展開・保留・削除に伴う寿命 | [導入入口](../library/drop-install.md)と[パッケージ変更](../library/mutations.md) | 各仕様の実入口テストで確認する。 |
+| 正常な管理元消費と未引渡し入力回収 | [`BMSLibrary.PackageInstall`](../../../BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs)、[`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs) の `AutoInstall_ArchiveAndFolderInputsReachInstallOrPendingEstimation` は管理ZIP・借用ZIP・フォルダの導入／保留と推定、[`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerArchiveTests.cs) の `ProductionImport_PreApplyTerminalReclaimsManagedInputsBeforeAdmissionRelease` は展開直後取消、停止失敗、譜面なし、実展開先消失の回収と利用者元保護を確認する。 |
 | 起動・終了時の回収 | [App.cs](../../../BeMusicSeeker/App.cs) と[終了処理](../runtime/shutdown.md) | 終了仕様の対応表と、現在・過去の管理セッションを区別する実装の呼出し順で確認する。 |
 
 ## 関連資料

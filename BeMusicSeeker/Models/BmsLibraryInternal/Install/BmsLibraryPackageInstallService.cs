@@ -780,11 +780,10 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// Expands package sources while publishing progress through the narrow
-    /// feature-local writer.  The writer is intentionally independent from
-    /// the filesystem and catalog mutation callbacks so a producer cannot
-    /// retain per-item post-commit closures.
+    /// 入力アーカイブを管理一時領域へ展開し、正常な管理元アーカイブだけを消費します。
+    /// 展開失敗と必須日時復元失敗は対象を除外して診断し、独立した入力の処理を続けます。
     /// </summary>
+    /// <param name="observeCreatedInput">作成直後・展開開始前に管理展開先を渡します。外側が準備途中の取消・例外でもその寿命を所有します。</param>
     internal List<string> ExpandInstallSourcesWithProgress(
         IEnumerable<string> installPaths,
         IFileMutationService fileMutationService,
@@ -793,7 +792,8 @@ internal sealed class BmsLibraryPackageInstallService
         IBmsLibraryDialogService dialogService,
         IPackageInstallProgressWriter progressWriter,
         CancellationToken token,
-        Action<Action> deferPostCommitEffect)
+        Action<Action> deferPostCommitEffect,
+        Action<string> observeCreatedInput = null)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
         string[] archiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
@@ -825,6 +825,7 @@ internal sealed class BmsLibraryPackageInstallService
                         archiveSourceIndex,
                         archiveSourceTotal));
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
+                    observeCreatedInput?.Invoke(extractedTempDirectoryPath);
                     logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
                     var extractStopwatch = Stopwatch.StartNew();
                     List<ArchiveEntryMetadata> archiveEntries = SevenZipArchiveExtractor.ExtractArchiveEntries(installPath, extractedTempDirectoryPath);

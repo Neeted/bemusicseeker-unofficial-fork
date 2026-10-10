@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -132,6 +133,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>実管理ZIPを含む保留確定から直接推定へ進み、取消・例外後も既適用結果と未適用管理入力を保持し、開始済み兄弟・必須更新の終端まで受付を保持します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -150,6 +152,16 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Directory.CreateDirectory(source);
             File.WriteAllText(Path.Combine(source, "diff.bms"), CreateValidBmsText("Song") + "#PLAYLEVEL " + (10 + Array.IndexOf(sources, source)) + "\r\n", Encoding.ASCII);
         }
+        string managedArchiveRoot = TempDirectoryPublisher.Get();
+        string managedArchive = Path.Combine(managedArchiveRoot, "Input3.zip");
+        ZipFile.CreateFromDirectory(sources[3], managedArchive);
+        sources[3] = managedArchive;
+        var extractedRoots = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var files = new ArchiveInputFileMutationService(path =>
+        {
+            string? extractedRoot = Path.GetDirectoryName(path);
+            if (extractedRoot != null && TempDirectoryPublisher.IsManagedPath(extractedRoot)) { extractedRoots.Add(extractedRoot); }
+        });
         string songDb = Path.Combine(root, "song.db");
         File.WriteAllBytes(songDb, []);
         var background = new ConcurrentQueue<Func<Task>>();
@@ -162,7 +174,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             KeepInstallablePackagesPending = true,
             PendingInstallEstimateMaxParallelPackages = 2
         };
-        var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+        var library = new TestBmsLibrary(songDb, null, null, files, new FileDbReportRecordingDialogs(),
             new TestUiScheduler(() => null), () => options,
             CapturedChartFileScanner.FromFixture([installedChart],
                 new Dictionary<string, IEnumerable<string>> { [installed] = ["sound.wav"] }, [installed]),
@@ -227,6 +239,11 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
             Assert.IsTrue(library.ChartPackagesPending.SelectMany(package => package.ChartEntries).All(entry => (entry.Chart.Status & ChartFileStatus.SEARCHING) == 0));
             Assert.AreEqual(4, library.ChartPackagesPending.Count);
+            Assert.IsFalse(File.Exists(managedArchive));
+            Assert.AreEqual(1, extractedRoots.Count);
+            ChartPackage managedPending = library.ChartPackagesPending.Single(package => extractedRoots.Contains(package.path));
+            Assert.IsTrue(managedPending.ChartEntries.All(entry => File.Exists(entry.Chart.Path)));
+            Assert.IsTrue(string.IsNullOrEmpty(managedPending.ChartEntries.Single().Chart.InstallDestination), "未開始の管理入力は次の明示推定へ保全します。");
             failure = null;
             Assert.IsTrue(owner.Enqueue([sources[4]]));
             await owner.WaitForIdleAsync();
@@ -245,7 +262,13 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 finally
                 {
                     try { while (background.TryDequeue(out Func<Task>? work)) { await work(); } }
-                    finally { library.RequestShutdown("accepted-estimation-test"); Directory.Delete(root, recursive: true); }
+                    finally
+                    {
+                        library.RequestShutdown("accepted-estimation-test");
+                        foreach (string path in extractedRoots) { TempDirectoryPublisher.TryDeleteManagedPath(path); }
+                        TempDirectoryPublisher.TryDeleteManagedPath(managedArchiveRoot);
+                        Directory.Delete(root, recursive: true);
+                    }
                 }
             }
         }

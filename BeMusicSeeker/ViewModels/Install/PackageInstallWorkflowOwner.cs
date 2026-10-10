@@ -490,7 +490,7 @@ internal sealed class PackageInstallWorkflowOwner
 
         var progressWriter = new PackageInstallProgressWriter(this, context);
         (PackageInstallCommandResult commandResult, Exception terminalFailure) = await ExecuteInstallBatchAsync(
-            currentGeneration, currentLibrary, request, token, progressWriter, context.OperationLease, lease => context.PlaylistLease = lease).ConfigureAwait(false);
+            context, currentGeneration, currentLibrary, request, token, progressWriter, context.OperationLease, lease => context.PlaylistLease = lease).ConfigureAwait(false);
         commandResult ??= new PackageInstallCommandResult([], null);
         IReadOnlyList<ChartPackage> packages = commandResult.RegisteredPackages;
         if (!IsCurrentGeneration(currentGeneration, currentLibrary))
@@ -527,7 +527,9 @@ internal sealed class PackageInstallWorkflowOwner
         });
     }
 
+    /// <summary>実取り込みと回収を同じ受付内で待ち、確定前の失敗でも準備診断を保持します。任意の結果案内は受付解放後の既存終端通知へ渡します。</summary>
     private async Task<(PackageInstallCommandResult Result, Exception Failure)> ExecuteInstallBatchAsync(
+        QueueProcessorContext context,
         long expectedGeneration,
         BMSLibrary library,
         DroppedInstallBatchRequest request,
@@ -615,7 +617,7 @@ internal sealed class PackageInstallWorkflowOwner
                 if (messages.Count > 0)
                 {
                     // OK-only の情報通知で worker を止めない。確認が必要な入力は mutation 前に解決済み。
-                    DispatchNotification(() =>
+                    QueueTerminalNotification(context, () =>
                     {
                         if (IsCurrentGeneration(expectedGeneration, library))
                         {
@@ -627,7 +629,7 @@ internal sealed class PackageInstallWorkflowOwner
             }
         }
 
-        if (failures.Count > 0 && commandResult?.SessionReceipt != null)
+        if (failures.Count > 0 && commandResult != null)
         {
             terminalFailure = failures.Count == 1 ? failures[0].SourceException
                 : new AggregateException(failures.Select(failure => failure.SourceException));

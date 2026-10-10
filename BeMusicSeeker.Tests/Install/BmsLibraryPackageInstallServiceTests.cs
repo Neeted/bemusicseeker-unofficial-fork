@@ -26,7 +26,7 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class BmsLibraryPackageInstallServiceTests
+public sealed partial class BmsLibraryPackageInstallServiceTests
 {
 
     /// <summary>
@@ -245,8 +245,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
             try
             {
-                PackageInstallCommandResult result = library.InstallChartPackagesAutoCore([firstSource, crossingSource],
-                    CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
+                PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync([firstSource, crossingSource],
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsTrue(result.HasRequiredFailure);
                 Assert.AreEqual(1, result.RegisteredPackages.Count);
@@ -2245,8 +2245,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// DnD's library entry point protects configuration roots even before chart
-    /// indexing, for both standalone settings and LR2's configuration source.
+    /// 自動導入の非同期入口が、譜面索引なしでも単独動作・LR2設定の登録ルート自身・子孫を除外し、FSとDBを保持します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false, "root")]
@@ -2302,7 +2301,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 _ => nestedChartPath
             };
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoCore([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -2678,8 +2677,9 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 自動導入も推定／強制導入と同じ本番catalog入口へ到達し、
-    /// preflightで確定したdestinationをFS・SQLite・lookup・通知へ渡します。
+    /// 自動導入の非同期入口も推定／強制導入と同じ本番catalog入口へ到達し、
+    /// 事前に確定した宛先をFS・SQLite・索引・通知へ渡します。通常通知時は短いモデルguardを解放し、
+    /// 自動導入の外側Lは保持して新規受付をBusyにし、実Taskの終端後だけ新規受付を許可します。
     /// 背景16件は新規2譜面によるprimary hash更新（最大8件）を上回るため、
     /// 全件列挙なしの実observerを検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
     /// </summary>
@@ -3183,7 +3183,11 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
                         "warm_install_notification_lease_probe",
                         showMessage: false);
-                    Assert.IsNotNull(probe);
+                    if (isAutoRoute) { Assert.IsNull(probe, "必要な公開中も非同期操作の外側Lを保持します。"); }
+                    else { Assert.IsNotNull(probe); }
+                    AssertLibraryWriterCanBeAcquired(library, "rwlockBMSFilesInitializedAll");
+                    AssertLibraryWriterCanBeAcquired(library, "rwlockPendingInstallCharts");
+                    AssertLibraryWriterCanBeAcquired(library, "rwlockBMSFiles");
                     // 通知の観測はSELECTだけなので、writer接続を使わず共有writer lockの保持を避けます。
                     using LR2SongDBExtended notifiedSongDb = readOnlySongDbGateway.OpenSongDbReadOnly();
                     Assert.AreEqual(
@@ -3227,10 +3231,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     LibraryMutationSessionReceipt sessionReceipt;
                     if (isAutoRoute)
                     {
-                        PackageInstallCommandResult command = library.InstallChartPackagesAutoCore(
+                        PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgressAsync(
                             [step.SourceDirectoryPath],
                             CancellationToken.None,
-                            new RecordingPackageInstallProgressWriter(), out _);
+                            new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
                         Assert.AreEqual(1, command.RegisteredPackages.Count);
                         sessionReceipt = command.SessionReceipt;
                     }
@@ -3252,6 +3256,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(sessionReceipt.DurableCommit);
                     Assert.IsFalse(sessionReceipt.HasRequiredFailure);
                     Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
+                    using (LibraryFileMutationLease terminalProbe = library.TryBeginLibraryFileMutation("warm_install_terminal_probe", showMessage: false))
+                    {
+                        Assert.IsNotNull(terminalProbe, "実操作終端後は新規の変更受付を取得できます。");
+                    }
                     Assert.AreEqual(stepIndex + 1, library.ChartPackagesInstalled.Count);
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
                     ChartFile firstInstalled = library.BmsCharts.Single(file => file.Md5 == step.FirstSource.Md5);
@@ -3415,6 +3423,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>未収束の実非同期入口では導入せず保留・入力を保持し、モデル警告をOperationMessagesへ残します。実配送はowner側へ分担します。</summary>
     [TestMethod]
     public void InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling()
     {
@@ -3450,16 +3459,18 @@ public sealed class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoCore([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(sourceChartPath));
-            Assert.AreEqual(1, dialogService.Messages.Count);
+            Assert.AreEqual(0, dialogService.Messages.Count);
+            Assert.AreEqual(1, installed.OperationMessages.Count);
         });
     }
 
+    /// <summary>他の変更が受付を保持するとき実非同期入口は副作用前にBusyで失敗し、空の成功として公開しません。</summary>
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
@@ -3474,7 +3485,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(incumbent);
 
             Assert.ThrowsException<InvalidOperationException>(
-                () => library.InstallChartPackagesAutoCore([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _));
+                () => library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult());
         });
     }
 
@@ -3655,7 +3666,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    /// <summary>先行成功との部分重複で保留した package の未導入 hash を、後続の所有として予約しません。</summary>
+    /// <summary>実非同期入口の保留公開時に、先行物理成功だけが重複根拠となり未導入hashを予約しない分類を捕捉します。後続直接推定による警告更新と区別し、終端のThird実導入・FS・DB・一回反映も保持します。</summary>
     [TestMethod]
     public void InstallChartPackagesAuto_OnlyPhysicalSuccessReservesHashesForLaterCandidates()
     {
@@ -3693,8 +3704,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
-            PackageInstallCommandResult result = library.InstallChartPackagesAutoCore(
-                [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter(), out _);
+            bool? matchingInstalledAtPublication = null;
+            bool? unmatchedInstalledAtPublication = null;
+            System.ComponentModel.PropertyChangedEventHandler captureClassification = (_, args) =>
+            {
+                if (args.PropertyName != nameof(BMSLibrary.ChartPackagesPending)
+                    || matchingInstalledAtPublication.HasValue || library.ChartPackagesPending.Count == 0) { return; }
+                ChartPackage published = library.ChartPackagesPending.Single();
+                matchingInstalledAtPublication = published.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "matching.bms")
+                    .Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled);
+                unmatchedInstalledAtPublication = published.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "unmatched.bms")
+                    .Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled);
+            };
+            library.PropertyChanged += captureClassification;
+            PackageInstallCommandResult result;
+            try
+            {
+                result = library.InstallChartPackagesAutoWithProgressAsync(
+                    [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+            }
+            finally { library.PropertyChanged -= captureClassification; }
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.HasRequiredFailure);
@@ -3704,8 +3733,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(mixed, pending.path);
             PackageChartEntry matching = pending.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "matching.bms");
             PackageChartEntry unmatched = pending.ChartEntries.Single(entry => Path.GetFileName(entry.Chart.Path) == "unmatched.bms");
-            Assert.IsTrue(matching.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsFalse(unmatched.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
+            Assert.AreEqual(true, matchingInstalledAtPublication);
+            Assert.AreEqual(false, unmatchedInstalledAtPublication);
+            Assert.IsTrue(File.Exists(matching.Chart.Path));
+            Assert.IsTrue(File.Exists(unmatched.Chart.Path));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "First", "first.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(installed, "Third", "third.bms")));
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
@@ -5859,8 +5890,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// auto-install の package physical prepare がすべて成功しても canonical transaction が失敗した場合、
-    /// DB/package/resource publication を部分適用せず、prepared destination を session recovery facts に保持します。
+    /// 実非同期入口で全パッケージの物理準備が成功しても正本の確定が失敗した場合、
+    /// DB・パッケージ・リソースを部分公開せず、準備済み宛先をセッションの確認候補に保持します。
     /// </summary>
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_CanonicalApplyFailurePublishesNoPartialPackageState()
@@ -5909,10 +5940,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(installRootPath);
             library.SearchTargets = [installRootPath];
 
-            PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoCore(
+            PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgressAsync(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
                 CancellationToken.None,
-                new RecordingPackageInstallProgressWriter(), out _);
+                new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
 
             Assert.IsFalse(commandResult.HasDurableCommit);
             Assert.IsTrue(commandResult.HasRequiredFailure);
