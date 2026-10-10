@@ -1564,6 +1564,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     }
 
 
+    /// <summary>BMSとBMSONの実所属行を登録し、導入パッケージの参照を付けて失効を一回通知します。</summary>
     [TestMethod]
     public void InstallPackageReferenceAttachment_AttachesBmsAndBmsonAndRaisesOneInvalidation()
     {
@@ -1589,10 +1590,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             ChartFile bmsFile = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms")));
             ChartFile bmsonIdentity = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(null, @"C:\Installed\bmson-chart.bmson")));
             BMSTable table = new() { name = "Installed references", symbol = "P" };
-            table.entries.Add(new BMSTableEntry(bmsFile));
+            var bmsTableEntry = new BMSTableEntry(bmsFile);
             var bmsonTableEntry = new BMSTableEntry(bmsonIdentity);
             bmsonTableEntry.MarkAsBmsonPlaylistIdentity(bmsonSha256);
-            table.entries.Add(bmsonTableEntry);
+            table.entries = [bmsTableEntry, bmsonTableEntry];
             playlist.BMSTables.Add(table);
 
             ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
@@ -2083,6 +2084,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 row => Enum.Parse<WalkureLamp>(row.Value<string>("clearLamp") ?? throw new FormatException(), true), StringComparer.OrdinalIgnoreCase));
     }
 
+    /// <summary>ダミーを除くworkspace捕捉後にモデル行を削除しても、捕捉集合の順序と同じ行参照を保持します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceEntrySnapshotPreservesReferencesAfterTableMutation()
     {
@@ -2094,7 +2096,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         var table = new BMSTable { entries = [entry, dummy] };
 
         IReadOnlyList<BMSTableEntry> snapshot = PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(table);
-        table.entries.Clear();
+        table.RemoveBMSTableEntries(table.entries.ToArray());
 
         CollectionAssert.AreEqual(new[] { entry }, snapshot.ToArray());
     }

@@ -1031,7 +1031,7 @@ internal sealed class PlaylistExternalSyncOwner
                     newEntriesSnapshot = [.. oldEntriesSnapshot];
                     if (persistenceDecision.NeedsHeaderPersistence)
                     {
-                        newTable.entries = [.. oldEntriesSnapshot];
+                        newTable.entries = oldEntriesSnapshot;
                     }
                     if (!persistenceDecision.NeedsStatePersistence)
                     {

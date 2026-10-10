@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -12,6 +14,149 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSchemaMigrationTests
 {
+    /// <summary>数値風TEXT、空文字、空白、引用符、日本語、NULLとINTEGER/REALを実dump/restoreで往復し、新規読取り専用接続で値・SQLite型・所属と行集合を確認します。fr-FRからの一ケースだけ別行のmemoの埋込みNULとcommentの垂直TAB＋CRLFを独立したhex値とNULL/空文字の対照で確認し、途中の不正SQLでも旧三表・対象外を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow("fr-FR", "ja-JP")]
+    [DataRow("en-US", "fr-FR")]
+    public void PlaylistDump_RoundTripPreservesValuesAndStorageTypesAcrossCultures(string dumpCulture, string restoreCulture)
+    {
+        string path = CreateEmptySongDbPath();
+        CultureInfo previous = CultureInfo.CurrentCulture;
+        bool hasNulMemo = dumpCulture == "fr-FR";
+        string?[] values = ["1e3", "1.00", "1,000", "001", "", "   ", "日本語", "O'Brien", null];
+        const long ticks = 638857728000000000;
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(path);
+            using (var setup = new LR2SongDBExtended(path))
+            {
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.Execute("CREATE TABLE user_backup_data (value TEXT);");
+                    setup.Execute("INSERT INTO user_backup_data VALUES ('non-target');");
+                    setup.Insert(new LR2SongDB.song { hash = new string('a', 32), title = "song remains" });
+                    for (int index = 0; index < values.Length; index++)
+                    {
+                        setup.Insert(new LR2SongDBExtended.playlist
+                        {
+                            playlist_id = index + 1,
+                            name = values[index],
+                            last_update = new DateTime(ticks)
+                        });
+                        setup.Insert(new LR2SongDBExtended.playlist_entry
+                        {
+                            playlist_id = index + 1,
+                            md5 = index.ToString("x32", CultureInfo.InvariantCulture),
+                            title = values[index],
+                            folder = "folder",
+                            level = index == values.Length - 1 ? null : index + .125
+                        });
+                        setup.Insert(new LR2SongDBExtended.playlist_course
+                        {
+                            playlist_id = index + 1,
+                            course_order = index,
+                            course_json = values[index]
+                        });
+                    }
+                    // titleのモデルsetterはNULLを空文字に変えるため、SQLiteに保存済みのNULL行を直接準備する。
+                    setup.Execute("UPDATE playlist_entry SET title=NULL WHERE playlist_id=?;", values.Length);
+                    if (hasNulMemo)
+                    {
+                        setup.Execute("UPDATE playlist_entry SET memo=? WHERE playlist_id=1;", "before\0after");
+                        setup.Execute("UPDATE playlist_entry SET memo='' WHERE playlist_id=2;");
+                        setup.Execute("UPDATE playlist_entry SET memo=NULL WHERE playlist_id=3;");
+                        setup.Execute("UPDATE playlist_entry SET comment=? WHERE playlist_id=4;", "before\v\r\nafter");
+                        setup.Execute("UPDATE playlist_entry SET comment='' WHERE playlist_id=5;");
+                        setup.Execute("UPDATE playlist_entry SET comment=NULL WHERE playlist_id=6;");
+                    }
+                });
+            }
+            var repository = new PlaylistPersistenceRepository(path);
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(dumpCulture);
+            string dump = repository.GetPlaylistDump();
+            if (hasNulMemo)
+            {
+                using var mutate = new LR2SongDBExtended(path);
+                mutate.Execute("UPDATE playlist_entry SET memo='replacement marker' WHERE playlist_id=1;");
+                mutate.Execute("UPDATE playlist_entry SET comment='replacement marker' WHERE playlist_id=4;");
+            }
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo(restoreCulture);
+            repository.LoadPlaylistDump(dump);
+            VerifyDumpRows(path, values, ticks, hasNulMemo);
+
+            // 有効な部分INSERTを通過した後でSQL実行を失敗させ、旧三表の全行を保全する。
+            string separator = "\v" + Environment.NewLine;
+            string partial = string.Join(separator,
+                [dump.Split(separator)[0], "INSERT INTO missing_backup_table VALUES (1);", ""]);
+            SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => repository.LoadPlaylistDump(partial));
+            StringAssert.Contains(failure.Message, "missing_backup_table");
+            VerifyDumpRows(path, values, ticks, hasNulMemo);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+            DeleteTempSongDbDirectory(path);
+        }
+    }
+
+    private static void VerifyDumpRows(string path, IReadOnlyList<string?> values, long ticks, bool hasNulMemo)
+    {
+        using LR2SongDBExtended read = new BmsLibraryDbGateway(path).OpenSongDbReadOnly();
+        DumpValueRow[] headers = read.Query<DumpValueRow>("SELECT playlist_id AS Id, name AS Value, typeof(name) AS StorageType, last_update AS IntegerValue, typeof(last_update) AS IntegerType FROM playlist ORDER BY playlist_id;").ToArray();
+        DumpValueRow[] entries = read.Query<DumpValueRow>("SELECT playlist_id AS Id, title AS Value, typeof(title) AS StorageType, level AS RealValue, typeof(level) AS RealType, folder AS Folder FROM playlist_entry ORDER BY playlist_id;").ToArray();
+        DumpValueRow[] courses = read.Query<DumpValueRow>("SELECT playlist_id AS Id, course_json AS Value, typeof(course_json) AS StorageType, course_order AS IntegerValue, typeof(course_order) AS IntegerType FROM playlist_course ORDER BY playlist_id;").ToArray();
+        foreach (DumpValueRow[] rows in new[] { headers, entries, courses })
+        {
+            Assert.AreEqual(values.Count, rows.Length);
+            for (int index = 0; index < values.Count; index++)
+            {
+                Assert.AreEqual(index + 1, rows[index].Id);
+                Assert.AreEqual(values[index], rows[index].Value);
+                Assert.AreEqual(values[index] == null ? "null" : "text", rows[index].StorageType);
+            }
+        }
+        for (int index = 0; index < values.Count; index++)
+        {
+            Assert.AreEqual(ticks, headers[index].IntegerValue);
+            Assert.AreEqual("integer", headers[index].IntegerType);
+            Assert.AreEqual((long)index, courses[index].IntegerValue);
+            Assert.AreEqual("integer", courses[index].IntegerType);
+            Assert.AreEqual("folder", entries[index].Folder);
+            Assert.AreEqual(index == values.Count - 1 ? null : (double?)(index + .125), entries[index].RealValue);
+            Assert.AreEqual(index == values.Count - 1 ? "null" : "real", entries[index].RealType);
+        }
+        Assert.AreEqual("song remains", read.ExecuteScalar<string>("SELECT title FROM song WHERE hash=?;", new string('a', 32)));
+        Assert.AreEqual("non-target", read.ExecuteScalar<string>("SELECT value FROM user_backup_data;"));
+        if (hasNulMemo)
+        {
+            Assert.AreEqual("text", read.ExecuteScalar<string>("SELECT typeof(memo) FROM playlist_entry WHERE playlist_id=1;"));
+            Assert.AreEqual("6265666F7265006166746572", read.ExecuteScalar<string>("SELECT hex(CAST(memo AS BLOB)) FROM playlist_entry WHERE playlist_id=1;"));
+            Assert.AreEqual("text", read.ExecuteScalar<string>("SELECT typeof(memo) FROM playlist_entry WHERE playlist_id=2;"));
+            Assert.AreEqual(string.Empty, read.ExecuteScalar<string>("SELECT hex(CAST(memo AS BLOB)) FROM playlist_entry WHERE playlist_id=2;"));
+            Assert.AreEqual("null", read.ExecuteScalar<string>("SELECT typeof(memo) FROM playlist_entry WHERE playlist_id=3;"));
+            Assert.IsNull(read.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=3;"));
+            Assert.AreEqual("text", read.ExecuteScalar<string>("SELECT typeof(comment) FROM playlist_entry WHERE playlist_id=4;"));
+            Assert.AreEqual("6265666F72650B0D0A6166746572", read.ExecuteScalar<string>("SELECT hex(CAST(comment AS BLOB)) FROM playlist_entry WHERE playlist_id=4;"));
+            Assert.AreEqual("text", read.ExecuteScalar<string>("SELECT typeof(comment) FROM playlist_entry WHERE playlist_id=5;"));
+            Assert.AreEqual(string.Empty, read.ExecuteScalar<string>("SELECT hex(CAST(comment AS BLOB)) FROM playlist_entry WHERE playlist_id=5;"));
+            Assert.AreEqual("null", read.ExecuteScalar<string>("SELECT typeof(comment) FROM playlist_entry WHERE playlist_id=6;"));
+            Assert.IsNull(read.ExecuteScalar<string>("SELECT comment FROM playlist_entry WHERE playlist_id=6;"));
+        }
+    }
+
+    private sealed class DumpValueRow
+    {
+        public int Id { get; set; }
+        public string? Value { get; set; }
+        public string StorageType { get; set; } = string.Empty;
+        public long IntegerValue { get; set; }
+        public string? IntegerType { get; set; }
+        public double? RealValue { get; set; }
+        public string? RealType { get; set; }
+        public string? Folder { get; set; }
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSPlaylist_Constructor_DoesNotMigrateLegacyPlaylistEntrySchema()

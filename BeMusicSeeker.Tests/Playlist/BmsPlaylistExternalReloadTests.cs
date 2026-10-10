@@ -24,13 +24,14 @@ public sealed class BmsPlaylistExternalReloadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>三推薦の実登録・再取得で利用者状態、日時、不要保存抑止、通知とLR2/BMT出力を保持し、保存行の所属とmemoは新主体の本番hydrationで確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LocalRecommendations_KeepUserStateAndAvoidUnchangedWritesThenReachLr2AndBmt()
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        TestBmsPlaylist? playlist = null;
+        TestBmsPlaylist? playlist = null, reader = null;
         try
         {
             string songPath = CreateTempSongDbPath(directory);
@@ -91,8 +92,15 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreEqual("CustomName", persisted.custom_folder_output_base_name);
             Assert.AreEqual(42, persisted.bmt_sort);
             Assert.IsFalse(persisted.is_bmt_output);
-            persisted.entries = repository.LoadPersistedPlaylistEntries(id, false).ToList();
-            Assert.IsTrue(persisted.entries.Any(entry => entry.memo == "keep-user-memo"));
+            reader = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
+            await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
+            BMSTable hydrated = reader.BMSTables.Single(table => table.playlist_id == id);
+            reader.EnsurePlaylistEntriesLoaded(hydrated, "recommendation-state-hydration-test");
+            Assert.IsTrue(hydrated.entries.Any(entry => entry.memo == "keep-user-memo"));
+            Assert.IsTrue(hydrated.entries.All(entry => ReferenceEquals(hydrated, entry.parent) && entry.playlist_id == id));
+            Assert.IsTrue(renamed.entries.All(entry => ReferenceEquals(renamed, entry.parent) && entry.playlist_id == id));
 
             // 数値を変えず org_name だけ旧表記にした場合もヘッダーへ保存する。
             renamed.org_name = "旧方針 ★3.87";
@@ -169,6 +177,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
+            reader?.RequestShutdown("local-recommendations-test-complete");
             playlist?.RequestShutdown("local-recommendations-test-complete");
             Directory.Delete(directory, true);
         }
@@ -430,6 +439,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>未設定hashを実再取得・保存してもUpdatedと日時は進めず、手動名、新旧表の行所属と参照変更receiptを保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_HashInitializationPersistsWithoutUpdatedFlag()
@@ -490,6 +500,8 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.header_sha256));
             Assert.IsFalse(string.IsNullOrWhiteSpace(results[0].ResultTable.data_sha256));
             Assert.AreEqual(2, results[0].ResultTable.entries.Count(entry => !entry.is_removed));
+            Assert.IsTrue(table.entries.All(entry => ReferenceEquals(table, entry.parent) && entry.playlist_id == table.playlist_id));
+            Assert.IsTrue(results[0].ResultTable.entries.All(entry => ReferenceEquals(results[0].ResultTable, entry.parent) && entry.playlist_id == table.playlist_id));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 900001);
             Assert.IsFalse(string.IsNullOrWhiteSpace(persisted.header_sha256));
@@ -509,6 +521,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>実外部再取得でfolder投影を保存・LR2出力へ更新し、新旧表の行所属と採番IDを保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_ReoutputsLr2FolderProjectionAfterPersistedEntryChange()
@@ -579,6 +592,8 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsTrue(results[0].StatePersisted);
             BMSTable reloadedTable = results[0].ResultTable;
             Assert.AreSame(reloadedTable, playlist.BMSTables.Single());
+            Assert.IsTrue(table.entries.All(entry => ReferenceEquals(table, entry.parent) && entry.playlist_id == table.playlist_id));
+            Assert.IsTrue(reloadedTable.entries.All(entry => ReferenceEquals(reloadedTable, entry.parent) && entry.playlist_id == table.playlist_id));
             Assert.AreEqual("LEVEL 2", reloadedTable.entries.Single(entry => !entry.is_removed).folder);
             string reloadedText = ReadShiftJisText(outputPath);
             StringAssert.Contains(reloadedText, "#TITLE LEVEL 2");

@@ -33,7 +33,9 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private List<LR2SongDBExtended.playlist_course> _Courses = [];
 
-    protected List<BMSTableEntry> _entries;
+    private List<BMSTableEntry> _entries;
+
+    private IReadOnlyList<BMSTableEntry> _entriesView;
 
     private PlaylistEntriesLoadState _PlaylistEntriesLoadState = PlaylistEntriesLoadState.Loaded;
 
@@ -130,7 +132,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             throw new ArgumentException("Mutation snapshot belongs to another playlist table.", nameof(snapshot));
         }
 
-        _entries = [.. snapshot.Entries];
+        ReplaceEntriesCore([.. snapshot.Entries]);
         foreach (BMSTableEntry entry in _entries.Where(entry => entry != null).Distinct())
         {
             if (snapshot.EntryStates.TryGetValue(entry, out BMSTableEntry.MutationState state))
@@ -343,29 +345,34 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    public List<BMSTableEntry> entries
+    /// <summary>
+    /// 確定済み行の構成を変更できない一覧です。行自体の参照と編集可能性は保持します。
+    /// 完成集合の取込み時に入力集合を一度だけ複写し、所属、正規化、フォルダ状態と読込版を揃えます。
+    /// 少数の追加・削除・改名は専用操作を使い、全件の再取込みを行いません。
+    /// </summary>
+    public IReadOnlyList<BMSTableEntry> entries
     {
         get
         {
-            return _entries;
+            return _entriesView;
         }
         internal set
         {
-            if (value == null)
-            {
-                _entries = [];
-                RebuildFolderState();
-                MarkEntriesLoadedCore();
-                return;
-            }
-            foreach (BMSTableEntry item in value)
+            List<BMSTableEntry> ownedEntries = value == null ? [] : [.. value];
+            foreach (BMSTableEntry item in ownedEntries)
             {
                 item.parent = this;
             }
-            _entries = normalizeEntries(value);
+            ReplaceEntriesCore(normalizeEntries(ownedEntries));
             RebuildFolderState();
             MarkEntriesLoadedCore();
         }
+    }
+
+    private void ReplaceEntriesCore(List<BMSTableEntry> ownedEntries)
+    {
+        _entries = ownedEntries;
+        _entriesView = ownedEntries.AsReadOnly();
     }
 
     public PlaylistEntriesLoadState PlaylistEntriesLoadState
@@ -427,7 +434,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal void MarkEntriesNotLoaded()
     {
-        _entries = [];
+        ReplaceEntriesCore([]);
         EntriesLoadErrorMessage = string.Empty;
         PlaylistEntriesLoadState = PlaylistEntriesLoadState.NotLoaded;
         RebuildFolderState();
@@ -595,7 +602,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     public BMSTable()
     {
         base.name = string.Empty;
-        _entries = [];
+        ReplaceEntriesCore([]);
         base.is_external_sync = false;
         base.is_root_folder = false;
         base.is_bmt_output = true;
@@ -1221,7 +1228,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 entry.folder = folderNameAfter;
             }
         }
-        _entries = rebuildFolder(folderNameAfter);
+        ReplaceEntriesCore(rebuildFolder(folderNameAfter));
         if (string.IsNullOrWhiteSpace(folderNameAfter))
         {
             if (entries.Any(e => string.IsNullOrWhiteSpace(e.folder) && e.md5 != "00000000000000000000000000000000") && !Folder_order.Contains(string.Empty))
@@ -1309,7 +1316,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             entryToAdd.folder = folderName;
             entryToAdd.parent = this;
         }
-        _entries = rebuildFolder(folderName, entries.Concat(entriesToAdd));
+        ReplaceEntriesCore(rebuildFolder(folderName, entries.Concat(entriesToAdd)));
         TouchLastUpdate();
         if (shouldRebuildFolderState)
         {
@@ -1321,7 +1328,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     public void RemoveBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries)
     {
         List<string> source = [.. bmsEntries.Select(e => e.folder).Distinct()];
-        _entries = [.. entries.Except(bmsEntries)];
+        ReplaceEntriesCore([.. entries.Except(bmsEntries)]);
         bool flag = false;
         foreach (string item in source.Where(f => _entries.Where(e => e.folder == f).Count() == 0))
         {

@@ -478,6 +478,7 @@ internal sealed class PlaylistPersistenceRepository
         }
     }
 
+    /// <summary>保存済み三表の値とSQLite型を保持するSQLバックアップを生成します。</summary>
     internal string GetPlaylistDump()
     {
         using var db = new LR2SongDBExtended(songDbPath);
@@ -491,6 +492,7 @@ internal sealed class PlaylistPersistenceRepository
         return string.Join(separator, [playlistDump, courseDump, entryDump]);
     }
 
+    /// <summary>三表をSQLから復元し、旧形式のbmt_sortとis_bmt_outputだけを補正して他列の原値を保ちます。途中失敗では旧三表を保持します。</summary>
     internal void LoadPlaylistDump(string sql)
     {
         if (sql == null)
@@ -519,7 +521,9 @@ internal sealed class PlaylistPersistenceRepository
             {
                 foreach (BMSTable table in restoredTables)
                 {
-                    db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                    // モデル既定値や派生プロパティで復元済みの他列を再保存すると、NULLなどの原値が失われる。
+                    db.Execute("UPDATE playlist SET bmt_sort=?, is_bmt_output=? WHERE playlist_id=?;",
+                        table.bmt_sort, table.is_bmt_output, table.playlist_id);
                 }
             }
             db.Commit();

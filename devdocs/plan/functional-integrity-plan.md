@@ -17,9 +17,7 @@
 | 受付整理の比較対象 | `1e5bb62b68e33249153109ae5e06f13b0604318c` | 2026-10-10 02:48:11 |
 | 受付整理の直前親 | `a2df10790097dd7d34ab325bc1d93aa9f1d4df5e` | 2026-10-09 04:45:58 |
 
-この計画の初期状態は、上記リビジョンのソース・呼出経路・既存テスト定義の確認に基づく。Windowsでのビルド、`Functional`、`Full`、実アプリによる全機能の実行確認は未完了である。テストが存在すること、過去のコミット説明に検証成功が記されていることは、実装開始版における実行成功の代わりにしない。
-
-SQLバックアップについては、生成されるSQLリテラルを独立したSQLiteで評価すると、TEXTの `1e3` は `1000.0`、`1.00` は `1.0`、空白だけの文字列は空文字列となることを確認できる。これはSQLの解釈の確認であり、アプリのバックアップ・復元全体の実行確認ではない。
+着手基準は上記リビジョンとし、以下には未完了の修復と全範囲の確認を残す。Windowsの標準検証は修正単位ごとに行い、全範囲の`Full`と最終判定は未完了である。テストの存在や過去の説明を、現在版の実行成功の代わりにしない。
 
 着手時のHEADが基準から進んでいる場合は、その差分を先に照合する。解消済みの指摘を再実装せず、無関係な後続変更を巻き戻さない。
 
@@ -48,28 +46,16 @@ SQLバックアップについては、生成されるSQLリテラルを独立�
 | 識別 | 条件と問題 | 基準版の判定 | 導入位置の扱い | 修正単位 |
 | --- | --- | --- | --- | --- |
 | R-archive | 管理一時アーカイブを正常展開後、消費済み元パスを再検査して導入を拒否する。展開後取消の回収・診断の引渡しも同系列。 | 修正コードと実ZIPテストあり。保護する既存保証。 | `1e5bb62…`で導入、`77ae92a…`で対処。 | U0、U11で再検証。再実装しない。 |
-| R-bmt-set | URL順同期の空集合、部分出力の変更表集合を、台帳の全プレイリスト集合として保存する。無関係な表のURL所有情報が消える。 | 正常系の確定的な集合不整合。高確信。 | `1e5bb62…`の呼出契約変更。 | U1 |
-| R-bmt-drag | BMT順のドラッグ操作はDB・一覧だけ更新し、beatoraja設定へのURL順反映を呼ばない。 | 正常系の継続処理欠落。高確信。 | `1e5bb62…`で共通の同期呼出しを上位へ移した際の移管漏れ。 | U2 |
-| R-bmt-disabled | 出力無効・既存出力保持の通常編集でもBMT台帳へアクセスし、不要な障害依存を作る。 | 経路確認済み。正常時の不要作用も区別して修正する。 | `1e5bb62…`の入口統合。 | U1 |
 | R-reload-result | 外部更新でDBと正本参照を置換した後、BMT等が失敗すると置換結果を返せない。編集側が旧表を保持し、新規draftと誤認する。 | 確定済み結果の引渡し不整合。高確信。 | `1e5bb62…`の出力待機・戻り値契約変更。 | U6 |
 | R-save-followup | DB保存後の出力移行が失敗すると、再編集時の基準値を現在値へ更新して旧出力先や未完了の出力を失う。再保存でも未完了を省略し得る。 | 保存値と反映完了値の混同。高確信。 | `1e5bb62…`の基準値再捕捉。 | U7 |
 | R-rename-scope | 自動改名の事前判定が除外した失敗計画を、適用側がPの対象へ戻す。正常な非交差計画まで停止後Busyとなり得る。 | 準備と適用の対象不一致。高確信。 | `1e5bb62…`の適用側保護追加。 | U8 |
-| F-estimation-table | 内蔵の難度推定表で、空の`entries`へ項目を追加するため親表が設定されない。登録処理は項目をそのまま保存し、`playlist_id`のNOT NULL制約に到達する。 | 正常入力の登録不成立となる経路。高確信。 | 生成コードは比較親にも存在。最初の機能不成立の導入点は未特定であり、`1e5bb62…`の新規回帰とは断定しない。 | U3 |
-| F-backup-text | SQLバックアップが全列を文字列化した後、数値らしいTEXTを引用しない。正常な文字列が復元時に変化する。空白だけのTEXTも消える。 | 正常系の往復不成立。高確信。 | 原因処理は比較親にも存在。受付整理だけのリバートでは解消しない。 | U4 |
-| F-bmt-mode | 出力済み表のハッシュ出力方式だけを変更しても、方式を含まない出力署名が一致して再生成を省略する。 | 温まったキャッシュで設定反映が不成立。高確信。 | 原因となる署名と全表出力の利用は比較親にも存在。初導入点は未特定。 | U5 |
 | F-preview-subdir | 差分の追加音源がサブディレクトリにある場合、一時試聴がトップ階層しかコピーせず、移動先から音源を参照できない。 | 通常の相対パス入力で機能が未充足。コピー対象の不足は確認済み。再生時の現れ方はプレイヤー依存。 | 初導入点未特定。受付整理の新規回帰として計上しない。 | U9 |
-| F-uninstall-status | 通常のデータアンインストールで、アプリが生成する`playlist_custom_folder_output_status`を削除対象に含めていない。 | 正常終了しても所有データが残る。高確信。 | 削除リストの原因コードは比較親にも存在。初導入点は未特定。 | U10 |
 
 ### 根拠を追う場所
 
 - `BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs`の`InstallChartPackagesAutoWithProgressAsync`、準備済み入力専用の`InstallChartPackagesAutoCore`。`BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs`、`PackageInstallWorkflowOwnerArchiveTests.cs`。
-- `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs`の`ExportAllAsync`、`ExportTablesAsync`、`RemoveTablesAsync`、`SyncUrlsAsync`、`Execute`。`BeMusicSeeker/Models/Playlist/BmtTableExportService.cs`の`CreateExportPlan`、`UpdateManifest`、`CreatePlaylistExportMetadata`、`BuildProjectionInputSha256`、`ShouldSkipProjection`。
-- `BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs`のBMT順操作群と`DropSummaryRowsInBmtOrderCore`。`PlaylistSummaryBmtSortCoordinator.cs`の保存後継続。
 - `BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs`の`TrySaveCore`、`ReconcileFailedSaveAsync`、`ApplyPostSaveUpdatesAsync`。`PlaylistExternalSyncOwner.cs`のリロード終端と、`PlaylistAggregatePersistenceOwner.cs`の`TryApplyReloadedTableAsync`。
 - `BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs`の`PreparePhysicalMutation`と、`BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/AutoRenameBatchCoordinator.cs`の`ApplyWithSessionReceipt`。
-- `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs`の`BuildTable`、`BeMusicSeeker/Models/Playlist/BMSTable.cs`の`entries` setter、`BMSTableEntry.cs`の`parent`・`playlist_id`。`PlaylistPersistenceRepository.cs`の`ReplaceTablesWithEntries`、`LR2SongDBExtended.playlist_entry.playlist_id`のNOT NULL制約。
-- `BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs`の`Dump<T>`と`BeMusicSeekerOwnedTableNames`・`Uninstall`。`PlaylistPersistenceRepository.cs`の`GetPlaylistDump`・`LoadPlaylistDump`・`EnsureCustomFolderOutputStatusTable`。
-- `BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs`の`BuildSettingsPostSaveImpact`と`necessaryStepsAfterSaved`。方式変更を検出して全表出力を呼ぶが、その全表出力の省略判定に方式が入らない。
 - `BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs`の`StartTemporarilyInstalledChart`。`SearchOption.TopDirectoryOnly`で列挙している入力と、一時コピー先の相対構造。
 
 ## 修正後の設計条件
@@ -78,7 +64,7 @@ SQLバックアップについては、生成されるSQLリテラルを独立�
 
 準備前の入力と準備済み入力、全量と差分、新規draftと置換前の旧表、診断用の全計画と実行可能な計画を同じ意味の引数として扱わない。既存の型・メソッドを整理し、呼出しが不可能になる構造を優先する。空集合、`null`、複数の真偽値の組合せで、別の操作を暗黙に選ぶ入口は解消する。
 
-BMTではURL順だけの同期を生成・台帳更新から分ける。部分更新は既存所有情報へ変更を適用し、全更新だけが全体の現在集合を確定する。共通化するのはファイル操作や台帳の保存など同じ意味の処理であり、異なる目的そのものではない。
+BMTの全量・差分・URL順同期は[BMT出力仕様](../spec/playlist/bmt-export.md)の契約を維持する。残る保存・取込みの接続でも、異なる目的の集合を混同せず、同じ意味のファイル操作や台帳保存だけを共通化する。
 
 ### 一つの利用者操作に一つの手続き
 
@@ -117,8 +103,8 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 | 目録・保守・重複 | 目録owner、保留store、重複処理owner、実処理への引渡し。 | 各削除・統合・再検査の全分岐と、警告・索引・FSの実結果。 |
 | 起動・設定 | 構成生成、初期化、差分更新、設定影響判定、検索ルート変更、必要出力への接続。 | 初回から操作解禁までの全画面接続、二回目の再構築、実環境の設定反映。 |
 | プレイリスト保存・同期 | 編集session、DB保存、外部取得・登録・参照置換・派生出力の順序。 | 全編集列、一括変更、復元、UI選択の実結果と保存後失敗の故障注入。 |
-| 内蔵表 | 生成一覧、項目所属、登録・永続化までの経路。項目の親設定不足を確認。 | 実生成からSQLite再読込みまでの四種推定表・三種推薦表の実行。 |
-| BMT | 四つの出力入口、計画・台帳更新、URL設定、並べ替え、方式変更の省略判定。 | 修正前後の実台帳・gzip内容・設定順・未変更対象の比較。 |
+| 内蔵表 | 完成集合の共通取り込みと公開構成の保護はプレイリスト仕様に従う。 | 保存継続・復元を接続した最終版の確認。 |
+| BMT | 全量・差分・URL順同期、方式変更、必須設定の失敗通知はBMT仕様に従う。 | 保存継続と新規URL取込みを接続した最終版の確認。 |
 | LR2出力・同期 | 出力準備・移行・検索ルート同期と、全体同期への引渡し。 | 全カスタム出力種別のSQL・実folder行・外部LR2入力の整合。 |
 | 検索・一覧 | 通常一覧owner、表詳細の入力解決、保存検索の更新・公開。 | 全検索構文の評価、全列のソート、仮想化・コピー・キーボードの網羅的な接続確認。 |
 | スコア・履歴・集計 | 履歴ownerの要求・選択状態、詳細行のスコア解決、順位取得owner。 | 実スコアDB・履歴SQL・ランプ集計・順位計算の全結果。 |
@@ -134,6 +120,7 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 | --- | --- | --- | --- |
 | 初回起動 | 設定なしからスタンドアロンの初回設定を保存する。既存設定の起動も確認する。 | DB・ライブラリ・一覧が利用可能になる。設定取消で不完全な利用可能状態を作らない。 | `StartupLibraryInitializationWorkflowOwner`、`SettingsDialogViewModel`、Testsの`Startup`・`Settings` |
 | LR2起動 | 有効なLR2設定・song DB・検索ルートを使用する。出力済みプレイリストを含める。 | BMS所持と必要な`folder`行・カスタム出力が対応し、独自のユーザーデータを保持する。 | 初期化、`Lr2SongDbSyncWorkflowOwner`、Testsの`Lr2` |
+| LR2手動全体同期 | 設定画面から同期し、設定変更後に次の明示同期を実行する。 | 受理時の設定で実ファイル・folder行を反映し、次要求で新設定を使う。LR2のユーザー列を保つ。 | `Lr2SongDbSyncWorkflowOwner`、標準構成、Testsの`Lr2`・`Settings` |
 | 検索ルート | 追加、削除、複数ルート、管理出力と非交差のルートを操作する。 | 登録範囲と一覧が一致する。登録解除は実譜面を削除しない。インストール先等の既存保護を保つ。 | `SettingsDialogViewModel`、`LibraryFolderTree`、Testsの`Settings`・`Scanning` |
 | 各種リロード | ファイル追加・更新・削除後の差分、スコアだけの更新、全再初期化、表だけの再読込み。 | 選択した範囲だけが更新される。次の独立操作が可能で、不要な全走査や全出力を増やさない。 | `FileDiffReloadWorkflowOwner`、`PlaylistTablesReloadWorkflowOwner`、Testsの`Startup` |
 | 設定保存 | 一般、インストール、プレイリスト、外観、再生、音声、録音、バックアップ、詳細、右クリック設定を一項目ずつ保存・再表示する。 | 保存値・稼働中の動作・再表示値が一致する。取消は保存しない。未変更設定を変えない。 | `SettingsDialogViewModel`と各設定窓口、Testsの`Settings`・`Themes` |
@@ -149,16 +136,21 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 | 新規導入 | 利用者フォルダ、単体譜面、管理ZIP、管理外ZIP、複数入力。BMS/BMSONを既存対応範囲で確認。 | 正常な作品は実ファイル・DB・所持へ導入される。借用元と管理元の所有範囲が一致する。 | `PackageInstallWorkflowOwner`、`BMSLibrary.PackageInstall`、Testsの`Install` |
 | アーカイブ形式 | ZIPに加え、既存対応の7z・RAR・LZHを小さい有効fixtureで確認。入れ子のディレクトリ名も使用する。 | 展開結果の相対構造が維持され、導入入口まで届く。ZIPだけの成功を他形式の実績としない。 | 展開サービス、Testsの`Install`・`FileOperations` |
 | 保留登録・推定 | リソース不足の差分、候補なし、一候補、複数候補、既所持譜面混在。自動取り込み後と手動推定を別入口で確認。 | 保留入力が保持され、推定先が実候補と一致する。候補なしは誤った導入成功にならない。 | `PendingPackageWorkflowOwner`、推定サービス、Testsの`Install` |
+| 保留の高度操作 | 導入済み譜面だけの元パッケージ削除、リソースだけの上書き、ゼロノートBMS/PMSの拡張子変更を別々に実行する。 | 所持・未所持混在を正しく選別し、FS・保留DB・正本を揃える。非ゼロ譜面・BMSON・対象外の元データを保つ。 | `PendingPackageWorkflowOwner`、実保留store、Testsの`Install` |
 | 推定先導入・強制導入 | 確定先への導入、選択先への強制導入、複数差分と既存作品の組合せ。 | 選んだ先に正しい構成ができ、保留・所持・DB・索引が一括で一致する。 | 保留操作、変更セッション、Testsの`Install` |
 | スマート上書き・統合 | 保護する既存リソース、差分の追加リソース、退避名、同名別内容、二件目の導入。 | 設定どおりの内容が残り、既存保護ファイルを失わず、二件目へ古い準備状態を使わない。 | パッケージ移動・構成ファイル計画、Testsの`Install`・`FileOperations` |
 | 目録操作・保留削除 | 新規/保留の目録だけの削除と、元ファイル削除をそれぞれ実行する。 | 二つの操作の意味を区別し、目録削除で借用ファイルを消さない。全削除と選択削除を確認。 | `PackageCatalogWorkflowOwner`、`PendingPackageWorkflowOwner`、Testsの`Install` |
 | 重複整理 | 同一譜面別パス、同一フォルダ内重複、二フォルダ統合、三件以上のグループ。 | 必要な一つの実体と追加構成を残し、重複表示・DB・参照を更新する。 | `DuplicateMaintenanceWorkflowOwner`、Testsの`Maintenance`・`Catalog` |
 | 保守・警告 | ゼロノート、解析失敗登録解除、文字化け、LR2互換性、リソース不足、再検査、無視、全構成走査。 | 意図した分類・件数・対象だけを変更する。警告解除と実ファイル削除を混同しない。 | 各保守owner、Testsの`Maintenance`・`ResourceHealth` |
+| 導入済み配置の推定・解除・修正 | 所持譜面の配置候補を検索し、推定解除と配置修正をそれぞれ実行する。 | 候補・表示と正本が一致し、修正後のFS・DB・索引を揃える。保留譜面の新規導入で代用しない。 | 配置推定・修正、Testsの`Maintenance`・`Install`・`FileOperations` |
 | プレイリスト新規・保存 | 空表作成から命名・項目追加・保存、既存表の名称・symbol・出力先・prefix編集。 | 正しいID・項目所属・表示を保存し、再読込みでも一致する。未保存draftは正本に混入しない。 | `PlaylistPropertySaveService`、`PlaylistWorkspaceViewModel.Mutations`、Testsの`Playlist` |
 | 表詳細編集・フォルダ | レベル・URL1/URL2・メモ・コメント、フォルダ作成/改名、項目追加/削除、複数選択。 | 編集対象の値とDBが一致し、同じ表の未編集値と別表を保つ。 | `DetailEditing`、`Mutations`、永続化窓口、Testsの`Playlist` |
+| プロパティのフォルダ順 | 上移動・下移動・自然順の操作後に保存し、新しい読込み主体とLR2出力で読む。 | 操作で決めた順がDB・再表示・出力へ届き、所属や未編集値を変えない。 | プロパティ画面、永続化・カスタム出力、Testsの`Playlist`・`Dialogs` |
 | 表サマリー | 表フラグの一括変更、BMT対象、ルート切替、表削除、表示フィルター。 | 選択集合だけを一括反映し、出力・参照・表示を揃える。 | `PlaylistSummaryBulkEdit`、`PlaylistRemovalWorkflowOwner`、Testsの`Playlist` |
+| 外部プロパティ初期化 | 外部JSONから選択した項目だけ初期化する。 | 指定値・DB・選択・表示を揃え、未選択項目と別表の出力先を保つ。 | workspace外部プロパティ初期化、Testsの`Playlist` |
+| 表のJSON出力 | ヘッダーとdataの二つの保存先を指定し、既存data URLありの表も出力する。 | 両ファイルの内容と参照を確認し、正本のData_urlを変えない。取消・失敗の既存保証を維持する。 | workspace出力、serializer、Testsの`Playlist` |
 | BMT出力・削除 | 全表、Aだけ更新、Aだけ削除、空の変更要求、出力無効/既存保持、明示cleanup。 | Bを含む未変更の所有情報と管理外ファイルを保つ。全量・差分・作用なしを区別する。 | `PlaylistBmtOutputOwner`、`BmtTableExportService`、Testsの`Playlist` |
-| BMT並べ替え | 先頭、末尾、現在の表示順、ドラッグ、インポート後の先頭配置。 | DB・一覧・実`config.json`の`tableURL`順が揃い、登録URLが消えない。 | `PlaylistSummaryBmtSortCoordinator`、workspace、Testsの`Playlist`・`MainWindow` |
+| BMT並べ替え | 先頭、末尾、現在の表示順、ドラッグ、インポート後の先頭配置。 | DB・一覧・実`config_sys.json`の`tableURL`順が揃い、登録URLが消えない。 | `PlaylistSummaryBmtSortCoordinator`、workspace、Testsの`Playlist`・`MainWindow` |
 | BMT方式設定 | 既に出力した両ハッシュ付き表でOriginalからPreferSha256Onlyへ変更し、再度同じ方式で出力。 | 初回変更は実BMTのハッシュを変え、同条件の次回は不要な書込みをしない。正本ハッシュは変えない。 | BMT署名、設定保存、Testsの`Playlist`・`Settings` |
 | LR2カスタム出力 | 通常/ルート型、追加出力基点、設定変更、表改名、レベル・クリア等の既存出力種別。 | 実`.lr2folder`・`folder`行・検索ルートの対応を確認する。単なるファイル存在確認で済ませない。 | `PlaylistCustomFolderOutputMaintenanceOwner`、Testsの`Playlist`・`Lr2` |
 | 表インポート | HTTPページ、ヘッダーJSON、相対data URL、collection、ローカルJSON、複数URI。 | 取得した表が登録・保存・表示される。同名の別表を誤置換しない。ネットワーク試験は固定応答で判定する。 | `PlaylistExternalSyncOwner`、`ExternalPlaylistImport`、Testsの`Playlist` |
@@ -170,6 +162,7 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 | スコア・順位 | LR2/beatorajaの固定スコアDB、スコアだけ再読込み、IR取得・ローカル順位キャッシュ。 | 選択中ソースのランプ・数値・未送信判定を反映し、未所持行・形式差も正しく扱う。 | スコア読込み、`RankingCacheDownloadWorkflowOwner`、Testsの`Ir`・`Library`・`PlayHistory` |
 | ランプビューア | 表・フォルダ・クリア別の集計、スコア更新後の再表示、未所持を含む表。 | 母数・内訳・絞込み先が一致し、二重計数や旧スコア表示がない。 | playlistの集計・ランプ表示、Testsの`Playlist` |
 | プレイ履歴 | 期間、検索、サマリー、未確定/診断、対象プリセット、FOLDER表示、行の外部操作。 | 固定履歴行と日付境界・集計・表示対象が一致する。設定変更後も旧対象を使わない。 | `PlayHistoryWorkflowOwner`、履歴DB照会、Testsの`PlayHistory` |
+| LR2履歴schemaの管理 | 導入・修復・再導入と、triggerだけ/表を含む撤去を実行する。 | 実score更新が履歴へ記録され、操作後の利用可能状態が正しい。score本体を保ち、song DB全体の撤去と区別する。 | `Lr2PlayHistorySchemaService`、設定画面、Testsの`PlayHistory`・`Settings` |
 | 内蔵再生 | 有効BMS/BMSONの開始、一時停止、再開、停止、前後、リピート、単曲、フォルダスキップ。 | 選択曲と状態が一致する。各モードで二曲目・自然終了・停止後再開を確認する。 | `PlaybackPanelViewModel`と内蔵player、Testsの`Playback`・`Runtime` |
 | 先読み・一時試聴 | 通常曲の次曲先読み、推定先付き差分、サブディレクトリの追加音源、既存同名素材。 | 正しい音源を準備し、既存素材を上書きせず、所有した一時物だけ回収する。 | playback、copy utility、Testsの`Playback` |
 | 外部プレイヤー・外部起動 | 対応ビューア、LR2body、関連付け、Explorer、設定済みWeb/プログラム、文書表示。 | 正しい行のパス・引数・作業先・ハッシュを渡し、実プロセス境界の既存試験で終了まで確認する。 | `SelectedChartExternalActionWorkflowOwner`、外部gateway、Testsの`ExternalActions`・`Processes` |
@@ -179,6 +172,7 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 | LR2自動バックアップ・DB整理 | 保存対象の組合せ、世代保持、当日再実行、VACUUM/REINDEX。 | 選択したデータを新世代へ保存してから古い世代を整理する。バックアップ以外のファイルを消さない。 | `Backup`、Testsの`Lr2`・`Startup` |
 | データアンインストール | 実際に生成した拡張表・索引・状態表を持つDBに実行する。 | 全対象の拡張データを消し、LR2本来の表・利用者独自表・譜面ファイルを保つ。 | `ApplicationDataUninstallWorkflowOwner`、`LR2SongDBExtended`、Testsの`Settings`・`Lr2` |
 | 更新・終了・再起動 | 更新なし、正常更新、通常終了、モード変更再起動。データを持つポータブル配置を使用する。 | 更新プロセスの引渡しと実終了、設定/data保全を自動受入で確認する。Taskの受付だけを完了としない。 | `StartupUpdateWorkflowOwner`、`ShellShutdownWorkflowOwner`、Updater、Testsの`Update`・`Startup`・`Processes` |
+| 進捗からの取消・操作 | 各進捗行の取消・操作ボタンを使用し、その後に独立操作を始める。 | その行のownerへ届き、開始済みTask・一時物・受付を終端まで回収する。表示の消失だけを完了にしない。 | 進捗status bar、各機能owner、Testsの`MainWindow`・機能別領域 |
 | 表示・言語・入力 | テーマ、列の保存/既定化、翻訳リソース、ダイアログの標準値、ショートカットとdrop接続。 | バインディングが正しい操作へ届く。自動検証で覆えないIME・実DPI・物理入力は未確認範囲として分離する。 | `Views`、リソース、Testsの`MainWindow`・`Dialogs`・`Localization`・`Themes` |
 
 ### 正常系の判定方法
@@ -189,13 +183,24 @@ DB・正本の確定と、後続出力の成功を別の結果として保持す
 
 正解は機能の目的・受理条件・保存契約から先に決める。現行実装の結果、現在の削除対象リスト、変更したテストの期待値をそのまま正解にしない。比較親との同値確認も、両方が同じ誤りを持つ可能性を除けないため、独立した期待結果と併用する。
 
+既存テストの本文と入口を照合し、接続の観測が足りない次の条件を重点補充する。これは新たな製品不具合の判定ではない。近接する既存保証へ分担できる条件は新設せず、判定基準を独立して定めてから実装する。
+
+- 非ZIP対応形式の実展開から導入までの接続と、入れ子の相対構造。
+- 設定10カテゴリの代表値を編集し、実保存・稼働中設定・新しい画面の値まで揃えること。
+- プロパティ画面のフォルダ順操作からDB・新規読込み・LR2出力順までの接続。
+- 未取込みのbeatoraja表二つと既存表を同時に扱い、項目保存・表順・管理外URLを保つこと。
+- 高度な保留操作の正の選別を、実FS・保留DB・正本へ反映すること。
+- バックアップ復元後の正本・表示・LR2/BMT出力から、次の編集保存までの接続。
+- 実SQLiteのVACUUM/REINDEXで表・索引・値を保ち、次の読取り・保存ができること。
+- 同じ本番変換処理でBMSとBMSONの二曲を実WAVEへ出力し、内容と資源回収・次操作を確認すること。
+
 ## 実装単位とコミット順
 
 各単位は原因の修正と、その識別力を持つ検証、必要な機能仕様の更新を一緒に完結させる。失敗を示すテストは修正前に実行して原因を確認するが、失敗したままのテストを通常の完了コミットにしない。既存テストで十分なら重複テストを追加しない。
 
 U0の棚卸しは全期間を通じて更新する。全入口の調査完了を既知不具合の修正開始条件にせず、着手する操作について入口・判定基準・依存・検証境界を先に確定する。全入口の対応と未判定の解消はU16の完了条件として維持する。U11～U15の確認でも、必要な異常系を操作ごとの正常系確認の直後に行い、最終工程まで先送りしない。
 
-単位番号は担当やクラスの境界ではない。最初はU1・U2・U5のBMT操作を一緒に設計し、生成・所有情報・設定順まで同じ契約で検証する。U6・U7も確定結果と編集セッションの継続として一緒に設計する。実装・コミットは正常な経路を保てる単位へ分けてよい。領域間の依存は、実際に共有する契約・変更パス・検証資源で判断し、表生成と外部再取得、SQL復元とアンインストールのような独立操作を不要に直列化しない。
+単位番号は担当やクラスの境界ではない。U6・U7は確定結果と編集セッションの継続として一緒に設計する。実装・コミットは正常な経路を保てる単位へ分けてよい。領域間の依存は、実際に共有する契約・変更パス・検証資源で判断し、表生成と外部再取得、SQL復元とアンインストールのような独立操作を不要に直列化しない。
 
 ### U0：基準固定と入口・判定基準の確定
 
@@ -211,61 +216,9 @@ U0の棚卸しは全期間を通じて更新する。全入口の調査完了を
 
 **コミット例:** `docs: 全機能の正常操作と修復範囲を確定する`。棚卸しの新しい恒久台帳は作らず、本計画を更新する。
 
-### U1：BMTの全量・差分・URL同期を分離する
-
-**対象:** `PlaylistBmtOutputOwner.cs`、`BmtTableExportService.cs`、関連するplaylistテスト、BMTの機能仕様。R-bmt-set、R-bmt-disabled。
-
-URL順同期では、台帳を読んで設定を反映するだけにし、空の出力計画を保存しない。部分更新では既存の所有情報へ変更・削除を反映する。全更新だけが全体の現在集合を置換する。同一BMTファイルへの複数表の参照と、残留ファイルの所有情報を保つ。通常更新が出力無効ならBMT側I/Oへ入らず、明示的な無効化cleanupと旧出力先整理は別に扱う。
-
-`cleanupStaleManagedFiles`の真偽を変えるだけの修正、毎回全表を再生成する修正、現行台帳の破損を空台帳として扱う修正はしない。
-
-**受入:** A・B・管理外URL/ファイルを作成し、A更新、AのURL変更、A削除、共有ファイルを参照する表の一方の削除、URL同期、空差分、全体出力、出力無効を実台帳・実`config.json`・BMT内容で確認する。無関係なBの所有情報・内容・時刻を保持する。削除したAの所有情報だけが除かれる。
-
-**コミット例:** `fix: BMT部分更新とURL同期で未変更の所有情報を保持する`。
-
-### U2：BMT順操作の保存後処理を揃える
-
-**依存:** U1。**対象:** `PlaylistWorkspaceViewModel.cs`、`PlaylistSummaryBmtSortCoordinator.cs`、該当する画面端末とテスト。R-bmt-drag。
-
-先頭・末尾・表示順適用・ドラッグ・取込み後順序を、保存した順序からURL反映まで同じ意味の手続きに揃える。保存と同期を別の未追跡要求に戻さない。ドラッグ後の選択・表示世代の既存動作を保持する。
-
-**受入:** 三表の既存順から全操作方法で同じ順に変更し、DB・一覧・`tableURL`を確認する。変更なしの場合もURL登録を消さず、不要なBMT本体書込みをしない。
-
-**コミット例:** `fix: BMT順の全操作を保存とURL反映まで完了させる`。
-
-### U3：内蔵難度推定表の項目所属を生成時に確定する
-
-**対象:** `PlaylistRecommendedTableOwner.cs`、必要な既存の表構築窓口、Testsの`Playlist`。F-estimation-table。
-
-項目一覧を作り終えてから既存の`entries`設定経路へ一度渡し、親表、正規化、フォルダ状態、リビジョンを揃える。推薦表との共通化が必要なら、両者で同じ完成済み一覧の設定を使う。保存窓口で親のない項目を推測修復したり、NOT NULLを解除したりしない。
-
-**受入:** EASY/NORMAL/HARD/FCの表を、生成だけでなく実登録とSQLite再読込みまで通す。各項目の`playlist_id`、所属表、フォルダ、非空の行集合を確認する。推薦表は正常な対照ケースとして維持する。表生成テストだけの成功では完了しない。
-
-**コミット例:** `fix: 内蔵難度推定表の項目所属を保存前に確定する`。
-
-### U4：SQLバックアップの型と値を保持する
-
-**対象:** `LR2SongDBExtended.cs`、`PlaylistPersistenceRepository.cs`、バックアップ・復元入口に必要な限定変更、Testsの`Playlist`・`Lr2`。F-backup-text。
-
-SQLリテラルはSQLiteの値と型から生成し、文字列を数値として再解釈しない。TEXTの空白・先頭ゼロ・指数表記・引用符をそのまま保持し、NULLと空文字を分ける。整数・実数はカルチャに依存させない。既存の有効なバックアップ形式を読む経路を維持する。
-
-**受入:** 表ヘッダー・項目・courseに`1e3`、`1.00`、`1,000`、`001`、空白、日本語、引用符、NULLと実際の数値を置く。異なるカルチャでdump→restore→再読込みし、値・型・所属を確認する。復元対象外のsong等を保全する。不正なSQLの失敗でも現DBを保全する。
-
-**コミット例:** `fix: プレイリストSQLバックアップの文字列と数値を区別する`。
-
-### U5：BMT出力方式を省略判定へ反映する
-
-**依存:** U1。**対象:** BMTの出力メタデータ・計画と、設定保存からの接続、Testsの`Playlist`・`Settings`。F-bmt-mode。
-
-ハッシュ出力方式を、既存の出力署名など実際の生成入力の同一性へ反映する。同じ表・ファイルが存在することだけで、新しい方式の出力を省略しない。旧署名は再生成が必要なものとして扱い、無関係なファイルを削除しない。通常のno-op最適化を全廃しない。
-
-**受入:** 両ハッシュを保存済みの表をOriginalで出力し、方式だけPreferSha256Onlyへ変更して実BMTのMD5除去・SHA256保持を確認する。同じ方式で次回出力すると内容と時刻が変わらないことも確認する。正本のハッシュを変更しない。
-
-**コミット例:** `fix: BMTの出力署名にハッシュ方式を反映する`。
-
 ### U6：外部再取得の確定結果と後続失敗を同時に返す
 
-**依存:** U1のBMT契約。U3の内蔵表生成とは独立。**対象:** `PlaylistExternalSyncOwner.cs`、`PlaylistAggregatePersistenceOwner.cs`、`PlaylistPropertySaveService.cs`、その呼出元・テスト。R-reload-result。
+**依存:** 現行BMT出力と完成集合の取り込み契約を維持する。**対象:** `PlaylistExternalSyncOwner.cs`、`PlaylistAggregatePersistenceOwner.cs`、`PlaylistPropertySaveService.cs`、その呼出元・テスト。R-reload-result。
 
 DB・正本置換の結果を、BMT/LR2出力・通知の成否とは別に保持する。呼出元は確定した正本参照を先に採用し、後続失敗を通知する。`finally`からの例外だけで結果が消える契約を改める。新規draftの判定を集合不在で代用しない。
 
@@ -279,9 +232,11 @@ DB・正本置換の結果を、BMT/LR2出力・通知の成否とは別に保�
 
 同時編集検出の基準は最新の保存済み対象に合わせる一方、同じ編集セッションの未完了処理に必要な旧出力先と確定済み変更は保存結果へ保持する。明示的な再保存は未完了部分を完了させるか、未完了として通知し続ける。差分がなくなったため無条件成功としない。
 
+利用者の選択に従い、A→BのDB保存後に出力だけ失敗し、さらにCへ編集して再保存した場合は、A→Bの未完了出力を先に完了する。その成功後にCをDBへ保存する。失敗が続く間はDBをBに保ち、画面のCを失わない。複数世代の未完了出力を積み重ねない。
+
 ウィンドウ終了・再起動を跨ぐ新しい復旧台帳は作らない。既存の出力状態・再読込みで修復可能な箇所はその経路に統合し、現行の競合検出を古いsnapshotへ戻さない。
 
-**受入:** 正常なA→B移行、通常/ルート型切替、追加基点変更を確認する。その後DB確定後・検索パス更新前に失敗させ、再保存で必要な旧Aの整理とBの反映を失わないことを確認する。BMTだけの失敗も値を変えない再保存で未完了を隠さない。
+**受入:** 正常なA→B移行、通常/ルート型切替、追加基点変更を確認する。その後DB確定後・検索パス更新前に失敗させ、再保存で必要な旧Aの整理とBの反映を失わないことを確認する。Cへ再編集した場合もBの未完了を先に扱い、失敗時はCを保存しない。BMTだけの失敗も値を変えない再保存で未完了を隠さない。
 
 **コミット例:** `fix: プロパティ再保存で未完了の出力移行を失わないようにする`。
 
@@ -304,16 +259,6 @@ DB・正本置換の結果を、BMT/LR2出力・通知の成否とは別に保�
 **受入:** 実譜面に`extra/kick.wav`を定義し、試聴開始時のコピー先に同じ相対パスで存在することを確認する。異なるサブフォルダの同名音源、既存の導入先素材、通常トップ階層入力を含める。停止・再試聴後も元データを保全する。外部playerの遅延読取りを含む既存の寿命保証を弱めない。
 
 **コミット例:** `fix: 差分の一時試聴で追加リソースの相対配置を保持する`。
-
-### U10：データアンインストールの対象を実生成スキーマへ揃える
-
-**依存:** U4と同じファイルへ同時に書き込まない。実生成スキーマを使う受入自体はSQLバックアップ修正と独立。**対象:** `LR2SongDBExtended.cs`、必要なアンインストール窓口、Testsの`Settings`・`Lr2`。F-uninstall-status。
-
-アプリが作成する出力状態表を削除対象へ含める。他の拡張表・索引・トリガーも、実生成スキーマとの差分で確認する。全テーブル削除や名前のprefixだけによる削除へ広げない。個別の追加で十分なら新しいスキーマ登録基盤を作らない。
-
-**受入:** 実際のschema初期化で作った状態表と値を置き、実アンインストールで消えることを確認する。LR2本来の表・未知の利用者表・譜面ファイルは保持する。期待する削除対象を本番の削除リストから複写しない。
-
-**コミット例:** `fix: アンインストールでプレイリスト出力状態も除去する`。
 
 ### U11：導入・変更・保守・LR2同期の正常結果を確定する
 
@@ -339,7 +284,7 @@ DB・正本置換の結果を、BMT/LR2出力・通知の成否とは別に保�
 
 ### U13：一覧・検索・プレイリスト・履歴の通常操作を確定する
 
-**依存:** U1～U7の関係する修正。**対象:** `ChartList`、`Search`、`Playlist`、`PlayHistory`、`CustomTable`、対応するViewsとテスト。
+**依存:** 保存継続の関係する修正。**対象:** `ChartList`、`Search`、`Playlist`、`PlayHistory`、`CustomTable`、対応するViewsとテスト。
 
 正常系表の各操作を、行の識別と正本・表示の対応まで確認する。内蔵表の「生成できる」と「登録できる」、BMT順の「DBを変える」と「外部設定へ届く」のように、層を跨ぐ契約を途中で切らない。
 
@@ -357,7 +302,7 @@ WPF端末のテストと機能ownerのテストは役割を分けるが、Comman
 
 ### U15：バックアップ・更新・既存データ互換を確定する
 
-**依存:** U4・U10・U12。**対象:** バックアップ、復元、Updater、既存データ受入、対応する既存スクリプトとテスト。
+**依存:** U12。SQLの型・値保持とアプリ生成スキーマの撤去は現行仕様の契約を維持する。**対象:** バックアップ、復元、Updater、既存データ受入、対応する既存スクリプトとテスト。
 
 SQL往復だけでなく、復元後の表示・保存・必要出力まで確認する。LR2世代バックアップ、アンインストール、ポータブル更新は実ファイルと実プロセスを扱う既存自動受入を使用する。既存データと設定を保ち、バックアップと更新の作業ディレクトリだけを回収する。
 
@@ -375,10 +320,10 @@ U0の入口対応を最終差分へ照合する。各機能について、正常
 
 ### 検証を省略しないための実行順
 
-反復では当該機能の既存FQNを確認して絞る。例えばU1の既存テストに対する入口は次の形になる。フィルターに合うテストがゼロの場合は成功としない。
+反復では当該機能の既存FQNを確認して絞る。例えば内蔵表の既存テストに対する入口は次の形になる。フィルターに合うテストがゼロの場合は成功としない。
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~BmsPlaylistMigrationAndRegistrationTests'
+pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~PlaylistRecommendedTableOwnerTests'
 ```
 
 修正・追加したケースだけでなく、その機能の既存の正常経路・互換性・関連接続も実行する。通常の修正単位の最終統合では次を使用し、同じ版の成功結果は再利用する。
@@ -395,11 +340,13 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 
 この二つだけを全機能の保証にしない。`Functional`が除外する`Performance`、`Net10Performance`、`LargeFixture`、`ParserCompatibilityFull`、`ParserCompatibilitySlow`、`ProductionDiffFull`、`ProcessIntegration`、`ReleaseAcceptance`について、U0で実テストを列挙し、機能の判定に必要なケースをU11～U15へ割り当てる。名称だけで一括新設・全件反復するのではなく、既存保証の分担と必要な環境を確認する。
 
+配置済みのBMS/BMSON互換fixture、production差分fixture、既知長時間fixtureは、それぞれ既存の独立期待値・期限・opt-inを維持して選択実行する。更新process・旧配布からの移行は`Full`が準備する実入力で確認する。外部エンコーダーは利用者回答により未配置であり、その実出力確認は環境不足による未実施として残す。実WAVE変換やBASSの子process終端を、LAME・Nero AAC・Opus・FLAC・Oggの実行成功へ読み替えない。
+
 性能は同じ入力・環境で基準と最終版の操作全体を比較する。特に部分編集での全表生成、少数導入での全ライブラリ走査、スコア更新での全解析、対象ごとのDB確定、終了待機の増加を確認する。速く表示したことを処理全体の完了時間の改善と取り違えない。時間制限・並列度・除外条件・期待値を緩めて合格させない。
 
 ### この計画の担当分担
 
-ルートはU1～U10の各指摘について、正常系の判定基準と修正範囲を確定してから`implementation-worker`へ渡す。U11～U15は領域ごとに調査・必要な修正を割り当てる。`BMSPlaylist.cs`、`PlaylistWorkspaceViewModel.cs`、`SettingsDialogViewModel.cs`を含む単位は、同じファイルへ同時に書き込ませない。
+ルートは未完了の各指摘について、正常系の判定基準と修正範囲を確定してから`implementation-worker`へ渡す。U11～U15は領域ごとに調査・必要な修正を割り当てる。`BMSPlaylist.cs`、`PlaylistWorkspaceViewModel.cs`、`SettingsDialogViewModel.cs`を含む単位は、同じファイルへ同時に書き込ませない。
 
 BMT、保存、入力寿命、DB・ファイル変更、受付・終了に関わる単位は重大変更として扱う。必要な検証後の凍結差分について`preflight-static-review`、続いて独立した`critical-static-review`で確認する。通常の表示だけなど重大境界を変えない単位は、最終担当を`repo-static-review`とする。実装担当が自分の修正を独立レビュー済みと判定しない。
 
@@ -409,7 +356,7 @@ BMT、保存、入力寿命、DB・ファイル変更、受付・終了に関わ
 
 ### コミットと中断
 
-コミットはルートが、完結した機能単位の検証結果・レビュー結果と差分を照合して行う。無関係な変更を含めず、修正だけ先にコミットして必要な後続接続を次の未定作業へ残さない。U1を終える前にU2だけを適用する、といった一時的に機能を悪化させる順序を避ける。
+コミットはルートが、完結した機能単位の検証結果・レビュー結果と差分を照合して行う。無関係な変更を含めず、修正だけ先にコミットして必要な後続接続を次の未定作業へ残さない。同じ操作の保存と必須出力を分断して機能を悪化させる順序を避ける。
 
 新しい指摘は、正常系の不成立、無関係なデータへの作用、確定結果の不整合を優先して該当単位へ追加する。推測だけの競合・規格上の理想・未依頼の追加機能は修正件数に混ぜない。確認の結果、既存テストで保証済みかつ変更不要なら、無意味な空コミットやテスト追加を行わない。
 

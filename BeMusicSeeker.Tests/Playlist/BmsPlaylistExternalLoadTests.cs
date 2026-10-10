@@ -647,6 +647,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>実JSON登録で非CP932タグを従来接頭辞へ変換し、実保存と新主体のhydration後も名称・行・所属ID・folderを保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     [DoNotParallelize]
@@ -656,6 +657,7 @@ public sealed class BmsPlaylistExternalLoadTests
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null, reader = null;
         try
         {
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
@@ -664,7 +666,7 @@ public sealed class BmsPlaylistExternalLoadTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
+            playlist = new TestBmsPlaylist(songDbPath, settings: testSettings)
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
@@ -674,13 +676,35 @@ public sealed class BmsPlaylistExternalLoadTests
             BMSTable table = playlist.BMSTables.Single();
             Assert.AreEqual("LEVEL ", table.compat_prefix);
             Assert.AreEqual("LEVEL 1", table.entries.Single().folder);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == table.playlist_id);
-            Assert.AreEqual("LEVEL ", persisted.compat_prefix);
-            Assert.AreEqual("LEVEL 1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+            Assert.AreSame(table, table.entries.Single().parent);
+            Assert.AreEqual(table.playlist_id, table.entries.Single().playlist_id);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == table.playlist_id);
+                Assert.AreEqual("LEVEL ", persisted.compat_prefix);
+                Assert.AreEqual("LEVEL 1", verify.ExecuteScalar<string>("SELECT folder FROM playlist_entry WHERE playlist_id = ?;", table.playlist_id));
+            }
+            reader = new TestBmsPlaylist(songDbPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
+            await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
+            BMSTable hydrated = reader.BMSTables.Single();
+            reader.EnsurePlaylistEntriesLoaded(hydrated, "json-registration-test");
+            Assert.AreEqual(table.playlist_id, hydrated.playlist_id);
+            Assert.AreEqual("UnicodeImport", hydrated.name);
+            BMSTableEntry entry = hydrated.entries.Single();
+            Assert.AreSame(hydrated, entry.parent);
+            Assert.AreEqual(hydrated.playlist_id, entry.playlist_id);
+            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", entry.md5);
+            Assert.AreEqual("Song", entry.title);
+            Assert.AreEqual("Artist", entry.artist);
+            Assert.AreEqual("LEVEL 1", entry.folder);
+            Assert.AreEqual(1d, entry.level);
         }
         finally
         {
+            reader?.RequestShutdown("json-registration-test-complete");
+            playlist?.RequestShutdown("json-registration-test-complete");
             testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {

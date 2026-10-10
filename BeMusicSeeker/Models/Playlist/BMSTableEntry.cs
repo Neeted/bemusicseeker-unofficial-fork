@@ -88,6 +88,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     public BMSTable parent { get; set; }
 
+    /// <summary>所属表があればその現在の採番値を返し、保存行だけの場合は読込み済みの所属IDを返します。</summary>
     public override int? playlist_id
     {
         get

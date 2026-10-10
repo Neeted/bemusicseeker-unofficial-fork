@@ -3350,6 +3350,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>同じSHA256で解決した保留BMSON参照を、モデル行の実削除後に解除します。</summary>
     [TestMethod]
     public void RemoveReferenceBMSTables_WithEntriesRemovesPendingReferenceMatchedBySha256()
     {
@@ -3372,7 +3373,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual("S", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
 
             List<BMSTableEntry> removedEntries = [.. table.entries];
-            table.entries.Clear();
+            table.RemoveBMSTableEntries(removedEntries);
             library.RemoveReferenceBMSTables(table, removedEntries);
 
             Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
@@ -3534,7 +3535,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             entry.MarkAsBmsonPlaylistIdentity(sha256);
         }
-        bMSTable.entries.Add(entry);
+        bMSTable.entries = [entry];
         return bMSTable;
     }
 

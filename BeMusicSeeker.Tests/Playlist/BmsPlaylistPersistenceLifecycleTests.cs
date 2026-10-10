@@ -215,7 +215,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 CollectionAssert.AreEqual(initialFolderOrder, table.Folder_order, mutationKind);
                 CollectionAssert.AreEqual(
                     new BMSTableEntry[] { targetEntry, retainedEntry },
-                    table.entries,
+                    table.entries.ToArray(),
                     mutationKind);
                 Assert.AreSame(table, targetEntry.parent, mutationKind);
                 Assert.AreSame(table, retainedEntry.parent, mutationKind);
@@ -980,6 +980,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>外部プロパティ初期化の実取得・保存後、ローカル追加行を含む既存表示・参照の更新をworkspaceへ公開します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_PublishesExternalPropertiesThroughWorkspace()
@@ -1012,7 +1013,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             table.Output_dir = "CustomOutput";
             table.DisableExternalSync();
             table.entries[0].folder = "1";
-            table.entries.Add(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1"));
+            table.AddBMSTableEntriesToFolder([CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "★1")], "★1");
             foreach (BMSTableEntry entry in table.entries)
             {
                 entry.playlist_id = table.playlist_id;
@@ -1716,6 +1717,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>実初期化で完成receiptを版通知より先に公開し、捕捉後のモデル行削除でもreceiptの行集合と同じ参照を保ちます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task InitializeAsync_PublishesLoadedReceiptBeforeCompletionVersion()
@@ -1789,7 +1791,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(1, completedReceipt.Tables.Count);
             Assert.AreSame(table, completedReceipt.Tables[0].Table);
             Assert.AreEqual(1, completedReceipt.Tables[0].Entries.Count);
-            table.entries.Clear();
+            table.RemoveBMSTableEntries(table.entries.ToArray());
             Assert.AreEqual(1, completedReceipt.Tables[0].Entries.Count);
             Assert.AreEqual(0, completedVersionAtReceipt);
             Assert.AreEqual(1, playlist.PlaylistEntriesHydrationCompletedVersion);

@@ -165,6 +165,10 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 確認は保存済み設定と最終編集値から作り、参照時の選び直しごとには表示しません。警告の比較元には保存済みと編集中の両方のBMS登録を使い、同じ編集内で登録を削除してから出力先に採用しても確認を省略しません。検証エラーは確認より先に拒否します。確認の取消では編集値を残し、保存・同期・ファイル変更へ進みません。正常保存後に同じ役割・パスを継続する場合は再確認せず、警告済みの永続状態も持ちません。BMSディレクトリ追加は登録済みルートや出力領域との同一・親子関係を拒否し、出力に必要な登録の削除は保護します。出力先の変更は対応する出力設定から行います。
 
+### アプリデータの撤去
+
+アプリデータ撤去はsong.dbに実生成したアプリ拡張表・索引・トリガーと `playlist_custom_folder_output_status` を対象とします。LR2本来の表と索引、未知の利用者の表・索引・トリガー・`sqlite_sequence`行、譜面ファイルは保持します。アプリ表に属する`sqlite_sequence`行は撤去し、`score.db`の履歴撤去は別操作として維持します。既存の対象一覧を明示的に使い、接頭辞推測や全表削除へ広げません。
+
 ### 履歴DBの状態と計測
 
 履歴DBの状態表示はキャッシュを読み、設定画面を開くたびにDBを照会しません。スコア読込み、対象プロファイルの履歴読込み、明示的な導入・修復・削除に伴う確認結果で更新します。対象を切り替えた場合は「未確認」に戻し、前のプロファイルの導入済み状態を使いません。明示操作は変更前後に状態を確認し、成功後に履歴の読込みキャッシュも無効にします。
@@ -185,6 +189,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 実生成アプリデータの撤去とLR2・利用者データ保全 | [`LR2SongDBExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs)、[`Lr2ApplicationDataUninstallStore`](../../../BeMusicSeeker/Models/LR2/Lr2ApplicationDataUninstallStore.cs) | [`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs)の実起動/アプリスキーマ・IR保存・フォルダ索引前後の`sqlite_schema`差分、実撤去後の新規接続観測と非対象行・`sqlite_sequence`・譜面保全。受付・取消・失敗・通知・終了は既存 [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)が分担する。 |
 | 標準ScoreOnlyの保存後Close、同権限と実score公開 | `SettingsDialogViewModel` | [`ApplySettingsAsync_DefaultScoreOnlyPublishesChangedRealScoreAfterClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 配置の公開段階と公開後失敗、古い編集画面の現在配置 | `ApplicationComposition` | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 表示・閉じる・分類・入力保持 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[`SettingsWindowCompiledBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |

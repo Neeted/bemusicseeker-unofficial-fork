@@ -387,7 +387,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                List<BMSTableEntry> entries = [.. repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: false)];
+                IReadOnlyList<BMSTableEntry> entries = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: false);
                 using (table.ReaderWriterLock.GetWriterGuard())
                 {
                     table.entries = entries;

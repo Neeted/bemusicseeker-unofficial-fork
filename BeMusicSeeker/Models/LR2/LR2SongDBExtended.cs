@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Models.LR2;
 
 public sealed class LR2SongDBExtended : LR2SongDB
 {
+    /// <summary>撤去時に削除するアプリ所有表を列挙します。LR2本来の表や利用者の表は対象にしません。</summary>
     internal static IReadOnlyList<string> BeMusicSeekerOwnedTableNames { get; } =
     [
         SQLiteTable<install>.GetTableName(),
@@ -28,13 +29,16 @@ public sealed class LR2SongDBExtended : LR2SongDB
         SQLiteTable<lr2_song_db_sync_status>.GetTableName(),
         SQLiteTable<ir_score>.GetTableName(),
         SQLiteTable<ir_score_refresh_metadata>.GetTableName(),
-        SQLiteTable<ir_data>.GetTableName()
+        SQLiteTable<ir_data>.GetTableName(),
+        "playlist_custom_folder_output_status"
     ];
 
+    /// <summary>LR2本来の表へ追加したアプリ所有索引を列挙します。LR2や利用者の索引は保持します。</summary>
     internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } =
     [
         "song_idx_folder",
-        "song_idx_path_nocase"
+        "song_idx_path_nocase",
+        "folder_idx_path_nocase"
     ];
 
     [Table("install")]
@@ -1400,6 +1404,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
         ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
     }
 
+    /// <summary>アプリが所有する拡張表とLR2表上の追加索引だけを撤去し、LR2と利用者のデータを保持します。</summary>
     public void Uninstall()
     {
         foreach (string tableName in BeMusicSeekerOwnedTableNames)
@@ -1444,12 +1449,22 @@ public sealed class LR2SongDBExtended : LR2SongDB
         return new SQLiteCommandExtended(this);
     }
 
+    /// <summary>SQLiteの値と保存型に従ったSQLリテラルで、指定表を復元可能なINSERTへ変換します。</summary>
+    /// <typeparam name="T">バックアップ対象の保存モデル。</typeparam>
+    /// <returns>NULL、埋込みNULやバックアップ区切りに使う垂直TABを含むTEXT、数値等の値と型を保持するSQL文。</returns>
     public IEnumerable<string> Dump<T>()
     {
         SQLiteCommand sQLiteCommand = CreateCommand($"PRAGMA TABLE_INFO ('{GetMapping(typeof(T)).TableName}');");
         List<string> colNames = [.. (from r in ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString()
                                  select r[1])];
-        sQLiteCommand = CreateCommand($"SELECT * FROM \"{GetMapping(typeof(T)).TableName}\";");
+        // quoteが切り詰める埋込みNULと、SQLバックアップの区切りに使う垂直TABだけ全byteから同じTEXTを復元する式にする。
+        // その他はSQLite自身に引用させ、数値風TEXTや空白をカルチャ依存で再解釈しない。
+        sQLiteCommand = CreateCommand("SELECT " + string.Join(", ", colNames.Select(column =>
+        {
+            string name = QuoteIdentifier(column);
+            return $"CASE WHEN typeof({name}) = 'text' AND (instr({name}, char(0)) > 0 OR instr({name}, char(11)) > 0) THEN 'CAST(X''' || hex({name}) || ''' AS TEXT)' ELSE quote({name}) END";
+        }))
+            + " FROM " + QuoteIdentifier(GetMapping(typeof(T)).TableName) + ";");
         List<string[]> rawValuesAsString = ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString();
         if (rawValuesAsString.Count == 0)
         {
@@ -1459,10 +1474,9 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             throw SQLiteException.New(SQLite3.Result.Abort, "Dump failed");
         }
-        static string sqlQuote(string str) => (!string.IsNullOrWhiteSpace(str)) ? ((!double.TryParse(str, out double _) || (str.Count() > 1 && str.StartsWith("0"))) ? ("'" + str.Replace("'", "''") + "'") : str) : "''";
         foreach (string[] item in rawValuesAsString)
         {
-            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select(c => $"\"{c}\"")) + ") VALUES (" + string.Join(", ", item.Select(c => (c != null) ? sqlQuote(c) : "NULL")) + ");";
+            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select(QuoteIdentifier)) + ") VALUES (" + string.Join(", ", item) + ");";
         }
     }
 }

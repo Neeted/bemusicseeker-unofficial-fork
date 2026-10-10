@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +14,101 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSTableLoadTests
 {
+    /// <summary>公開集合を標準の可変interfaceへキャストして構成変更しても、確定行の参照・順・所属と派生状態は変化しません。行値の編集は引き続き同じ対象へ反映します。</summary>
+    [TestMethod]
+    public void Entries_PublicCollectionProtectsCompositionAndPreservesEntryReferences()
+    {
+        BMSTableEntry first = new() { md5 = new string('a', 32), folder = "A", title = "first" };
+        BMSTableEntry second = new() { md5 = new string('b', 32), folder = "B", title = "second" };
+        var table = new BMSTable { playlist_id = 71, entries = [first, second] };
+        IReadOnlyList<BMSTableEntry> published = table.entries;
+        BMSTableEntry[] expected = [first, second];
+        string[] folders = table.folder_list.ToArray();
+        int revision = table.PlaylistEntriesRevision;
+        void Check(Action mutate)
+        {
+            try { mutate(); } catch (NotSupportedException) { }
+            CollectionAssert.AreEqual(expected, table.entries.ToArray());
+            Assert.AreSame(first, table.entries[0]);
+            Assert.AreSame(second, table.entries[1]);
+            Assert.AreEqual("A", first.folder);
+            Assert.AreEqual("B", second.folder);
+            Assert.IsTrue(table.entries.All(entry => ReferenceEquals(table, entry.parent) && entry.playlist_id == 71));
+            CollectionAssert.AreEqual(folders, table.folder_list.ToArray());
+            Assert.AreEqual(revision, table.PlaylistEntriesRevision);
+        }
+        if (published is ICollection<BMSTableEntry> collection)
+        {
+            Check(() => collection.Add(new BMSTableEntry { md5 = new string('c', 32), folder = "C" }));
+            Check(() => collection.Remove(first));
+            Check(collection.Clear);
+        }
+        if (published is IList<BMSTableEntry> list)
+        {
+            Check(() => list.Insert(0, second));
+            Check(() => list.RemoveAt(0));
+            Check(() => list[0] = second);
+            Check(() => { list[0] = second; list[1] = first; });
+        }
+        if (published is IList untyped)
+        {
+            Check(() => untyped.Add(second));
+            Check(() => untyped.Remove(first));
+            Check(untyped.Clear);
+            Check(() => untyped.Insert(0, second));
+            Check(() => untyped[0] = second);
+        }
+        if (published is BMSTableEntry[] array)
+        {
+            Check(() => array[0] = second);
+            Check(() => Array.Reverse(array));
+            Check(() => Array.Clear(array));
+        }
+        if (published is List<BMSTableEntry> concrete)
+        {
+            Check(concrete.Reverse);
+            Check(() => concrete.Sort((left, right) => string.CompareOrdinal(right.title, left.title)));
+        }
+        first.memo = "edited";
+        Assert.AreEqual("edited", table.entries[0].memo);
+    }
+
+    /// <summary>空・非空の完成入力は一度だけ自前集合へ取り込み、呼出元の追加・削除・置換・並替えを反映せず、行自体の参照は維持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Entries_InputListMutationDoesNotAlterCommittedComposition(bool nonempty)
+    {
+        BMSTableEntry first = new() { md5 = new string('a', 32), folder = "A" };
+        BMSTableEntry second = new() { md5 = new string('b', 32), folder = "B" };
+        List<BMSTableEntry> input = nonempty ? [first, second] : [];
+        var table = new BMSTable { entries = input };
+        BMSTableEntry[] expected = nonempty ? [first, second] : [];
+        string[] folders = table.folder_list.ToArray();
+        int revision = table.PlaylistEntriesRevision;
+        void Check()
+        {
+            CollectionAssert.AreEqual(expected, table.entries.ToArray());
+            for (int index = 0; index < expected.Length; index++)
+            {
+                Assert.AreSame(expected[index], table.entries[index]);
+                Assert.AreSame(table, table.entries[index].parent);
+            }
+            CollectionAssert.AreEqual(folders, table.folder_list.ToArray());
+            Assert.AreEqual(revision, table.PlaylistEntriesRevision);
+        }
+        input.Add(new BMSTableEntry { md5 = new string('c', 32), folder = "C" }); Check();
+        input[0] = new BMSTableEntry { md5 = new string('d', 32), folder = "D" }; Check();
+        input.Reverse(); Check();
+        input.RemoveAt(0); Check();
+        input.Clear(); Check();
+        if (nonempty)
+        {
+            first.memo = "edited";
+            Assert.AreEqual("edited", table.entries[0].memo);
+        }
+    }
+
     [TestMethod]
     public void LoadHeaderJson_StoresPassedHeaderUri()
     {

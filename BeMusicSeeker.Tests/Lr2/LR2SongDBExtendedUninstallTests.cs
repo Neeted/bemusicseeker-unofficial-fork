@@ -11,92 +11,94 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2SongDBExtendedUninstallTests
 {
+    /// <summary>実起動・アプリスキーマ・IR保存・フォルダ索引の生成差分を実撤去し、LR2と未知の利用者スキーマ、行、sequence、譜面ファイルを新規接続で保全確認します。削除リストから期待対象を作りません。</summary>
     [TestMethod]
-    public void BeMusicSeekerOwnedTableNames_CoversAllExtendedTables()
+    public void Uninstall_RemovesGeneratedApplicationSchemaAndPreservesUserData()
     {
-        string[] tableAttributeNames = [.. typeof(LR2SongDBExtended)
-            .GetNestedTypes()
-            .Select(type => Attribute.GetCustomAttribute(type, typeof(TableAttribute)))
-            .OfType<TableAttribute>()
-            .Select(attribute => attribute.Name)
-            .OrderBy(name => name, StringComparer.Ordinal)];
-        string[] uninstallNames = [.. LR2SongDBExtended.BeMusicSeekerOwnedTableNames.OrderBy(name => name, StringComparer.Ordinal)];
-
-        CollectionAssert.AreEqual(tableAttributeNames, uninstallNames);
-    }
-
-    [TestMethod]
-    public void Uninstall_DropsAllBeMusicSeekerTablesAndKeepsLr2Tables()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(LR2SongDBExtendedUninstallTests), Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        string directory = Path.Combine(Path.GetTempPath(), nameof(LR2SongDBExtendedUninstallTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "song.db");
+        string chartPath = Path.Combine(directory, "chart.bms");
+        const string chartText = "#TITLE retained chart\n";
+        File.WriteAllText(chartPath, chartText);
         try
         {
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
-            songDb.CreateTable<LR2SongDB.folder>();
-            songDb.CreateTable<LR2SongDBExtended.install>();
-            songDb.CreateTable<LR2SongDBExtended.maintenance>();
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-            BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-            songDb.CreateTable<LR2SongDBExtended.ir_score>();
-            songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
-            BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
-            BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
-            songDb.Insert(new LR2SongDBExtended.playlist
+            using (var setup = new LR2SongDBExtended(path))
             {
-                name = "uninstall sequence test"
-            }, typeof(LR2SongDBExtended.playlist));
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.Execute("CREATE INDEX hashidx ON song(hash);");
+                    setup.Execute("CREATE INDEX parentidx ON song(parent);");
+                    setup.Insert(new LR2SongDB.song { hash = new string('a', 32), path = chartPath, title = "LR2 original" });
+                    setup.Insert(new LR2SongDB.folder { path = directory, title = "LR2 folder" });
+                    setup.Execute("CREATE TABLE user_data (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT);");
+                    setup.Execute("CREATE INDEX user_value_idx ON user_data(value);");
+                    setup.Execute("CREATE TABLE user_events (value TEXT);");
+                    setup.Execute("CREATE TRIGGER user_song_update AFTER UPDATE OF title ON song BEGIN INSERT INTO user_events VALUES (NEW.title); END;");
+                    setup.Execute("INSERT INTO user_data(value) VALUES ('利用者の値');");
+                });
+            }
+            var gateway = new BmsLibraryDbGateway(path);
+            string[] baseline;
+            using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+            {
+                baseline = ReadSchema(read);
+            }
+            gateway.EnsureLibraryStartupSchema();
+            gateway.EnsureAppOwnedSchema();
+            gateway.UpsertIrScoreRefreshMetadata(1234, "digest");
+            using (var setup = new LR2SongDBExtended(path))
+            {
+                BmsLibraryDbGateway.EnsureFolderLookupIndexes(setup);
+                setup.Insert(new LR2SongDBExtended.playlist { name = "generated sequence" });
+                setup.Execute("INSERT INTO playlist_custom_folder_output_status VALUES (1, 'output', 0, 0, 0, 0, 1, 0, 'header', 'data', 1, 'signature');");
+            }
+            string[] generated;
+            using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
+            {
+                generated = ReadSchema(read).Except(baseline, StringComparer.Ordinal).ToArray();
+                Assert.IsTrue(generated.Length > 0);
+                Assert.IsTrue(generated.Any(row => row.StartsWith("table:playlist_custom_folder_output_status:", StringComparison.Ordinal)));
+                Assert.IsTrue(generated.Any(row => row.StartsWith("index:folder_idx_path_nocase:", StringComparison.Ordinal)));
+                Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist_custom_folder_output_status;"));
+                Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM ir_score_refresh_metadata WHERE lr2id=1234;"));
+                Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_sequence WHERE name='playlist';"));
+            }
 
-            foreach (string tableName in LR2SongDBExtended.BeMusicSeekerOwnedTableNames)
-            {
-                Assert.IsTrue(TableExists(songDb, tableName), tableName + " should exist before uninstall.");
-            }
-            foreach (string indexName in LR2SongDBExtended.BeMusicSeekerOwnedNativeIndexNames)
-            {
-                Assert.IsTrue(IndexExists(songDb, indexName), indexName + " should exist before uninstall.");
-            }
-            Assert.AreEqual(1L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_sequence WHERE name = ?;", SQLiteTable<LR2SongDBExtended.playlist>.GetTableName()));
+            new Lr2ApplicationDataUninstallStore().Uninstall(path);
 
-            songDb.Uninstall();
-
-            foreach (string tableName in LR2SongDBExtended.BeMusicSeekerOwnedTableNames)
+            using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
             {
-                Assert.IsFalse(TableExists(songDb, tableName), tableName + " should be dropped by uninstall.");
+                string[] remaining = ReadSchema(read);
+                Assert.IsFalse(generated.Intersect(remaining, StringComparer.Ordinal).Any(), "撤去後の生成物: " + string.Join(", ", generated.Intersect(remaining, StringComparer.Ordinal)));
+                CollectionAssert.AreEquivalent(baseline, remaining);
+                Assert.AreEqual("LR2 original", read.ExecuteScalar<string>("SELECT title FROM song WHERE hash=?;", new string('a', 32)));
+                Assert.AreEqual(chartPath, read.ExecuteScalar<string>("SELECT path FROM song;"));
+                Assert.AreEqual("LR2 folder", read.ExecuteScalar<string>("SELECT title FROM folder WHERE path=?;", directory));
+                Assert.AreEqual("利用者の値", read.ExecuteScalar<string>("SELECT value FROM user_data WHERE id=1;"));
+                Assert.AreEqual(0L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM user_events;"));
+                Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT COUNT(*) FROM sqlite_sequence;"));
+                Assert.AreEqual(1L, read.ExecuteScalar<long>("SELECT seq FROM sqlite_sequence WHERE name='user_data';"));
             }
-            foreach (string indexName in LR2SongDBExtended.BeMusicSeekerOwnedNativeIndexNames)
-            {
-                Assert.IsFalse(IndexExists(songDb, indexName), indexName + " should be dropped by uninstall.");
-            }
-            Assert.AreEqual(0L, songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_sequence WHERE name IN (" + string.Join(", ", LR2SongDBExtended.BeMusicSeekerOwnedTableNames.Select(SqlQuote)) + ");"));
-            Assert.IsTrue(TableExists(songDb, SQLiteTable<LR2SongDB.song>.GetTableName()));
-            Assert.IsTrue(TableExists(songDb, SQLiteTable<LR2SongDB.folder>.GetTableName()));
-            Assert.IsTrue(IndexExists(songDb, "hashidx"));
-            Assert.IsTrue(IndexExists(songDb, "parentidx"));
+            Assert.AreEqual(chartText, File.ReadAllText(chartPath));
         }
         finally
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
+            Directory.Delete(directory, recursive: true);
         }
     }
 
-    private static bool TableExists(SQLiteConnection db, string tableName)
-    {
-        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;", tableName) > 0;
-    }
+    private static string[] ReadSchema(SQLiteConnection db)
+        => db.Query<SchemaRow>("SELECT type AS Type, name AS Name, tbl_name AS TableName, sql AS Sql FROM sqlite_schema WHERE name <> 'sqlite_sequence';")
+            .Select(row => row.Type + ":" + row.Name + ":" + row.TableName + ":" + row.Sql).OrderBy(row => row, StringComparer.Ordinal).ToArray();
 
-    private static bool IndexExists(SQLiteConnection db, string indexName)
+    private sealed class SchemaRow
     {
-        return db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = ?;", indexName) > 0;
-    }
-
-    private static string SqlQuote(string value)
-    {
-        return "'" + (value ?? string.Empty).Replace("'", "''") + "'";
+        public string Type { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string TableName { get; set; } = string.Empty;
+        public string? Sql { get; set; }
     }
 }

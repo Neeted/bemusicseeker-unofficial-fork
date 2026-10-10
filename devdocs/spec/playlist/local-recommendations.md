@@ -51,6 +51,8 @@ LR2 はモデルキーへ照合し、モデル収録の LR2 段位複合キー12
 
 ### URI、UI、取消と保存
 
+推薦計算と難度推定の行生成はそれぞれ固有処理を維持し、完成集合をJSON解析と同じ `BMSTable.entries` setterへ一度渡してから生成ハッシュを計算します。親・所属ID、正規化、フォルダ派生状態、読込状態とリビジョンは[共通取込み](storage-and-export.md#正本と識別)に揃え、共通の登録・保存・再読込みへ渡します。保存時の所属推測、推定専用保存、NOT NULL緩和は行いません。
+
 保存用の識別子は `bmseeker:table.estimation?type=easy/normal/hard/fc` と `bmseeker:table.recommended` です。推薦の三方針は前節のパラメーターで識別します。`mode=readonly/update`、mode 未指定、従来受理した未知 mode は同じローカル計算です。`id`、`filter`、`name`、その他未知パラメーターは無視し、未知値という理由だけで新規拒否しません。非 bmseeker、未対応経路、未対応推定種類の失敗を維持します。
 
 メニューでは内蔵推定表4種類とリコメンド3方針を選択します。LR2ID と送信確認は不要です。リコメンドは三方針すべて、再読込みのたびに方針名と二桁の★実力値から `name` と `org_name` を生成します。手動名も次回再読込みで自動名へ戻り、プレイヤー ID・URI の `name` に依存しません。難度推定表と通常外部表の手動名保持は維持します。内蔵表の「ページを開く」は利用不可です。内蔵表の取込みも[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。必須準備が未完了なら開始せず、受理した一要求は登録・必要出力・公開の実終端まで待ちます。
@@ -69,6 +71,7 @@ LR2 はモデルキーへ照合し、モデル収録の LR2 段位複合キー12
 | --- | --- | --- |
 | 実埋込みモデル、GRM、換算、確率、三方針 | [WalkureRecommendationModel](../../../BeMusicSeeker/Models/Playlist/WalkureRecommendationModel.cs) | [WalkureRecommendationMathTests](../../../BeMusicSeeker.Tests/Playlist/WalkureRecommendationMathTests.cs)。独立上流の θ差≤1e-9、二桁★、通常譜面649候補、混合ランプ、補充・除外、20%境界、null、外挿、推定不能。 |
 | 四種類の元★・両所属・段位非表示・URI互換 | [PlaylistRecommendedTableOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs) | [PlaylistRecommendedTableOwnerTests](../../../BeMusicSeeker.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs)。スコア不要、保存値/null、未対応の拒否、未知mode等の受理、三方針の自動名・推定表の手動名と設定保持。 |
+| 完成集合の共通取込みと実保存・新主体のhydration | [BMSTable](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs)、共通登録・読込み主体 | 同テスト群の四推定・三推薦の生成時の親、採番後ID、実SQLite往復、非空行・名称・フォルダ・レベル、推定の手動名と保存設定保持。JSONの互換folderと所属は [BmsPlaylistExternalLoadTests](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs)、同じ行参照の補償と局所編集は既存Lifecycle・Workspace群が分担する。 |
 | freshな選択DB、接続解放、正規化、rank0、mode0 | [BMSLibrary.ReadRecommendationScoresAsync](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[bindings](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsPlaylistLibraryBindings.cs)、既存 reader | 同 owner 群の実合成 LR2 / beatoraja DB とソース切替、[BmsLibraryIrServiceTests](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) の reader・状態検査。 |
 | 操作内だけの一回共有、失敗・取消・解除 | [PlaylistExternalSyncOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | 同 owner 群の複数表取得、原入力 gate、DB保持・更新中解除と次回取得。 |
 | 保存・再読込み・同一入力・出力・通知 | [保存管理主体](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs)、既存 LR2/BMT 出力 | [BmsPlaylistExternalReloadTests](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[PlaylistReloadMergeTests](../../../BeMusicSeeker.Tests/Playlist/PlaylistReloadMergeTests.cs) の名称差だけの実ヘッダー保存・公開・日時維持、完全同一時の不要保存なし、ハッシュ初期化時の `Updated == false` と実力通知、通常外部表の手動名、設定・ID・メモとLR2/BMT出力の保持。 |

@@ -22,20 +22,116 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
+    /// <summary>四推定・三推薦を実取得、共通登録、SQLite保存、新主体の再読込みとhydrationまで通し、生成時所属、採番後ID、名称・非空行・folder・levelを保ちます。推定はスコアを読まず、通信不能でもローカル生成を完了します。</summary>
     [TestMethod]
     public async Task LocalTables_CompleteWithUnavailableNetworkWithoutSendingRequests()
     {
+        string directory = NewDirectory();
         using var handler = new UnavailableNetworkHandler();
         using var client = new HttpClient(handler);
-        var external = new PlaylistExternalSyncOwner(new AppHttpClient(client, TimeProvider.System), CreateOwner(),
-            (_, _) => { }, () => false, _ => { });
-        foreach (string query in new[] { "table.estimation?type=easy", "table.estimation?type=normal", "table.estimation?type=hard",
-            "table.estimation?type=fc", "table.recommended", "table.recommended?base=failed", "table.recommended?failed=noplay" })
+        TestBmsPlaylist? writer = null, reader = null;
+        try
         {
-            BMSTable table = await external.LoadExternalTableAsync(new Uri("bmseeker:" + query));
-            Assert.IsNotNull(table.entries);
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            int scoreReads = 0;
+            writer = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, recommendationScoreReader: _ =>
+                {
+                    scoreReads++;
+                    return Task.FromResult(ReadWalkureInput("standard"));
+                });
+            var external = new PlaylistExternalSyncOwner(new AppHttpClient(client, TimeProvider.System), CreateOwner(_ =>
+            {
+                scoreReads++;
+                return Task.FromResult(ReadWalkureInput("standard"));
+            }), (_, _) => { }, () => false, _ => { });
+            List<BMSTable> generated = [];
+            string[] queries = ["table.estimation?type=easy", "table.estimation?type=normal", "table.estimation?type=hard",
+                "table.estimation?type=fc", "table.recommended", "table.recommended?base=failed", "table.recommended?failed=noplay"];
+            double[] expectedRatings = [.73, 2.56, 4.34, 23.40, 6.60, 4.57, 8.33];
+            for (int index = 0; index < queries.Length; index++)
+            {
+                BMSTable table = await external.LoadExternalTableAsync(new Uri("bmseeker:" + queries[index]));
+                Assert.IsTrue(table.entries.Count > 0);
+                Assert.IsTrue(table.entries.All(entry => ReferenceEquals(table, entry.parent)));
+                Assert.IsTrue(table.ArePlaylistEntriesLoaded);
+                if (index < 4)
+                {
+                    Assert.AreEqual(0, scoreReads);
+                    Assert.AreEqual(expectedRatings[index], table.entries.Single(row => row.md5 == "621ad2a006a4d39a57749c5f8dcc11b6").level);
+                    Assert.AreEqual(2, table.entries.Count(row => row.md5 == "a4a9c721a726435eaf37b62b1768b4e1"));
+                    if (index == 3)
+                    {
+                        Assert.IsTrue(table.entries.Where(row => row.md5 == "ac29456828fbd27bb27bd99d52a666c4").All(row => row.level == null));
+                    }
+                }
+                else
+                {
+                    StringAssert.Contains(table.org_name, "★" + expectedRatings[index].ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                }
+                generated.Add(table);
+            }
+            await writer.ExternalSyncOwner.RegistrateExternalTablesAsync(generated, false, "local-table-registration-test");
+            Assert.AreEqual(7, writer.BMSTables.Count);
+            Assert.IsTrue(generated.All(table => table.playlist_id > 0 && table.entries.All(entry => entry.playlist_id == table.playlist_id)));
+            reader = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false },
+                settings: MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
+            foreach (BMSTable original in generated)
+            {
+                BMSTable hydrated = reader.BMSTables.Single(table => table.playlist_id == original.playlist_id);
+                reader.EnsurePlaylistEntriesLoaded(hydrated, "local-table-registration-test");
+                AssertRegisteredContent(original, hydrated);
+            }
+            Assert.AreEqual(3, scoreReads);
+            Assert.AreEqual(0, handler.Requests);
+
+            BMSTable estimation = writer.BMSTables.Single(table => table.Page_url == new Uri("bmseeker:table.estimation?type=easy"));
+            estimation.name = "手動の推定名";
+            estimation.symbol = "USER";
+            estimation.custom_folder_output_base_name = "UserBase";
+            estimation.is_bmt_output = false;
+            int? id = estimation.playlist_id;
+            writer.CommitBMSTableWithEntriesToDB(estimation);
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult refreshed = (await writer.ExternalSyncOwner.ReloadPlaylistTargetsAsync([estimation])).Single();
+            Assert.IsTrue(refreshed.Succeeded);
+            BMSTable applied = writer.BMSTables.Single(table => table.playlist_id == id);
+            Assert.AreEqual("手動の推定名", applied.name);
+            Assert.AreEqual("USER", applied.symbol);
+            Assert.AreEqual("UserBase", applied.custom_folder_output_base_name);
+            Assert.IsFalse(applied.is_bmt_output);
+            Assert.IsTrue(applied.entries.All(entry => ReferenceEquals(applied, entry.parent) && entry.playlist_id == id));
+            await reader.ReloadTablesAsync(exportBeatorajaBmt: false);
+            BMSTable saved = reader.BMSTables.Single(table => table.playlist_id == id);
+            reader.EnsurePlaylistEntriesLoaded(saved, "local-estimation-resync-test");
+            AssertRegisteredContent(applied, saved);
+            Assert.AreEqual("UserBase", saved.custom_folder_output_base_name);
+            Assert.IsFalse(saved.is_bmt_output);
+            Assert.AreEqual(3, scoreReads);
         }
-        Assert.AreEqual(0, handler.Requests);
+        finally
+        {
+            reader?.RequestShutdown("local-tables-test-complete");
+            writer?.RequestShutdown("local-tables-test-complete");
+            Directory.Delete(directory, true);
+        }
+    }
+
+    private static void AssertRegisteredContent(BMSTable original, BMSTable hydrated)
+    {
+        Assert.AreEqual(original.name, hydrated.name);
+        Assert.AreEqual(original.org_name, hydrated.org_name);
+        Assert.AreEqual(original.symbol, hydrated.symbol);
+        Assert.IsTrue(hydrated.ArePlaylistEntriesLoaded);
+        Assert.IsTrue(hydrated.entries.Count > 0);
+        Assert.IsTrue(hydrated.entries.All(entry => ReferenceEquals(hydrated, entry.parent) && entry.playlist_id == hydrated.playlist_id));
+        CollectionAssert.AreEquivalent(original.entries.Select(entry => (entry.md5, entry.title, entry.folder, entry.level)).ToArray(),
+            hydrated.entries.Select(entry => (entry.md5, entry.title, entry.folder, entry.level)).ToArray());
+        CollectionAssert.AreEquivalent(original.folder_list.ToArray(), hydrated.folder_list.ToArray());
     }
 
     private sealed class UnavailableNetworkHandler : HttpMessageHandler

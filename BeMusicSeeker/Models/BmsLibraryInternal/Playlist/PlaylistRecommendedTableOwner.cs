@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
@@ -43,6 +44,7 @@ internal sealed class PlaylistRecommendedTableOwner
     /// <param name="baseTable">設定を引き継ぐ既存表。</param>
     /// <param name="cancellationToken">読取り、計算、表生成を取り消すトークン。</param>
     /// <param name="scoreCapture">複数表操作内だけで共有する原入力。</param>
+    /// <returns>完成行集合を共通取込みで確定し、所属・正規化・フォルダ状態を揃えた表。行の所属IDは親表の現在値から取得します。</returns>
     internal async Task<BMSTable> LoadWalkureTableAsync(
         Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default,
         Lazy<Task<WalkureScoreInput>> scoreCapture = null)
@@ -142,6 +144,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
         };
+        List<BMSTableEntry> entries;
         if (input == null)
         {
             table.org_name = estimationLamp switch
@@ -158,7 +161,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 WalkureLamp.Hard => "H★",
                 _ => "F★"
             };
-            table.entries = [];
+            entries = [];
             foreach (WalkureModelEntry entry in model.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -169,7 +172,7 @@ internal sealed class PlaylistRecommendedTableOwner
 
                 foreach ((string membership, string level) in entry.TableLevels.OrderBy(item => item.Key, StringComparer.Ordinal))
                 {
-                    table.entries.Add(new BMSTableEntry
+                    entries.Add(new BMSTableEntry
                     {
                         md5 = entry.Md5,
                         title = entry.Name,
@@ -193,12 +196,13 @@ internal sealed class PlaylistRecommendedTableOwner
             table.org_symbol = "R★";
             table.ignore_folder_output |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
             table.Folder_order = ["EASY", "NORMAL", "HARD", "FC"];
-            table.entries = [.. model.Recommend(observations, rating.Theta, cancellationToken).Select(item => new BMSTableEntry
+            entries = [.. model.Recommend(observations, rating.Theta, cancellationToken).Select(item => new BMSTableEntry
             {
                 md5 = item.Entry.Md5, title = item.Entry.Name, level = item.Percent,
                 folder = item.Lamp == WalkureLamp.FullCombo ? "FC" : item.Lamp.ToString().ToUpperInvariant()
             })];
         }
+        table.entries = entries;
         table.name = table.org_name;
         table.symbol = table.org_symbol;
         // 外部表と同じ変更検知へ、時刻や利用者設定を含まない生成内容を渡す。

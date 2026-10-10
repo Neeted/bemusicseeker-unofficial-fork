@@ -14,6 +14,8 @@
 
 正本は本アプリの `playlist`、`playlist_entry`、`playlist_course` です。共通の `app_schema=1` に含まれ、プレイリスト専用のスキーマ版は持ちません。LR2連携・スタンドアロンの両方で保存します。
 
+JSON解析、内蔵推薦・難度推定、DB読込みで完成した行集合は、共通の `BMSTable.entries` setterで一度取り込みます。入力集合を防御複写し、行の親、正規化、フォルダ派生状態、読込状態とリビジョンを揃えます。所属IDは親表の現在の採番値から取得します。公開一覧は構成を変更できない読取り専用ビューとし、行の参照と編集可能性は保持します。このビューは不変スナップショットの代用にせず、独立した集合が必要な捕捉では従来どおり複写します。手動追加・削除・改名と補償復元は既存の局所操作を使い、全件の再取込み・再正規化へ変更しません。
+
 | 表 | 主な列と意味 |
 | --- | --- |
 | `playlist` | `playlist_id`、`name`、`symbol`、`tag`、`page_url`、`header_url`、`data_url`、比較用の `header_sha256` と `data_sha256`、互換フォルダ名の `compat_prefix`、更新日時 `last_update` を保持する。 |
@@ -111,6 +113,8 @@ JSON出力は必要な正本入力を読取り境界内で捕捉し、保存先�
 
 バックアップは整合読取りを使い、選択先と同じディレクトリの一時ファイルへUTF-8・BOMなしで書き、閉じた後に置換または移動で公開します。先に既存先を消したり、直接上書きへ切り替えたりしません。後片付け失敗も診断に残し、成功通知は公開後だけです。
 
+SQLリテラルはSQLiteの保存値と型から生成します。数値風のTEXT、空文字、空白、引用符、日本語はTEXTのまま、NULLは空文字と区別して往復します。埋込みNULやバックアップ区切りに使う垂直TABを含むTEXTは、引用時の切詰めや区切りとの衝突を避け、全byteから同じTEXTを復元するSQL式へ変換します。INTEGERとREALも値・型を保ち、文化圏の数値解釈へ依存しません。旧形式のBMT設定を補正する場合も、bmt_sortとis_bmt_outputの二列だけを更新して他列の保存値を保ちます。復元途中のSQL失敗では旧三表を保ち、songや未知の利用者表は変更しません。従来の有効なSQLバックアップも引き続き読み込みます。
+
 復元はファイル読込み、DB復元、表示一覧への反映を分けます。DBのMonitor、トランザクション、確定後のヘッダー読込み、接続解放は同じワーカーの同期範囲で完結させます。UIへの一覧反映を予約する前にその範囲を抜け、予約の受付だけでなく完了を待ちます。譜面行は引き続き遅延読込みです。
 
 復元の受付分類は[競合ポリシー](../core/operation-concurrency-policy.md#設定全体操作終了)に従います。読込み・復元確定前の失敗は旧DBと一覧を保持します。確定後のヘッダー読込みやUI反映の失敗は復元済みDBを保持し、元エラーを返します。UIの途中適用は補償しません。必須hydration・出力修復も同じ受理操作のTaskとして実終端を待ち、表示用の独立した版・対象識別は維持します。
@@ -126,6 +130,8 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | スキーマ・既存設定・コース | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs)、[`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`PlaylistSchemaMigrationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSchemaMigrationTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
+| 完成集合の共通取込み・公開構成保護・入力集合の共有排除 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs)の標準可変interface経由の変更試行、空・非空入力の後続変更、行参照・順序・所属・フォルダ状態・リビジョン維持。実登録と新主体のhydrationは内蔵表群と外部JSON登録群で分担する。 |
+| SQLバックアップの値・型・所属と旧世代保全 | [`LR2SongDBExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs)、[`PlaylistPersistenceRepository`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs) | [`PlaylistSchemaMigrationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSchemaMigrationTests.cs)で三表の実往復、二組の文化圏、途中SQL失敗、非対象保全。ファイル公開・通知と復元の受付・UI寿命は既存workspace群が分担する。 |
 | 外部取得・変更判定・表示の完了 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs)、[`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistReloadMergeTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistReloadMergeTests.cs) |
 | DB失敗後の同一オブジェクト保持と次の正常編集 | [`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) |
 | 実ドロップ・分類・参照・通知 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
