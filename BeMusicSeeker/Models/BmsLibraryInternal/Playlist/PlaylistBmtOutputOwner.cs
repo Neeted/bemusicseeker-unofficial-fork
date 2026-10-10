@@ -181,6 +181,12 @@ internal sealed class PlaylistBmtOutputOwner
             .Max()) + 1;
     }
 
+    private enum ExportScope
+    {
+        AllTables,
+        ChangedTables
+    }
+
     /// <param name="reason">既存の出力要求理由。</param>
     /// <param name="cleanupTablePath">旧出力先の後片付け対象。</param>
     /// <param name="originatingRequest">項目読込み受領や外部同期の実行周から引き継ぐ表示発生元。出力自身の要求版と操作IDは保持します。</param>
@@ -188,31 +194,58 @@ internal sealed class PlaylistBmtOutputOwner
     /// <param name="capability">外側が公開とcleanup終端まで保持する生存P権限。nullは新規非待機受付です。</param>
     internal Task ExportAllAsync(string reason, string cleanupTablePath = null,
         OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null)
-        => ExecuteAsync(null, [], reason, true, cleanupTablePath, originatingRequest, capability);
+        => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability);
 
-    /// <summary>確定した変更表と削除表だけを一括出力します。部分集合で他の管理表をstale削除しません。</summary>
+    /// <summary>確定した変更表と削除表だけを一括出力します。部分集合で他の管理表をstale削除せず、出力無効時はBMTのI/Oを行いません。</summary>
     /// <param name="capability">変更元が保持する生存P権限。内部継続は取得し直さず借用します。</param>
     internal Task ExportTablesAsync(IEnumerable<BMSTable> tables, string reason,
         LibraryFileMutationCapability capability = null, IEnumerable<BMSTable> removedTables = null)
-        => ExecuteAsync(tables, removedTables ?? [], reason, false, null, null, capability);
+        => ExecuteAsync(tables, removedTables ?? [], reason, ExportScope.ChangedTables, null, null, capability);
 
-    /// <summary>確定した削除表の管理ファイルとURLを、同じPで回収します。</summary>
+    /// <summary>確定した削除表の管理ファイルとURLを、同じPで回収します。出力無効時はBMTのI/Oを行いません。</summary>
     internal Task RemoveTablesAsync(IEnumerable<BMSTable> tables, string reason, LibraryFileMutationCapability capability = null)
-        => ExecuteAsync([], tables, reason, false, null, null, capability);
+        => ExecuteAsync([], tables, reason, ExportScope.ChangedTables, null, null, capability);
 
-    /// <summary>保存済み全表順序と管理台帳からbeatoraja設定のURL順を更新し、実終端を返します。</summary>
-    internal Task SyncUrlsAsync(string reason, LibraryFileMutationCapability capability = null)
-        => ExecuteAsync([], [], reason, false, null, null, capability);
+    /// <summary>保存済み全表順序と確定台帳からconfigのURL順だけを同期します。BMT生成・台帳保存は行いません。</summary>
+    internal async Task SyncUrlsAsync(string reason, LibraryFileMutationCapability capability = null)
+    {
+        using LibraryFileMutationLease accepted = capability != null ? mutationAdmission.Borrow(capability)
+            : mutationAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease
+            : throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
+        BeatorajaBmtOptionsSnapshot options = GetOptions();
+        if (!options.EnableBeatorajaBmtOutput) { return; }
+        await Task.Run(() =>
+        {
+            if (IsShutdownRequested) { throw new OperationCanceledException("Playlist BMT URL sync was cancelled by shutdown."); }
+            string outputPath = null;
+            try
+            {
+                outputPath = GetTablePath(options);
+                if (string.IsNullOrWhiteSpace(outputPath)) { return; }
+                List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(outputPath);
+                SyncManagedTableUrls(outputPath, managed, managed, options);
+            }
+            catch (Exception exception)
+            {
+                List<BmtTableExportService.FileOperationFailure> failures = [];
+                AddFailure(failures, outputPath, exception);
+                try { ReportFailures(failures); }
+                catch (Exception notificationFailure) { throw new PlaylistMutationPostCommitException(reason, new AggregateException(exception, notificationFailure)); }
+                throw new PlaylistMutationPostCommitException(reason, exception);
+            }
+        }).ConfigureAwait(false);
+    }
 
     private async Task ExecuteAsync(IEnumerable<BMSTable> tables, IEnumerable<BMSTable> removedTables,
-        string reason, bool all, string cleanupTablePath, OperationProgressRequest originatingRequest,
+        string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest originatingRequest,
         LibraryFileMutationCapability capability)
     {
         using LibraryFileMutationLease accepted = capability != null ? mutationAdmission.Borrow(capability)
             : mutationAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease
             : throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
         BeatorajaBmtOptionsSnapshot options = GetOptions();
-        IReadOnlyList<BMSTable> changed = tables == null ? GetTablesSnapshot() : [.. tables.Where(table => table != null).Distinct()];
+        IReadOnlyList<BMSTable> changed = scope == ExportScope.AllTables ? GetTablesSnapshot()
+            : [.. (tables ?? []).Where(table => table != null).Distinct()];
         IReadOnlyList<BMSTable> removed = [.. removedTables.Where(table => table != null).Distinct()];
         long requestVersion = Interlocked.Increment(ref exportProgressOperationSeed);
         OperationProgressRequest request = ProgressRequestFactory?.Invoke("playlist_bmt_output", requestVersion)
@@ -221,23 +254,36 @@ internal sealed class PlaylistBmtOutputOwner
         {
             request = request with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
         }
-        RequestProgressReporter?.Invoke(request, true);
+        Exception executionFailure = null;
         try
         {
-            await Task.Run(() => Execute(changed, removed, options, reason, all, cleanupTablePath, request)).ConfigureAwait(false);
+            RequestProgressReporter?.Invoke(request, true);
+            await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request)).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            executionFailure = exception;
+            throw;
         }
         finally
         {
-            RequestProgressReporter?.Invoke(request, false);
+            try { RequestProgressReporter?.Invoke(request, false); }
+            catch (Exception exception)
+            {
+                throw new PlaylistMutationPostCommitException(reason,
+                    executionFailure == null ? exception : new AggregateException(executionFailure, exception));
+            }
         }
     }
 
     private void Execute(IReadOnlyList<BMSTable> changed, IReadOnlyList<BMSTable> removed,
-        BeatorajaBmtOptionsSnapshot options, string reason, bool all, string cleanupTablePath, OperationProgressRequest request)
+        BeatorajaBmtOptionsSnapshot options, string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest request)
     {
         if (IsShutdownRequested) { throw new OperationCanceledException("Playlist BMT output was cancelled by shutdown."); }
-        string outputPath = GetTablePath(options);
-        bool enabled = IsOutputEnabled(options);
+        // 無効の通常変更と保持要求は、configを読む出力先解決にも依存させない。
+        if (!options.EnableBeatorajaBmtOutput
+            && (scope != ExportScope.AllTables || options.KeepBeatorajaBmtFilesWhenOutputDisabled)) { return; }
+        string outputPath = null;
         List<BmtTableExportService.FileOperationFailure> failures = [];
         long operationId = Interlocked.Increment(ref exportProgressOperationSeed);
         bool progressStarted = false;
@@ -245,6 +291,8 @@ internal sealed class PlaylistBmtOutputOwner
         Exception notificationFailure = null;
         try
         {
+            outputPath = GetTablePath(options);
+            bool enabled = options.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(outputPath);
             if (!string.IsNullOrWhiteSpace(cleanupTablePath)
                 && (!enabled || !IsSameTablePath(cleanupTablePath, outputPath))
                 && (enabled || !options.KeepBeatorajaBmtFilesWhenOutputDisabled))
@@ -253,10 +301,12 @@ internal sealed class PlaylistBmtOutputOwner
                 failures.AddRange(cleanup.Failures);
                 SyncManagedTableUrls(cleanupTablePath, cleanup.PreviousManagedTables, cleanup.CurrentManagedTables, options);
             }
+            if (!enabled && (scope != ExportScope.AllTables || options.KeepBeatorajaBmtFilesWhenOutputDisabled)) { return; }
+            if (scope == ExportScope.ChangedTables && changed.Count == 0 && removed.Count == 0) { return; }
             if (!string.IsNullOrWhiteSpace(outputPath))
             {
                 List<BmtTableExportService.ManagedTableUrlEntry> previous = BmtTableExportService.ReadManagedTableUrls(outputPath);
-                if (!enabled && !options.KeepBeatorajaBmtFilesWhenOutputDisabled && all)
+                if (!enabled && !options.KeepBeatorajaBmtFilesWhenOutputDisabled && scope == ExportScope.AllTables)
                 {
                     failures.AddRange(BmtTableExportService.CleanupManagedFiles(outputPath).Failures);
                 }
@@ -272,12 +322,12 @@ internal sealed class PlaylistBmtOutputOwner
                     .OrderBy(table => GetBeatorajaBmtSortOrTail(table.bmt_sort))
                     .ThenBy(table => table.name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
                     .ThenBy(table => table.playlist_id ?? int.MaxValue)];
-                    List<Tuple<BMSTable, BmtTableExportService.PlaylistExportMetadata>> targets = [.. outputTables
-                    .Select(table => Tuple.Create(table, BmtTableExportService.CreatePlaylistExportMetadata(table)))];
-                    BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(outputPath,
-                        targets.Select(target => target.Item2), cleanupStaleManagedFiles: all);
-                    List<BMSTable> projectionTables = [.. targets.Where(target => plan.RequiresProjection(target.Item2)).Select(target => target.Item1)];
                     BeatorajaBmtHashOutputMode hashMode = BmtTableExportService.NormalizeHashOutputMode(options.BeatorajaBmtHashOutputMode);
+                    List<Tuple<BMSTable, BmtTableExportService.PlaylistExportMetadata>> targets = [.. outputTables
+                    .Select(table => Tuple.Create(table, BmtTableExportService.CreatePlaylistExportMetadata(table, hashMode)))];
+                    BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(outputPath,
+                        targets.Select(target => target.Item2), cleanupStaleManagedFiles: scope == ExportScope.AllTables);
+                    List<BMSTable> projectionTables = [.. targets.Where(target => plan.RequiresProjection(target.Item2)).Select(target => target.Item1)];
                     Func<BmtSongHashResolveRequest, Tuple<string, string>> resolver = projectionTables.Count == 0 || hashMode == BeatorajaBmtHashOutputMode.Original
                         ? null : songHashResolverFactory?.Invoke();
                     if (projectionTables.Count > 0)
@@ -333,11 +383,6 @@ internal sealed class PlaylistBmtOutputOwner
         return optionsProvider() ?? throw new InvalidOperationException("beatoraja BMT options provider returned null.");
     }
 
-    private static bool IsOutputEnabled(BeatorajaBmtOptionsSnapshot options)
-    {
-        return options.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetTablePath(options));
-    }
-
     private string GetTablePath()
     {
         return GetTablePath(GetOptions());
@@ -345,11 +390,24 @@ internal sealed class PlaylistBmtOutputOwner
 
     private static string GetTablePath(BeatorajaBmtOptionsSnapshot options)
     {
-        if (!string.IsNullOrWhiteSpace(options.BeatorajaRootPath) && BeatorajaConfigService.IsBeatorajaRootPathValid(options.BeatorajaRootPath))
+        if (TryGetConfiguredTablePath(options, out string tablePath))
         {
-            return BeatorajaConfigService.GetTablePath(options.BeatorajaRootPath);
+            return tablePath;
         }
         return options.BeatorajaBmtTablePath;
+    }
+
+    private static bool TryGetConfiguredTablePath(BeatorajaBmtOptionsSnapshot options, out string tablePath)
+    {
+        if (options.EnableBeatorajaBmtOutput)
+        {
+            return BeatorajaConfigService.TryGetBmtTablePath(options.BeatorajaRootPath, out tablePath);
+        }
+        // 無効時の明示整理だけは、従来の対象外ルート判定と出力先解決を維持する。
+        tablePath = string.Empty;
+        if (!BeatorajaConfigService.IsBeatorajaRootPathValid(options.BeatorajaRootPath)) { return false; }
+        tablePath = BeatorajaConfigService.GetTablePath(options.BeatorajaRootPath);
+        return true;
     }
 
     private void SyncManagedTableUrls(
@@ -358,11 +416,10 @@ internal sealed class PlaylistBmtOutputOwner
         IEnumerable<BmtTableExportService.ManagedTableUrlEntry> currentManagedTables,
         BeatorajaBmtOptionsSnapshot options)
     {
-        if (string.IsNullOrWhiteSpace(options.BeatorajaRootPath) || !BeatorajaConfigService.IsBeatorajaRootPathValid(options.BeatorajaRootPath))
+        if (!TryGetConfiguredTablePath(options, out string configuredTablePath))
         {
             return;
         }
-        string configuredTablePath = BeatorajaConfigService.GetTablePath(options.BeatorajaRootPath);
         if (!string.IsNullOrWhiteSpace(tablePath) && !IsSameTablePath(tablePath, configuredTablePath))
         {
             return;
@@ -585,6 +642,11 @@ internal sealed class PlaylistBmtOutputOwner
 
     private static void AddFailure(List<BmtTableExportService.FileOperationFailure> failures, string path, Exception exception)
     {
+        if (exception is BeatorajaConfigService.ConfigOperationException configFailure)
+        {
+            path = configFailure.ConfigPath;
+            exception = configFailure.GetBaseException();
+        }
         failures.Add(new BmtTableExportService.FileOperationFailure(path,
             exception.Message + (exception.InnerException == null ? string.Empty : Environment.NewLine + exception.GetBaseException().Message)));
     }

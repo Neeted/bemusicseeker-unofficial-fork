@@ -4131,7 +4131,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>通常保存の実Close、DataContext解除、modal復帰後も実Folder Taskと親L/Pが生存し、main上で終端します。</summary>
+    /// <summary>起動後続を回収した通常保存で、実Close、DataContext解除、modal復帰後も実Folder Taskと親L/Pが生存し、main上で終端します。</summary>
     [TestMethod]
     public void MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates()
     {
@@ -4190,6 +4190,25 @@ public sealed class SettingsWindowPresentationTests
                 Application.Current.MainWindow = main;
                 windowTest.PrepareForOwnedPresentation(main);
                 main.Show(); main.UpdateLayout();
+                if (owner.ProgressHub.IsStartupBackgroundInitializationActive)
+                {
+                    // 手動Applyのfixture準備として起動後続を回収し、設定受付の解放を別操作のL取得と混同しない。
+                    var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    PropertyChangedEventHandler finished = (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive)
+                            && !owner.ProgressHub.IsStartupBackgroundInitializationActive) { terminal.TrySetResult(); }
+                    };
+                    owner.ProgressHub.PropertyChanged += finished;
+                    try
+                    {
+                        if (owner.ProgressHub.IsStartupBackgroundInitializationActive)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal.Task, "normal-settings-startup-followup-terminal-before-apply");
+                        }
+                    }
+                    finally { owner.ProgressHub.PropertyChanged -= finished; }
+                }
                 Visibility previousOverlay = main.PlaybackOverlayVisibility;
                 owner.SettingDialog.OpenCommand.Execute();
                 Assert.IsNotNull(apply);

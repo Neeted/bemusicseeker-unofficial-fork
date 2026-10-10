@@ -1191,6 +1191,92 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>方式だけを変えたSave/Applyが設定provider保存から全表gzip出力まで待ち、正本hashと次回省略を保つことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BmtHashModeSaveAndApply_ReoutputsAllTablesAndKeepsDatabaseHashes(bool apply)
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            string beatoraja = Path.Combine(root, "beatoraja");
+            string output = Path.Combine(beatoraja, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            Settings values = CreateValidStandaloneSettings(root);
+            values.BeatorajaRootPath = beatoraja;
+            values.BeatorajaBmtTablePath = output;
+            values.EnableBeatorajaBmtOutput = true;
+            values.RegisterBeatorajaBmtUrls = true;
+            values.BeatorajaBmtHashOutputMode = "Original";
+            values.Save();
+            var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
+            List<Exception> failures = [];
+            MainWindowViewModel owner = CreateViewModel(session, firstStartup: false, reportSettingsApplyFailure: failures.Add,
+                playbackRuntimePort: new TestSettingsDialogPlaybackRuntimePort());
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            SetActiveLibraryProfile(owner, true);
+            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(root);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            BMSPlaylist playlist = AttachPlaylistTables(owner, root, existingDatabasePath: db);
+            BMSTable[] tables = Enumerable.Range(1, 2).Select(id => new BMSTable
+            {
+                playlist_id = id,
+                name = "Both " + id,
+                bmt_sort = id,
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { title = "Song " + id, md5 = new string((char)('a' + id), 32), sha256 = new string((char)('a' + id), 64), folder = "Folder" }]
+            }).ToArray();
+            foreach (BMSTable table in tables) { playlist.BMSTables.Add(table); }
+            playlist.CommitBMSTablesWithEntriesToDB(tables);
+            await playlist.BmtOutput.ExportAllAsync("initial-original");
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            owner.SettingDialog.AttachPresentationPort(presentation);
+            owner.SettingDialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+            if (apply) { await owner.SettingDialog.ApplySettingsAsync(); }
+            else { await owner.SettingDialog.SaveSettings(); }
+            Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+            Assert.AreEqual(1, session.SaveCount);
+            values.Reload();
+            Assert.AreEqual("PreferSha256Only", values.BeatorajaBmtHashOutputMode);
+            string[] files = Directory.GetFiles(output, "*.bmt");
+            Assert.AreEqual(2, files.Length);
+            foreach (string file in files)
+            {
+                using var stream = new System.IO.Compression.GZipStream(File.OpenRead(file), System.IO.Compression.CompressionMode.Decompress);
+                using var reader = new StreamReader(stream);
+                Newtonsoft.Json.Linq.JToken? song = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd()).SelectToken("folder[0].songs[0]");
+                Assert.IsNotNull(song);
+                Assert.IsNull(song["md5"]);
+                Assert.AreEqual(64, song.Value<string>("sha256")?.Length);
+            }
+            var repository = new PlaylistPersistenceRepository(db);
+            foreach (BMSTable table in tables)
+            {
+                BMSTableEntry persisted = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
+                int id = table.playlist_id ?? throw new InvalidOperationException("入力表のIDがありません。");
+                Assert.AreEqual(id, persisted.playlist_id);
+                Assert.AreEqual(new string((char)('a' + id), 32), persisted.md5);
+                Assert.AreEqual(new string((char)('a' + id), 64), persisted.sha256);
+            }
+            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" },
+                BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
+            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            await playlist.BmtOutput.ExportTablesAsync(tables, "next-same-mode");
+            foreach (string file in files)
+            {
+                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [TestMethod]
     public async Task ApplySettingsAsync_AwaitsRequiredPlaylistOutputAndKeepsOptionalUrlCompletionIndependent()
     {
@@ -6334,10 +6420,14 @@ public sealed class SettingDialogEditCompletionTests
     private static BMSPlaylist AttachPlaylistTables(
         MainWindowViewModel viewModel,
         string root,
-        IList<string>? scheduledOperations = null)
+        IList<string>? scheduledOperations = null,
+        string? existingDatabasePath = null)
     {
-        string databasePath = Path.Combine(root, "settings-test-playlists.db");
-        File.WriteAllBytes(databasePath, []);
+        string databasePath = existingDatabasePath ?? Path.Combine(root, "settings-test-playlists.db");
+        if (existingDatabasePath == null)
+        {
+            File.WriteAllBytes(databasePath, []);
+        }
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
         Settings values = composition.SettingsEditSession.Values;
         var tables = new TestBmsPlaylist(databasePath, null, null, null,

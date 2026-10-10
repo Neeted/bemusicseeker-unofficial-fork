@@ -21,6 +21,109 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceExternalSourceTests
 {
+    /// <summary>既存表の実tableURL取込みをDB・本番サマリー・configまで通し、入力順の先頭配置と残りの相対順、BMT非書換えを保証します。</summary>
+    [TestMethod]
+    public async Task BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        bool started = false;
+        TaskCompletionSource<BeatorajaTableUrlImportSummary> completed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            string root = Path.Combine(directory, "beatoraja");
+            string output = Path.Combine(root, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[]}");
+            var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
+            BMSTable[] tables = Enumerable.Range(1, 3).Select(id => new BMSTable
+            {
+                playlist_id = id,
+                name = "Table " + id,
+                bmt_sort = id,
+                is_external_sync = true,
+                Page_url = new Uri("https://example.com/table" + id),
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { title = "Song " + id, md5 = new string((char)('a' + id), 32), folder = "Folder" }]
+            }).ToArray();
+            playlist = new TestBmsPlaylist(db, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
+                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = new ObservableCollection<BMSTable>(tables) };
+            playlist.CommitBMSTablesWithEntriesToDB(tables);
+            await playlist.BmtOutput.ExportAllAsync("import-initial");
+            string[] files = Directory.GetFiles(output);
+            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            var library = new TestBmsLibrary(db);
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.IsPlaylistSummaryMode = true;
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+            workspace.ApplyPlaylistSummaryDataRefresh(deferred: false, rebuildAsync: false);
+            workspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => request.Confirmed = true;
+            workspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => completed.TrySetException(new InvalidOperationException(request.Message));
+            workspace.BeatorajaTableUrlImportSummaryReady += (_, request) => completed.TrySetResult(request.Summary);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            // 二表の入力順と、次の一表取込みで残る二表の相対順を同じ三表で確認する。
+            foreach (int[] input in new[] { new[] { 3, 1 }, new[] { 2 } })
+            {
+                completed = new TaskCompletionSource<BeatorajaTableUrlImportSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var document = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                document["tableURL"] = new Newtonsoft.Json.Linq.JArray(input.Select(id => "https://example.com/table" + id));
+                File.WriteAllText(config, document.ToString());
+                started = true;
+                workspace.StartBeatorajaTableUrlImport(root);
+                await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, playlist.WaitForPlaylistMutationIdleAsync(), "existing BMT URL import summary");
+                BeatorajaTableUrlImportSummary summary = await completed.Task;
+                await playlist.WaitForPlaylistMutationIdleAsync();
+                Assert.AreEqual(0, summary.FailedCount);
+                Assert.AreEqual(input.Length, summary.Outcomes.Count);
+                Assert.IsTrue(summary.Outcomes.All(outcome => outcome.Kind == BeatorajaTableUrlImportOutcomeKind.Existing));
+                int[] expected = input.Length == 2 ? [3, 1, 2] : [2, 3, 1];
+                using (LR2SongDBExtended verify = new BmsLibraryDbGateway(db).OpenSongDbReadOnly())
+                {
+                    CollectionAssert.AreEqual(expected.Select(id => (int?)id).ToArray(), verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
+                }
+                CollectionAssert.AreEqual(expected.Select(id => (int?)id).ToArray(), workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+                CollectionAssert.AreEqual(expected.Select(id => "https://example.com/table" + id).ToArray(), BeatorajaConfigService.ReadTableUrls(root).ToArray());
+                foreach (string file in files)
+                {
+                    CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                    Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+                }
+            }
+        }
+        finally
+        {
+            try
+            {
+                if (started && playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+            }
+            finally
+            {
+                try
+                {
+                    if (workspace != null)
+                    {
+                        workspace.StopPlaylistSummaryDataBuild();
+                        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                    }
+                }
+                finally { Directory.Delete(directory, recursive: true); }
+            }
+        }
+    }
+
     [TestMethod]
     public void SubmitExternalPlaylistUriText_AllInvalidReturnsValidationFactsWithoutEnqueueing()
     {

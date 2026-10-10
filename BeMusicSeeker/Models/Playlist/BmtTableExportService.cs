@@ -707,7 +707,8 @@ internal static class BmtTableExportService
         }
     }
 
-    internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table)
+    /// <summary>表の正本と出力方式から、生成省略を判断する入力を捕捉します。</summary>
+    internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table, BeatorajaBmtHashOutputMode hashOutputMode = BeatorajaBmtHashOutputMode.Original)
     {
         if (table == null || !table.playlist_id.HasValue)
         {
@@ -723,11 +724,11 @@ internal static class BmtTableExportService
             HeaderSha256 = table.header_sha256 ?? string.Empty,
             DataSha256 = table.data_sha256 ?? string.Empty,
             LastUpdateTicks = table.last_update.Ticks,
-            ProjectionInputSha256 = BuildProjectionInputSha256(table)
+            ProjectionInputSha256 = BuildProjectionInputSha256(table, hashOutputMode)
         };
     }
 
-    private static string BuildProjectionInputSha256(BMSTable table)
+    private static string BuildProjectionInputSha256(BMSTable table, BeatorajaBmtHashOutputMode hashOutputMode)
     {
         if (table == null)
         {
@@ -735,6 +736,7 @@ internal static class BmtTableExportService
         }
         var projectionInput = new JObject
         {
+            ["hashOutputMode"] = hashOutputMode.ToString(),
             ["tag"] = ResolveTag(table) ?? string.Empty,
             ["isExternalSync"] = table.is_external_sync,
             ["compatiblePrefix"] = table.compat_prefix ?? string.Empty,
@@ -1279,16 +1281,31 @@ internal static class BmtTableExportService
             ManifestState previous = ReadManifest(tablePath);
             result.PreviousManagedTables.AddRange(previous.Playlists.Values.Select(CloneManagedTableUrlEntry));
             currentFiles ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string fileName in previous.Files.Where(fileName => !currentFiles.Contains(fileName)).ToArray())
+            playlists ??= new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal);
+            // 部分変更は既存所有に適用する。旧URLの物理ファイルだけを整理候補にし、
+            // 無関係な表と、以前の削除失敗で残った物理所有は全出力まで保持する。
+            HashSet<string> obsoleteFiles;
+            if (cleanupStaleManagedFiles)
             {
-                if (cleanupStaleManagedFiles && DeleteFileOrRecordFailure(Path.Combine(tablePath, fileName), result))
+                obsoleteFiles = new HashSet<string>(previous.Files.Where(fileName => !currentFiles.Contains(fileName)), StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                obsoleteFiles = new HashSet<string>(previous.Playlists
+                    .Where(item => playlists.ContainsKey(item.Key))
+                    .Select(item => item.Value.FileName)
+                    .Where(fileName => !string.IsNullOrWhiteSpace(fileName) && !currentFiles.Contains(fileName)), StringComparer.OrdinalIgnoreCase);
+                foreach (KeyValuePair<string, ManifestPlaylistEntry> item in previous.Playlists)
                 {
-                    result.RemovedCount++;
+                    playlists.TryAdd(item.Key, item.Value);
                 }
-                else
-                {
-                    currentFiles.Add(fileName);
-                }
+                currentFiles.UnionWith(previous.Files);
+                obsoleteFiles.RemoveWhere(fileName => IsManagedFileReferenced(playlists, fileName));
+            }
+            currentFiles.UnionWith(obsoleteFiles);
+            foreach (string fileName in obsoleteFiles)
+            {
+                CleanupManagedFile(tablePath, fileName, currentFiles, result);
             }
             result.CurrentManagedTables.AddRange((playlists ?? new Dictionary<string, ManifestPlaylistEntry>(StringComparer.Ordinal)).Values.Select(CloneManagedTableUrlEntry));
             WriteManifest(tablePath, currentFiles, playlists, result);

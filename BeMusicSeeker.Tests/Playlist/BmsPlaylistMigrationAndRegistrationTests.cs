@@ -2145,10 +2145,12 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    // 変更元のPで実出力失敗と元の原因対象を待つ。
+    /// <summary>変更元のPで生成・同期の実失敗と対象原因を待ち、破損・読取不能を置換せず次操作へ解放します。</summary>
     [TestMethod]
     [DataRow("delete")]
     [DataRow("read")]
+    [DataRow("sync-read")]
+    [DataRow("sync-corrupt")]
     [DataRow("publish")]
     [DataRow("delete-and-publish")]
     public async Task BeatorajaBmtFailure_ReportsTargetAndCauseWithinAcceptedOperation(string failureKind)
@@ -2171,17 +2173,26 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => new CustomFolderOutputSettingsSnapshot(),
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             { BMSTables = new ObservableCollection<BMSTable>() };
+            if (failureKind == "sync-corrupt") { File.WriteAllText(manifestPath, "{broken"); }
+            byte[] originalManifest = File.ReadAllBytes(manifestPath);
             IReadOnlyList<BmtTableExportService.FileOperationFailure>? reported = null;
             playlist.BmtOutput.FailureReporter = failures => reported = failures;
             using (var held = new FileStream(failureKind == "delete" ? stalePath : manifestPath,
-                FileMode.Open, FileAccess.Read, failureKind == "read" ? FileShare.None : FileShare.ReadWrite))
+                FileMode.Open, FileAccess.Read, failureKind is "read" or "sync-read" ? FileShare.None : FileShare.ReadWrite))
             using (FileStream? heldStale = failureKind == "delete-and-publish"
                 ? new FileStream(stalePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null)
             {
                 using LibraryFileMutationLease admission = playlist.AcquirePlaylistMutationLease("failure_contract");
                 using LibraryFileMutationCapability capability = admission.CreateMutationCapability();
                 await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() =>
-                    playlist.BmtOutput.ExportAllAsync("failure_contract", capability: capability));
+                    failureKind.StartsWith("sync", StringComparison.Ordinal)
+                        ? playlist.BmtOutput.SyncUrlsAsync("failure_contract", capability)
+                        : playlist.BmtOutput.ExportAllAsync("failure_contract", capability: capability));
+            }
+            if (failureKind.StartsWith("sync", StringComparison.Ordinal))
+            {
+                CollectionAssert.AreEqual(originalManifest, File.ReadAllBytes(manifestPath));
+                Assert.AreEqual("owned", File.ReadAllText(stalePath));
             }
             Assert.IsNotNull(reported);
             IReadOnlyList<BmtTableExportService.FileOperationFailure> capturedReports = reported!;
@@ -2236,6 +2247,99 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 JObject.Parse(File.ReadAllText(configPath))["tableURL"]!.Values<string>().ToArray());
             Assert.AreEqual(0, Directory.GetFiles(Path.Combine(root, "table"), "*.bmt").Length);
             Assert.AreEqual(0, failures.Count);
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
+        }
+        finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    /// <summary>実DB・台帳・BMT・configへ接続し、全量、部分変更、削除、同期、無効保持と明示cleanupの意味境界を確認します。</summary>
+    [TestMethod]
+    public async Task BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistMigrationAndRegistrationTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string db = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            string root = Path.Combine(directory, "beatoraja");
+            string output = Path.Combine(root, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
+            BMSTable first = new() { playlist_id = 8101, name = "A", bmt_sort = 1, last_update = new DateTime(2024, 1, 1), Folder_order = ["Folder"], entries = [new BMSTableEntry { title = "A song", md5 = new string('a', 32), folder = "Folder" }] };
+            BMSTable second = new() { playlist_id = 8102, name = "B", bmt_sort = 2, last_update = new DateTime(2024, 1, 1), Folder_order = ["Folder"], entries = [new BMSTableEntry { title = "B song", md5 = new string('b', 32), folder = "Folder" }] };
+            var playlist = new TestBmsPlaylist(db, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
+            { BMSTables = new ObservableCollection<BMSTable>([first, second]) };
+            playlist.CommitBMSTablesWithEntriesToDB([first, second]);
+            await playlist.BmtOutput.ExportAllAsync("initial");
+            string secondPath = Path.Combine(output, BMSTable.ComputeSha256Hex("bemusicseeker://playlist/8102") + ".bmt");
+            byte[] bytes = File.ReadAllBytes(secondPath);
+            DateTime time = File.GetLastWriteTimeUtc(secondPath);
+            string unmanaged = Path.Combine(output, "unmanaged.bmt");
+            File.WriteAllText(unmanaged, "unmanaged-content");
+            void AssertPreserved()
+            {
+                CollectionAssert.AreEqual(bytes, File.ReadAllBytes(secondPath));
+                Assert.AreEqual(time, File.GetLastWriteTimeUtc(secondPath));
+                Assert.AreEqual("bemusicseeker://playlist/8102", BmtTableExportService.ReadManagedTableUrls(output).Single(entry => entry.PlaylistIdentity == "8102").Url);
+                Assert.AreEqual("unmanaged-content", File.ReadAllText(unmanaged));
+            }
+            first.name = "A changed";
+            await playlist.BmtOutput.ExportTablesAsync([first], "partial");
+            AssertPreserved();
+            first.is_external_sync = true;
+            first.Page_url = new Uri("https://example.com/a");
+            await playlist.BmtOutput.ExportTablesAsync([first], "url-change");
+            AssertPreserved();
+            await playlist.BmtOutput.ExportTablesAsync([], "empty");
+            AssertPreserved();
+            await playlist.BmtOutput.RemoveTablesAsync([first], "delete");
+            AssertPreserved();
+            await playlist.BmtOutput.ExportAllAsync("restore-current");
+            AssertPreserved();
+            string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
+            byte[] manifestBytes = File.ReadAllBytes(manifest);
+            DateTime manifestTime = File.GetLastWriteTimeUtc(manifest);
+            first.bmt_sort = 2; second.bmt_sort = 1;
+            playlist.CommitBMSTableHeadersToDB([first, second]);
+            // 読取りを許し置換を拒否する実台帳でも、順序同期は成立する。
+            using (var held = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                await playlist.BmtOutput.SyncUrlsAsync("order-only");
+            }
+            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/8102", "https://example.com/a" }, BeatorajaConfigService.ReadTableUrls(root).ToArray());
+            CollectionAssert.AreEqual(manifestBytes, File.ReadAllBytes(manifest));
+            Assert.AreEqual(manifestTime, File.GetLastWriteTimeUtc(manifest));
+            AssertPreserved();
+            options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false, BeatorajaRootPath = root, KeepBeatorajaBmtFilesWhenOutputDisabled = true, RegisterBeatorajaBmtUrls = true };
+            // 無効の操作は台帳とconfigの両方が読取不能でも、保持要求を完了する。
+            using (var held = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None))
+            using (var heldConfig = new FileStream(config, FileMode.Open, FileAccess.Read, FileShare.None))
+            {
+                await playlist.BmtOutput.ExportTablesAsync([first], "disabled-edit");
+                await playlist.BmtOutput.RemoveTablesAsync([first], "disabled-delete");
+                await playlist.BmtOutput.SyncUrlsAsync("disabled-order");
+                await playlist.BmtOutput.ExportAllAsync("disabled-keep");
+            }
+            CollectionAssert.AreEqual(manifestBytes, File.ReadAllBytes(manifest));
+            AssertPreserved();
+            options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
+            playlist.BMSTables.Remove(first);
+            await playlist.BmtOutput.ExportAllAsync("full-current-set");
+            Assert.AreEqual(1, BmtTableExportService.ReadManagedTableUrls(output).Count);
+            AssertPreserved();
+            options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = false, BeatorajaRootPath = root, KeepBeatorajaBmtFilesWhenOutputDisabled = false, RegisterBeatorajaBmtUrls = true };
+            await playlist.BmtOutput.ExportAllAsync("explicit-cleanup");
+            Assert.IsFalse(File.Exists(secondPath));
+            Assert.IsFalse(File.Exists(manifest));
+            Assert.AreEqual("unmanaged-content", File.ReadAllText(unmanaged));
+            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged" }, BeatorajaConfigService.ReadTableUrls(root).ToArray());
             Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
             next.Dispose();
         }

@@ -543,22 +543,23 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                         appliedDraggedRows,
                         appliedCurrentPlaylistId,
                         out selectionRestoreRequest);
-                    dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
-                        "playlist_summary_bmt_sort_drag_drop",
-                        selectionRestoreOperationId > 0L
-                            ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
-                                selectionRestoreOperationId,
-                                selectionRestoreRequest,
-                                generation)
-                            : null);
-                    if (selectionRestoreOperationId > 0L && dataRebuildGeneration <= 0L)
-                    {
-                        ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
-                    }
                 }, capability);
             if (!changed)
             {
                 return 0L;
+            }
+            await GetPlaylistStore().BmtOutput.SyncUrlsAsync("playlist_summary_bmt_sort_drag_drop", capability).ConfigureAwait(false);
+            dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
+                "playlist_summary_bmt_sort_drag_drop",
+                selectionRestoreOperationId > 0L
+                    ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
+                        selectionRestoreOperationId,
+                        selectionRestoreRequest,
+                        generation)
+                    : null);
+            if (selectionRestoreOperationId > 0L && dataRebuildGeneration <= 0L)
+            {
+                ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
             }
             return dataRebuildGeneration;
         }

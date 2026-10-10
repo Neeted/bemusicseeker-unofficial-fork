@@ -17,11 +17,15 @@ internal static class BeatorajaConfigService
 
     internal static bool IsBeatorajaRootPathValid(string rootPath)
     {
+        return HasBeatorajaRootFiles(rootPath) && TryReadConfig(rootPath, out _);
+    }
+
+    private static bool HasBeatorajaRootFiles(string rootPath)
+    {
         return !string.IsNullOrWhiteSpace(rootPath)
             && LongPathFileSystem.DirectoryExists(rootPath)
             && LongPathFileSystem.FileExists(GetConfigPath(rootPath))
-            && (LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.jar")) || LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.exe")))
-            && TryReadConfig(rootPath, out _);
+            && (LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.jar")) || LongPathFileSystem.FileExists(Path.Combine(rootPath, "beatoraja.exe")));
     }
 
     internal static string GetConfigPath(string rootPath)
@@ -33,6 +37,20 @@ internal static class BeatorajaConfigService
     {
         JObject config = ReadConfigOrDefault(rootPath);
         return ResolveConfiguredPath(rootPath, config.Value<string>("tablepath"), "table");
+    }
+
+    /// <summary>必要BMT出力の既存ルートから出力先を読みます。構成ファイルの失敗を無効判定や既定設定へ置換しません。</summary>
+    /// <param name="rootPath">対象ルート。未指定や構成ファイル・実行ファイルがない対象は従来どおり対象外です。</param>
+    /// <param name="tablePath">対象ルートの出力先。対象外なら空文字列。</param>
+    /// <returns>必要出力の対象ルートならtrue。</returns>
+    /// <exception cref="ConfigOperationException">対象の構成ファイルを読めないか、JSONとして解釈できません。</exception>
+    internal static bool TryGetBmtTablePath(string rootPath, out string tablePath)
+    {
+        tablePath = string.Empty;
+        if (!HasBeatorajaRootFiles(rootPath)) { return false; }
+        JObject config = ReadConfigForBmt(rootPath);
+        tablePath = ResolveConfiguredPath(rootPath, config.Value<string>("tablepath"), "table");
+        return true;
     }
 
     internal static string GetPlayerRootPath(string rootPath)
@@ -95,9 +113,10 @@ internal static class BeatorajaConfigService
             && LongPathFileSystem.FileExists(scoreDbPath);
     }
 
+    /// <summary>既存ルートの管理URLを原子的に同期し、構成ファイルの読取り・解析・置換失敗を対象パスと元原因付きで返します。</summary>
     internal static void SyncTableUrls(string rootPath, IEnumerable<string> currentManagedUrls, IEnumerable<string> previousManagedUrls, Func<bool> shouldProceed = null)
     {
-        if (!IsBeatorajaRootPathValid(rootPath))
+        if (!HasBeatorajaRootFiles(rootPath))
         {
             return;
         }
@@ -108,7 +127,7 @@ internal static class BeatorajaConfigService
                 return;
             }
             string configPath = GetConfigPath(rootPath);
-            var config = JObject.Parse(ReadAllText(configPath, Encoding.UTF8));
+            JObject config = ReadConfigForBmt(rootPath);
             var managedUrlSet = new HashSet<string>(StringComparer.Ordinal);
             foreach (string url in (previousManagedUrls ?? []).Concat(currentManagedUrls ?? []))
             {
@@ -163,6 +182,26 @@ internal static class BeatorajaConfigService
         return TryReadConfig(rootPath, out JObject config) ? config : [];
     }
 
+    private static JObject ReadConfigForBmt(string rootPath)
+    {
+        string configPath = GetConfigPath(rootPath);
+        try { return JObject.Parse(ReadAllText(configPath, Encoding.UTF8)); }
+        catch (Exception exception) { throw new ConfigOperationException(configPath, exception); }
+    }
+
+    /// <summary>必要BMT操作の構成ファイル失敗について、通知対象パスと元例外を保持します。</summary>
+    internal sealed class ConfigOperationException : IOException
+    {
+        /// <summary>失敗した構成ファイルのパスと元原因を捕捉します。</summary>
+        internal ConfigOperationException(string configPath, Exception cause) : base(cause.Message, cause)
+        {
+            ConfigPath = configPath;
+        }
+
+        /// <summary>通知へ渡す失敗対象の構成ファイルパス。</summary>
+        internal string ConfigPath { get; }
+    }
+
     private static string ResolveConfiguredPath(string rootPath, string configuredPath, string defaultPath)
     {
         string path = string.IsNullOrWhiteSpace(configuredPath) ? defaultPath : configuredPath;
@@ -181,6 +220,7 @@ internal static class BeatorajaConfigService
             WriteAllText(tempPath, config.ToString(Formatting.Indented), new UTF8Encoding(false));
             LongPathFileSystem.MoveFile(tempPath, configPath, overwrite: true);
         }
+        catch (Exception exception) { throw new ConfigOperationException(configPath, exception); }
         finally
         {
             try

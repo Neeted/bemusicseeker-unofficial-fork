@@ -25,6 +25,138 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
     // BMT-N: production callback の受信境界から既存 presentation event へ配送する。
+    /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、ドラッグ選択世代、無変更と次操作を確認します。</summary>
+    [DataTestMethod]
+    [DataRow("top")]
+    [DataRow("bottom")]
+    [DataRow("visible")]
+    [DataRow("drop")]
+    public async Task BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask(string command)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspacePersistenceCommandTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? operation = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        bool gateEnabled = false;
+        try
+        {
+            string db = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(db);
+            string root = Path.Combine(directory, "beatoraja");
+            string output = Path.Combine(root, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
+            BMSTable[] tables = Enumerable.Range(1, 3).Select(id => new BMSTable
+            {
+                playlist_id = id,
+                name = "Table " + id,
+                bmt_sort = id,
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { title = "Song " + id, md5 = new string((char)('a' + id), 32), folder = "Folder" }]
+            }).ToArray();
+            var playlist = new TestBmsPlaylist(db, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () =>
+                {
+                    if (gateEnabled)
+                    {
+                        entered.TrySetResult();
+                        release.Task.GetAwaiter().GetResult();
+                    }
+                    return options;
+                },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty))
+            { BMSTables = new ObservableCollection<BMSTable>(tables) };
+            playlist.CommitBMSTablesWithEntriesToDB(tables);
+            await playlist.BmtOutput.ExportAllAsync("order-test-initial");
+            string[] files = Directory.GetFiles(output);
+            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            var library = new TestBmsLibrary(db);
+            List<PlaylistSummarySelectionRestoreRequest> selections = [];
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
+                selectionRestoreSink: selections.Add);
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.IsPlaylistSummaryMode = true;
+            workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+            workspace.RebuildPlaylistSummaryView(runAsync: false);
+            PlaylistSummaryRow[] rows = workspace.PlaylistSummaryView.ToArray();
+            Assert.AreEqual(3, rows.Length);
+            PlaylistSummaryRow[] desired = [rows[2], rows[0], rows[1]];
+            gateEnabled = true;
+            operation = Task.Run(async () =>
+            {
+                switch (command)
+                {
+                    case "top": await workspace.MoveSummaryRowsToBmtTopAsync([rows[2]]); break;
+                    case "bottom": await workspace.MoveSummaryRowsToBmtBottomAsync([rows[0], rows[1]]); break;
+                    case "visible": await workspace.ApplyCurrentVisibleBmtOrderAsync(desired); break;
+                    case "drop": await workspace.DropSummaryRowsInBmtOrderAsync(rows, [rows[2]], 0, 3); break;
+                    default: Assert.Fail("Unknown input"); break;
+                }
+            });
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "BMT order URL sync gate");
+            Assert.IsFalse(operation.IsCompleted);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(db).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
+            }
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("order-test-competing"));
+            release.TrySetResult();
+            await operation;
+            CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "bemusicseeker://playlist/3", "bemusicseeker://playlist/1", "bemusicseeker://playlist/2" },
+                BeatorajaConfigService.ReadTableUrls(root).ToArray());
+            foreach (string file in files)
+            {
+                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+            if (command == "drop")
+            {
+                Assert.AreEqual(1, selections.Count);
+                CollectionAssert.AreEquivalent(new[] { 3 }, selections[0].PlaylistIds.ToArray());
+                Assert.AreEqual(3, selections[0].CurrentPlaylistId);
+            }
+            long generation = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            await workspace.ApplyCurrentVisibleBmtOrderAsync(workspace.PlaylistSummaryView.ToArray());
+            Assert.AreEqual(generation, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+            foreach (string file in files)
+            {
+                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { if (operation != null) { await operation; } }
+            finally
+            {
+                try
+                {
+                    if (workspace != null)
+                    {
+                        workspace.StopPlaylistSummaryDataBuild();
+                        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                    }
+                }
+                finally { Directory.Delete(directory, recursive: true); }
+            }
+        }
+    }
+
     [TestMethod]
     public void BmtOutputFailure_PublishesIndependentNotificationReceipt()
     {
@@ -40,6 +172,233 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
         StringAssert.Contains(notification.Message, "owned-output/locked.bmt");
         StringAssert.Contains(notification.Message, "sharing-denied");
+    }
+
+    /// <summary>代表順序入口を実configの解析・読取り・置換失敗へ接続し、確定DB、実通知中のP、出力保全と修復後の明示操作を保証します。</summary>
+    [DataTestMethod]
+    [DataRow("corrupt")]
+    [DataRow("read")]
+    [DataRow("replace")]
+    public async Task BmtOrderConfigFailure_KeepsCommittedOrderAndAdmissionThroughNotification(string fault)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspacePersistenceCommandTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestBmsPlaylist? playlist = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task? operation = null;
+        FileStream? heldConfig = null;
+        bool failureObserved = false;
+        Exception? primaryFailure = null;
+        try
+        {
+            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(directory, outputEnabled: true);
+            playlist = fixture.Playlist;
+            workspace = fixture.Workspace;
+            string originalConfig = File.ReadAllText(fixture.ConfigPath);
+            string[] files = Directory.GetFiles(fixture.OutputPath);
+            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            List<string> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                notifications.Add(request.Receipt.Notifications.Single().Message);
+                entered.TrySetResult();
+                release.Task.GetAwaiter().GetResult();
+            };
+            if (fault == "corrupt") { File.WriteAllText(fixture.ConfigPath, "{"); }
+            else { heldConfig = new FileStream(fixture.ConfigPath, FileMode.Open, FileAccess.Read, fault == "read" ? FileShare.None : FileShare.ReadWrite); }
+            operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]);
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "BMT config failure notification");
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("config-failure-competing"));
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabasePath).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
+            }
+            release.TrySetResult();
+            PlaylistMutationPostCommitException failure = await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(() => operation);
+            failureObserved = true;
+            Assert.IsInstanceOfType(failure.GetBaseException(), fault == "corrupt" ? typeof(Newtonsoft.Json.JsonReaderException) : typeof(IOException));
+            Assert.AreEqual(1, notifications.Count);
+            StringAssert.Contains(notifications[0], fixture.ConfigPath);
+            StringAssert.Contains(notifications[0], failure.GetBaseException().Message);
+            foreach (string file in files)
+            {
+                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            heldConfig?.Dispose();
+            heldConfig = null;
+            Assert.AreEqual(fault == "corrupt" ? "{" : originalConfig, File.ReadAllText(fixture.ConfigPath));
+            var repaired = Newtonsoft.Json.Linq.JObject.Parse(originalConfig);
+            var repairedUrls = repaired["tableURL"] as Newtonsoft.Json.Linq.JArray;
+            Assert.IsNotNull(repairedUrls);
+            repairedUrls.Insert(1, "https://example.com/repaired-unmanaged");
+            File.WriteAllText(fixture.ConfigPath, repaired.ToString());
+            operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 2)]);
+            await operation;
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabasePath).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEqual(new int?[] { 2, 3, 1 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
+            }
+            var actualUrls = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(fixture.ConfigPath))["tableURL"] as Newtonsoft.Json.Linq.JArray;
+            Assert.IsNotNull(actualUrls);
+            CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "https://example.com/repaired-unmanaged", "bemusicseeker://playlist/2", "bemusicseeker://playlist/3", "bemusicseeker://playlist/1" }, actualUrls.Values<string>().ToArray());
+            Assert.AreEqual(1, notifications.Count);
+            foreach (string file in files)
+            {
+                CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+        }
+        catch (Exception exception) { primaryFailure = exception; throw; }
+        finally
+        {
+            release.TrySetResult();
+            try
+            {
+                try { if (operation != null) { await operation; } }
+                catch (Exception cleanupFailure) when (primaryFailure != null || failureObserved)
+                {
+                    Trace.WriteLine("BMT設定失敗テストの操作回収: " + cleanupFailure);
+                }
+                try
+                {
+                    if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+                    if (workspace != null)
+                    {
+                        workspace.StopPlaylistSummaryDataBuild();
+                        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                    }
+                }
+                finally { heldConfig?.Dispose(); Directory.Delete(directory, recursive: true); }
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                Trace.WriteLine("BMT設定失敗テストの資源回収: " + cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>保持falseでも無効の通常順序編集は実config・台帳の読取不能へ依存せず、DBだけを保存し通知・出力変更を行わないことを保証します。</summary>
+    [TestMethod]
+    public async Task BmtOrderDisabled_SavesOrderWithoutReadingLockedConfigOrManifest()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspacePersistenceCommandTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        FileStream? heldConfig = null;
+        FileStream? heldManifest = null;
+        Task? operation = null;
+        Exception? primaryFailure = null;
+        try
+        {
+            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(directory, outputEnabled: false);
+            playlist = fixture.Playlist;
+            workspace = fixture.Workspace;
+            string manifest = Path.Combine(fixture.OutputPath, BmtTableExportService.ManifestFileName);
+            string[] files = Directory.GetFiles(fixture.OutputPath);
+            Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
+            Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
+            byte[] configBytes = File.ReadAllBytes(fixture.ConfigPath);
+            DateTime configTime = File.GetLastWriteTimeUtc(fixture.ConfigPath);
+            int notifications = 0;
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => notifications++;
+            heldConfig = new FileStream(fixture.ConfigPath, FileMode.Open, FileAccess.Read, FileShare.None);
+            heldManifest = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None);
+            operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]);
+            await operation;
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(fixture.DatabasePath).OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
+            }
+            Assert.AreEqual(0, notifications);
+            foreach (string file in files)
+            {
+                byte[] actual = new byte[bytes[file].Length];
+                if (file == manifest) { heldManifest.ReadExactly(actual); }
+                else { actual = File.ReadAllBytes(file); }
+                CollectionAssert.AreEqual(bytes[file], actual);
+                Assert.AreEqual(times[file], File.GetLastWriteTimeUtc(file));
+            }
+            byte[] actualConfig = new byte[configBytes.Length];
+            heldConfig.ReadExactly(actualConfig);
+            CollectionAssert.AreEqual(configBytes, actualConfig);
+            Assert.AreEqual(configTime, File.GetLastWriteTimeUtc(fixture.ConfigPath));
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
+        }
+        catch (Exception exception) { primaryFailure = exception; throw; }
+        finally
+        {
+            try
+            {
+                try
+                {
+                    try { if (operation != null) { await operation; } }
+                    catch (Exception cleanupFailure) when (primaryFailure != null)
+                    {
+                        Trace.WriteLine("無効BMTテストの操作回収: " + cleanupFailure);
+                    }
+                    if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+                    if (workspace != null)
+                    {
+                        workspace.StopPlaylistSummaryDataBuild();
+                        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                    }
+                }
+                finally { heldManifest?.Dispose(); heldConfig?.Dispose(); Directory.Delete(directory, recursive: true); }
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                Trace.WriteLine("無効BMTテストの資源回収: " + cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>設定失敗と無効操作の判定に共用する、実SQLite・gzip・台帳・configと本番通知接続を持つ三表を準備します。</summary>
+    private static async Task<(TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath)> CreateBmtOrderFailureFixtureAsync(string directory, bool outputEnabled)
+    {
+        string db = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+        PlaylistPersistenceRepository.EnsureSchema(db);
+        string root = Path.Combine(directory, "beatoraja");
+        string output = Path.Combine(root, "table");
+        Directory.CreateDirectory(output);
+        File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+        string config = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+        File.WriteAllText(config, "{\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+        var options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
+        BMSTable[] tables = Enumerable.Range(1, 3).Select(id => new BMSTable
+        {
+            playlist_id = id,
+            name = "Table " + id,
+            bmt_sort = id,
+            last_update = new DateTime(2024, 1, 1),
+            Folder_order = ["Folder"],
+            entries = [new BMSTableEntry { title = "Song " + id, md5 = new string((char)('a' + id), 32), folder = "Folder" }]
+        }).ToArray();
+        var playlist = new TestBmsPlaylist(db, null, null, null,
+            () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(),
+            BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty))
+        { BMSTables = new ObservableCollection<BMSTable>(tables) };
+        playlist.CommitBMSTablesWithEntriesToDB(tables);
+        await playlist.BmtOutput.ExportAllAsync("config-failure-initial");
+        File.WriteAllText(Path.Combine(output, "unmanaged.bmt"), "unmanaged-content");
+        options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = outputEnabled, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true, KeepBeatorajaBmtFilesWhenOutputDisabled = false };
+        var library = new TestBmsLibrary(db);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
+            playlistLibraryProvider: () => library,
+            playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
+        workspace.RefreshPlaylistTreeTables(playlist, library);
+        workspace.IsPlaylistSummaryMode = true;
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        playlist.BmtOutput.FailureReporter = workspace.ReportBmtOutputFailures;
+        return (playlist, workspace, db, config, output);
     }
 
     [TestMethod]

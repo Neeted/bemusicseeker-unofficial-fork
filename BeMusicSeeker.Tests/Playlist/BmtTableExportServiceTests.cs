@@ -988,6 +988,83 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>部分出力は既存台帳へ適用し、未変更表のURL所有・実gzip内容・時刻を保つことを保証します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_PartialChangeKeepsOtherPlaylistOwnershipAndFile()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            JObject first = CreateLocalTableData("https://example.com/a", "A");
+            JObject second = CreateLocalTableData("https://example.com/b", "B");
+            BmtTableExportService.ExportTableDataSet(directory, [Tuple.Create("1", first), Tuple.Create("2", second)], true);
+            string secondPath = Path.Combine(directory, BMSTable.ComputeSha256Hex("https://example.com/b") + ".bmt");
+            byte[] bytes = File.ReadAllBytes(secondPath);
+            DateTime time = File.GetLastWriteTimeUtc(secondPath);
+            string firstPath = Path.Combine(directory, BMSTable.ComputeSha256Hex("https://example.com/a") + ".bmt");
+            first["url"] = "https://example.com/a-new";
+            BmtTableExportService.ExportResult result = BmtTableExportService.ExportTableDataSet(directory, [Tuple.Create("1", first)], false);
+            Assert.IsFalse(File.Exists(firstPath));
+            Assert.AreEqual(1, result.RemovedCount);
+            Assert.AreEqual("https://example.com/b", result.CurrentManagedTables.Single(entry => entry.PlaylistIdentity == "2").Url);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(secondPath));
+            Assert.AreEqual(time, File.GetLastWriteTimeUtc(secondPath));
+            BmtTableExportService.ExportResult empty = BmtTableExportService.ExportTableDataSet(directory, Array.Empty<Tuple<string, JObject>>(), false);
+            Assert.AreEqual(2, empty.CurrentManagedTables.Count);
+            Assert.AreEqual(0, empty.RemovedCount);
+        });
+    }
+
+    /// <summary>本番メタデータから方式変更・旧署名の一度の再生成と同方式の省略を、実gzipまで確認します。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ExportTableDataSet_HashModeAndLegacyFingerprintRegenerateOnce()
+    {
+        WithTemporaryDirectory(directory =>
+        {
+            var table = new BMSTable
+            {
+                playlist_id = 71,
+                name = "Both",
+                Folder_order = ["Folder"],
+                last_update = new DateTime(2024, 1, 1),
+                entries = [new BMSTableEntry { title = "Song", md5 = Md5A, sha256 = Sha256A, folder = "Folder" }]
+            };
+            BmtTableExportService.ExportResult Export(BeatorajaBmtHashOutputMode mode)
+            {
+                BmtTableExportService.PlaylistExportMetadata metadata = BmtTableExportService.CreatePlaylistExportMetadata(table, mode);
+                BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(directory, [metadata], true);
+                return BmtTableExportService.ExportTableDataSet(directory,
+                    plan.RequiresProjection(metadata) ? [Tuple.Create("71", BmtTableExportService.BuildTableData(table, null, mode))] : [], plan, null);
+            }
+            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.Original).WrittenCount);
+            string path = Directory.GetFiles(directory, "*.bmt").Single();
+            Assert.AreEqual(Md5A, ReadBmtJson(path).SelectToken("folder[0].songs[0].md5")?.Value<string>());
+            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
+            JToken? song = ReadBmtJson(path).SelectToken("folder[0].songs[0]");
+            Assert.IsNotNull(song);
+            Assert.IsNull(song["md5"]);
+            Assert.AreEqual(Sha256A, song.Value<string>("sha256"));
+            byte[] bytes = File.ReadAllBytes(path);
+            DateTime time = File.GetLastWriteTimeUtc(path);
+            Assert.AreEqual(0, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+            Assert.AreEqual(time, File.GetLastWriteTimeUtc(path));
+            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
+            var manifest = JObject.Parse(File.ReadAllText(manifestPath));
+            // 方式を含まない旧形式の実指紋を入力し、一度の移行だけを要求する。
+            JToken? legacyEntry = manifest.SelectToken("playlists.71");
+            Assert.IsNotNull(legacyEntry);
+            legacyEntry["projectionInputSha256"] = BMSTable.ComputeSha256Hex(
+                "{\"tag\":\"\",\"isExternalSync\":false,\"compatiblePrefix\":\"\",\"folderOrder\":[\"Folder\"],\"courses\":[]}");
+            File.WriteAllText(manifestPath, manifest.ToString());
+            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
+            Assert.AreEqual(0, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
+            Assert.AreEqual(Md5A, table.GetEntriesExceptDummy().Single().md5);
+            Assert.AreEqual(Sha256A, table.GetEntriesExceptDummy().Single().sha256);
+        });
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_RewritesWhenManagedPlaylistContentChanges()
@@ -1169,6 +1246,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>共有URLの一方だけを削除しても、残る表の所有・実gzip内容・時刻を保ち、物理削除件数へ加えません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveManagedPlaylist_KeepsSharedManagedFileWhenAnotherPlaylistStillReferencesIt()
@@ -1183,10 +1261,16 @@ public sealed class BmtTableExportServiceTests
             ], cleanupStaleManagedFiles: true);
             string fileName = BMSTable.ComputeSha256Hex(tableData.Value<string>("url")) + ".bmt";
 
+            string filePath = Path.Combine(tempDirectory, fileName);
+            byte[] bytes = File.ReadAllBytes(filePath);
+            DateTime time = File.GetLastWriteTimeUtc(filePath);
             BmtTableExportService.ExportResult result = BmtTableExportService.RemoveManagedPlaylist(tempDirectory, "1");
 
             Assert.IsTrue(File.Exists(Path.Combine(tempDirectory, fileName)));
             Assert.AreEqual(0, result.RemovedCount);
+            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(filePath));
+            Assert.AreEqual(time, File.GetLastWriteTimeUtc(filePath));
+            Assert.AreEqual("2", BmtTableExportService.ReadManagedTableUrls(tempDirectory).Single().PlaylistIdentity);
             Assert.AreEqual("2", result.CurrentManagedTables.Single().PlaylistIdentity);
             Assert.AreEqual("https://example.com/shared-table", result.CurrentManagedTables.Single().Url);
         });

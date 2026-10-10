@@ -43,7 +43,9 @@ MD5とSHA-256が別譜面を指す場合はMD5を正本とし、危険な対の�
 
 起動・`ReloadTablesAsync`・復元では必須の譜面読込み・出力修復を直接待ち、現在のプロファイルとDBの全対象へ揃えます。表が0件でも不要な管理ファイルを整理します。外部更新の既知変更・ハッシュ初期化、ローカル保存、譜面行保存、BMT内容に影響するプロパティ変更では対象を出力します。
 
-LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。ハッシュ出力モードだけの変更は即時再出力せず、次の通常出力時に反映します。表削除はその表の管理ファイルとURLだけを外します。
+LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。ハッシュ出力方式だけの変更も設定のSave/Applyで検出し、同じ保存操作のTaskで全表の必要出力を直接待ちます。表削除はその表の管理ファイルとURLだけを外します。
+
+出力無効時の通常の編集・削除・順序変更はBMTのI/Oを行いません。無効化を保存する明示的な全体出力だけが保持設定に従って既存出力を整理します。保持設定が有効なら読取不能の台帳にも通常編集を依存させません。
 
 全出力の進捗は実際に内容を生成・圧縮する表を対象にします。未変更で生成0件、整理・URL同期だけの場合に架空の0/1進捗を出しません。
 
@@ -51,7 +53,7 @@ LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生�
 
 出力先直下の `.bemusicseeker-bmt-manifest` を使い、`.json` は付けません。`files` は物理ファイルの所有、`playlists` は表IDとURLの所有を示します。表名、ヘッダー・データハッシュ、更新日時ticks、出力に関係する入力の指紋、実ファイル名・更新時刻・サイズを保持します。
 
-スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。指紋はタグ解決結果、外部同期扱い、互換接頭辞、フォルダ順、コースJSONを含みます。所持索引によるハッシュ解決結果だけの変化は無効化条件にしません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
+スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。指紋は正規化したハッシュ出力方式、タグ解決結果、外部同期扱い、互換接頭辞、フォルダ順、コースJSONを含みます。方式を含まない旧指紋は一度再生成し、同じ方式の次回出力は省略します。所持索引によるハッシュ解決結果だけの変化は無効化条件にしません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
 
 空表はURLだけを記録し、有効な内容が得られたら同じIDへファイルを付けます。URL変更でファイル名が変わる場合は、新しいものを管理し、他表が参照しない旧ファイルを整理します。同名ファイルは管理外でも上書きし、それ以後管理対象にします。
 
@@ -70,7 +72,7 @@ flowchart LR
 
 ### 整理と失敗
 
-削除するのは台帳にあるBMTだけで、管理外ファイルを走査して削除しません。全出力では別プロファイル由来も含め現在集合へ揃えます。変更表だけの部分出力では無関係な表のstale cleanupを行いません。`files` は現在ファイルに加え削除できなかった旧ファイルを保持し、`playlists` は現在の対象へ更新します。全削除の部分失敗ならURL所有権を空にし、未削除ファイルを残します。出力先変更後の旧先は自動回収せず、残留を通知します。
+削除するのは台帳にあるBMTだけで、管理外ファイルを走査して削除しません。全出力では別プロファイル由来も含め現在集合へ揃えます。変更表だけの部分出力は既存の表・URL所有へ変更を適用し、無関係な所有を消しません。旧URLのファイルは残る共有参照がなければ整理します。空の部分変更も全量更新へ読み替えません。`files` は現在ファイルに加え削除できなかった旧ファイルを保持し、`playlists` は現在の対象へ更新します。全削除の部分失敗ならURL所有権を空にし、未削除ファイルを残します。出力先変更後の旧先は自動回収せず、残留を通知します。
 
 `RemovedCount` は削除完了件数で、不存在も含みます。失敗、共有参照により残したもの、台帳自体の削除は含みません。存在確認のfalseを削除成功とみなさず、削除操作の結果で判定します。
 
@@ -102,7 +104,9 @@ flowchart TB
 
 ### Table URL同期
 
-URL同期は確定した台帳の所有情報から行い、物理書込み・削除0件でも省略しません。構成ファイルの読取り・書込み失敗は必要出力の部分失敗として元の操作へ返します。生成済みBMT・確定済みDBを戻さず、元の原因を保持し、次の明示操作で新しい入力を捕捉します。台帳の読取り・保存に失敗した操作では、未確定のURL所有権を反映しません。
+順序だけのURL同期は確定した台帳を読み、configの管理URL順を反映する専用経路です。BMT生成・削除・台帳保存は行わず、台帳が読取り可能なら置換不能でも成立します。出力を伴うURL同期も、確定した台帳の所有情報から行い、物理書込み・削除0件でも省略しません。構成ファイルの読取り・書込み失敗は必要出力の部分失敗として元の操作へ返します。生成済みBMT・確定済みDBを戻さず、元の原因を保持し、次の明示操作で新しい入力を捕捉します。台帳の読取り・保存に失敗した操作では、未確定のURL所有権を反映しません。
+
+出力有効の既存beatorajaルートでは、構成ファイルの破損・読取不能を表示用の無効判定や既定設定へ置換しません。必要同期は対象の構成ファイルパスと元原因を実通知へ渡し、その終端まで変更元のPを保持します。出力無効の通常変更は構成ファイルの読取りにも依存せず、未指定ルートの明示出力先と対象外ルートの従来の無作用は維持します。
 
 `RegisterBeatorajaBmtUrls` が有効なら、既存配列から前回の管理URLを除き、管理外URLの順序を先頭側に保って、現在の管理URLをBMT順で末尾へ追加します。空表のURLも管理対象です。現在の表一覧に見つからない台帳要素は既知の表の後ろへ名前・ID順で並べます。登録設定が無効なら前回管理URLを外します。
 
@@ -116,7 +120,11 @@ beatorajaの登録URL取込みでは成功・既存一致した表を元URL順�
 | --- | --- | --- |
 | 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
 | 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
+| 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
+| 方式のみの設定Save/Apply、DB正本保全と次回省略 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtHashModeSaveAndApply_ReoutputsAllTablesAndKeepsDatabaseHashes`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)。方式・旧署名の下位判断は [`BmtTableExportServiceTests.ExportTableDataSet_HashModeAndLegacyFingerprintRegenerateOnce`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) が分担する。 |
+| 順序四入口のDB・サマリー・configと同じP寿命、無変更、取込み後配置 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)、[`PlaylistWorkspaceExternalSourceTests.BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)。画面の選択・Bindingは既存 [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が分担する。 |
 | 順序と一括編集 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
+| 構成ファイルの解析・読取り・置換失敗、通知中のP保持、修復後の明示同期、無効保持falseの通常順序保存 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs)、[`BeatorajaConfigService`](../../../BeMusicSeeker/Models/Settings/BeatorajaConfigService.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderConfigFailure_KeepsCommittedOrderAndAdmissionThroughNotification / BmtOrderDisabled_SavesOrderWithoutReadingLockedConfigOrManifest`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)。四成功入口と保持trueは既存のworkspace・ownerケースが分担する。 |
 
 ## 関連資料
 
