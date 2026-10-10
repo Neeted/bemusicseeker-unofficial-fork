@@ -594,6 +594,59 @@ internal sealed class CatalogChartInfoOwner
             });
     }
 
+    /// <summary>必須出力に使う索引を同じ親操作内で読込み、DB失敗を隠さず返します。後続補完は解禁後に実行します。</summary>
+    internal RequiredChartInfoHydrationResult HydrateRequiredForStartup(string reason, OperationProgressRequest originatingRequest)
+    {
+        EnsureWorkflowConfigured();
+        int version = Interlocked.Increment(ref hydrationRequestedVersion);
+        OperationProgressRequest request = originatingRequest == null
+            ? ProgressRequestFactory?.Invoke("chart_info_hydration", version) ?? new(0, 0, "chart_info_hydration", version)
+            : new(originatingRequest.Generation, originatingRequest.OperationToken, "chart_info_hydration", version);
+        lock (hydrationGate) { hydrationProgressRequest = request; }
+        ChartInfoHydrationRequestedVersion = version;
+        RequestProgressReporter?.Invoke(request, true);
+        ChartInfoHydrationRunning = true;
+        try
+        {
+            ChartInfoHydrationResult result = HydrateChartInfos(reason, propagateLoadFailure: true);
+            ChartInfoHydrationTotalCount = result.TotalRows;
+            ChartInfoHydrationAppliedCount = result.AppliedBmsCount + result.AppliedBmsonCount;
+            PublishProgressSnapshot(ref hydrationProgressSnapshot,
+                new(version, result.TotalRows, ChartInfoHydrationAppliedCount, string.Empty, request),
+                nameof(BMSLibrary.ChartInfoHydrationProgressSnapshot));
+            ChartInfoHydrationCompletedVersion = version;
+            return new(result.Succeeded, result.OwnerCount, result.BackfillCandidateOwnerCount, request);
+        }
+        finally
+        {
+            ChartInfoHydrationRunning = false;
+            RequestProgressReporter?.Invoke(request, false);
+        }
+    }
+
+    /// <summary>必須読込みの結果を既存補完の後続へ渡し、候補要約のDB読取りも親受付解放後に実行します。</summary>
+    internal void ScheduleRequiredHydrationBackfill(string reason, RequiredChartInfoHydrationResult result)
+    {
+        if (TrySkip("chart_info_backfill", reason)) { return; }
+        Func<Task> acceptedWork = async () =>
+        {
+            await WaitForHydrationIdleAsync().ConfigureAwait(false);
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
+            if (TrySkip("chart_info_backfill", reason)) { return; }
+            QueueBackfill(reason, processSynchronously: true,
+                hydrationResult: new() { Succeeded = result.Succeeded, OwnerCount = result.OwnerCount, BackfillCandidateOwnerCount = result.CandidateOwnerCount },
+                originatingRequest: result.ProgressRequest);
+        };
+        Func<string, string, string, Func<Task>, bool> scheduler = SchedulerProvider?.Invoke();
+        if (scheduler != null)
+        {
+            // 既存の補完laneへ直接登録する。同じlaneの完了へ依存する追加stageは持たない。
+            scheduler("chart_info_backfill", reason ?? "required_hydration", null, acceptedWork);
+            return;
+        }
+        Task.Run(acceptedWork).ObserveFault("ProcessChartInfoBackfillAfterRequiredHydration");
+    }
+
     internal void EnsureHydratedForLr2(string reason)
     {
         EnsureWorkflowConfigured();
@@ -1013,7 +1066,7 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    private ChartInfoHydrationResult HydrateChartInfos(string reason)
+    private ChartInfoHydrationResult HydrateChartInfos(string reason, bool propagateLoadFailure = false)
     {
         EnsureWorkflowConfigured();
         var result = new ChartInfoHydrationResult();
@@ -1050,6 +1103,7 @@ internal sealed class CatalogChartInfoOwner
             result.LoadMs = result.DbLoadMs;
             result.TotalMs = totalStopwatch.ElapsedMilliseconds;
             LogPerformance?.Invoke("chart_info_hydration failed reason=" + (reason ?? "unknown") + " message=" + ex.Message);
+            if (propagateLoadFailure) { throw; }
             return result;
         }
         loadStopwatch.Stop();

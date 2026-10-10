@@ -23,6 +23,120 @@ public sealed class ChartInfoInlineHydrationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>必須読込みは保存済み情報を反映して終端し、候補要約を保持した後続補完を待ちません。終了が先着した後続はDB要約・補完へ進みません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RequiredHydration_DefersCandidateSummaryAndBackfillWithOriginalRequest(bool shutdownBeforeFollowup)
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            string currentMd5 = new('a', 32);
+            string currentSha = new('1', 64);
+            string currentPath = Path.Combine(root, "current.bms");
+            string missingPath = Path.Combine(root, "missing-info.bms");
+            File.WriteAllText(missingPath, "#PLAYER 1\n#TITLE followup\n#BPM 130\n#00111:01\n", Encoding.ASCII);
+            ChartFile missing = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(missingPath));
+            ChartFile current = ChartTestValues.Empty() with { Path = currentPath, Md5 = currentMd5, Sha256 = currentSha };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                BmsLibraryDbGateway.EnsureBmsonSchema(db);
+                BmsLibraryDbGateway.EnsureChartInfoSchema(db);
+                InsertSongForSummary(db, currentPath, currentMd5);
+                InsertSongForSummary(db, missingPath, missing.Md5);
+                db.InsertOrReplace(CreateChartDigestRow(currentMd5, currentSha), typeof(LR2SongDBExtended.chart_digest_map));
+                db.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoRow(currentSha, currentMd5,
+                    BmsLibraryDbGateway.CurrentChartInfoParserVersion)), typeof(LR2SongDBExtended.chart_info));
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var rows = new CatalogOwnedCollectionOwner();
+            rows.ReplaceCharts([current, missing], null, replaceBmson: false);
+            var mutation = new CatalogMutationOwner(rows, gateway);
+            var admission = new ChartFileOperationSynchronizer();
+            Assert.IsTrue(admission.TryEnter(out IDisposable parent));
+            var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseSummary = new ManualResetEventSlim();
+            var workCaptured = new TaskCompletionSource<Func<Task>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var logs = new ConcurrentQueue<string>();
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            bool shutdown = false;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => shutdown, (_, _) => shutdown,
+                () => (name, reason, dependency, work) =>
+                {
+                    Assert.AreEqual("chart_info_backfill", name);
+                    Assert.IsNull(dependency);
+                    workCaptured.TrySetResult(work);
+                    return true;
+                }, message =>
+                {
+                    logs.Enqueue(message);
+                    if (message.StartsWith("chart_info_backfill candidate_summary_start", StringComparison.Ordinal))
+                    {
+                        Assert.IsTrue(admission.IsActive);
+                        summaryEntered.TrySetResult();
+                        releaseSummary.Wait();
+                    }
+                }, admission);
+            owner.ConfigureWorkflow(gateway, mutation, rows, _ => { }, _ => { });
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            var origin = new OperationProgressRequest(7, 11, "required_initialization", 1);
+            Task<RequiredChartInfoHydrationResult> required = Task.Run(() => owner.HydrateRequiredForStartup("required_initialization", origin));
+            Task? followup = null;
+            try
+            {
+                await Task.WhenAny(required, summaryEntered.Task);
+                Assert.IsTrue(required.IsCompleted, "必須読込みが任意の候補要約を待っています。");
+                RequiredChartInfoHydrationResult result = await required;
+                Assert.IsFalse(workCaptured.Task.IsCompleted, "必須読込みが任意補完を暗黙予約しています。");
+                owner.ScheduleRequiredHydrationBackfill("required_initialization", result);
+                Assert.IsTrue(workCaptured.Task.IsCompletedSuccessfully);
+                Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                Assert.IsNotNull(owner.ResolveChartInfo(currentSha, currentMd5));
+                Assert.AreEqual(owner.ChartInfoHydrationRequestedVersion, owner.ChartInfoHydrationCompletedVersion);
+                Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                parent.Dispose();
+                Assert.IsFalse(admission.IsActive);
+                shutdown = shutdownBeforeFollowup;
+                followup = Task.Run(await workCaptured.Task);
+                if (!shutdownBeforeFollowup)
+                {
+                    await Task.WhenAny(summaryEntered.Task, followup);
+                    Assert.IsTrue(summaryEntered.Task.IsCompletedSuccessfully);
+                    Assert.IsFalse(followup.IsCompleted);
+                    Assert.IsTrue(required.IsCompletedSuccessfully);
+                    releaseSummary.Set();
+                }
+                await followup;
+                Assert.IsFalse(admission.IsActive);
+                if (shutdownBeforeFollowup)
+                {
+                    Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                    Assert.AreEqual(0, owner.ChartInfoBackfillRequestedVersion);
+                }
+                else
+                {
+                    Assert.IsTrue(logs.Any(message => message.StartsWith("chart_info_backfill candidate_summary_done", StringComparison.Ordinal)));
+                    Assert.IsNotNull(owner.ResolveChartInfo(missing.Sha256, missing.Md5));
+                    OperationProgressRequest backfill = owner.BackfillProgressRequest;
+                    Assert.AreEqual(origin.Generation, backfill.Generation);
+                    Assert.AreEqual(origin.OperationToken, backfill.OperationToken);
+                    Assert.AreEqual("chart_info_backfill", backfill.Source);
+                    Assert.IsTrue(progress.Contains((backfill, true)));
+                    Assert.IsTrue(progress.Contains((backfill, false)));
+                    Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                }
+            }
+            finally
+            {
+                releaseSummary.Set();
+                parent.Dispose();
+                await required;
+                if (followup != null) { await followup; }
+            }
+        });
+    }
+
     [TestMethod]
     public void LoadCurrentChartInfoParseFailuresByMd5_QueriesOnlyRequestedRows()
     {

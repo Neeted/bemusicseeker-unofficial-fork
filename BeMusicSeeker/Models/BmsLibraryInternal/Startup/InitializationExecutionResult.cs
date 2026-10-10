@@ -1,12 +1,11 @@
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>名前のある必須手順と公開継続の実終端に要した計測です。</summary>
 internal sealed class InitializationExecutionResult
 {
-    public long Phase1MinLoadMs { get; set; }
+    public long SavedDataMs { get; set; }
 
-    public long Phase2ScanMaintMs { get; set; }
-
-    public long Phase3InstallMaintenanceMs { get; set; }
+    public long FilesAndProjectionMs { get; set; }
 
     public long WaitContinuationMs { get; set; }
 

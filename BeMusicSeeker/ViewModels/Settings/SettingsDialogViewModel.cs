@@ -277,9 +277,9 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// L/Pを非待機取得し、設定の検証・保存から必要な後続処理・cleanupの実終端まで追跡します。Busyではdraftを保持します。
-    /// 有効プロファイルがない場合は表示を先に終了し、
-    /// 失敗時は保存中状態を解放してから再編集へ戻します。
+    /// 検証済み初期化の限定候補確認後にL/Pを非待機取得し、設定の保存から必要な後続処理・cleanupの実終端まで追跡します。Busyではdraftを保持します。
+    /// 保存と適用配置の公開後に実表示を終了し、同じ生存権限で後続へ進みます。
+    /// 初期構成の不足だけは受付解放後に既存の再編集案内へ戻します。
     /// </summary>
     internal async Task ApplySettingsAsync()
     {
@@ -288,32 +288,92 @@ public partial class SettingsDialogViewModel : ViewModel
             return;
         }
 
-        if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
-        {
-            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings apply admission");
-            return;
-        }
-        using LibraryFileMutationLease playlistOperation = playlistLease;
-        using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
         bool reopenAfterTermination = false;
+        bool initialSetup = false;
+        StartupInitializationResult initializationResult = null;
+        SettingsPostSaveImpact savedFollowUp = SettingsPostSaveImpact.None;
+        Exception operationFailure = null;
+        LeapYearFolderRepairNotification repairNotification = null;
         try
         {
+            if (operationAdmission.IsAdmissionClosed) { return; }
+            if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
+            {
+                if (operationAdmission.IsAdmissionClosed) { return; }
+                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings apply admission");
+                return;
+            }
+            LeapYearFolderRepairApproval approval = null;
+            bool initial = initialSetup = !statePort.HasActiveLibraryProfile;
+            RestartMode restart = initial ? RestartMode.None : IsNeedRestartForSaved();
+            bool fullInitialization = initial || restart.HasFlag(RestartMode.All)
+                || restart.HasFlag(RestartMode.ScoreOnly) && restart.HasFlag(RestartMode.FolderOnly);
+            if (fullInitialization && !statePort.IsLibraryOperationInProgress && CheckValidation(out _))
+            {
+                IsEditCompletionInProgress = true;
+                try { approval = await statePort.PrepareLibraryInitializationAsync(); }
+                catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed) { return; }
+                finally { IsEditCompletionInProgress = false; }
+            }
+            if (!TryBeginBothSettingsAdmissions(out IDisposable admission, out LibraryFileMutationLease playlistLease))
+            {
+                if (operationAdmission.IsAdmissionClosed) { return; }
+                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings apply admission");
+                return;
+            }
+            using LibraryFileMutationLease playlistOperation = playlistLease;
+            using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
             await CompleteAcceptedSettingsOperationAsync(admission,
-                capability => ApplySettingsUnderAdmissionAsync(capability, () => reopenAfterTermination = true, playlistCapability), playlistCapability, playlistLease);
+                capability => ApplySettingsUnderAdmissionAsync(capability, () => reopenAfterTermination = true, result => initializationResult = result,
+                    playlistCapability, approval, notification => repairNotification = notification, impact => savedFollowUp = impact), playlistCapability, playlistLease);
         }
         catch (LibraryDirectoryPreflightException)
         {
             // 受付解放後の専用警告で通知済みです。汎用の設定失敗を重ねません。
         }
+        catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed) { return; }
+        catch (Exception exception) { operationFailure = exception; }
+        try
+        {
+            if (initializationResult != null && initializationResult.Outcome != StartupInitializationOutcome.ShutdownRequested)
+            {
+                initializationResult = await CompleteRequiredSettingsInitializationAsync(
+                    initializationResult with { RepairNotification = repairNotification });
+                operationFailure ??= initializationResult.Failure;
+            }
+            else if (repairNotification != null) { await statePort.PresentLeapYearFolderRepairAsync(repairNotification); }
+            await CompleteSavedSettingsFollowUpAsync(savedFollowUp,
+                scheduleUrlCompletion: initializationResult == null && operationFailure == null,
+                isCompletionCurrent: () => initializationResult == null || statePort.IsInitializationCompletionCurrent(initializationResult.OperationToken));
+        }
+        catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed && operationFailure == null) { return; }
         catch (Exception exception)
         {
-            reportApplyFailure(exception);
+            if (operationFailure == null) { operationFailure = exception; }
+            else { Task.FromException(exception).ObserveFault("Settings termination notification"); }
         }
-        finally
+        if (operationFailure is LibraryDirectoryPreflightException directoryFailure)
         {
-            // 再編集は外側受付の解放と失敗通知の後に戻し、表示からの明示再試行を受け付けます。
-            if (reopenAfterTermination) { RequestOpen(deferPresentation: true); }
+            try { await statePort.PresentLibraryDirectoryWarningAsync(directoryFailure); }
+            catch (Exception presentationFailure)
+            {
+                Task.FromException(presentationFailure).ObserveFault("Settings directory warning notification");
+                reportApplyFailure(directoryFailure);
+            }
+            operationFailure = null;
+        }
+        if (operationFailure != null)
+        {
+            reportApplyFailure(operationFailure);
+            if (initialSetup && initializationResult != null && !statePort.HasActiveLibraryProfile) { reopenAfterTermination = true; }
+        }
+        // 再編集は外側受付の解放と失敗通知の後に戻し、終了・旧成功結果を再表示へ読み替えません。
+        if (reopenAfterTermination && !operationAdmission.IsAdmissionClosed)
+        {
+            try { RequestOpen(deferPresentation: true); }
+            catch (Exception exception) { reportApplyFailure(exception); }
         }
     }
 
@@ -323,7 +383,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <param name="playlistCapability">同じ操作の生存P権限。内部継続へ明示的に借用します。</param>
     /// <param name="playlistLease">同じ操作のP。両受付の実終端解放後に専用preflight警告を提示します。</param>
     /// <returns>実処理終端、受付解放と失敗通知までを表すTask。</returns>
-    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null)
+    private async Task CompleteAcceptedSettingsOperationAsync(IDisposable lease, Func<LibraryFileMutationCapability, Task> operation, LibraryFileMutationCapability playlistCapability = null, IDisposable playlistLease = null, Func<StartupInitializationResult> completionResult = null)
     {
         try
         {
@@ -331,6 +391,12 @@ public partial class SettingsDialogViewModel : ViewModel
             using (lease)
             using (LibraryFileMutationCapability primaryCapability = operationAdmission.CreateMutationCapability(lease))
             using (LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability)) { await operation(capability); }
+            StartupInitializationResult result = completionResult?.Invoke();
+            if (result != null)
+            {
+                result = await CompleteRequiredSettingsInitializationAsync(result);
+                if (result.Failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.Failure).Throw(); }
+            }
         }
         catch (LibraryDirectoryPreflightException failure)
         {
@@ -339,8 +405,21 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    /// <summary>取得済み受付内で検証・保存と必要な再初期化の終端まで処理します。</summary>
-    private async Task ApplySettingsUnderAdmissionAsync(LibraryFileMutationCapability capability, Action recordReopenAfterTermination, LibraryFileMutationCapability playlistCapability = null)
+    /// <summary>受付外の実必須UIと成功公開まで待ち、その操作で成立した再読込みだけ既存pendingから解除します。公開後の通知失敗は再読込みを要求しません。</summary>
+    private async Task<StartupInitializationResult> CompleteRequiredSettingsInitializationAsync(StartupInitializationResult result)
+    {
+        result = await statePort.CompleteRequiredInitializationAfterAdmissionAsync(result);
+        if (result?.CompletionPublished == true && statePort.IsInitializationCompletionCurrent(result.OperationToken))
+        {
+            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ScoreOnly) { SetScoreReloadPending(false); }
+            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ReloadFileDiff) { SetFileDiffReloadPending(false); }
+        }
+        return result;
+    }
+
+    /// <summary>取得済み受付内で検証・保存、実Closeと必要な再初期化の終端まで処理します。</summary>
+    private async Task ApplySettingsUnderAdmissionAsync(LibraryFileMutationCapability capability, Action recordReopenAfterTermination, Action<StartupInitializationResult> recordInitializationAfterTermination, LibraryFileMutationCapability playlistCapability = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<SettingsPostSaveImpact> savedFollowUpObserver = null)
     {
         IsEditCompletionInProgress = true;
         var totalStopwatch = Stopwatch.StartNew();
@@ -424,11 +503,11 @@ public partial class SettingsDialogViewModel : ViewModel
                     await ShowInitialSettingsCompletionMessageAsync();
                     totalStopwatch.Start();
                 }
-                StartupInitializationOutcome initializationOutcome = await statePort.InitializeLibraryAsync(capability);
+                StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver);
+                StartupInitializationOutcome initializationOutcome = initializationResult.Outcome;
+                if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
                 if (initializationOutcome == StartupInitializationOutcome.Succeeded)
                 {
-                    SetScoreReloadPending(false);
-                    SetFileDiffReloadPending(false);
                     outcome = "saved_initial";
                 }
                 else
@@ -441,27 +520,32 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             else
             {
-                await SaveSettingsUnderAdmissionAsync(runPostSaveActions: true, validate: false, capability, playlistCapability);
+                savedFollowUpObserver?.Invoke(await SaveSettingsUnderAdmissionAsync(runPostSaveActions: true, validate: false, capability, playlistCapability,
+                    fullInitialization: needRestart.HasFlag(RestartMode.All) || needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly),
+                    afterPersistence: () => presentationPort?.CloseSettingsDialogAsync() ?? Task.CompletedTask));
                 saveMs = saveStopwatch.ElapsedMilliseconds;
                 StartupInitializationOutcome initializationOutcome = StartupInitializationOutcome.Succeeded;
                 if (needRestart.HasFlag(RestartMode.All)
                     || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
                 {
-                    initializationOutcome = await statePort.InitializeLibraryAsync(capability);
+                    StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver);
+                    initializationOutcome = initializationResult.Outcome;
+                    if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
                 }
                 else if (needRestart.HasFlag(RestartMode.ScoreOnly))
                 {
-                    await ReloadScoresOnlyAsync(capability);
+                    StartupInitializationResult initializationResult = await ReloadScoresOnlyAsync(capability);
+                    initializationOutcome = initializationResult.Outcome;
+                    recordInitializationAfterTermination(initializationResult);
                 }
                 else if (needRestart.HasFlag(RestartMode.FolderOnly))
                 {
-                    await ReloadFileDiffAsync(capability);
+                    StartupInitializationResult initializationResult = await ReloadFileDiffAsync(capability);
+                    initializationOutcome = initializationResult.Outcome;
+                    recordInitializationAfterTermination(initializationResult);
                 }
                 if (initializationOutcome == StartupInitializationOutcome.Succeeded)
                 {
-                    SetScoreReloadPending(false);
-                    SetFileDiffReloadPending(false);
-                    ClosePresentation();
                     outcome = "saved";
                 }
                 else
@@ -503,13 +587,13 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+    private Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
     {
         return ReloadScoresOnlyCoreAsync(capability);
     }
 
     /// <summary>受理済みの共通権限で差分とLR2必須継続の実終端を待ち、失敗を呼出元の解放後通知へ伝播します。</summary>
-    internal Task ReloadFileDiffAsync(LibraryFileMutationCapability capability = null)
+    internal Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability = null)
     {
         return ReloadFileDiffCoreAsync(capability);
     }
@@ -519,32 +603,16 @@ public partial class SettingsDialogViewModel : ViewModel
         await lr2SongDbSyncWorkflow.RequestManualResyncAsync().ConfigureAwait(false);
     }
 
-    private async Task ReloadFileDiffCoreAsync(LibraryFileMutationCapability capability = null)
+    private async Task<StartupInitializationResult> ReloadFileDiffCoreAsync(LibraryFileMutationCapability capability = null)
     {
-        try
-        {
-            await statePort.ReloadFileDiffAsync(capability);
-            SetFileDiffReloadPending(false);
-        }
-        catch
-        {
-            SetFileDiffReloadPending(true);
-            throw;
-        }
+        SetFileDiffReloadPending(true);
+        return await statePort.ReloadFileDiffAsync(capability);
     }
 
-    private async Task ReloadScoresOnlyCoreAsync(LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> ReloadScoresOnlyCoreAsync(LibraryFileMutationCapability capability)
     {
-        try
-        {
-            await statePort.ReloadScoresOnlyAsync(capability);
-            SetScoreReloadPending(false);
-        }
-        catch
-        {
-            SetScoreReloadPending(true);
-            throw;
-        }
+        SetScoreReloadPending(true);
+        return await statePort.ReloadScoresOnlyAsync(capability);
     }
 
     private void SetScoreReloadPending(bool value)
@@ -1329,12 +1397,13 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         using LibraryFileMutationLease playlistOperation = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
+        StartupInitializationResult result = null;
         await CompleteAcceptedSettingsOperationAsync(admission,
-            capability => InstallOrRepairLr2PlayHistorySchemaUnderAdmissionAsync(capability), playlistCapability, playlistLease);
+            async capability => result = await InstallOrRepairLr2PlayHistorySchemaUnderAdmissionAsync(capability), playlistCapability, playlistLease, () => result);
     }
 
     /// <summary>受理済みschema操作のDB・cache・スコア反映と通知を同じ権限で終えます。</summary>
-    private async Task InstallOrRepairLr2PlayHistorySchemaUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> InstallOrRepairLr2PlayHistorySchemaUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
         if (statePort.IsLibraryOperationInProgress)
         {
@@ -1343,13 +1412,13 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
                 "LR2 play history schema install blocked notification");
-            return;
+            return null;
         }
 
         await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
         if (!CanInstallOrRepairLr2PlayHistorySchema)
         {
-            return;
+            return null;
         }
 
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
@@ -1367,7 +1436,7 @@ public partial class SettingsDialogViewModel : ViewModel
         UiDialogRoute.ThrowIfNotShown(confirmation, "LR2 play history schema install confirmation");
         if (!confirmation.IsAccepted)
         {
-            return;
+            return null;
         }
 
         try
@@ -1377,7 +1446,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (isLr2LinkedProfile != OperationModeLR2DB
                 || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return null;
             }
 
             ApplyLr2PlayHistorySchemaCheckResult(result);
@@ -1391,9 +1460,9 @@ public partial class SettingsDialogViewModel : ViewModel
                     "LR2 play history schema install success notification");
                 if (statePort.HasActiveLibraryProfile)
                 {
-                    await ReloadScoresOnlyAsync(capability);
+                    return await ReloadScoresOnlyAsync(capability);
                 }
-                return;
+                return null;
             }
 
             await ShowLr2PlayHistorySchemaMessageAsync(
@@ -1410,6 +1479,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 MessageBoxImage.Hand,
                 "LR2 play history schema install failure notification");
         }
+        return null;
     }
 
     /// <summary>管理データの撤去をL/Pで受理し、実変更と終端通知を待ちます。戻った後に画面側が終了を開始し、自己受付の解放を待ちません。</summary>
@@ -1443,12 +1513,13 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         using LibraryFileMutationLease playlistOperation = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
+        StartupInitializationResult result = null;
         await CompleteAcceptedSettingsOperationAsync(admission,
-            capability => UninstallLr2PlayHistorySchemaUnderAdmissionAsync(capability), playlistCapability, playlistLease);
+            async capability => result = await UninstallLr2PlayHistorySchemaUnderAdmissionAsync(capability), playlistCapability, playlistLease, () => result);
     }
 
     /// <summary>受理済みschema操作のDB・cache・スコア反映と通知を同じ権限で終えます。</summary>
-    private async Task UninstallLr2PlayHistorySchemaUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> UninstallLr2PlayHistorySchemaUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
         if (statePort.IsLibraryOperationInProgress)
         {
@@ -1457,14 +1528,14 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
                 "LR2 play history schema uninstall blocked notification");
-            return;
+            return null;
         }
 
         await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
         Lr2PlayHistorySchemaStatusSnapshot before = Lr2PlayHistorySchemaStatusSnapshot;
         if (before == null || !CanUninstallLr2PlayHistorySchema)
         {
-            return;
+            return null;
         }
         if (before.Status == Lr2PlayHistorySchemaStatus.NotInstalled)
         {
@@ -1473,7 +1544,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Information,
                 MessageBoxImage.Asterisk,
                 "LR2 play history schema uninstall not installed notification");
-            return;
+            return null;
         }
         if (before.Status is Lr2PlayHistorySchemaStatus.SkippedProfile or Lr2PlayHistorySchemaStatus.Unreadable)
         {
@@ -1482,7 +1553,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Warning,
                 MessageBoxImage.Exclamation,
                 "LR2 play history schema uninstall preflight notification");
-            return;
+            return null;
         }
 
         string scoreDbPath = Lr2PlayHistoryScoreDbPath;
@@ -1496,7 +1567,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ThrowIfWindowDialogNotShown(dialogResult, "LR2 play history schema uninstall dialog");
         if (!dialogResult.IsAccepted)
         {
-            return;
+            return null;
         }
 
         Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
@@ -1507,7 +1578,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (isLr2LinkedProfile != OperationModeLR2DB
                 || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
             {
-                return;
+                return null;
             }
 
             ApplyLr2PlayHistorySchemaCheckResult(result);
@@ -1521,9 +1592,9 @@ public partial class SettingsDialogViewModel : ViewModel
                     "LR2 play history schema uninstall success notification");
                 if (statePort.HasActiveLibraryProfile)
                 {
-                    await ReloadScoresOnlyAsync(capability);
+                    return await ReloadScoresOnlyAsync(capability);
                 }
-                return;
+                return null;
             }
 
             await ShowLr2PlayHistorySchemaMessageAsync(
@@ -1540,6 +1611,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 MessageBoxImage.Hand,
                 "LR2 play history schema uninstall failure notification");
         }
+        return null;
     }
 
     private async Task RefreshLr2PlayHistorySchemaStatusAsync(bool force)
@@ -5237,16 +5309,17 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         using LibraryFileMutationLease playlistOperation = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
+        StartupInitializationResult result = null;
         await CompleteAcceptedSettingsOperationAsync(lease,
-            capability => AddBmsSearchRootPathUnderAdmissionAsync(path, capability), playlistCapability, playlistLease);
+            async capability => result = await AddBmsSearchRootPathUnderAdmissionAsync(path, capability), playlistCapability, playlistLease, () => result);
     }
 
     /// <summary>受理済み検索ルート変更を、保存・モデル反映・再読込みの終端まで実行します。</summary>
-    private async Task AddBmsSearchRootPathUnderAdmissionAsync(string path, LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> AddBmsSearchRootPathUnderAdmissionAsync(string path, LibraryFileMutationCapability capability)
     {
         if (path == null)
         {
-            return;
+            return null;
         }
         try
         {
@@ -5261,7 +5334,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryAdded)
                 {
-                    await ReloadFileDiffAsync(capability);
+                    return await ReloadFileDiffAsync(capability);
                 }
                 else
                 {
@@ -5279,6 +5352,7 @@ public partial class SettingsDialogViewModel : ViewModel
             isBMSDirectoryAdded = false;
             isBMSDirectoryRemoved = false;
         }
+        return null;
     }
 
     public void AddBmsSearchRootPathFromPicker(string propertyName, string path)
@@ -5813,16 +5887,17 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         using LibraryFileMutationLease playlistOperation = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease.CreateMutationCapability();
+        StartupInitializationResult result = null;
         await CompleteAcceptedSettingsOperationAsync(lease,
-            capability => RequestRemoveBmsSearchRootUnderAdmissionAsync(dir, capability), playlistCapability, playlistLease);
+            async capability => result = await RequestRemoveBmsSearchRootUnderAdmissionAsync(dir, capability), playlistCapability, playlistLease, () => result);
     }
 
     /// <summary>受理済み検索ルート変更を、保存・モデル反映・再読込みの終端まで実行します。</summary>
-    private async Task RequestRemoveBmsSearchRootUnderAdmissionAsync(string dir, LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> RequestRemoveBmsSearchRootUnderAdmissionAsync(string dir, LibraryFileMutationCapability capability)
     {
         if (string.IsNullOrWhiteSpace(dir))
         {
-            return;
+            return null;
         }
 
         UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
@@ -5835,32 +5910,33 @@ public partial class SettingsDialogViewModel : ViewModel
             confirmation,
             "treeViewLibraryFolderContextMenuItemUnregisterRootFolder"))
         {
-            return;
+            return null;
         }
 
-        await RemoveBmsSearchRootAndSaveAsync(dir, capability);
+        return await RemoveBmsSearchRootAndSaveAsync(dir, capability);
     }
 
-    private async Task RemoveBmsSearchRootAndSaveAsync(string dir, LibraryFileMutationCapability capability)
+    private async Task<StartupInitializationResult> RemoveBmsSearchRootAndSaveAsync(string dir, LibraryFileMutationCapability capability)
     {
         if (string.IsNullOrWhiteSpace(dir))
         {
-            return;
+            return null;
         }
+        StartupInitializationResult result = null;
         if (ApplicationSettings.OperationModeLR2DB)
         {
             Exception removalFailure = RemoveBMSDirectoryFromLR2Config(dir, saveImmediately: true);
             if (removalFailure != null)
             {
                 await PresentBmsSearchRootRemovalFailureAsync(removalFailure);
-                return;
+                return null;
             }
             if (isSearchRootsChanged)
             {
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryRemoved)
                 {
-                    await ReloadFileDiffAsync(capability);
+                    result = await ReloadFileDiffAsync(capability);
                 }
                 else
                 {
@@ -5873,7 +5949,7 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 searchRootRuntimePort.InvalidateLibraryFolderCache();
             }
-            return;
+            return result;
         }
         List<string> previousStandaloneRoots = [.. StandaloneBmsRootPathList];
         string previousStandaloneSelection = SelectedStandaloneBmsRootPath;
@@ -5883,7 +5959,7 @@ public partial class SettingsDialogViewModel : ViewModel
         if (standaloneRemovalFailure != null)
         {
             await PresentBmsSearchRootRemovalFailureAsync(standaloneRemovalFailure);
-            return;
+            return null;
         }
         if (isSearchRootsChanged)
         {
@@ -5904,7 +5980,7 @@ public partial class SettingsDialogViewModel : ViewModel
             ApplyRuntimeSearchRootsForCurrentMode();
             if (isBMSDirectoryRemoved)
             {
-                await ReloadFileDiffAsync(capability);
+                result = await ReloadFileDiffAsync(capability);
             }
             else
             {
@@ -5917,6 +5993,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             searchRootRuntimePort.InvalidateLibraryFolderCache();
         }
+        return result;
     }
 
     private void RemoveBMSDirectoryFromSearchRoots(string dir)
@@ -6519,13 +6596,11 @@ public partial class SettingsDialogViewModel : ViewModel
         return impact != SettingsPostSaveImpact.None;
     }
 
-    private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)
+    private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null, bool fullInitialization = false)
     {
         var totalStopwatch = Stopwatch.StartNew();
         long customFolderSearchRootSyncMs = 0L;
         long playerRuntimeMs = 0L;
-        long lr2BackupNoticeMs = 0L;
-        long playlistUrlCompletionMs = 0L;
         long lr2GeneratedDataSyncMs = 0L;
         long beatorajaBmtExportMs = 0L;
         bool tablesAvailable = workspacePort.HasPlaylistTables;
@@ -6544,10 +6619,6 @@ public partial class SettingsDialogViewModel : ViewModel
             if (customFolderOutputSettingsAfterSave?.OperationModeLR2DB == true)
             {
                 var stepStopwatch = Stopwatch.StartNew();
-                while (!workspacePort.HasPlaylistTables)
-                {
-                    await Task.Delay(100);
-                }
                 CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
                 CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                 bool rootOutputBaseRootSyncChanged = false;
@@ -6611,33 +6682,21 @@ public partial class SettingsDialogViewModel : ViewModel
             bool forceInternalPlayerForStandaloneModeChange =
                 !ApplicationSettings.OperationModeLR2DB
                 && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-            if (impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
+            if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
             {
                 IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
                     ? playerFactoryPort.CreateDefaultBmsPlayer()
                     : playerFactoryPort.CreateBmsPlayerForSettings(StartupSettingsSnapshot.CreateCurrent(ApplicationSettings));
                 await playbackRuntimePort.ApplyPlayerSettingsAsync(replacementPlayer);
             }
-            playbackRuntimePort.NotifySettingsChanged();
+            if (!fullInitialization) { playbackRuntimePort.NotifySettingsChanged(); }
             playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
-            var lr2BackupNoticeStopwatch = Stopwatch.StartNew();
-            if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
-            {
-                ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk);
-            }
-            lr2BackupNoticeMs = lr2BackupNoticeStopwatch.ElapsedMilliseconds;
-            var playlistUrlCompletionStopwatch = Stopwatch.StartNew();
-            if (impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
-            {
-                workspacePort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings");
-            }
-            playlistUrlCompletionMs = playlistUrlCompletionStopwatch.ElapsedMilliseconds;
             var lr2GeneratedDataSyncStopwatch = Stopwatch.StartNew();
-            if (impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync))
+            if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.Lr2CoreSync))
             {
                 await lr2SongDbSyncWorkflow.SyncFolderDataAfterSettingsChangeAsync("SettingDialog.SaveSettings", capability, playlistCapability);
             }
-            else if (impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))
+            else if (!fullInitialization && impact.HasFlag(SettingsPostSaveImpact.ExternalLr2FolderRowsSync))
             {
                 await lr2SongDbSyncWorkflow.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync("SettingDialog.SaveSettings", capability, playlistCapability);
             }
@@ -6665,7 +6724,7 @@ public partial class SettingsDialogViewModel : ViewModel
                         NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
                     }
                 }
-                await workspacePort.ExportBeatorajaBmtAsync("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath, playlistCapability);
+                if (!fullInitialization) { await workspacePort.ExportBeatorajaBmtAsync("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath, playlistCapability); }
             }
             beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
         }
@@ -6678,8 +6737,6 @@ public partial class SettingsDialogViewModel : ViewModel
                 + " tablesAvailable=" + tablesAvailable.ToString().ToLowerInvariant()
                 + " customFolderSearchRootSyncMs=" + customFolderSearchRootSyncMs
                 + " playerRuntimeMs=" + playerRuntimeMs
-                + " lr2BackupNoticeMs=" + lr2BackupNoticeMs
-                + " playlistUrlCompletionMs=" + playlistUrlCompletionMs
                 + " lr2GeneratedDataSyncMs=" + lr2GeneratedDataSyncMs
                 + " beatorajaBmtExportMs=" + beatorajaBmtExportMs);
         }
@@ -7216,15 +7273,43 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "Settings save admission");
             return false;
         }
+        SettingsPostSaveImpact followUp;
         using (lease)
         {
             using LibraryFileMutationLease playlistOperation = playlistLease;
             using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
             using LibraryFileMutationCapability primaryCapability = operationAdmission.CreateMutationCapability(lease);
             using LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability);
-            await SaveSettingsUnderAdmissionAsync(runPostSaveActions, validate, capability, playlistCapability);
-            return true;
+            followUp = await SaveSettingsUnderAdmissionAsync(runPostSaveActions, validate, capability, playlistCapability);
         }
+        await CompleteSavedSettingsFollowUpAsync(followUp, scheduleUrlCompletion: true);
+        return true;
+    }
+
+    /// <summary>保存の確定値から捕捉した後続だけを親受付の解放後に通知・登録します。</summary>
+    private async Task CompleteSavedSettingsFollowUpAsync(SettingsPostSaveImpact impact, bool scheduleUrlCompletion, Func<bool> isCompletionCurrent = null)
+    {
+        if (operationAdmission.IsAdmissionClosed || isCompletionCurrent?.Invoke() == false) { return; }
+        Exception notificationFailure = null;
+        try
+        {
+            if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
+            {
+                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup,
+                    BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Settings backup enabled notification");
+            }
+        }
+        catch (Exception failure) { notificationFailure = failure; }
+        // 保存事実の通知失敗は公開済み必須成功を取り消しません。未公開・終了では今回の新規任意投入をしません。
+        if (!operationAdmission.IsAdmissionClosed && isCompletionCurrent?.Invoke() != false && scheduleUrlCompletion && impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
+        {
+            try { workspacePort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings"); }
+            catch (Exception schedulingFailure) when (notificationFailure != null)
+            {
+                Task.FromException(schedulingFailure).ObserveFault("Settings saved follow-up scheduling");
+            }
+        }
+        if (notificationFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(notificationFailure).Throw(); }
     }
 
     /// <summary>既存のL/Pを非待機で揃えます。一部取得の拒否・例外ではLを解放し、成功時は呼出元が実処理終端まで両方を所有します。</summary>
@@ -7253,7 +7338,9 @@ public partial class SettingsDialogViewModel : ViewModel
         return lease != null;
     }
 
-    private async Task SaveSettingsUnderAdmissionAsync(bool runPostSaveActions, bool validate, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)
+    /// <summary>設定とXMLを永続化して適用配置を公開し、指定した実表示終端を待ってから必要な保存後処理を行います。</summary>
+    /// <param name="afterPersistence">通常設定の実Closeとmodal cleanup。永続化失敗では開始せず、完了後も生存する同じ権限を後続へ渡します。</param>
+    private async Task<SettingsPostSaveImpact> SaveSettingsUnderAdmissionAsync(bool runPostSaveActions, bool validate, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null, bool fullInitialization = false, Func<Task> afterPersistence = null)
     {
         var totalStopwatch = Stopwatch.StartNew();
         bool rightClickSettingsChanged = rightClickActionSettingsEditor.IsDirty;
@@ -7263,7 +7350,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 "settings_save",
                 totalStopwatch,
                 "rightClickSettingsValid=false");
-            return;
+            return SettingsPostSaveImpact.None;
         }
         bool userConfigSaved = false;
         bool lr2ConfigSaved = false;
@@ -7404,6 +7491,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             // 保存段階が完了するまで未保存配置をruntimeへ公開しません。以降の失敗では確定値を保持します。
             publishOutputPlacement();
+            if (afterPersistence != null) { await afterPersistence(); }
             if (runPostSaveActions)
             {
                 var postSaveStopwatch = Stopwatch.StartNew();
@@ -7413,7 +7501,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 }
                 if (postSaveNeeded)
                 {
-                    await necessaryStepsAfterSaved(postSaveImpact, capability, playlistCapability);
+                    await necessaryStepsAfterSaved(postSaveImpact, capability, playlistCapability, fullInitialization);
                 }
                 postSaveMs = postSaveStopwatch.ElapsedMilliseconds;
                 var backupSnapshotStopwatch = Stopwatch.StartNew();
@@ -7438,6 +7526,7 @@ public partial class SettingsDialogViewModel : ViewModel
             + " userConfigSaveMs=" + userConfigSaveMs
             + " lr2ConfigSaved=" + lr2ConfigSaved.ToString().ToLowerInvariant()
             + " lr2ConfigSaveMs=" + lr2ConfigSaveMs);
+        return runPostSaveActions && validationPassed ? postSaveImpact : SettingsPostSaveImpact.None;
     }
 
     private bool HasBeatorajaDerivedSettingsSourceChanged()

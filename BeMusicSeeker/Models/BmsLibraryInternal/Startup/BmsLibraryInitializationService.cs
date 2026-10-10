@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 using SQLite;
 
@@ -331,6 +332,10 @@ internal sealed class LeapYearFolderRepairCandidate
 
     public DateTime LastWriteTime { get; }
 
+    /// <summary>既存のYesNo確認文を、受付前に捕捉した対象と日時から作ります。</summary>
+    internal string ConfirmationMessage => string.Format(Resources.Warn_LR2LeapYearFolderDetected,
+        Path, LastWriteTime.ToShortDateString(), DateTime.Now.ToShortDateString());
+
     /// <summary>
     /// Determines whether the current catalog row is the same row observed
     /// before admission. All persisted folder fields are compared so a path
@@ -422,9 +427,46 @@ internal sealed class LeapYearFolderRepairResult
     public List<(string Path, Exception Exception)> Failures { get; } = [];
 }
 
+/// <summary>受付前の対象限定読取と利用者判断を、同じDBの受理済み修復へ直接渡します。</summary>
+internal sealed class LeapYearFolderRepairApproval
+{
+    private readonly IReadOnlyDictionary<string, LeapYearFolderRepairCandidate> unreadableFoldersByExactPath;
+    /// <summary>Yesで承認した対象だけを変更不能な要求へ捕捉します。Noや閉じた確認は含めません。</summary>
+    internal LeapYearFolderRepairApproval(string songDbPath, bool detected = false, IEnumerable<LeapYearFolderRepairCandidate> approvedCandidates = null,
+        IEnumerable<LeapYearFolderRepairCandidate> unreadableFolders = null)
+    {
+        SongDbPath = songDbPath;
+        Detected = detected;
+        ApprovedCandidates = Array.AsReadOnly((approvedCandidates ?? []).ToArray());
+        unreadableFoldersByExactPath = (unreadableFolders ?? [])
+            .GroupBy(candidate => candidate.OriginalFolderPath, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>候補を読んだ対象DB。受理後に別DBへ承認を転用しません。</summary>
+    internal string SongDbPath { get; }
+    /// <summary>確認対象が存在したこと。全てNoでも既存の警告条件を保ちます。</summary>
+    internal bool Detected { get; }
+    /// <summary>保存行と物理日時の変更不能な承認対象。</summary>
+    internal IReadOnlyList<LeapYearFolderRepairCandidate> ApprovedCandidates { get; }
+    /// <summary>物理日時を読めなかった保存行。通常ロードの既存削除判定へ渡し、成功した物理probeを繰り返しません。</summary>
+    internal bool IsUnchangedUnreadableFolder(LR2SongDB.folder folder)
+        => folder.path != null && unreadableFoldersByExactPath.TryGetValue(folder.path, out LeapYearFolderRepairCandidate candidate)
+            && candidate.MatchesCatalogRow(folder);
+}
+
+/// <summary>親受付解放後に公開する、実修復と通常日時補正の通知結果です。失敗・終了でも成功へ読み替えません。</summary>
+internal sealed record LeapYearFolderRepairNotification(bool ShowWarning, IReadOnlyList<(string Path, Exception Exception)> Failures)
+{
+    /// <summary>既存の警告条件と元の対象・原因を操作の終端で捕捉します。</summary>
+    internal static LeapYearFolderRepairNotification Capture(LeapYearFolderRepairApproval approval, LeapYearFolderRepairResult repair, bool normalizedLeapYearDetected)
+        => new(repair.RepairedCount > 0 || ((approval.Detected || normalizedLeapYearDetected) && approval.ApprovedCandidates.Count == 0),
+            Array.AsReadOnly(repair.Failures.ToArray()));
+}
+
 /// <summary>
-/// Loads initialization phases against snapshot inputs owned by BMSLibrary.
-/// The facade must acquire the required locks before invoking phase methods.
+/// BMSLibraryが捕捉した入力に、保存データ読込みと走査投影の名前付き手順を適用します。
+/// 呼出元が必要なモデル保護を所有し、並列に開始した継続は成功・失敗の全経路で回収します。
 /// </summary>
 internal sealed class BmsLibraryInitializationService
 {
@@ -436,6 +478,42 @@ internal sealed class BmsLibraryInitializationService
 
 
     private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
+
+    /// <summary>受付前にfolderの候補行だけを読取専用接続で捕捉します。DB・schemaを作らず通常カタログを読み込みません。</summary>
+    internal IReadOnlyList<LeapYearFolderRepairCandidate> CaptureLeapYearFolderRepairCandidates(BmsLibraryDbGateway dbGateway,
+        out IReadOnlyList<LeapYearFolderRepairCandidate> unreadableFolders)
+    {
+        unreadableFolders = [];
+        if (!File.Exists(dbGateway.SongDbPath)) { return []; }
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDbReadOnly();
+        if (string.IsNullOrWhiteSpace(songDb.LR2RootPath) || !TableExists(songDb, "folder")) { return []; }
+        int futureLimit = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
+        List<LeapYearFolderRepairCandidate> candidates = [];
+        List<LeapYearFolderRepairCandidate> unreadable = [];
+        foreach (LR2SongDB.folder folder in songDb.Query<LR2SongDB.folder>(
+            "SELECT * FROM folder WHERE type = 1 AND (date IS NULL OR date < 0) AND (adddate IS NULL OR (adddate >= 0 AND adddate <= ?));", futureLimit))
+        {
+            // 相対pathと異常adddateは従来の通常補正へ残し、その回の物理日時確認を行わない。
+            if (string.IsNullOrWhiteSpace(folder.path) || !Path.IsPathRooted(folder.path)) { continue; }
+            string directoryPath = folder.path.TrimEnd('\\', '/');
+            try
+            {
+                if (!LongPathFileSystem.DirectoryExists(directoryPath)) { continue; }
+                DateTime lastWriteTime = LongPathFileSystem.GetLastWriteTime(directoryPath, isDirectory: true);
+                if (IsLeapYearTimestamp(lastWriteTime)) { candidates.Add(new(folder.path, directoryPath, lastWriteTime, folder)); }
+            }
+            catch (EncoderFallbackException)
+            {
+                // 従来の通常ロードでも表現不能パスは削除しない。
+            }
+            catch
+            {
+                unreadable.Add(new(folder.path, directoryPath, default, folder));
+            }
+        }
+        unreadableFolders = Array.AsReadOnly(unreadable.ToArray());
+        return Array.AsReadOnly(candidates.ToArray());
+    }
 
     public BmsLibraryInitializationService()
         : this(null, null, null, null)
@@ -558,6 +636,8 @@ internal sealed class BmsLibraryInitializationService
         return result;
     }
 
+    /// <summary>通常の目録・日時補正を一回読み込みます。閏年の物理候補確認は受付前の限定読取で完了しています。</summary>
+    /// <param name="leapYearRepairApproval">限定読取の観測結果。読取不能の同一保存行は従来の削除判定へ渡し、mtimeを再走査しません。</param>
     public SongTableLoadResult LoadSongTable(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
@@ -566,7 +646,8 @@ internal sealed class BmsLibraryInitializationService
         FileMutationOptions targetOnlyFileMutationOptions,
         Func<Exception, string> getDisplayedExceptionMessage,
         Action<string> logInstallPerformance = null,
-        Action<string> logDebugTrace = null)
+        Action<string> logDebugTrace = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null)
     {
         var result = new SongTableLoadResult();
         if (dbGateway == null)
@@ -626,7 +707,7 @@ internal sealed class BmsLibraryInitializationService
                 loadedSongs,
                 deletedFiles,
                 result,
-                logInstallPerformance);
+                logInstallPerformance, leapYearRepairApproval);
         }
         else
         {
@@ -935,6 +1016,8 @@ internal sealed class BmsLibraryInitializationService
         return snapshot;
     }
 
+    /// <summary>取得済み走査を一括確定し、同じ列挙窓口で取得したLR2面を直接結果へ含めます。</summary>
+    /// <param name="rootFileEnumerator">要求に接続した列挙窓口。nullでは通常の実列挙を使います。</param>
     public SongTableFileCheckResult ApplyFileScanDiff(
         BmsLibraryDbGateway dbGateway,
         EverythingNative everythingNative,
@@ -962,7 +1045,8 @@ internal sealed class BmsLibraryInitializationService
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false,
         IEnumerable<string> lr2FolderExcludedDirectories = null,
         Action<SongTableFileCheckResult> catalogProjectionApplied = null,
-        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation = null)
+        Func<Lr2NormalFolderSyncScope, IReadOnlyCollection<string>, IDisposable> enterNormalFolderMutation = null,
+        IRootFileEnumerator rootFileEnumerator = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -1012,7 +1096,8 @@ internal sealed class BmsLibraryInitializationService
                 lr2BuiltinCustomFolderSettings,
                 lr2FolderExcludedDirectories,
                 logEverythingScan,
-                everythingNative);
+                everythingNative,
+                rootFileEnumerator);
         }
         stopwatchScan.Stop();
         scanCompleted?.Invoke();
@@ -1336,7 +1421,8 @@ internal sealed class BmsLibraryInitializationService
         Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings,
         IEnumerable<string> excludedDirectories,
         Action<string> logEverythingScan,
-        EverythingNative everythingNative)
+        EverythingNative everythingNative,
+        IRootFileEnumerator rootFileEnumerator)
     {
         if (result == null
             || options?.OperationModeLR2DB != true)
@@ -1355,7 +1441,8 @@ internal sealed class BmsLibraryInitializationService
             builtinCustomFolderSettings ?? new Lr2BuiltinCustomFolderSettings(0, 24, false),
             logEverythingScan,
             everythingNative,
-            excludedDirectories);
+            excludedDirectories,
+            rootFileEnumerator);
 
         result.Lr2ScanLr2FolderDiscoveryDirectories = lr2FolderDiscoveryDirectories;
         result.Lr2ScanLr2FolderFilePaths = candidates.Paths;
@@ -2369,66 +2456,51 @@ internal sealed class BmsLibraryInitializationService
         }
     }
 
-    public InitializationExecutionResult RunInitialize(
-        List<Action> tasksContinuation,
-        SemaphoreSlim semaphore,
-        Action phase1,
-        Action phase2,
-        Action phase3)
+    /// <summary>保存済み準備と必要な差分・投影を実行し、開始した公開継続を失敗時も全て回収します。</summary>
+    public InitializationExecutionResult RunInitialization(List<Action> tasksContinuation, SemaphoreSlim semaphore,
+        Action loadSavedData, Action applyFilesAndProjection)
     {
         var result = new InitializationExecutionResult();
-        var stopwatchTotal = Stopwatch.StartNew();
-        List<Task> continuationTasks = [];
-        var stopwatchPhase1 = Stopwatch.StartNew();
-        phase1?.Invoke();
-        stopwatchPhase1.Stop();
-        result.Phase1MinLoadMs = stopwatchPhase1.ElapsedMilliseconds;
-        long waitForContinuationSignalMs = 0L;
-        long waitForContinuationTasksMs = 0L;
-        var stopwatchWaitBeforeContinuationStart = Stopwatch.StartNew();
-        semaphore?.Wait();
-        stopwatchWaitBeforeContinuationStart.Stop();
-        long waitBeforeContinuationStartMs = stopwatchWaitBeforeContinuationStart.ElapsedMilliseconds;
-
-        if (tasksContinuation != null)
+        var total = Stopwatch.StartNew();
+        List<Task> continuations = [];
+        Exception primaryFailure = null;
+        try
         {
-            for (int i = 0; i < tasksContinuation.Count; i++)
+            var savedData = Stopwatch.StartNew();
+            loadSavedData?.Invoke();
+            result.SavedDataMs = savedData.ElapsedMilliseconds;
+            var startWait = Stopwatch.StartNew();
+            semaphore?.Wait();
+            result.WaitBeforeContinuationStartMs = startWait.ElapsedMilliseconds;
+            foreach (Action continuation in tasksContinuation ?? [])
             {
-                continuationTasks.Add(Task.Run(tasksContinuation[i]).LoggingAndPropagate("Initialize"));
+                continuations.Add(Task.Run(continuation).LoggingAndPropagate("Initialize"));
+            }
+            var files = Stopwatch.StartNew();
+            applyFilesAndProjection?.Invoke();
+            result.FilesAndProjectionMs = files.ElapsedMilliseconds;
+            if (semaphore != null && continuations.Count > 0)
+            {
+                var signalWait = Stopwatch.StartNew();
+                semaphore.Wait();
+                result.WaitForContinuationSignalMs = signalWait.ElapsedMilliseconds;
             }
         }
-
-        Thread.Yield();
-
-        var stopwatchPhase2 = Stopwatch.StartNew();
-        phase2?.Invoke();
-        stopwatchPhase2.Stop();
-        result.Phase2ScanMaintMs = stopwatchPhase2.ElapsedMilliseconds;
-
-        var stopwatchPhase3 = Stopwatch.StartNew();
-        phase3?.Invoke();
-        stopwatchPhase3.Stop();
-        result.Phase3InstallMaintenanceMs = stopwatchPhase3.ElapsedMilliseconds;
-
-        if (semaphore != null && tasksContinuation != null && tasksContinuation.Count > 0)
+        catch (Exception failure) { primaryFailure = failure; }
+        finally
         {
-            var stopwatchWaitForContinuationSignal = Stopwatch.StartNew();
-            semaphore.Wait();
-            stopwatchWaitForContinuationSignal.Stop();
-            waitForContinuationSignalMs = stopwatchWaitForContinuationSignal.ElapsedMilliseconds;
+            var join = Stopwatch.StartNew();
+            try { Task.WaitAll([.. continuations]); }
+            catch (Exception failure)
+            {
+                if (primaryFailure == null) { primaryFailure = failure; }
+                else { NLogWrapper.FileLogger?.Warn(failure, "initialization_continuation_cleanup_failed"); }
+            }
+            result.WaitForContinuationTasksMs = join.ElapsedMilliseconds;
+            result.WaitContinuationMs = result.WaitBeforeContinuationStartMs + result.WaitForContinuationSignalMs + result.WaitForContinuationTasksMs;
+            result.TotalMs = total.ElapsedMilliseconds;
         }
-
-        var stopwatchWaitForContinuationTasks = Stopwatch.StartNew();
-        Task.WaitAll([.. continuationTasks]);
-        stopwatchWaitForContinuationTasks.Stop();
-        waitForContinuationTasksMs = stopwatchWaitForContinuationTasks.ElapsedMilliseconds;
-
-        result.WaitBeforeContinuationStartMs = waitBeforeContinuationStartMs;
-        result.WaitForContinuationSignalMs = waitForContinuationSignalMs;
-        result.WaitForContinuationTasksMs = waitForContinuationTasksMs;
-        result.WaitContinuationMs = waitBeforeContinuationStartMs + waitForContinuationSignalMs + waitForContinuationTasksMs;
-        stopwatchTotal.Stop();
-        result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
+        if (primaryFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primaryFailure).Throw(); }
         return result;
     }
 
@@ -2475,7 +2547,7 @@ internal sealed class BmsLibraryInitializationService
         List<LR2SongDB.song> loadedSongs,
         List<LR2SongDB.song> deletedFiles,
         SongTableLoadResult result,
-        Action<string> logInstallPerformance)
+        Action<string> logInstallPerformance, LeapYearFolderRepairApproval leapYearRepairApproval)
     {
         int unixtime = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
         List<LR2SongDB.song> updatedSongs = [];
@@ -2578,21 +2650,13 @@ internal sealed class BmsLibraryInitializationService
                     }
                     if ((folder.date < 0 || !folder.date.HasValue) && folder.type == 1 && !string.IsNullOrWhiteSpace(folder.path))
                     {
-                        string originalFolderPath = folder.path;
-                        string directoryPath = originalFolderPath.TrimEnd('\\', '/');
-                        if (LongPathFileSystem.DirectoryExists(directoryPath))
+                        if (leapYearRepairApproval != null)
                         {
-                            DateTime lastWriteTime = LongPathFileSystem.GetLastWriteTime(directoryPath, isDirectory: true);
-                            if (IsLeapYearTimestamp(lastWriteTime))
+                            if (leapYearRepairApproval.IsUnchangedUnreadableFolder(folder))
                             {
-                                result.LeapYearDetected = true;
-                                result.LeapYearRepairCandidates.Add(
-                                    new LeapYearFolderRepairCandidate(
-                                        originalFolderPath,
-                                        directoryPath,
-                                        lastWriteTime,
-                                        folder));
+                                result.DeletedFolderPaths.Add(folder.path);
                             }
+                            return false;
                         }
                     }
                 }

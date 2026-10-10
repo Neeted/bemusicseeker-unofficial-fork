@@ -36,7 +36,7 @@ public sealed class StartupLibraryFailureContractTests
 
             StringAssert.Contains(exception.Message, "recording search-root enumeration failure");
             CollectionAssert.AreEqual(
-                new[] { "factory-library", "application-library", "factory-playlist" },
+                new[] { "factory-library", "factory-playlist" },
                 events);
             CollectionAssert.AreEqual(Array.Empty<string>(), application.SearchRootsObserved.ToArray());
         }
@@ -67,26 +67,35 @@ public sealed class StartupLibraryFailureContractTests
             var events = new List<string>();
             var factory = new RecordingDelegatingStartupLibraryFactory(composition, events)
             {
-                ReturnNullPlaylist = true
+                ReturnNullPlaylist = false
             };
             var application = new RecordingStartupLibraryApplicationPort(events);
             var owner = new StartupLibraryConstructionOwner(factory);
             profile = CreateProfile(temporaryRoot, songDbPath);
+            StartupLibraryServices previous = owner.CreateAndApply(profile, application);
+            events.Clear();
+            application = new RecordingStartupLibraryApplicationPort(events);
+            factory.ReturnNullPlaylist = true;
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => owner.CreateAndApply(profile, application));
+                () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
 
             StringAssert.Contains(exception.Message, "Startup playlist factory returned null");
             CollectionAssert.AreEqual(
-                new[] { "factory-library", "application-library", "factory-playlist" },
+                new[] { "factory-library", "factory-playlist" },
                 events);
-            Assert.AreSame(factory.CreatedLibrary, application.AttachedLibrary);
+            Assert.IsNull(application.AttachedLibrary);
+            Assert.IsTrue((factory.CreatedLibrary ?? throw new InvalidOperationException("Construction did not create the library.")).IsShutdownRequested);
+            Assert.IsFalse(previous.Library.IsShutdownRequested);
+            Assert.IsFalse(previous.Playlist.IsShutdownRequested);
+            Assert.IsFalse(composition.OperationAdmission.IsAdmissionClosed);
+            Assert.IsFalse(composition.PlaylistOperationAdmission.IsAdmissionClosed);
 
             events.Clear();
             factory.ReturnNullPlaylist = false;
             factory.ThrowOnLibrary = true;
             exception = Assert.ThrowsException<InvalidOperationException>(
-                () => owner.CreateAndApply(profile, application));
+                () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
             StringAssert.Contains(exception.Message, "recording library factory failure");
             CollectionAssert.AreEqual(new[] { "factory-library" }, events);
 
@@ -95,11 +104,25 @@ public sealed class StartupLibraryFailureContractTests
             factory.ReturnNullPlaylist = false;
             factory.ThrowOnPlaylist = true;
             exception = Assert.ThrowsException<InvalidOperationException>(
-                () => owner.CreateAndApply(profile, application));
+                () => owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist));
             StringAssert.Contains(exception.Message, "recording playlist failure");
             CollectionAssert.AreEqual(
-                new[] { "factory-library", "application-library", "factory-playlist" },
+                new[] { "factory-library", "factory-playlist" },
                 events);
+            Assert.IsFalse(previous.Library.IsShutdownRequested);
+            Assert.IsFalse(previous.Playlist.IsShutdownRequested);
+            factory.ThrowOnPlaylist = false;
+            StartupLibraryServices current = owner.CreateAndApply(profile, application, previousLibrary: previous.Library, previousPlaylist: previous.Playlist);
+            Assert.IsTrue(previous.Library.IsShutdownRequested);
+            Assert.IsTrue(previous.Playlist.IsShutdownRequested);
+            Assert.IsFalse(current.Library.IsShutdownRequested);
+            Assert.IsFalse(current.Playlist.IsShutdownRequested);
+            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable libraryLease));
+            libraryLease.Dispose();
+            Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));
+            playlistLease.Dispose();
+            current.Playlist.RequestStop("test_cleanup");
+            current.Library.RequestStop("test_cleanup");
         }
         finally
         {
@@ -127,7 +150,7 @@ public sealed class StartupLibraryFailureContractTests
             InvalidOperationException libraryException = Assert.ThrowsException<InvalidOperationException>(
                 () => new StartupLibraryConstructionOwner(libraryFactory).CreateAndApply(profile, libraryApplication));
             StringAssert.Contains(libraryException.Message, "recording library application failure");
-            CollectionAssert.AreEqual(new[] { "factory-library", "application-library" }, libraryEvents);
+            CollectionAssert.AreEqual(new[] { "factory-library", "factory-playlist", "application-library" }, libraryEvents);
 
             var servicesEvents = new List<string>();
             var servicesFactory = new RecordingDelegatingStartupLibraryFactory(composition, servicesEvents);
@@ -139,7 +162,7 @@ public sealed class StartupLibraryFailureContractTests
                 () => new StartupLibraryConstructionOwner(servicesFactory).CreateAndApply(profile, servicesApplication));
             StringAssert.Contains(servicesException.Message, "recording services application failure");
             CollectionAssert.AreEqual(
-                new[] { "factory-library", "application-library", "factory-playlist", "application-services" },
+                new[] { "factory-library", "factory-playlist", "application-library", "application-services" },
                 servicesEvents);
             Assert.AreSame(servicesFactory.CreatedLibrary, servicesApplication.AttachedLibrary);
             Assert.AreSame(servicesFactory.CreatedPlaylist, servicesApplication.AttachedServices?.Playlist);

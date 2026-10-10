@@ -25,7 +25,7 @@ public sealed class CommonChartPayloadContractTests
             typeof(CatalogInstalledTargetUpsertRequest), typeof(ChartStorageTargetSet),
             typeof(FileScanDiffCommitChunk), typeof(ChartInfoInlineBuildResult),
             typeof(ChartDigestBackfillResult), typeof(Lr2SongDbSyncInput),
-            typeof(Lr2SongDbSyncCommittedPathReceipt), typeof(Lr2SongDbSyncInputRowSnapshot),
+            typeof(LibraryFileInitializationResult), typeof(Lr2SongDbSyncInputRowSnapshot),
             typeof(Lr2SongDbSyncScanSurfaceSnapshot), typeof(CatalogChartMutationFact), typeof(CatalogRelocationPathFact),
             typeof(NormalLibraryRefreshNotification), typeof(PackageChartEntry)
         ];

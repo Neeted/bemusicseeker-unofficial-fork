@@ -104,7 +104,6 @@ internal sealed class Lr2SongDbSyncRequest
     /// </summary>
     public Func<bool> IsShutdownRequested { get; init; }
 
-    public Func<bool> IsSourceCurrent { get; init; }
 
     /// <summary>段階内の実対象件数と保存済みカーソルを区別して通知します。通知失敗は同期結果に影響しません。</summary>
     public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
@@ -112,12 +111,10 @@ internal sealed class Lr2SongDbSyncRequest
     public Action<IReadOnlyList<ResourceHealthMaintenanceSnapshot>> Lr2CompatibilityFactsCommitted { get; init; }
 
     /// <summary>
-    /// Contains paths whose immediately preceding file-diff transaction has
-    /// already produced the generated song projection.  The receipt is
-    /// process-local and is consumed by the song-row stage without a reader
-    /// or durable currentness lookup.
+    /// 同じ親操作の直前のファイル差分で、生成行をDBへ確定したBMSパスです。
+    /// 呼出元の変更不能な結果から直接渡し、楽曲行段階では読取り・解析・DB現行性照会を省きます。
     /// </summary>
-    public Lr2SongDbSyncCommittedPathReceipt CommittedPathReceipt { get; init; }
+    public IReadOnlySet<string> CommittedBmsPaths { get; init; }
 
     public Action<string> LogInstallPerformance { get; init; }
 }
@@ -178,9 +175,7 @@ internal static class Lr2SongDbSyncService
 
     internal const string CompletedStage = "completed";
 
-    internal const string SourceStaleStage = "source_stale";
 
-    internal const string SourceStaleReason = "source_stale_detected";
 
     /// <summary>
     /// 完全なfolder投影の一括保存と既存のsong保存を実行し、実処理の段階・件数を通知します。
@@ -270,38 +265,6 @@ internal static class Lr2SongDbSyncService
         int normalFolderProcessedCount = 0;
         int lr2FolderFileProcessedCount = 0;
         int folderProcessedCount = 0;
-        if (!IsSourceCurrent(request))
-        {
-            Lr2SongDbSyncStatusService.MarkIncomplete(
-                songDb,
-                request.Signature,
-                request.RunId,
-                processedCursor: 0,
-                totalCount,
-                stage: SourceStaleStage,
-                detail: SourceStaleReason,
-                nowUtc: DateTime.UtcNow);
-            ReportProgress(request, 0, totalCount, SourceStaleStage, 0, 0);
-            stopwatch.Stop();
-            return new Lr2SongDbSyncResult
-            {
-                TotalCount = totalCount,
-                ProcessedCount = 0,
-                FinalStage = SourceStaleStage,
-                IncompleteReason = SourceStaleReason,
-                NormalFolderSyncResult = null,
-                Lr2FolderFileSyncResult = null,
-                FolderTableReconciliationResult = null,
-                Lr2FolderFileProcessedCount = 0,
-                SongRowProcessedCount = 0,
-                SongRowSkippedCount = 0,
-                SongRowParseFailureCount = 0,
-                SongRowChartInfoAppliedCount = 0,
-                SongRowLr2CompatibilityAppliedCount = 0,
-                ElapsedMs = stopwatch.ElapsedMilliseconds
-            };
-        }
-
         LogStage(request, "stage_start", "folder_reconciliation", normalFolderTargetCount + lr2FolderFilePaths.Count, 0, 0);
         folderTableResult = Lr2FolderTableReconciliationService.Reconcile(
             songDb,
@@ -404,35 +367,16 @@ internal static class Lr2SongDbSyncService
         ReportProgress(request, processedCount, totalCount, "final_validation", 0, 0);
         string finalStage;
         string incompleteReason;
-        if (!IsSourceCurrent(request))
-        {
-            Lr2SongDbSyncStatusService.MarkIncomplete(
-                songDb,
-                request.Signature,
-                request.RunId,
-                processedCursor: processedCount,
-                totalCount,
-                stage: SourceStaleStage,
-                detail: SourceStaleReason,
-                nowUtc: DateTime.UtcNow);
-            ReportProgress(request, processedCount, totalCount, SourceStaleStage, 0, 0);
-            finalStage = SourceStaleStage;
-            incompleteReason = SourceStaleReason;
-        }
-        else
-        {
-            ReportProgress(request, processedCount, totalCount, "sync_state_saving", 0, 0);
-            Lr2SongDbSyncStatusService.MarkCompleted(
-                songDb,
-                request.Signature,
-                request.RunId,
-                totalCount,
-                nowUtc: DateTime.UtcNow);
-            ReportProgress(request, totalCount, totalCount, CompletedStage, totalCount, totalCount);
-            finalStage = CompletedStage;
-            incompleteReason = null;
-        }
-
+        ReportProgress(request, processedCount, totalCount, "sync_state_saving", 0, 0);
+        Lr2SongDbSyncStatusService.MarkCompleted(
+            songDb,
+            request.Signature,
+            request.RunId,
+            totalCount,
+            nowUtc: DateTime.UtcNow);
+        ReportProgress(request, totalCount, totalCount, CompletedStage, totalCount, totalCount);
+        finalStage = CompletedStage;
+        incompleteReason = null;
         stopwatch.Stop();
         return new Lr2SongDbSyncResult
         {
@@ -451,22 +395,6 @@ internal static class Lr2SongDbSyncService
             SongRowLr2CompatibilityAppliedCount = songRowResult.Lr2CompatibilityAppliedCount,
             ElapsedMs = stopwatch.ElapsedMilliseconds
         };
-    }
-
-    private static bool IsSourceCurrent(Lr2SongDbSyncRequest request)
-    {
-        if (request?.IsSourceCurrent == null)
-        {
-            return true;
-        }
-        try
-        {
-            return request.IsSourceCurrent();
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     private static void ThrowIfCancellationRequested(
@@ -1096,7 +1024,7 @@ internal static class Lr2SongDbSyncService
         int readQueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerDegree, readerDegree);
         int computedQueueCapacity = Math.Max(songRowSyncChunkSize * 2, workerDegree * 32);
         int processed = 0;
-        int receiptSkipped = 0;
+        int committedPathSkipped = 0;
         int evaluatedStageProcessedCount = safeStartIndex;
         int committedProcessedCursor = baseProcessedCursor + safeStartIndex;
         int parseFailureCount = 0;
@@ -1165,15 +1093,15 @@ internal static class Lr2SongDbSyncService
         using var pipelineCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         CancellationToken pipelineToken = pipelineCancellationSource.Token;
         using var orderingWindow = new SemaphoreSlim(orderingWindowCapacity, orderingWindowCapacity);
-        IReadOnlySet<string> committedReceiptPaths = safeStartIndex == 0
-            ? request?.CommittedPathReceipt?.CommittedBmsPaths
+        IReadOnlySet<string> committedBmsPaths = safeStartIndex == 0
+            ? request?.CommittedBmsPaths
             : null;
-        int committedReceiptPathCount = committedReceiptPaths?.Count ?? 0;
+        int committedBmsPathCount = committedBmsPaths?.Count ?? 0;
         LogSync(request, "lr2_song_db_sync pipeline_start"
             + " stage=song_rows"
             + " startIndex=" + safeStartIndex
             + " targetCount=" + targetRows.Count
-            + " committedReceiptPaths=" + committedReceiptPathCount
+            + " committedBmsPaths=" + committedBmsPathCount
             + " chunkSize=" + songRowSyncChunkSize
             + " readerDegree=" + readerDegree
             + " workerDegree=" + workerDegree
@@ -1236,15 +1164,15 @@ internal static class Lr2SongDbSyncService
             long chunkParseTicks = 0L;
             int chunkFallbackCount = 0;
             int chunkParseFailureCount = 0;
-            int chunkReceiptSkippedCount = 0;
+            int chunkCommittedPathSkippedCount = 0;
             foreach (SongRowSyncComputedItem item in chunk)
             {
                 chunkReadTicks += item.ReadElapsedTicks;
                 chunkDigestTicks += item.DigestElapsedTicks;
                 chunkParseTicks += item.ParseElapsedTicks;
-                if (item.ReceiptSkipped)
+                if (item.CommittedPathSkipped)
                 {
-                    chunkReceiptSkippedCount++;
+                    chunkCommittedPathSkippedCount++;
                     continue;
                 }
                 ChartFile row = item.Row;
@@ -1359,7 +1287,7 @@ internal static class Lr2SongDbSyncService
                 compatibilityApplied += chunkCompatibilityInfos.Count;
                 parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
-                receiptSkipped += chunkReceiptSkippedCount;
+                committedPathSkipped += chunkCommittedPathSkippedCount;
                 processed += chunk.Count;
                 int processedCursor = baseProcessedCursor + offset + chunk.Count;
                 stageStopwatch.Restart();
@@ -1415,7 +1343,7 @@ internal static class Lr2SongDbSyncService
                     + " statusCursorMs=" + statusCursorMs
                     + " fallbackCount=" + chunkFallbackCount
                     + " parseFailureCount=" + chunkParseFailureCount
-                    + " receiptSkipped=" + chunkReceiptSkippedCount
+                    + " committedPathSkipped=" + chunkCommittedPathSkippedCount
                     + " compatibilityApplied=" + chunkCompatibilityInfos.Count
                     + " processedCursor=" + processedCursor
                     + " managedBytes=" + GC.GetTotalMemory(false));
@@ -1475,8 +1403,8 @@ internal static class Lr2SongDbSyncService
                             break;
                         }
 
-                        SongRowSyncReadCandidate candidate = ShouldSkipCommittedReceiptPath(targetRows[index], committedReceiptPaths)
-                            ? SongRowSyncReadCandidate.CreateReceiptSkipped(index, targetRows[index])
+                        SongRowSyncReadCandidate candidate = ShouldSkipCommittedBmsPath(targetRows[index], committedBmsPaths)
+                            ? SongRowSyncReadCandidate.CreateCommittedPathSkipped(index, targetRows[index])
                             : ReadSyncSongRowCandidate(
                                 index,
                                 targetRows[index],
@@ -1613,7 +1541,7 @@ internal static class Lr2SongDbSyncService
         LogSync(request, "lr2_song_db_sync pipeline_done"
             + " stage=song_rows"
             + " processed=" + processed
-            + " receiptSkipped=" + receiptSkipped
+            + " committedPathSkipped=" + committedPathSkipped
             + " parseFailureCount=" + parseFailureCount
             + " chartInfoApplied=" + chartInfoAppliedCount
             + " chartInfoGenerated=" + chartInfoGeneratedCount
@@ -1630,7 +1558,7 @@ internal static class Lr2SongDbSyncService
             + " readQueueHighWatermark=" + readQueueHighWatermark
             + " computedQueueHighWatermark=" + computedQueueHighWatermark
             + " pendingItemsHighWatermark=" + pendingItemsHighWatermark);
-        return new SongRowSyncResult(processed, receiptSkipped, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+        return new SongRowSyncResult(processed, committedPathSkipped, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
     private static void ReportCommittedLr2CompatibilityFacts(
@@ -1805,12 +1733,12 @@ internal static class Lr2SongDbSyncService
         }
     }
 
-    private static bool ShouldSkipCommittedReceiptPath(ChartFile row, IReadOnlySet<string> committedReceiptPaths)
+    private static bool ShouldSkipCommittedBmsPath(ChartFile row, IReadOnlySet<string> committedBmsPaths)
     {
         return row != null
             && !string.IsNullOrWhiteSpace(row.Path)
-            && committedReceiptPaths != null
-            && committedReceiptPaths.Contains(row.Path);
+            && committedBmsPaths != null
+            && committedBmsPaths.Contains(row.Path);
     }
 
     private static SongRowSyncComputedItem CreateSyncSongRowItem(
@@ -1823,9 +1751,9 @@ internal static class Lr2SongDbSyncService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn)
     {
-        if (candidate?.ReceiptSkipped == true)
+        if (candidate?.CommittedPathSkipped == true)
         {
-            return SongRowSyncComputedItem.CreateReceiptSkipped(candidate.Index);
+            return SongRowSyncComputedItem.CreateCommittedPathSkipped(candidate.Index);
         }
 
         ChartFileSnapshot snapshot = CreateSyncSongRowSnapshot(candidate, out long digestTicks);
@@ -2248,11 +2176,11 @@ internal static class Lr2SongDbSyncService
         ChartFile existingSong,
         ChartFileReadBuffer buffer,
         long readElapsedTicks,
-        bool receiptSkipped = false)
+        bool committedPathSkipped = false)
     {
-        public static SongRowSyncReadCandidate CreateReceiptSkipped(int index, ChartFile existingSong)
+        public static SongRowSyncReadCandidate CreateCommittedPathSkipped(int index, ChartFile existingSong)
         {
-            return new SongRowSyncReadCandidate(index, existingSong, null, 0L, receiptSkipped: true);
+            return new SongRowSyncReadCandidate(index, existingSong, null, 0L, committedPathSkipped: true);
         }
 
         public int Index { get; } = index;
@@ -2263,7 +2191,7 @@ internal static class Lr2SongDbSyncService
 
         public long ReadElapsedTicks { get; } = readElapsedTicks;
 
-        public bool ReceiptSkipped { get; } = receiptSkipped;
+        public bool CommittedPathSkipped { get; } = committedPathSkipped;
     }
 
     private sealed class SongRowSyncComputedItem(
@@ -2281,9 +2209,9 @@ internal static class Lr2SongDbSyncService
         bool chartInfoParseFailureSkipped,
         ResourceHealthMaintenanceSnapshot lr2CompatibilityInfo,
         long compatibilityElapsedTicks,
-        bool receiptSkipped = false)
+        bool committedPathSkipped = false)
     {
-        public static SongRowSyncComputedItem CreateReceiptSkipped(int index)
+        public static SongRowSyncComputedItem CreateCommittedPathSkipped(int index)
         {
             return new SongRowSyncComputedItem(
                 index,
@@ -2300,7 +2228,7 @@ internal static class Lr2SongDbSyncService
                 chartInfoParseFailureSkipped: false,
                 lr2CompatibilityInfo: null,
                 compatibilityElapsedTicks: 0L,
-                receiptSkipped: true);
+                committedPathSkipped: true);
         }
 
         public int Index { get; } = index;
@@ -2331,7 +2259,7 @@ internal static class Lr2SongDbSyncService
 
         public long CompatibilityElapsedTicks { get; } = compatibilityElapsedTicks;
 
-        public bool ReceiptSkipped { get; } = receiptSkipped;
+        public bool CommittedPathSkipped { get; } = committedPathSkipped;
     }
 
     private sealed class SongRowSyncResult(

@@ -1184,7 +1184,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
                 Lr2BuiltinFolderSourceDirectories = [builtinRoot],
                 Lr2FolderFileDiscoveryComplete = true,
                 SongRows = [],
-                IsSourceCurrent = () => true,
                 StartedAtUtc = timestamp
             });
 

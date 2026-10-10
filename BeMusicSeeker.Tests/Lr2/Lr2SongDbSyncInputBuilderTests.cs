@@ -117,7 +117,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
             new EverythingNative(TestBmsFactory.MissingEverythingBridge),
             enumerator);
         Lr2SongDbSyncInput input = builder.Create(
-            new Lr2SongDbSyncInputRowSnapshot([], [], 1),
+            new Lr2SongDbSyncInputRowSnapshot([], []),
             new Lr2SongDbSyncInputRootSnapshot(
                 DateTime.UtcNow,
                 [rootDirectory],
@@ -131,7 +131,7 @@ public sealed class Lr2SongDbSyncInputBuilderTests
                 string.Empty,
                 []),
             new Lr2SongDbSyncScanSurfaceSelection(null, "no_scan_surface"),
-            new Lr2SongDbSyncPreparedSurfaceSelection(preparedSurface, preparedSurface, 0, false),
+            new Lr2SongDbSyncPreparedSurfaceSelection(preparedSurface),
             appManagedScope,
             Stopwatch.StartNew(),
             Stopwatch.StartNew(),

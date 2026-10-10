@@ -1365,8 +1365,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 songDbPath,
                 [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            bool changed = viewModel.PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(
-                CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
+            var startupSettings = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
             Assert.IsTrue(changed);
             Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
@@ -1439,8 +1440,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[\"changed-additional\"]";
             testSettings.BMSInstallDir = manualBmsRoot;
 
-            bool changed = viewModel.PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(
-                startupSettings);
+            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
             Assert.IsTrue(changed);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), rootOutputChild);

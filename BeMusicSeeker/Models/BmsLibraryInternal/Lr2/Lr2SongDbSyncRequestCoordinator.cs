@@ -34,9 +34,9 @@ internal static class Lr2SongDbSyncRequestCoordinator
     internal static async Task<Lr2SongDbSyncStatusSnapshot> QueueAsync(
         BMSLibrary.Lr2SynchronizationOwner host, string reason, bool force,
         Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData,
-        bool allowIncompleteToQueue, bool allowCommittedPathReceipt,
+        bool allowIncompleteToQueue, LibraryFileInitializationResult initializationResult,
         LibraryFileMutationCapability capability = null, bool acceptedBackground = false,
-        BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null)
+        BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null)
     {
         playlistCapability ??= capability?.PlaylistCapability;
         LibraryFileMutationLease lease = capability != null
@@ -55,41 +55,35 @@ internal static class Lr2SongDbSyncRequestCoordinator
             using LibraryFileMutationCapability primaryAuthority = lease.CreateMutationCapability();
             using LibraryFileMutationCapability authority = primaryAuthority.WithPlaylistCapability(playlistAuthority);
             using LibraryFileMutationLease preparationLease = host.OperationAdmission.Borrow(authority);
-            bool receiptEligible = allowCommittedPathReceipt && !force;
-            if (!receiptEligible) { host.DiscardLr2SongDbSyncCommittedPathReceipt("queue_origin_not_eligible"); }
             BmsLibraryOptionsSnapshot options = optionsSnapshot ?? host.CurrentOptionsSnapshot;
             string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
             Lr2SongDbSyncStatusSnapshot status = host.EvaluateLr2SongDbSyncStatus(options.OperationModeLR2DB, signature, DateTime.UtcNow);
             host.PublishLr2SongDbSyncStatus(status);
-            if (host.TrySkipForShutdown("lr2_song_db_sync", reason)) { host.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested"); return status; }
+            if (host.TrySkipForShutdown("lr2_song_db_sync", reason)) { return status; }
             if (!options.OperationModeLR2DB || (!force && !status.IsNeeded)
                 || (!force && !allowIncompleteToQueue && (status.Status == Lr2SongDbSyncStatusKind.Incomplete || status.StoredStatus == Lr2SongDbSyncStatusKind.Incomplete)))
             {
-                host.DiscardLr2SongDbSyncCommittedPathReceipt("queue_not_needed");
-                host.ClearLr2SongDbSyncPreparedDataSurface("queue_not_needed");
                 return status;
             }
-            host.PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(Lr2SongDbSyncStatusKind.Running, signature,
-                prepareGeneratedData != null ? "preparing" : "queued", 0, 0, null, 0, 0));
-            int version = host.BeginRequest(authority);
+            int version = host.BeginRequest(authority, originatingRequest,
+                CreateRuntimeLr2SongDbSyncStatus(Lr2SongDbSyncStatusKind.Running, signature,
+                    prepareGeneratedData != null ? "preparing" : "queued", 0, 0, null, 0, 0));
             try
             {
                 if (prepareGeneratedData != null)
                 {
                     capturePreparationInputs?.Invoke(playlistAuthority);
-                    Lr2SongDbSyncPreparedDataSurface surface = await Task.Run(() => prepareGeneratedData(preparationLease, options)).ConfigureAwait(false);
-                    host.ApplyLr2SongDbSyncPreparedDataSurface("prepare_generated_data", surface, options);
+                    preparedSurface = await Task.Run(() => prepareGeneratedData(preparationLease, options)).ConfigureAwait(false);
                 }
             }
             catch (Exception ex)
             {
-                host.DiscardLr2SongDbSyncCommittedPathReceipt("prepare_failed");
-                host.ClearLr2SongDbSyncPreparedDataSurface("prepare_failed");
-                host.FailLr2SongDbSyncRequest(version, Lr2SongDbSyncStatusKind.Failed, "preparation_failed", ex.Message);
+                host.RecordLr2SongDbSyncFailure(signature, string.Empty, version, ex, "preparation_failed",
+                    interruptedByShutdown: ex is OperationCanceledException && host.IsShutdownRequested);
                 throw;
             }
             // 共通受付の内側で起動枠を待つと、その枠で受付を待つ必須保守と循環する。
-            await Task.Run(() => host.RunLr2SongDbSyncAsync(reason, signature, version, receiptEligible, authority, options)).ConfigureAwait(false);
+            await Task.Run(() => host.RunLr2SongDbSyncAsync(reason, signature, version, initializationResult, preparedSurface, authority, options)).ConfigureAwait(false);
             return host.GetLr2SongDbSyncStatusSnapshot();
         }
     }
@@ -101,7 +95,8 @@ internal static class Lr2SongDbSyncRequestCoordinator
         string reason,
         string signature,
         int requestVersion,
-        bool allowCommittedPathReceipt,
+        LibraryFileInitializationResult initializationResult,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface,
         BmsLibraryOptionsSnapshot options)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -143,7 +138,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
         {
             if (host.IsShutdownRequested || cancellationToken.IsCancellationRequested)
             {
-                host.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested");
                 host.CompleteLr2SongDbSyncRequest(requestVersion, "shutdown_skipped");
                 host.ReportStartupBackgroundTask("lr2_song_db_sync", "skipped", stopwatch.ElapsedMilliseconds, failed: false, detail: "shutdown_requested");
                 host.LogInstallPerformance("lr2_song_db_sync skipped version=" + requestVersion + " reason=shutdown_requested");
@@ -158,13 +152,9 @@ internal static class Lr2SongDbSyncRequestCoordinator
 
             host.PublishLr2SongDbSyncPreflightStage("input_surface", reason, runId);
             preflightStageStopwatch.Restart();
-            Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput(options);
+            Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput(options, initializationResult, preparedSurface);
             host.LogLr2SongDbSyncPreflightStageDone("input_surface", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
             cancellationToken.ThrowIfCancellationRequested();
-            Lr2SongDbSyncCommittedPathReceipt committedPathReceipt = allowCommittedPathReceipt
-                ? host.TakeLr2SongDbSyncCommittedPathReceipt(input, reason)
-                : null;
-
             host.PublishLr2SongDbSyncPreflightStage("compatibility_projection_index", reason, runId);
             preflightStageStopwatch.Restart();
             compatibilityProjectionIndex = host.CreateLr2SongDbSyncCompatibilityProjectionIndex();
@@ -233,7 +223,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 StartedAtUtc = DateTime.UtcNow,
                 CancellationToken = cancellationToken,
                 IsShutdownRequested = () => host.IsShutdownRequested,
-                IsSourceCurrent = () => host.IsLr2SongDbSyncInputCurrent(input),
                 ProgressReporter = host.UpdateLr2SongDbSyncProgress,
                 Lr2CompatibilityFactsCommitted = infos =>
                 {
@@ -246,7 +235,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
                         committedCompatibilityFacts.AddRange(infos.Where(info => info != null));
                     }
                 },
-                CommittedPathReceipt = committedPathReceipt,
+                CommittedBmsPaths = initializationResult?.CommittedBmsPaths,
                 LogInstallPerformance = host.LogInstallPerformance
             });
             applyCommittedCompatibilityProjection();
@@ -309,7 +298,6 @@ internal static class Lr2SongDbSyncRequestCoordinator
         }
         catch (OperationCanceledException cancellationException)
         {
-            host.DiscardLr2SongDbSyncCommittedPathReceipt("sync_cancelled");
             try
             {
                 applyCommittedCompatibilityProjection();
@@ -326,40 +314,29 @@ internal static class Lr2SongDbSyncRequestCoordinator
             bool shutdownInterruption = host.IsShutdownRequested;
             if (shutdownInterruption)
             {
-                host.MarkLr2SongDbSyncInterruptedStatus(
-                    signature,
-                    runId,
-                    runtimeSnapshot.ProcessedCount,
-                    runtimeSnapshot.TotalCount,
-                    runtimeSnapshot.Stage);
+                host.RecordLr2SongDbSyncFailure(signature, runId, requestVersion, cancellationException,
+                    runtimeSnapshot.Stage, interruptedByShutdown: true);
                 host.LogInstallPerformance("lr2_song_db_sync interrupted reason=" + (reason ?? "unknown")
                     + " runId=" + runId
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                     + " stage=" + (runtimeSnapshot.Stage ?? string.Empty)
                     + " processed=" + runtimeSnapshot.ProcessedCount
                     + " total=" + runtimeSnapshot.TotalCount);
-                host.FailLr2SongDbSyncRequest(
-                    requestVersion,
-                    Lr2SongDbSyncStatusKind.Incomplete,
-                    runtimeSnapshot.Stage,
-                    "shutdown_interrupted");
                 host.ReportStartupBackgroundTask("lr2_song_db_sync", "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: "shutdown_interrupted");
                 throw;
             }
-            host.MarkLr2SongDbSyncFailedStatus(signature, runId, cancellationException);
+            host.RecordLr2SongDbSyncFailure(signature, runId, requestVersion, cancellationException, runtimeSnapshot.Stage);
             host.LogInstallPerformance("lr2_song_db_sync cancellation_failed reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " stage=" + (runtimeSnapshot.Stage ?? string.Empty)
                 + " processed=" + runtimeSnapshot.ProcessedCount
                 + " total=" + runtimeSnapshot.TotalCount);
-            host.FailLr2SongDbSyncRequest(requestVersion, Lr2SongDbSyncStatusKind.Failed, runtimeSnapshot.Stage, cancellationException.Message);
             host.ReportStartupBackgroundTask("lr2_song_db_sync", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: cancellationException.Message);
             throw;
         }
         catch (Exception ex)
         {
-            host.DiscardLr2SongDbSyncCommittedPathReceipt("sync_failed");
             try
             {
                 applyCommittedCompatibilityProjection();
@@ -372,20 +349,12 @@ internal static class Lr2SongDbSyncRequestCoordinator
                     + " message=" + projectionException.Message);
             }
             stopwatch.Stop();
-            try
-            {
-                host.MarkLr2SongDbSyncFailedStatus(signature, runId, ex);
-            }
-            catch
-            {
-                // Preserve the original failure in the startup task report.
-            }
+            host.RecordLr2SongDbSyncFailure(signature, runId, requestVersion, ex, "failed");
             host.LogInstallPerformance("lr2_song_db_sync failed reason=" + (reason ?? "unknown")
                 + " runId=" + runId
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds
                 + " exception=" + ex.GetType().Name
                 + " message=" + ex.Message);
-            host.FailLr2SongDbSyncRequest(requestVersion, Lr2SongDbSyncStatusKind.Failed, "failed", ex.Message);
             host.ReportStartupBackgroundTask("lr2_song_db_sync", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
             throw;
         }

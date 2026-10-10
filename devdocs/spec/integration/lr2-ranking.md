@@ -22,7 +22,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 予約時の設定を使って受付を判断し、実行時に最新設定から二系統の作業を再評価します。プレイヤーID0は実行時に処理不要とする条件であり、予約の有無は変えません。
 
-本人スコアはID確定後から通信・XML解析・正規化ハッシュの計算を先行できます。順位更新は現在の結果だけを受け取り、読込み、置換・更新、メモリへの統合を行います。XMLの譜面側の更新時刻 `lastupdate` はスコア内容の同一性判定から除きます。通信の取消・終了待ち・取得結果の再利用はデータ仕様と終了仕様に従います。
+本人スコアの通信・XML解析・正規化ハッシュの計算と順位cache読取りは、必須UI・操作解禁後に一つのscheduler work内でLなしで行います。DB置換・更新とメモリ確定はL取得後にモデル停止と既存score contextを確認して行い、旧組の結果を新組へ保存しません。cache準備内のUpsertも確定側へ集約し、通信から確定の実終端までschedulerで追跡します。XMLの譜面側の更新時刻 `lastupdate` はスコア内容の同一性判定から除きます。通信の取消・終了待ち・取得結果の再利用はデータ仕様と終了仕様に従います。
 
 ### 順位キャッシュの解析
 
@@ -46,7 +46,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 予約条件、本人スコアの事前取得と設定変更 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
+| 予約条件、UI後の本人スコア取得、通信中のL受付と退役後の非保存 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |
 | キャッシュの取得要求、確認、取消、成功・失敗件数の通知 | [`RankingCacheDownloadWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) | [`RankingCacheDownloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/RankingCacheDownloadWorkflowOwnerTests.cs) |
 

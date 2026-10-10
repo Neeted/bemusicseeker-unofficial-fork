@@ -146,9 +146,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope)
     {
-        // PendingSurface remains authoritative even when preparation eagerly merged its
-        // candidates into the captured scan surface and ActiveSurface is therefore empty.
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.PendingSurface;
+        // 今回生成・検証した完全な面を、走査時点の管理外候補へ明示的に合流する。
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.Surface;
         bool hasPreparedLr2FolderSurface = preparedSurface?.HasLr2FolderSurface == true;
         string source;
         Lr2FolderFileCandidateSnapshot candidates;
@@ -285,8 +284,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         EverythingNative everythingNative,
         IRootFileEnumerator rootFileEnumerator)
     {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.Surface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasPreparedSurface;
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
         if (scanSurface != null)
@@ -333,16 +332,12 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         EverythingNative everythingNative,
         IRootFileEnumerator rootFileEnumerator)
     {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.Surface;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
-            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+            ? Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(
                 OverlayLr2DirectoryEntrySurface(
                     MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
-                    preparedSurface.DirectoryEntries),
-                lr2FolderDiscoveryDirectories,
-                directoryEntryTargets,
-                everythingNative,
-                rootFileEnumerator)
+                    preparedSurface.DirectoryEntries), directoryEntryTargets)
             : OverlayLr2DirectoryEntrySurface(
                 CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
                     lr2FolderDiscoveryDirectories,
@@ -361,8 +356,8 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
     {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.Surface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasPreparedSurface;
         if (scanSurface?.TextFileDirectories != null)
         {
             return new Lr2SongDbSyncTextFileDirectorySelection(

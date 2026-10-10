@@ -10,7 +10,7 @@
 
 `everything_scan`、`startup_ready_operable`、`startup_ui_blocked`、`playlist_datagrid_state`、`playlist_sortglyph_refresh`、`callback_exec_sort`、`playlist_context_menu_prepare` / `assign` / `manual_open` を操作時刻と対応させます。ログ上の静穏や低CPU使用率を成功の根拠にせず、利用者操作と実際の完了を測ります。
 
-クォータ不足や閉鎖済みウィンドウへの例外は症状として分類し、Dispatcherの滞留や遅延通知を原因と断定する前に再現を確認します。起動の閲覧・変更受付を分ける作業は[順序統合の計画](lr2-startup-procedural-orchestration-plan.md)と調整します。
+クォータ不足や閉鎖済みウィンドウへの例外は症状として分類し、Dispatcherの滞留や遅延通知を原因と断定する前に再現を確認します。起動の必須手続き・閲覧と変更受付の境界は[現行起動仕様](../spec/runtime/startup.md)を維持します。
 
 ## 制約と完了条件
 

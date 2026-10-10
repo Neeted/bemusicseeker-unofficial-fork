@@ -215,15 +215,15 @@ public sealed class Lr2SynchronizationArchitectureTests
             Path = "chart.bms",
             Md5 = new string('a', 32)
         };
-        CatalogChartCollectionSnapshot storageSnapshot = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
-        CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
+        storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
         var mutationOwner = new CatalogMutationOwner(storageRowsOwner, null);
 
         Lr2SongDbSyncInputRowSnapshot snapshot = mutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
         Assert.AreEqual(1, snapshot.SongRows.Count);
         Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
-        Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, snapshot.OwnedCollectionVersion);
-        Assert.AreEqual(storageSnapshot.OwnedCollectionVersion, snapshot.OwnedCollectionVersion);
+        storageRowsOwner.ReplaceCharts([], [], replaceBmson: true);
+        Assert.AreEqual(file.Md5, snapshot.SongRows.Single().Md5);
+        Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
     }
 
     [TestMethod]

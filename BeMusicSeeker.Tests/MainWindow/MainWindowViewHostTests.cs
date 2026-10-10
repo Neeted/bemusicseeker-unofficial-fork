@@ -517,7 +517,10 @@ public sealed class MainWindowViewHostTests
         settings.UsePlayerBMIIDXView = false;
         settings.IsLR2BackupEnabled = false;
         settings.Save();
-        string songDbPath = Path.Combine(directory, "song.db");
+        // 固定factoryと受付前の候補読取が同じ専用の単独動作DBを指すよう、実配置のdata/song.dbへ揃える。
+        var fixturePath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
+        string songDbPath = fixturePath.StandaloneSongDbPath;
+        Directory.CreateDirectory(fixturePath.DataDirectoryPath);
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
         return settings;
@@ -529,7 +532,7 @@ public sealed class MainWindowViewHostTests
         IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
         StartupLibraryMutationPreparation? mutationPreparation = null)
     {
-        string songDbPath = Path.Combine(directory, "song.db");
+        string songDbPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe")).StandaloneSongDbPath;
         var library = new TestBmsLibrary(songDbPath, getLR2Config: null, _lr2ScoreDB: null,
             fileMutationService: null, dialogService: null,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
@@ -568,7 +571,7 @@ public sealed class MainWindowViewHostTests
                     trackingAttached = true;
                     Library.StartupBackgroundTaskScheduler = (name, reason, dependency, work) =>
                     {
-                        if (name is not ("chart_info_hydration" or "maintenance_hydration" or "installable_maintenance"))
+                        if (name is not ("chart_info_hydration" or "chart_info_backfill" or "maintenance_hydration" or "installable_maintenance"))
                         {
                             return scheduler(name, reason, dependency, work);
                         }
@@ -586,7 +589,7 @@ public sealed class MainWindowViewHostTests
             return BmsLibraryOptionsSnapshot.CreateCurrent(settings);
         }
 
-        /// <summary>初期化の登録終端後、受理済み3種類の保守をlease解放まで回収します。GC等は含めません。</summary>
+        /// <summary>初期化の登録終端後、受理済み読込み・任意補完・保守をlease解放まで回収します。GC等は含めません。</summary>
         internal void JoinAcceptedMutations()
         {
             Task[] captured;
@@ -627,15 +630,26 @@ public sealed class MainWindowViewHostTests
             var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             MainWindowTestLifetime? ownership = null;
             Exception? bodyFailure = null;
-            var player = new FakeBmsPlayer();
+            ApplicationComposition? composition = null;
+            Task? activation = null;
+            var ui = new MainWindowViewModelStartupProgressTests.CompletionUiScheduler(new WpfUiScheduler(() => Dispatcher.CurrentDispatcher));
+            var player = new FakeBmsPlayer(onAttach: _ =>
+            {
+                Assert.IsNotNull(composition);
+                Assert.IsNotNull(viewModel);
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                Assert.IsFalse(viewModel.IsInitializationCompleted, "実host接続は成功公開の前に完了します。");
+            });
             var lifetime = new RecordingApplicationLifetime();
             try
             {
-                var composition = new ApplicationComposition(
+                composition = new ApplicationComposition(
                     settingsEditSession: new PersistentSettingsEditSession(settings),
                     defaultBmsPlayerFactory: () => player,
-                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    uiScheduler: ui,
                     applicationLifetime: lifetime,
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
@@ -648,7 +662,15 @@ public sealed class MainWindowViewHostTests
                 };
                 Assert.IsFalse(viewModel.IsInitializationCompleted);
                 Assert.IsFalse(player.HostAttached.Task.IsCompleted);
+                ui.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive
+                    && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
+                ui.Arm();
+                activation = viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
                 ShowPlaybackHostMainWindow(scope, window);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(ui.Entered.Task, activation, "rendered-host-required-ui"), "rendered-host-required-ui");
+                Assert.IsFalse(viewModel.IsInitializationCompleted);
+                ui.Release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(activation, "rendered-playback-activation-terminal");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(player.HostAttached.Task, "rendered-playback-host-attachment");
                 Assert.IsTrue(viewModel.IsInitializationCompleted);
                 PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
@@ -670,7 +692,9 @@ public sealed class MainWindowViewHostTests
             }
             finally
             {
-                ownership?.DisposeAfterBodyFailure(bodyFailure);
+                ui.Release.TrySetResult();
+                try { if (activation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(activation, "rendered-host-activation-cleanup"); } }
+                finally { ownership?.DisposeAfterBodyFailure(bodyFailure); }
             }
         });
     }
@@ -702,6 +726,7 @@ public sealed class MainWindowViewHostTests
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
                     bmtOptionsProvider: () =>
@@ -742,8 +767,11 @@ public sealed class MainWindowViewHostTests
                 Assert.IsTrue(initialization.IsCompletedSuccessfully);
                 Assert.IsFalse(((Task<bool>)initialization).GetAwaiter().GetResult());
                 Assert.IsFalse(viewModel.IsInitializationCompleted);
-                Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
-                StringAssert.Contains(viewModel.ProgressHub.StartupProgress.SubLabel, "Playlist BMT output was cancelled by shutdown.");
+                Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+                // 終了取消はShutdownRequestedとして終え、通常失敗の表示にも起動完了にも変換しない。
+                Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupInitializationRequiredProgressComplete(
+                    viewModel.ProgressHub.StartupProgress.GetActiveStartupProgressOperationToken()));
                 Assert.AreEqual(0, failurePresenter.Presentations.Count);
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
                 Assert.IsFalse(Application.Current.Windows.Cast<Window>().Except(baselineWindows).Any());
@@ -849,6 +877,7 @@ public sealed class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => startupPlayer,
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     packageInstallMutationPort: new DelegatePackageInstallMutationPort((_, _, _, _) =>
                     {
@@ -1031,6 +1060,7 @@ public sealed class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => player,
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: lifetime,
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: dialogs,
                     reportSettingsApplyFailure: failures.Add,
@@ -1044,7 +1074,7 @@ public sealed class MainWindowViewHostTests
                 viewModel = composition.CreateMainWindowViewModel();
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false,
-                    Path.Combine(directory.Path, "song.db"), [], () => null!, null,
+                    composition.ApplicationPathSnapshot.StandaloneSongDbPath, [], () => null!, null,
                     false, false, false, false, "mode-save-busy"));
                 viewModel.PackageInstallWorkflow.AttachLibrary(library);
                 viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip"));
@@ -1196,7 +1226,9 @@ public sealed class MainWindowViewHostTests
         settings.ShowScoreViewerRegisterConfirmMsg = false;
         settings.Save();
         byte[] originalSettingsBytes = File.ReadAllBytes(settingsPath);
-        string songDbPath = Path.Combine(directory.Path, "song.db");
+        var fixturePath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"));
+        string songDbPath = fixturePath.StandaloneSongDbPath;
+        Directory.CreateDirectory(fixturePath.DataDirectoryPath);
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
@@ -1258,6 +1290,7 @@ public sealed class MainWindowViewHostTests
                     defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     applicationLifetime: lifetime,
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe")),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: settingsDialogs,
                     restartFailureDialogs: dialogs,
@@ -1669,10 +1702,12 @@ public sealed class MainWindowViewHostTests
     private sealed class FakeBmsPlayer : IBMSPlayer, IExternalWindowPlayer
     {
         private readonly Action? onClose;
+        private readonly Action<IExternalPlayerWindowHost>? onAttach;
 
-        internal FakeBmsPlayer(Action? onClose = null)
+        internal FakeBmsPlayer(Action? onClose = null, Action<IExternalPlayerWindowHost>? onAttach = null)
         {
             this.onClose = onClose;
+            this.onAttach = onAttach;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -1701,6 +1736,7 @@ public sealed class MainWindowViewHostTests
 
         public void AttachWindowHost(IExternalPlayerWindowHost windowHost)
         {
+            onAttach?.Invoke(windowHost);
             WindowHost = windowHost;
             HostAttached.TrySetResult();
         }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -644,6 +645,8 @@ public sealed class BmsLibraryInitializationLoadTests
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
+            Assert.AreEqual(0, candidates.Count);
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(songDbPath),
                 new BmsLibraryOptionsSnapshot(),

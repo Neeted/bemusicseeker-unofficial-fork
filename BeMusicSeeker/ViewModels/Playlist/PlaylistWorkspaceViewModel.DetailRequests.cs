@@ -33,6 +33,15 @@ public sealed partial class PlaylistWorkspaceViewModel
         MainViewUpdateMode currentTreeMode,
         bool useCoalescingWindow,
         PlaylistOpenReadinessSnapshot openReadiness)
+        => RegisterDetailRefresh(mode, requestedMode, currentTreeMode, useCoalescingWindow, openReadiness)?.RequestVersion ?? 0;
+
+    /// <summary>捕捉した選択・入力と同一要求の実build/apply終端を返し、失敗を呼出元へ伝播します。obsoleteは既存currentness判定で適用せず終端します。</summary>
+    internal Task RequestDetailRefreshTask(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, MainViewUpdateMode currentTreeMode,
+        bool useCoalescingWindow, PlaylistOpenReadinessSnapshot openReadiness)
+        => RegisterDetailRefresh(mode, requestedMode, currentTreeMode, useCoalescingWindow, openReadiness)?.Completion ?? Task.CompletedTask;
+
+    private PlaylistBuildRequest RegisterDetailRefresh(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, MainViewUpdateMode currentTreeMode,
+        bool useCoalescingWindow, PlaylistOpenReadinessSnapshot openReadiness)
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
@@ -43,7 +52,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             PlaylistDetailSelection selection = playlistDetailSelection;
             if (selection == null)
             {
-                return 0;
+                return null;
             }
             BMSTable table = selection.Table;
             PlaylistDetailSelectionScope selectionScope = selection.Scope;
@@ -115,7 +124,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 + " version=" + request.RequestVersion
                 + " mode=" + request.Mode
                 + " requestedMode=" + request.RequestedMode);
-            return request.RequestVersion;
+            return request;
         }
 
         TrackDetailOpenRequest(request);
@@ -130,7 +139,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             Task.Run(ProcessPendingDetailRequests).ObserveFault("ProcessPendingPlaylistDetailRequests");
         }
-        return request.RequestVersion;
+        return request;
     }
 
     internal long IncrementDetailContentRevision(string reason)
@@ -206,6 +215,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 isShutdownRequested: false))
             {
                 buildCancellation.Dispose();
+                request.Complete();
                 PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(DetailBuildState);
                 return;
             }
@@ -215,7 +225,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 MarkDetailOpenBuildStarted(request);
                 BuildDetailViewAndApply(request, buildCancellation.Token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (buildCancellation.IsCancellationRequested)
             {
             }
             catch (Exception ex)
@@ -226,6 +236,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 PlaylistDetailBuildQueueCoordinator.CompleteIteration(DetailBuildState, buildCancellation, request);
                 buildCancellation.Dispose();
+                request.Complete(failure?.SourceException);
             }
             if (failure != null)
             {

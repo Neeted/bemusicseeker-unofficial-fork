@@ -205,10 +205,11 @@ internal sealed class PlaylistEntriesHydrationOwner
     }
 
     /// <summary>親操作内でエントリ読込みを直接待ち、確定した参照公開用の受領を返します。予約と自動再試行を行いません。</summary>
-    internal async Task<PlaylistEntriesHydrationReceipt> HydrateAsync(string reason)
+    internal async Task<PlaylistEntriesHydrationReceipt> HydrateAsync(string reason, OperationProgressRequest originatingRequest = null)
     {
         int version = Interlocked.Increment(ref requestedVersion);
-        OperationProgressRequest request = ProgressRequestFactory?.Invoke("playlist_entries_hydration", version);
+        OperationProgressRequest request = originatingRequest == null ? ProgressRequestFactory?.Invoke("playlist_entries_hydration", version) ?? new(0, 0, "playlist_entries_hydration", version)
+            : new(originatingRequest.Generation, originatingRequest.OperationToken, "playlist_entries_hydration", version);
         requestedProgressRequest = request;
         Action<OperationProgressRequest, bool> reporter = RequestProgressReporter;
         HydrationRequested?.Invoke(version, request);

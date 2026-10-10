@@ -31,6 +31,8 @@ internal sealed class BmsLibraryIrService
 
         public List<LR2IRData> XmlRows { get; } = [];
 
+        internal List<LR2IRData> UpsertRows { get; } = [];
+
         public Dictionary<string, Lr2IrRankingLookup> XmlLookupsByHash { get; } = new Dictionary<string, Lr2IrRankingLookup>(StringComparer.OrdinalIgnoreCase);
 
         public HashSet<BMSScore> ChangedScores { get; } = [];
@@ -338,31 +340,36 @@ internal sealed class BmsLibraryIrService
         return result;
     }
 
-    /// <summary>同じ要求の prefetch は失敗も消費し、取得失敗・終了キャンセルでは DB を変更しません。</summary>
-    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient, Regex lr2IrScoreRegex, IrScorePrefetchResult prefetchedScore = null, CancellationToken cancellationToken = default)
+    /// <summary>通信・解析の結果を局所で渡し、同じ確定手順へ接続する公開入口です。</summary>
+    public IrScoreTableUpdateResult UpdateIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway, IBmsLibraryIrClient irClient,
+        Regex lr2IrScoreRegex, IrScorePrefetchResult prefetchedScore = null, CancellationToken cancellationToken = default)
+    {
+        IrScorePrefetchResult fetched = prefetchedScore?.Lr2Id == lr2Id ? prefetchedScore
+            : PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IrScoreRegex, cancellationToken);
+        IrScoreTableUpdateResult result = CommitPreparedIrScoreTableWithMetrics(lr2Id, dbGateway, fetched, cancellationToken);
+        if (ReferenceEquals(fetched, prefetchedScore))
+        {
+            result.PrefetchUsed = true;
+            result.XmlFetchMs = 0L;
+            result.XmlParseMs = 0L;
+            result.DigestMs = 0L;
+        }
+        return result;
+    }
+
+    /// <summary>通信済み結果だけを正本DBへ確定します。モデル側はL取得後に停止とscore contextを確認して呼びます。</summary>
+    internal IrScoreTableUpdateResult CommitPreparedIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway,
+        IrScorePrefetchResult fetched, CancellationToken cancellationToken = default)
     {
         var result = new IrScoreTableUpdateResult();
-        if (dbGateway == null || irClient == null || lr2IrScoreRegex == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
+        if (dbGateway == null || fetched == null || lr2Id == 0 || string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
             result.SkipReason = "unavailable";
             return result;
         }
-        IrScorePrefetchResult fetched = prefetchedScore?.Lr2Id == lr2Id
-            ? prefetchedScore
-            : PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IrScoreRegex, cancellationToken);
-        result.PrefetchUsed = ReferenceEquals(fetched, prefetchedScore);
-        if (result.PrefetchUsed)
-        {
-            result.PrefetchXmlFetchMs = fetched.XmlFetchMs;
-            result.PrefetchXmlParseMs = fetched.XmlParseMs;
-            result.PrefetchDigestMs = fetched.DigestMs;
-        }
-        else
-        {
-            result.XmlFetchMs = fetched.XmlFetchMs;
-            result.XmlParseMs = fetched.XmlParseMs;
-            result.DigestMs = fetched.DigestMs;
-        }
+        result.XmlFetchMs = fetched.XmlFetchMs;
+        result.XmlParseMs = fetched.XmlParseMs;
+        result.DigestMs = fetched.DigestMs;
         if (cancellationToken.IsCancellationRequested || !fetched.Succeeded)
         {
             result.Failure = cancellationToken.IsCancellationRequested ? IrScoreFailure.Cancelled
@@ -830,6 +837,7 @@ internal sealed class BmsLibraryIrService
             scoreDbPath,
             dbGateway,
             estimateOfflineScoreRanking);
+        CommitPreparedRankingScoresRefreshPlan(plan, lr2Id, dbGateway);
         ApplyRankingScoresRefreshPlan(plan, scoreDbPath, bmsScores, estimateOfflineScoreRanking);
         return plan.Result;
     }
@@ -875,6 +883,25 @@ internal sealed class BmsLibraryIrService
         }
         plan.Result.OfflineEstimateXmlLoadCount = lookupLoadCount;
         return plan;
+    }
+
+    /// <summary>cacheの並列読取り・解析が準備した行をL内で確定します。準備側はDBへ書込みません。</summary>
+    internal void CommitPreparedRankingScoresRefreshPlan(IrCacheRefreshPlan plan, int lr2Id, BmsLibraryDbGateway dbGateway)
+    {
+        if (plan.UpsertRows.Count > 0)
+        {
+            var upsertStopwatch = Stopwatch.StartNew();
+            if (plan.DbRows.Count == 0)
+            {
+                plan.Result.BulkInsertUsed = dbGateway.TryBulkInsertIrDataForEmptyLr2Id(lr2Id, plan.UpsertRows);
+            }
+            if (!plan.Result.BulkInsertUsed)
+            {
+                dbGateway.UpsertIrData(plan.UpsertRows);
+            }
+            upsertStopwatch.Stop();
+            plan.Result.UpsertMs = upsertStopwatch.ElapsedMilliseconds;
+        }
     }
 
     internal IrCacheRefreshResult ApplyPreparedRankingScoresRefreshPlanForLibrary(IrCacheRefreshPlan preparedPlan, string scoreDbPath, List<BMSScore> bmsScores, bool estimateOfflineScoreRanking)
@@ -1019,20 +1046,7 @@ internal sealed class BmsLibraryIrService
         result.CacheFilesReloaded = reloadTargets.Count;
         List<LR2IRData> upsertRows = [.. irDataToBeCommitted.Where(data => data != null)];
         result.IrDataUpsertCount = upsertRows.Count;
-        if (upsertRows.Count > 0)
-        {
-            var upsertStopwatch = Stopwatch.StartNew();
-            if (plan.DbRows.Count == 0)
-            {
-                result.BulkInsertUsed = dbGateway.TryBulkInsertIrDataForEmptyLr2Id(lr2Id, upsertRows);
-            }
-            if (!result.BulkInsertUsed)
-            {
-                dbGateway.UpsertIrData(upsertRows);
-            }
-            upsertStopwatch.Stop();
-            result.UpsertMs = upsertStopwatch.ElapsedMilliseconds;
-        }
+        plan.UpsertRows.AddRange(upsertRows);
         totalStopwatch.Stop();
         result.ElapsedMs = totalStopwatch.ElapsedMilliseconds;
         return plan;

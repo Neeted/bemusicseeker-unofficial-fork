@@ -17,7 +17,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool shutdownCalled = false;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
-        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => false, delegate
+        bool shouldContinue = StartupLibraryInitializationWorkflowOwner.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => false, delegate
         {
             repairCalled = true;
         }, delegate
@@ -41,7 +41,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         string callOrder = string.Empty;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: false, needsBmsonSongSchema: false, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.None);
 
-        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => true, delegate
+        bool shouldContinue = StartupLibraryInitializationWorkflowOwner.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, _ => true, delegate
         {
             repairCalled = true;
             callOrder += "repair;";
@@ -63,7 +63,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
     {
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: true, needsChartDigestMapSchema: true, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: true, RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
-        string message = MainWindowViewModel.BuildAppSchemaRepairWarningMessage(result);
+        string message = StartupLibraryInitializationWorkflowOwner.BuildAppSchemaRepairWarningMessage(result);
 
         Assert.AreEqual(Resources.AppSchemaRepairWarningMessage, message);
     }
@@ -77,7 +77,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
         bool shutdownCalled = false;
         var result = new AppSchemaPreflightResult(needsPlaylistEntrySha256Repair: false, needsChartDigestMapSchema: false, needsBmsonSongSchema: true, needsAppSchemaVersionRepair: false, RepairableBmsonSchemaIssues.BmsonSongTableMissing);
 
-        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
+        bool shouldContinue = StartupLibraryInitializationWorkflowOwner.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
         {
             repairCalled = true;
         }, delegate
@@ -108,7 +108,7 @@ public sealed class MainWindowViewModelAppSchemaRepairTests
             repairableBmsonSchemaIssues: RepairableBmsonSchemaIssues.ChartDigestMapTableMissing | RepairableBmsonSchemaIssues.BmsonSongTableMissing,
             needsAppSchemaVersionWarning: false);
 
-        bool shouldContinue = MainWindowViewModel.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
+        bool shouldContinue = StartupLibraryInitializationWorkflowOwner.TryStartAppSchemaRepairForStartup(result, ref approvedForSession, null, delegate
         {
             repairCalled = true;
         }, delegate

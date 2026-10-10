@@ -130,7 +130,7 @@ internal sealed class PlaylistBmtOutputOwner
     }
 
     /// <summary>専用件数通知へ渡す実行中要求を捕捉します。</summary>
-    internal Func<OperationProgressRequest> ExecutionProgressRequestProvider { get; set; }
+    internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
 
     /// <summary>同じ実行周のBMT要求の開始と終端を通知します。</summary>
     internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
@@ -214,7 +214,9 @@ internal sealed class PlaylistBmtOutputOwner
         BeatorajaBmtOptionsSnapshot options = GetOptions();
         IReadOnlyList<BMSTable> changed = tables == null ? GetTablesSnapshot() : [.. tables.Where(table => table != null).Distinct()];
         IReadOnlyList<BMSTable> removed = [.. removedTables.Where(table => table != null).Distinct()];
-        OperationProgressRequest request = ExecutionProgressRequestProvider?.Invoke();
+        long requestVersion = Interlocked.Increment(ref exportProgressOperationSeed);
+        OperationProgressRequest request = ProgressRequestFactory?.Invoke("playlist_bmt_output", requestVersion)
+            ?? new OperationProgressRequest(0, 0, "playlist_bmt_output", requestVersion);
         if (request != null && originatingRequest != null)
         {
             request = request with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };

@@ -57,6 +57,36 @@ public sealed class BmsLibraryIrStartupTests
         fixture.AssertDatabaseRetained();
     }
 
+    /// <summary>実XMLの通信・解析と確定を分け、現モデルはL解放後に保存し、退役モデルは保存しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task IrCommunication_LeavesAdmissionFreeAndRetiredResultDoesNotCommit(bool retire)
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false);
+        await fixture.InitializeAsync();
+        await fixture.Client.Started.Task;
+        Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable parent), "通信中に設定の新規Lを拒否しません。");
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.Client.Completed.Task;
+            Assert.IsTrue(fixture.Library.RankingRefreshRunning);
+            fixture.AssertDatabaseRetained();
+            if (retire)
+            {
+                fixture.Library.RequestStop("replaced_pair");
+                Assert.IsFalse(fixture.Library.OperationAdmission.IsAdmissionClosed, "モデル退役は構成の共有受付を閉じません。");
+            }
+        }
+        finally { parent.Dispose(); }
+        await fixture.RankingCompleted.Task;
+        if (retire) { fixture.AssertDatabaseRetained(); }
+        else { fixture.AssertDatabaseCommitted(); }
+        Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable next));
+        next.Dispose();
+    }
+
     [TestMethod]
     public async Task ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore()
     {
@@ -115,19 +145,13 @@ public sealed class BmsLibraryIrStartupTests
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public Task ScoreHydration_UsesAcceptanceReporterForNextRequestAndIsolatesCaptureFailure(bool failNextCapture)
-        => VerifyAcceptanceReporterAsync(scoreHydration: true, failNextCapture, failNextPublication: false);
-
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
     public Task RankingRefresh_UsesAcceptanceReporterForNextRequestAndIsolatesPublicationFailure(bool failNextPublication)
-        => VerifyAcceptanceReporterAsync(scoreHydration: false, failNextCapture: false, failNextPublication);
+        => VerifyAcceptanceReporterAsync(failNextPublication);
 
-    private static async Task VerifyAcceptanceReporterAsync(bool scoreHydration, bool failNextCapture, bool failNextPublication)
+    private static async Task VerifyAcceptanceReporterAsync(bool failNextPublication)
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false, deferScoreWorker: scoreHydration);
-        string taskName = scoreHydration ? "score_hydration_deferred" : "ranking_refresh_deferred";
+        await using var fixture = new StartupFixture(waitForCancellation: false);
+        const string taskName = "ranking_refresh_deferred";
         var reports = new ConcurrentQueue<(int Callback, int Version, bool Running)>();
         var firstStarted = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim(false);
@@ -139,10 +163,6 @@ public sealed class BmsLibraryIrStartupTests
                 return null;
             }
             int callback = Interlocked.Increment(ref captures);
-            if (callback == 2 && failNextCapture)
-            {
-                throw new InvalidOperationException("controlled progress capture failure");
-            }
             return (version, running) =>
             {
                 reports.Enqueue((callback, version, running));
@@ -159,38 +179,24 @@ public sealed class BmsLibraryIrStartupTests
         };
         Task initialize = Task.CompletedTask;
         Task initializeScores = Task.CompletedTask;
-        Task ownedScoreWorker = Task.CompletedTask;
         fixture.Client.Release.TrySetResult();
         try
         {
             initialize = fixture.InitializeAsync();
             await initialize;
-            if (scoreHydration)
-            {
-                Assert.IsNotNull(fixture.DeferredScoreWorker);
-                ownedScoreWorker = Task.Run(fixture.DeferredScoreWorker);
-            }
             int firstVersion = await firstStarted.Task;
             initializeScores = Task.Run(() => fixture.Library.InitializeScoresOnly(null));
             await initializeScores;
-            int nextVersion = scoreHydration
-                ? fixture.Library.ScoreHydrationRequestedVersion
-                : fixture.Library.RankingRefreshRequestedVersion;
+            int nextVersion = fixture.Library.RankingRefreshRequestedVersion;
             Assert.IsTrue(nextVersion > firstVersion);
             release.Set();
-            await ownedScoreWorker;
             await fixture.RankingCompleted.Task;
 
             Assert.IsTrue(reports.Contains((1, firstVersion, false)), "旧周の終端が旧callbackと要求版へ届きませんでした。");
             Assert.IsFalse(reports.Any(report => report.Callback == 1 && report.Version == nextVersion));
-            if (!failNextCapture)
-            {
-                Assert.IsTrue(reports.Contains((2, nextVersion, true)));
-                Assert.IsTrue(reports.Contains((2, nextVersion, false)));
-            }
-            Assert.AreEqual(nextVersion, scoreHydration
-                ? fixture.Library.ScoreHydrationCompletedVersion
-                : fixture.Library.RankingRefreshCompletedVersion);
+            Assert.IsTrue(reports.Contains((2, nextVersion, true)));
+            Assert.IsTrue(reports.Contains((2, nextVersion, false)));
+            Assert.AreEqual(nextVersion, fixture.Library.RankingRefreshCompletedVersion);
             Assert.IsFalse(fixture.Library.ScoreHydrationRunning);
             Assert.IsFalse(fixture.Library.RankingRefreshRunning);
             Assert.IsFalse(fixture.Library.HasShutdownBlockingWork);
@@ -199,7 +205,7 @@ public sealed class BmsLibraryIrStartupTests
         {
             release.Set();
             fixture.Client.Release.TrySetResult();
-            await Task.WhenAll(initialize, initializeScores, ownedScoreWorker);
+            await Task.WhenAll(initialize, initializeScores);
             if (fixture.Library.RankingRefreshRunning)
             {
                 await fixture.RankingCompleted.Task;
@@ -223,9 +229,9 @@ public sealed class BmsLibraryIrStartupTests
         internal readonly TaskCompletionSource RankingCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal bool FailedReport;
 
-        internal Func<Task> DeferredScoreWorker;
+        private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool deferScoreWorker = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true)
         {
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
@@ -249,7 +255,7 @@ public sealed class BmsLibraryIrStartupTests
             gateway.ReplaceIrScoreTable([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }]);
             gateway.UpsertIrScoreRefreshMetadata(123, "retained-startup-digest");
             metadataUpdatedAt = gateway.LoadIrScoreRefreshMetadata(123).updated_at;
-            Client = new ControlledIrClient(waitForCancellation);
+            Client = new ControlledIrClient(waitForCancellation, failFirstRequest);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
@@ -262,12 +268,9 @@ public sealed class BmsLibraryIrStartupTests
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: Client);
             Library.StartupBackgroundTaskScheduler = (name, _, _, process) =>
             {
-                if (deferScoreWorker && name == "score_hydration_deferred")
-                {
-                    DeferredScoreWorker = process;
-                    return true;
-                }
-                return false;
+                if (name != "ranking_refresh_deferred") { return false; }
+                scheduledWorkers.Add(Task.Run(process));
+                return true;
             };
             Library.StartupBackgroundTaskReporter = (name, status, _, failed, _) =>
             {
@@ -307,6 +310,15 @@ public sealed class BmsLibraryIrStartupTests
             Assert.AreEqual(metadataUpdatedAt, gateway.LoadIrScoreRefreshMetadata(123).updated_at);
         }
 
+        internal void AssertDatabaseCommitted()
+        {
+            LR2IRScore score = gateway.LoadIrScoreRows().Single();
+            Assert.AreEqual(Hash, score.hash);
+            Assert.AreEqual(500, score.pg);
+            Assert.AreEqual(100, score.gr);
+            Assert.AreNotEqual("retained-startup-digest", gateway.LoadIrScoreRefreshMetadata(123).score_digest_sha256);
+        }
+
         public async ValueTask DisposeAsync()
         {
             Library.RequestShutdown("ir-fixture-cleanup");
@@ -321,11 +333,12 @@ public sealed class BmsLibraryIrStartupTests
                 await RankingCompleted.Task;
             }
 
+            await Task.WhenAll(scheduledWorkers.ToArray());
             Directory.Delete(root, recursive: true);
         }
     }
 
-    private sealed class ControlledIrClient(bool waitForCancellation) : IBmsLibraryIrClient
+    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false) : IBmsLibraryIrClient
     {
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -350,13 +363,17 @@ public sealed class BmsLibraryIrStartupTests
                 }
 
                 await Release.Task;
-                cancellationToken.ThrowIfCancellationRequested();
-                if (RequestCount == 1)
+                if (!ignoreCancellation) { cancellationToken.ThrowIfCancellationRequested(); }
+                if (RequestCount == 1 && failFirstRequest)
                 {
                     throw new IOException("controlled unavailable IR");
                 }
 
-                return "<scores />";
+                return "<root>\n\t<score>\n\t\t<hash>abcdefabcdefabcdefabcdefabcdefab</hash>\n"
+                    + "\t\t<clear>4</clear>\n\t\t<notes>1000</notes>\n\t\t<combo>900</combo>\n"
+                    + "\t\t<pg>500</pg>\n\t\t<gr>100</gr>\n\t\t<gd>10</gd>\n\t\t<bd>2</bd>\n"
+                    + "\t\t<pr>1</pr>\n\t\t<minbp>12</minbp>\n\t\t<option>0</option>\n"
+                    + "\t\t<lastupdate>20261010</lastupdate>\n\t</score>\n</root>\n";
             }
             finally { Completed.TrySetResult(); }
         }

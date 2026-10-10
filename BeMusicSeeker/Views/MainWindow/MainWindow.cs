@@ -619,7 +619,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
-        viewModel.PropertyChanged += MainWindowViewModel_PropertyChanged;
+        viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
         viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
@@ -650,7 +650,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;
+        subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Unsubscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
@@ -682,39 +682,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         RefreshCustomTableViewDisplayAsync();
     }
 
-    private void MainWindowViewModel_PropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void ApplyRequiredStartupPlayerHost()
     {
-        if (e?.PropertyName != nameof(MainWindowViewModel.IsInitializationCompleted)
-            || sender is not MainWindowViewModel viewModel
-            || !viewModel.IsInitializationCompleted)
+        if (IsShellClosingOrClosed() || subscribedViewModel == null)
         {
             return;
         }
-
-        Action attachPlaybackPanel = delegate
+        Dispatcher.VerifyAccess();
+        IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
+        if (playerHostHandle == IntPtr.Zero)
         {
-            if (IsShellClosingOrClosed()
-                || !ReferenceEquals(subscribedViewModel, viewModel)
-                || !viewModel.IsInitializationCompleted)
-            {
-                return;
-            }
-            IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
-            if (playerHostHandle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("The external player host has not been created.");
-            }
-            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
-            playbackPanelView.EnsureSelectedSurfaceAvailable();
-        };
-        if (Dispatcher.CheckAccess())
-        {
-            attachPlaybackPanel();
+            throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Msg_error_unexpected);
         }
-        else
-        {
-            Dispatcher.BeginInvoke(attachPlaybackPanel);
-        }
+        subscribedViewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
+        playbackPanelView.EnsureSelectedSurfaceAvailable();
     }
 
     private void MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(

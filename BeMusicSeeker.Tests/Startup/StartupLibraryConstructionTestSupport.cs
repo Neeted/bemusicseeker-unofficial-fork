@@ -165,6 +165,9 @@ internal static class StartupLibraryConstructionTestSupport
 
         internal IReadOnlyList<string> InitialSearchTargets { get; set; } = [];
 
+        /// <summary>通信などの狭い制御境界を接続した実Libraryを同じprofileで構築します。省略時は標準構成を使います。</summary>
+        internal Func<LibraryProfile, BMSLibrary>? LibraryCreator { get; init; }
+
         public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
         {
             Calls.Add("factory-library");
@@ -173,7 +176,7 @@ internal static class StartupLibraryConstructionTestSupport
                 throw new InvalidOperationException("recording library factory failure");
             }
             LibraryProfile = libraryProfile;
-            CreatedLibrary = inner.CreateBmsLibrary(libraryProfile);
+            CreatedLibrary = LibraryCreator?.Invoke(libraryProfile) ?? inner.CreateBmsLibrary(libraryProfile);
             CreatedLibrary.SearchTargets.AddRange(InitialSearchTargets);
             return CreatedLibrary;
         }

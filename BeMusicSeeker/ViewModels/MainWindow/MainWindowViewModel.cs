@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -105,7 +106,6 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>
     /// Gets the score-only reload owner for the library score-storage operation.
     /// </summary>
-    internal ScoreOnlyReloadWorkflowOwner ScoreOnlyReloadWorkflow { get; private set; }
 
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
@@ -175,17 +175,10 @@ public partial class MainWindowViewModel : ViewModel,
         DuplicateTree = 16
     }
 
-    private const UiRefreshChannel StartupDeferredPresentationChannels =
-        UiRefreshChannel.LibraryMainView
-        | UiRefreshChannel.LibraryFolderTree
-        | UiRefreshChannel.PlaylistTree
-        | UiRefreshChannel.DuplicateTree;
-
     private const UiRefreshChannel StartupBasicPresentationChannels =
         UiRefreshChannel.LibraryFolderTree
         | UiRefreshChannel.PlaylistTree;
 
-    private const string StartupUiSuppressFlushReason = "startup_ui_suppress_flush";
 
 
     private bool initializationCompleted;
@@ -196,9 +189,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     public bool HasActiveLibraryProfile => hasActiveLibraryProfile;
 
-    private bool bmsonMigrationApprovedForSession;
 
-    private bool initialSetupCompletionMessagePending;
 
     private BMSLibrary files;
 
@@ -208,13 +199,27 @@ public partial class MainWindowViewModel : ViewModel,
 
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
-    Task<StartupInitializationOutcome> ISettingsDialogStatePort.InitializeLibraryAsync(LibraryFileMutationCapability capability)
-        => InitializeLibraryAsync(isNormalStartup: false, capability);
+    Task<StartupInitializationResult> ISettingsDialogStatePort.InitializeLibraryAsync(LibraryFileMutationCapability capability,
+        LeapYearFolderRepairApproval leapYearRepairApproval, Action<LeapYearFolderRepairNotification> repairNotificationObserver)
+        => InitializeLibraryAsync(isNormalStartup: false, capability, leapYearRepairApproval, repairNotificationObserver);
 
-    Task ISettingsDialogStatePort.ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
-        => ReloadScoresOnlyAsync(capability);
+    Task<LeapYearFolderRepairApproval> ISettingsDialogStatePort.PrepareLibraryInitializationAsync()
+    {
+        if (!SettingDialog.CheckValidation(out _)) { return Task.FromResult<LeapYearFolderRepairApproval>(null); }
+        StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
+        return startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
+            settings.OperationModeLR2DB ? settings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
+            FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
+    }
 
-    Task ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability)
+    Task ISettingsDialogStatePort.PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification notification)
+        => IsRequiredInitializationShutdownRequested ? Task.CompletedTask
+            : startupLibraryInitializationWorkflowOwner.PresentLeapYearFolderRepairAsync(notification, FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
+
+    Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+        => ReloadScoresOnlyUnderAdmissionAsync(capability);
+
+    Task<StartupInitializationResult> ISettingsDialogStatePort.ReloadFileDiffAsync(LibraryFileMutationCapability capability)
         => ReloadFileDiffUnderAdmissionAsync(capability);
 
     Task ISettingsDialogStatePort.PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
@@ -283,73 +288,6 @@ public partial class MainWindowViewModel : ViewModel,
             ?? throw new InvalidOperationException("Startup settings provider returned null.");
     }
 
-    private static BmsLibraryOptionsSnapshot CreateStartupDirectoryPreflightOptions(
-        StartupSettingsSnapshot startupSettings,
-        CustomFolderOutputSettingsSnapshot customFolderSettings)
-    {
-        if (startupSettings == null)
-        {
-            throw new ArgumentNullException(nameof(startupSettings));
-        }
-
-        return new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = startupSettings.OperationModeLR2DB,
-            LR2RootPath = startupSettings.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = startupSettings.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry
-                .DeserializeBaseDirectories(startupSettings.LR2CustomFolderAdditionalOutputBaseDirs),
-            LR2CustomFolderAdditionalOutputBaseDirsSerialized = startupSettings.LR2CustomFolderAdditionalOutputBaseDirs,
-            LR2CustomFolderOutputBaseDirRootType = customFolderSettings?.LR2CustomFolderOutputBaseDirRootType
-        };
-    }
-
-    private static LibraryDirectoryPreflightRequest CreateStartupDirectoryPreflightRequest(
-        StartupSettingsSnapshot startupSettings,
-        CustomFolderOutputSettingsSnapshot customFolderSettings,
-        LR2Config startupLr2Config)
-    {
-        if (startupSettings == null)
-        {
-            throw new ArgumentNullException(nameof(startupSettings));
-        }
-
-        BmsLibraryOptionsSnapshot options = CreateStartupDirectoryPreflightOptions(
-            startupSettings,
-            customFolderSettings);
-        IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
-            ? (startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config)))
-                .GetBMSSearchDirectoriesForChangeTracking()
-            : startupSettings.StandaloneBmsRootPaths;
-        return new LibraryDirectoryPreflightService().CreateRequest(
-            registeredRoots,
-            registeredRoots,
-            options);
-    }
-
-    private static Task<(bool ConfigValid, LR2Config Config)> PrepareStartupDirectoriesAsync(
-        StartupSettingsSnapshot startupSettings,
-        CustomFolderOutputSettingsSnapshot customFolderSettings)
-    {
-        return Task.Run(() =>
-        {
-            LR2Config config = null;
-            if (startupSettings.OperationModeLR2DB
-                && !LR2Config.TryLoad(startupSettings.LR2ConfigXmlPath, out config))
-            {
-                // 検査入力を構成できない場合は設定不備へ戻し、空ルートでの検査成功にしません。
-                return (ConfigValid: false, Config: (LR2Config)null);
-            }
-
-            LibraryDirectoryPreflightRequest request = CreateStartupDirectoryPreflightRequest(
-                startupSettings,
-                customFolderSettings,
-                config);
-            new LibraryDirectoryPreflightService().EnsureAvailable(request, probeOutputBases: true);
-            return (ConfigValid: true, Config: config);
-        }).LoggingAndPropagate("StartupDirectoryPreflight");
-    }
-
     private async Task PresentLibraryDirectoryWarningAsync(
         LibraryDirectoryPreflightException failure,
         LibraryDirectoryWarningPhase phase,
@@ -385,14 +323,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             ScoreHydrationCompletedVersion = files?.ScoreHydrationCompletedVersion ?? 0,
             ScoreHydrationRequestedVersion = files?.ScoreHydrationRequestedVersion ?? 0,
-            RankingRefreshCompletedVersion = files?.RankingRefreshCompletedVersion ?? 0,
-            RankingRefreshRequestedVersion = files?.RankingRefreshRequestedVersion ?? 0,
-            MaintenanceHydrationRequestedVersion = files?.MaintenanceHydrationRequestedVersion ?? 0,
-            InstallableMaintenanceDeferredRequestedVersion = files?.InstallableMaintenanceDeferredRequestedVersion ?? 0,
-            ChartDigestBackfillCompletedVersion = files?.ChartDigestBackfillCompletedVersion ?? 0,
-            ChartInfoBackfillCompletedVersion = files?.ChartInfoBackfillCompletedVersion ?? 0,
             ChartInfoHydrationCompletedVersion = files?.ChartInfoHydrationCompletedVersion ?? 0,
-            ChartInfoBackfillRequestedVersion = files?.ChartInfoBackfillRequestedVersion ?? 0,
             PlaylistEntriesHydrationCompletedVersion = tables?.PlaylistEntriesHydrationCompletedVersion ?? 0,
             LibraryDatabaseLoadCompletedVersion = files?.LibraryDatabaseLoadCompletedVersion ?? 0,
             LibraryFileEnumerationCompletedVersion = files?.LibraryFileEnumerationCompletedVersion ?? 0,
@@ -408,16 +339,9 @@ public partial class MainWindowViewModel : ViewModel,
         files?.BeginLibraryInitializationProgressOperation(operationToken);
         lock (startupBackgroundTaskProgressSynchronization)
         {
-            lock (lockUiSuppression)
-            {
-                deferredStartupPresentationMask = UiRefreshChannel.None;
-                deferredStartupPresentationOperationToken = operationToken;
-                deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
-                deferredStartupPresentationInFlightOperationToken = 0L;
-            }
             startupPostInitializationWarmupOwner?.Reset("startup_operation_reset");
             startupBackgroundTaskScheduler.Reset(
-                operationKind != StartupProgressOperationKind.Startup && startupReadyOperableReached, operationToken);
+                false, operationToken);
             ProgressHub?.BeginBackgroundProgressGeneration(startupBackgroundTaskScheduler.CurrentGeneration);
             lock (startupInitializationCompletionLock)
             {
@@ -425,12 +349,10 @@ public partial class MainWindowViewModel : ViewModel,
                     ? Stopwatch.StartNew()
                     : null;
                 startupInitializationCompleteLogged = false;
-                startupPostInitializationCompletionTracking = operationKind == StartupProgressOperationKind.Startup;
+                startupPostInitializationCompletionTracking = operationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize;
                 startupPostInitializationCompletionLogged = false;
                 startupPostInitializationWarmupScheduled = false;
                 startupPostInitializationWarmupCompleted = false;
-                startupPostInitializationLr2EnrollmentScheduled = false;
-                startupInitializationCompleteRetryQueued = false;
                 startupCompletionContinuationToken = 0L;
             }
         }
@@ -488,7 +410,6 @@ public partial class MainWindowViewModel : ViewModel,
         if (currentOperationKind != StartupProgressOperationKind.Startup
             && !startupCompletionContinuation)
         {
-            ShowInitialSetupCompletionMessageIfPending(expectedOperationToken, requireBackgroundTasksIdle: true);
             return;
         }
         bool completionAlreadyLogged;
@@ -498,7 +419,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
         if (completionAlreadyLogged)
         {
-            ShowInitialSetupCompletionMessageIfPending(expectedOperationToken, requireBackgroundTasksIdle: true);
             return;
         }
 
@@ -512,16 +432,12 @@ public partial class MainWindowViewModel : ViewModel,
                 {
                     return;
                 }
-                startupCompletionContinuationToken = expectedOperationToken;
                 if (startupInitializationCompleteLogged || startupInitializationCompleteStopwatch == null)
                 {
                     return;
                 }
-                if (!startupProgressWorkflowOwner.IsStartupInitializationRequiredProgressComplete(expectedOperationToken)
-                    || !startupBackgroundTaskScheduler.IsStarted
-                    || !startupBackgroundTaskScheduler.IsIdle)
+                if (!startupProgressWorkflowOwner.IsStartupInitializationRequiredProgressComplete(expectedOperationToken))
                 {
-                    QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
                     return;
                 }
                 startupInitializationCompleteLogged = true;
@@ -535,22 +451,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
         LogUiSuppression("startup_initialization_complete elapsedMs=" + elapsedMs);
         LogUiSuppression(startupBackgroundTaskScheduler.BuildSummaryLog(elapsedMs));
-        lock (startupInitializationCompletionLock)
-        {
-            if (startupPostInitializationLr2EnrollmentScheduled)
-            {
-                return;
-            }
-            startupPostInitializationLr2EnrollmentScheduled = true;
-        }
-        SchedulePostStartupLr2Enrollment(
-            "startup_initialization_complete",
-            expectedOperationToken);
-        ShowInitialSetupCompletionMessageIfPending(expectedOperationToken);
-        TryScheduleStartupPostInitializationWarmupAfterPostWork(
-            "startup_initialization_complete",
-            expectedOperationToken);
-        QueueDeferredStartupPresentationFlushAfterInitialization(expectedOperationToken);
     }
 
     private void TryLogStartupPostInitializationComplete()
@@ -571,9 +471,6 @@ public partial class MainWindowViewModel : ViewModel,
                 schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
             }
         }
-        TryScheduleStartupPostInitializationWarmupAfterPostWork(
-            "startup_background_tasks_idle",
-            operationToken);
         if (!startupBackgroundTaskScheduler.IsFullyIdle)
         {
             return;
@@ -582,7 +479,6 @@ public partial class MainWindowViewModel : ViewModel,
         lock (startupInitializationCompletionLock)
         {
             shouldLog = startupPostInitializationCompletionTracking
-                && startupInitializationCompleteLogged
                 && startupPostInitializationWarmupScheduled
                 && startupPostInitializationWarmupCompleted
                 && !startupPostInitializationCompletionLogged;
@@ -652,104 +548,6 @@ public partial class MainWindowViewModel : ViewModel,
         TryLogStartupPostInitializationComplete();
     }
 
-    private bool QueueDeferredStartupPresentationFlushAfterInitialization(long expectedOperationToken = 0L)
-    {
-        if (expectedOperationToken != 0L
-            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
-        {
-            return false;
-        }
-        if (!TryTakeDeferredStartupPresentationMask(expectedOperationToken, out UiRefreshChannel mask))
-        {
-            return false;
-        }
-        Action flush = delegate
-        {
-            if (expectedOperationToken != 0L
-                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
-            {
-                return;
-            }
-            var stopwatch = Stopwatch.StartNew();
-            LogUiSuppression("startup_presentation_flush start mask=" + mask);
-            long flushOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken() == expectedOperationToken
-                ? expectedOperationToken
-                : 0L;
-            FlushPendingUiRefresh(mask, flushOperationToken, allowStartupPresentationDefer: false, logReadiness: false);
-            CompleteDeferredStartupPresentationFlush(expectedOperationToken);
-            stopwatch.Stop();
-            LogUiSuppression("startup_presentation_flush done elapsedMs=" + stopwatch.ElapsedMilliseconds + " mask=" + mask);
-        };
-        DispatchUiAction(flush);
-        return true;
-    }
-
-    private void ShowInitialSetupCompletionMessageIfPending(
-        long expectedOperationToken = 0L,
-        bool requireBackgroundTasksIdle = false)
-    {
-        if (expectedOperationToken != 0L
-            && !IsStartupCompletionTokenCurrent(expectedOperationToken))
-        {
-            return;
-        }
-        if (!initialSetupCompletionMessagePending)
-        {
-            return;
-        }
-        if (requireBackgroundTasksIdle
-            && (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle))
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
-            }
-            return;
-        }
-        Action showMessage = delegate
-        {
-            if (expectedOperationToken != 0L
-                && !IsStartupCompletionTokenCurrent(expectedOperationToken))
-            {
-                return;
-            }
-            if (requireBackgroundTasksIdle
-                && (!startupBackgroundTaskScheduler.IsStarted || !startupBackgroundTaskScheduler.IsIdle))
-            {
-                lock (startupInitializationCompletionLock)
-                {
-                    QueueStartupInitializationCompleteRetryUnsafe(expectedOperationToken);
-                }
-                return;
-            }
-            if (!initialSetupCompletionMessagePending)
-            {
-                return;
-            }
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk, "Initial setup completion notification");
-            initialSetupCompletionMessagePending = false;
-        };
-        DispatchUiAction(showMessage);
-    }
-
-    private void QueueStartupInitializationCompleteRetryUnsafe(long expectedOperationToken = 0L)
-    {
-        if (startupInitializationCompleteRetryQueued)
-        {
-            return;
-        }
-        startupInitializationCompleteRetryQueued = true;
-        Task.Run(async delegate
-        {
-            await Task.Delay(250).ConfigureAwait(false);
-            lock (startupInitializationCompletionLock)
-            {
-                startupInitializationCompleteRetryQueued = false;
-            }
-            TryLogStartupInitializationComplete(expectedOperationToken);
-        });
-    }
-
     private LR2Config lr2config;
 
     private PropertyChangedEventListener listenerForBMSLibrary;
@@ -770,13 +568,9 @@ public partial class MainWindowViewModel : ViewModel,
 
     private UiRefreshChannel pendingUiRefreshMask = UiRefreshChannel.None;
 
-    private UiRefreshChannel deferredStartupPresentationMask = UiRefreshChannel.None;
 
-    private long deferredStartupPresentationOperationToken;
 
-    private UiRefreshChannel deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
 
-    private long deferredStartupPresentationInFlightOperationToken;
 
     private UiRefreshChannel playlistPresentationRefreshApplyInFlight = UiRefreshChannel.None;
 
@@ -802,9 +596,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     private bool startupPostInitializationWarmupCompleted;
 
-    private bool startupPostInitializationLr2EnrollmentScheduled;
 
-    private bool startupInitializationCompleteRetryQueued;
 
     private long startupCompletionContinuationToken;
 
@@ -1040,8 +832,6 @@ public partial class MainWindowViewModel : ViewModel,
             StartupReadyOperableReached = startupReadyOperableReached,
             PlaylistRefDeferredRunning = playlistRefRunning,
             PlaylistRefDeferredLastCompletedVersion = playlistRefLastCompletedVersion,
-            MaintenanceHydrationRunning = files?.MaintenanceHydrationRunning ?? false,
-            MaintenanceHydrationLastCompletedVersion = files?.MaintenanceHydrationCompletedVersion ?? 0,
             PlaylistLibraryIndexState = libraryIndexSnapshot.State,
             PlaylistLibraryIndexBuildMs = libraryIndexSnapshot.BuildElapsedMs,
             ScoreSnapshotReady = scoreState.SnapshotReady,
@@ -1156,264 +946,24 @@ public partial class MainWindowViewModel : ViewModel,
         return suppressed;
     }
 
-    private bool TryDeferStartupPresentationRefresh(UiRefreshChannel channel, string reason)
-    {
-        if (channel == UiRefreshChannel.None)
-        {
-            return false;
-        }
-        long operationToken;
-        UiRefreshChannel deferredChannel = channel & StartupDeferredPresentationChannels;
-        if (deferredChannel == UiRefreshChannel.None)
-        {
-            return false;
-        }
-        if (!TryAddDeferredStartupPresentationMask(deferredChannel, out operationToken, out UiRefreshChannel pendingMask))
-        {
-            return false;
-        }
-        LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
-        return true;
-    }
-
-    private UiRefreshChannel DeferStartupPresentationChannels(UiRefreshChannel mask, long operationToken, string reason)
-    {
-        UiRefreshChannel deferredChannel = GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(treeViewFilterTypeSelected));
-        if (deferredChannel == UiRefreshChannel.None
-            || !TryAddDeferredStartupPresentationMask(deferredChannel, operationToken, out UiRefreshChannel pendingMask))
-        {
-            return mask;
-        }
-        LogUiSuppression("startup_presentation_deferred reason=" + (reason ?? string.Empty) + " channel=" + deferredChannel + " pending=" + pendingMask);
-        return mask & ~deferredChannel;
-    }
-
-    private static bool CanShowStartupBasicLibraryMainView(MainViewUpdateMode currentTreeMode)
-    {
-        return currentTreeMode == MainViewUpdateMode.FolderFilterSelected
-            || currentTreeMode == MainViewUpdateMode.FullScanAllChartsFilterSelected;
-    }
-
-    private bool TryAddDeferredStartupPresentationMask(
-        UiRefreshChannel deferredChannel,
-        out long operationToken,
-        out UiRefreshChannel pendingMask)
-    {
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
-            return TryAddDeferredStartupPresentationMask(deferredChannel, operationToken, out pendingMask);
-        }
-    }
-
-    private bool TryAddDeferredStartupPresentationMask(
-        UiRefreshChannel deferredChannel,
-        long operationToken,
-        out UiRefreshChannel pendingMask)
-    {
-        pendingMask = UiRefreshChannel.None;
-        if (deferredChannel == UiRefreshChannel.None)
-        {
-            return false;
-        }
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            if (operationToken == 0L
-                || !startupProgressWorkflowOwner.IsStartupProgressOperationTokenCurrent(operationToken)
-                || !startupProgressWorkflowOwner.IsOperationActive
-                || startupProgressWorkflowOwner.CurrentOperationKind != StartupProgressOperationKind.Startup)
-            {
-                return false;
-            }
-            lock (startupInitializationCompletionLock)
-            {
-                if (startupInitializationCompleteLogged)
-                {
-                    return false;
-                }
-                lock (lockUiSuppression)
-                {
-                    NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
-                    deferredStartupPresentationOperationToken = operationToken;
-                    deferredStartupPresentationMask |= deferredChannel;
-                    pendingMask = deferredStartupPresentationMask;
-                    return true;
-                }
-            }
-        }
-    }
-
-    private bool TryTakeDeferredStartupPresentationMask(
-        long expectedOperationToken,
-        out UiRefreshChannel mask)
-    {
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (lockUiSuppression)
-            {
-                if (expectedOperationToken != 0L
-                    && deferredStartupPresentationOperationToken != expectedOperationToken)
-                {
-                    mask = UiRefreshChannel.None;
-                    return false;
-                }
-                mask = deferredStartupPresentationMask;
-                deferredStartupPresentationMask = UiRefreshChannel.None;
-                deferredStartupPresentationOperationToken = 0L;
-                if (mask != UiRefreshChannel.None)
-                {
-                    deferredStartupPresentationInFlightMask = mask;
-                    deferredStartupPresentationInFlightOperationToken = expectedOperationToken;
-                }
-                return mask != UiRefreshChannel.None;
-            }
-        }
-    }
-
-    private void CompleteDeferredStartupPresentationFlush(long operationToken)
-    {
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            lock (startupInitializationCompletionLock)
-            {
-                lock (lockUiSuppression)
-                {
-                    if (deferredStartupPresentationInFlightOperationToken == operationToken)
-                    {
-                        deferredStartupPresentationInFlightMask = UiRefreshChannel.None;
-                        deferredStartupPresentationInFlightOperationToken = 0L;
-
-                        // Clearing the in-flight marker and draining work that arrived during
-                        // the flush must be one arbitration interval.  Otherwise a request
-                        // reentrant with the final drain can observe the old marker, queue
-                        // itself, and remain stranded after the marker is cleared.
-                        while (!IsPlaylistSummaryRefreshDeferredNowUnsafe()
-                            && PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh())
-                        {
-                            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                                dataRefreshRequired: false,
-                                rebuildAsync: true);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private static UiRefreshChannel GetStartupPresentationDeferredChannels(UiRefreshChannel mask, string reason, bool includeBasicLibraryMainView)
-    {
-        return (UiRefreshChannel)StartupPresentationPolicy.GetDeferredPresentationChannels(
-            (int)mask,
-            string.Equals(reason, StartupUiSuppressFlushReason, StringComparison.Ordinal),
-            includeBasicLibraryMainView);
-    }
-
     private bool IsPlaylistSummaryPresentationRefreshDeferred(out bool applyReservation)
-    {
-        applyReservation = false;
-        bool deferred;
-        lock (startupBackgroundTaskProgressSynchronization)
-        {
-            bool startupCompletionLogged;
-            lock (startupInitializationCompletionLock)
-            {
-                startupCompletionLogged = startupInitializationCompleteLogged;
-            }
-            lock (lockUiSuppression)
-            {
-                long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
-                long operationToken = activeOperationToken != 0L
-                    ? activeOperationToken
-                    : startupCompletionContinuationToken;
-                NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
-                bool startupOperationActive = !startupCompletionLogged
-                    && operationToken != 0L
-                    && startupProgressWorkflowOwner.IsOperationActive
-                    && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
-                UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
-                bool startupPresentationFlushInFlight = operationToken != 0L
-                    && deferredStartupPresentationInFlightOperationToken == operationToken
-                    && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
-                if (startupOperationActive)
-                {
-                    deferredStartupPresentationOperationToken = operationToken;
-                    deferredStartupPresentationMask |= summaryMask;
-                }
-                bool startupPresentationDeferred = operationToken != 0L
-                    && (startupOperationActive
-                        || startupPresentationFlushInFlight
-                        || (deferredStartupPresentationOperationToken == operationToken
-                            && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None));
-                deferred = suppressUiUpdateDepth > 0 || startupPresentationDeferred;
-                if (!deferred
-                    && (playlistPresentationRefreshApplyInFlight & summaryMask) != UiRefreshChannel.None)
-                {
-                    deferred = true;
-                }
-                if (!deferred)
-                {
-                    playlistPresentationRefreshApplyInFlight |= summaryMask;
-                    applyReservation = true;
-                }
-            }
-        }
-        return deferred;
-    }
+        => TryReservePlaylistSummaryRefresh(out applyReservation);
 
     private bool IsPlaylistSummaryDataRefreshDeferred(out bool applyReservation)
+        => TryReservePlaylistSummaryRefresh(out applyReservation);
+
+    /// <summary>日常の抑止と同時表示適用だけを調停します。起動完了ログや別maskを待ちません。</summary>
+    private bool TryReservePlaylistSummaryRefresh(out bool applyReservation)
     {
-        applyReservation = false;
-        bool deferred;
-        lock (startupBackgroundTaskProgressSynchronization)
+        lock (lockUiSuppression)
         {
-            bool startupCompletionLogged;
-            lock (startupInitializationCompletionLock)
-            {
-                startupCompletionLogged = startupInitializationCompleteLogged;
-            }
-            lock (lockUiSuppression)
-            {
-                long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
-                long operationToken = activeOperationToken != 0L
-                    ? activeOperationToken
-                    : startupCompletionContinuationToken;
-                NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
-                bool startupOperationActive = !startupCompletionLogged
-                    && operationToken != 0L
-                    && startupProgressWorkflowOwner.IsOperationActive
-                    && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
-                UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
-                bool startupPresentationFlushInFlight = operationToken != 0L
-                    && deferredStartupPresentationInFlightOperationToken == operationToken
-                    && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
-                if (startupOperationActive)
-                {
-                    deferredStartupPresentationOperationToken = operationToken;
-                    deferredStartupPresentationMask |= summaryMask;
-                }
-                deferred = suppressUiUpdateDepth > 0
-                    || (operationToken != 0L
-                        && (startupOperationActive
-                            || startupPresentationFlushInFlight
-                            || (deferredStartupPresentationOperationToken == operationToken
-                        && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None)));
-                if (!deferred
-                    && (playlistPresentationRefreshApplyInFlight & summaryMask) != UiRefreshChannel.None)
-                {
-                    deferred = true;
-                }
-                if (!deferred)
-                {
-                    playlistPresentationRefreshApplyInFlight |= summaryMask;
-                    applyReservation = true;
-                }
-                if (suppressUiUpdateDepth > 0)
-                {
-                    pendingUiRefreshMask |= suppressedUiRefreshMask & summaryMask;
-                }
-            }
+            UiRefreshChannel mask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
+            bool deferred = suppressUiUpdateDepth > 0 || (playlistPresentationRefreshApplyInFlight & mask) != 0;
+            applyReservation = !deferred;
+            if (applyReservation) { playlistPresentationRefreshApplyInFlight |= mask; }
+            if (suppressUiUpdateDepth > 0) { pendingUiRefreshMask |= suppressedUiRefreshMask & mask; }
+            return deferred;
         }
-        return deferred;
     }
 
     private void CompletePlaylistPresentationRefreshApply(UiRefreshChannel channel)
@@ -1504,30 +1054,8 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
 
-    // The caller holds startupBackgroundTaskProgressSynchronization,
-    // startupInitializationCompletionLock, and lockUiSuppression.
-    private bool IsPlaylistSummaryRefreshDeferredNowUnsafe()
-    {
-        long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
-        long operationToken = activeOperationToken != 0L
-            ? activeOperationToken
-            : startupCompletionContinuationToken;
-        NormalizeDeferredStartupPresentationMaskUnsafe(operationToken);
-        bool startupOperationActive = !startupInitializationCompleteLogged
-            && operationToken != 0L
-            && startupProgressWorkflowOwner.IsOperationActive
-            && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
-        UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
-        bool startupPresentationFlushInFlight = operationToken != 0L
-            && deferredStartupPresentationInFlightOperationToken == operationToken
-            && (deferredStartupPresentationInFlightMask & summaryMask) != UiRefreshChannel.None;
-        bool startupPresentationDeferred = operationToken != 0L
-            && (startupOperationActive
-                || startupPresentationFlushInFlight
-                || (deferredStartupPresentationOperationToken == operationToken
-                    && (deferredStartupPresentationMask & summaryMask) != UiRefreshChannel.None));
-        return suppressUiUpdateDepth > 0 || startupPresentationDeferred;
-    }
+    // 呼出元は表示適用の既存調停lockを保持します。
+    private bool IsPlaylistSummaryRefreshDeferredNowUnsafe() => suppressUiUpdateDepth > 0;
 
     private bool IsPlaylistTreePresentationDeferred(string reason)
     {
@@ -1535,7 +1063,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return true;
         }
-        return TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason);
+        return TrySuppress(UiRefreshChannel.PlaylistTree);
     }
 
     private void PlaylistWorkspacePlaylistPresentationRefreshRequested(
@@ -1637,17 +1165,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void NormalizeDeferredStartupPresentationMaskUnsafe(long operationToken)
-    {
-        if (deferredStartupPresentationMask != UiRefreshChannel.None
-            && deferredStartupPresentationOperationToken != operationToken)
-        {
-            deferredStartupPresentationMask = UiRefreshChannel.None;
-            deferredStartupPresentationOperationToken = 0L;
-        }
-    }
-
-    private void EndUiUpdateSuppression()
+    private void EndUiUpdateSuppression(bool scheduleFlush = true)
     {
         long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
         UiRefreshChannel uiRefreshChannel = UiRefreshChannel.None;
@@ -1675,6 +1193,8 @@ public partial class MainWindowViewModel : ViewModel,
             && PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh();
         LogUiSuppression("ui_suppress end depth=" + suppressDepth + " flush=" + uiRefreshChannel
             + " playlistSummaryRefreshPending=" + playlistSummaryRefreshPending);
+        // 必須初期化は抑止のcleanupだけをここで終え、親受付解放後の実InvokeAsyncで画面へ反映する。
+        if (!scheduleFlush) { return; }
         if (uiRefreshChannel == UiRefreshChannel.None && !playlistSummaryRefreshPending)
         {
             startupReadyInstallStopwatch = null;
@@ -1715,11 +1235,6 @@ public partial class MainWindowViewModel : ViewModel,
         }
     }
 
-    private void TryLogStartupReadyData()
-    {
-        TryLogStartupReadyData(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
-    }
-
     private void TryLogStartupReadyData(long operationToken)
     {
         if (startupReadyInstallStopwatch == null || startupReadyDataLogged)
@@ -1739,8 +1254,6 @@ public partial class MainWindowViewModel : ViewModel,
                 "checkpoint=data_ready elapsedMs=" + startupReadyInstallStopwatch.ElapsedMilliseconds);
         }
         startupReadyDataLogged = true;
-        startupReadyDataReached = true;
-        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData, operationToken);
     }
 
     private void TryLogStartupReadyUi(UiRefreshChannel mask)
@@ -1773,16 +1286,11 @@ public partial class MainWindowViewModel : ViewModel,
                 + " playlistRefreshed=" + flag.ToString().ToLowerInvariant());
         }
         startupReadyUiLogged = true;
-        startupReadyUiReached = true;
-        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi, operationToken);
     }
 
     private static bool IsStartupReadyUiMaskSatisfied(UiRefreshChannel mask)
     {
-        return StartupPresentationPolicy.IsReadyUiMaskSatisfied(
-            installTree: (mask & UiRefreshChannel.InstallTree) != 0,
-            libraryMainView: (mask & UiRefreshChannel.LibraryMainView) != 0,
-            playlistTree: (mask & UiRefreshChannel.PlaylistTree) != 0);
+        return (mask & UiRefreshChannel.InstallTree) != 0;
     }
 
     private void TryLogStartupReadyInstall(UiRefreshChannel mask)
@@ -1815,14 +1323,9 @@ public partial class MainWindowViewModel : ViewModel,
         return (mask & UiRefreshChannel.InstallTree) != 0;
     }
 
-    private void TryLogStartupReadyOperable()
-    {
-        TryLogStartupReadyOperable(startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
-    }
-
     private void TryLogStartupReadyOperable(long operationToken)
     {
-        if (startupReadyOperableStopwatch == null || !startupReadyUiReached)
+        if (startupReadyOperableStopwatch == null || !initializationCompleted)
         {
             return;
         }
@@ -1839,15 +1342,9 @@ public partial class MainWindowViewModel : ViewModel,
                 "checkpoint=startup_ready_operable elapsedMs=" + startupReadyOperableStopwatch.ElapsedMilliseconds);
         }
         startupReadyOperableStopwatch = null;
-        startupReadyOperableReached = true;
-        startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-        startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-        ProgressHub.BeginStartupBackgroundInitializationPresentation(operationToken, startupBackgroundTaskScheduler.CurrentGeneration);
-        startupBackgroundTaskScheduler.Start();
-        startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
     }
 
-    private void RefreshLibraryMainViewForCurrentFilter()
+    private Task RefreshLibraryMainViewForCurrentFilter()
     {
         if (RegularChartListOwner.IsMaintenanceNavigationMode(treeViewFilterTypeSelected))
         {
@@ -1855,11 +1352,9 @@ public partial class MainWindowViewModel : ViewModel,
                 treeViewFilterTypeSelected,
                 treeViewFilterParameterSelected,
                 "refresh_current_filter");
+            return Task.CompletedTask;
         }
-        else
-        {
-            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-        }
+        return RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
@@ -1892,7 +1387,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 if (!TryRefreshMainViewDisplayForDataDependency(dependency))
                 {
-                    if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, reason))
+                    if (TrySuppress(UiRefreshChannel.LibraryMainView))
                     {
                         return;
                     }
@@ -1901,7 +1396,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             return;
         }
-        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, reason))
+        if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             return;
         }
@@ -1913,11 +1408,7 @@ public partial class MainWindowViewModel : ViewModel,
         if (dependency == MainViewDataDependency.Warning
             || dependency == MainViewDataDependency.Maintenance)
         {
-            if (TryDeferStartupPresentationRefresh(
-                UiRefreshChannel.LibraryMainView,
-                dependency == MainViewDataDependency.Maintenance
-                    ? "normal_library_maintenance_display"
-                    : "normal_library_warning_display"))
+            if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return true;
             }
@@ -1946,7 +1437,7 @@ public partial class MainWindowViewModel : ViewModel,
         MainChartList.RowProjection.CaptureVersions(files);
         MainViewDataDependency libraryDependency = MainViewDataDependency.ChartInfo;
         regularChartListOwner.ResetDerivedCaches();
-        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
+        if (TrySuppress(UiRefreshChannel.PlaylistTree))
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                 "chart_info_dependent_views");
@@ -1975,17 +1466,6 @@ public partial class MainWindowViewModel : ViewModel,
         long activeOperationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
         bool startupOperationActive = startupProgressWorkflowOwner.IsOperationActive
             && startupProgressWorkflowOwner.CurrentOperationKind == StartupProgressOperationKind.Startup;
-        if (StartupPresentationPolicy.ShouldDeferLibraryFolderRefresh(
-                e.Origin == LibraryFolderTreeRefreshRequestOrigin.DeferredContinuation,
-                e.OperationToken,
-                activeOperationToken,
-                startupOperationActive)
-            && TryDeferStartupPresentationRefresh(
-                UiRefreshChannel.LibraryFolderTree,
-                "parent_folder_cache_changed"))
-        {
-            return;
-        }
         PerformanceInteraction interaction = e.Interaction.InteractionId > 0L
             ? e.Interaction
             : startupOperationActive
@@ -2041,17 +1521,17 @@ public partial class MainWindowViewModel : ViewModel,
 
     private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken)
     {
-        FlushPendingUiRefresh(mask, operationToken, allowStartupPresentationDefer: true, logReadiness: true);
+        FlushPendingUiRefresh(mask, operationToken, logReadiness: true);
     }
 
-    private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken, bool allowStartupPresentationDefer, bool logReadiness)
+    private void FlushPendingUiRefresh(UiRefreshChannel mask, long operationToken, bool logReadiness)
+        => FlushRequiredUiRefreshAsync(mask, operationToken, logReadiness).ObserveFault("Library presentation refresh");
+
+    /// <summary>今回のライブラリ、保留、表一覧と選択中詳細の実表示を直接待ちます。独立readerやwarmupのidleを追加しません。</summary>
+    private async Task FlushRequiredUiRefreshAsync(UiRefreshChannel mask, long operationToken, bool logReadiness)
     {
         LogUiSuppression("ui_suppress flush mask=" + mask);
         UiRefreshChannel requestedMask = mask;
-        if (allowStartupPresentationDefer)
-        {
-            mask = DeferStartupPresentationChannels(mask, operationToken, "startup_ui_suppress_flush");
-        }
         var stopwatchTotal = Stopwatch.StartNew();
         long num = 0L;
         long num2 = 0L;
@@ -2090,7 +1570,7 @@ public partial class MainWindowViewModel : ViewModel,
         if ((mask & UiRefreshChannel.LibraryMainView) != 0)
         {
             var stopwatch5 = Stopwatch.StartNew();
-            RefreshLibraryMainViewForCurrentFilter();
+            await RefreshLibraryMainViewForCurrentFilter();
             stopwatch5.Stop();
             num5 = stopwatch5.ElapsedMilliseconds;
         }
@@ -2324,7 +1804,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, reason))
+        if (TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree))
         {
             return;
         }
@@ -2508,55 +1988,12 @@ public partial class MainWindowViewModel : ViewModel,
             + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
     }
 
-    private void SchedulePostStartupLr2Enrollment(string reason, long operationToken)
-    {
-        if (operationToken != 0L && !IsStartupCompletionTokenCurrent(operationToken))
-        {
-            return;
-        }
-        long schedulerGeneration;
-        lock (startupInitializationCompletionLock)
-        {
-            if (!startupPostInitializationCompletionTracking
-                || !startupInitializationCompleteLogged)
-            {
-                return;
-            }
-            schedulerGeneration = startupBackgroundTaskScheduler.CurrentGeneration;
-        }
-
-        Func<Func<Task>, Task> startupScheduler = action =>
-        {
-            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            bool accepted = startupBackgroundTaskScheduler.Queue(
-                "lr2_song_db_sync_enrollment", reason, null,
-                async () =>
-                {
-                    try
-                    {
-                        if (IsCurrentStartupPostInitializationCallback(operationToken, schedulerGeneration,
-                            IsStartupCompletionTokenCurrent, startupBackgroundTaskScheduler.IsCurrentGeneration))
-                        {
-                            await action().ConfigureAwait(false);
-                        }
-                        completion.TrySetResult();
-                    }
-                    catch (Exception failure) { completion.TrySetException(failure); throw; }
-                },
-                _ => completion.TrySetResult());
-            if (!accepted) { completion.TrySetResult(); }
-            return completion.Task;
-        };
-        Lr2SongDbSyncWorkflow.SchedulePostStartupSync(reason, scheduler: startupScheduler);
-    }
-
     private void ScheduleStartupPostInitializationWarmup(string reason, long operationToken)
     {
         long schedulerGeneration;
         lock (startupInitializationCompletionLock)
         {
             if (!startupPostInitializationCompletionTracking
-                || !startupInitializationCompleteLogged
                 || startupPostInitializationWarmupScheduled)
             {
                 return;
@@ -2569,56 +2006,6 @@ public partial class MainWindowViewModel : ViewModel,
                 reason,
                 operationToken,
                 schedulerGeneration));
-    }
-
-    private void TryScheduleStartupPostInitializationWarmupAfterPostWork(
-        string reason,
-        long operationToken)
-    {
-        bool tracking;
-        bool initializationCompleteLogged;
-        bool warmupScheduled;
-        lock (startupInitializationCompletionLock)
-        {
-            tracking = startupPostInitializationCompletionTracking;
-            initializationCompleteLogged = startupInitializationCompleteLogged;
-            warmupScheduled = startupPostInitializationWarmupScheduled;
-        }
-        if (!ShouldScheduleStartupPostInitializationWarmup(
-                ShellShutdownWorkflow?.IsShutdownRequested == true,
-                startupBackgroundTaskScheduler.IsStarted,
-                startupBackgroundTaskScheduler.IsPostInitializationSchedulingComplete,
-                startupBackgroundTaskScheduler.IsFullyIdle,
-                tracking,
-                initializationCompleteLogged,
-                warmupScheduled))
-        {
-            return;
-        }
-
-        ScheduleStartupPostInitializationWarmup(reason, operationToken);
-    }
-
-    /// <summary>
-    /// Determines whether all scheduler-managed post-initialization work has
-    /// reached terminal state and the one-shot cache warmup may be enrolled.
-    /// </summary>
-    internal static bool ShouldScheduleStartupPostInitializationWarmup(
-        bool shutdownRequested,
-        bool schedulerStarted,
-        bool postInitializationSchedulingComplete,
-        bool schedulerFullyIdle,
-        bool completionTracking,
-        bool initializationCompleteLogged,
-        bool warmupScheduled)
-    {
-        return !shutdownRequested
-            && schedulerStarted
-            && postInitializationSchedulingComplete
-            && schedulerFullyIdle
-            && completionTracking
-            && initializationCompleteLogged
-            && !warmupScheduled;
     }
 
     private static void RunStartupPostInitializationWarmupStage(
@@ -2686,12 +2073,20 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     public int LastMainViewBuildMode => (int)MainChartList.LastCompletion.Mode;
 
+    /// <summary>実必須UIの成功公開前と変更作業中だけ操作を抑止します。完了表示・通知・任意通信の寿命は含めません。</summary>
     public bool IsLibraryOperationInProgress
     {
         get
         {
+            long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+            bool completionPublished;
+            lock (startupInitializationCompletionLock)
+            {
+                completionPublished = operationToken != 0L && startupCompletionContinuationToken == operationToken;
+            }
             return startupProgressWorkflowOwner.IsStartupUiInteractionBlocked
                 || (startupProgressWorkflowOwner.IsOperationActive
+                    && !completionPublished
                     && (!startupProgressWorkflowOwner.IsFailed || !startupProgressWorkflowOwner.IsRetryableFailure))
                 || ChartMutationActivity.IsActive;
         }
@@ -2816,14 +2211,12 @@ public partial class MainWindowViewModel : ViewModel,
     /// <param name="fileDiffReloadWorkflow">An optional typed reload owner for consumer-boundary tests; production composition creates the owner from the shell's actual reload delegate.</param>
     /// <param name="initializationStatePort">An optional lifecycle-state port for consumer-boundary tests; production composition uses this ViewModel's own state.</param>
     /// <param name="startupLibraryInitializationFailurePresenter">An optional failure-presentation boundary; production composition uses the shell dialog route.</param>
-    /// <param name="scoreOnlyReloadWorkflow">An optional typed score-only reload owner for consumer-boundary tests; production composition creates the owner from the shell's actual score-storage delegate.</param>
     internal MainWindowViewModel(
         ApplicationComposition composition,
         IStartupLibraryFactory startupLibraryFactory,
         FileDiffReloadWorkflowOwner fileDiffReloadWorkflow = null,
         IMainWindowInitializationStatePort initializationStatePort = null,
-        IStartupLibraryInitializationFailurePresenter startupLibraryInitializationFailurePresenter = null,
-        ScoreOnlyReloadWorkflowOwner scoreOnlyReloadWorkflow = null)
+        IStartupLibraryInitializationFailurePresenter startupLibraryInitializationFailurePresenter = null)
     {
         if (composition == null)
         {
@@ -2853,9 +2246,6 @@ public partial class MainWindowViewModel : ViewModel,
             FormatTextForLog,
             (generation, revision) =>
             {
-                startupProgressWorkflowOwner?.TryCompleteStartupBackgroundTasksPhaseIfIdle(
-                    schedulerGeneration: generation,
-                    schedulerRevision: revision);
                 TryLogStartupPostInitializationComplete();
             },
             startupBackgroundTaskProgressSynchronization);
@@ -2865,9 +2255,6 @@ public partial class MainWindowViewModel : ViewModel,
             DispatchStartupProgressPresentation,
             LogUiSuppression,
             TryLogStartupInitializationComplete,
-            () => startupBackgroundTaskScheduler.IsStarted && startupBackgroundTaskScheduler.IsIdle,
-            (generation, revision) => startupBackgroundTaskScheduler.IsCurrentIdleSnapshot(generation, revision),
-            () => startupBackgroundTaskScheduler.IsRequiredInitializationSchedulingComplete,
             startupBackgroundTaskProgressSynchronization);
         treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
@@ -2913,7 +2300,7 @@ public partial class MainWindowViewModel : ViewModel,
             (reason, work) => startupBackgroundTaskScheduler.Queue(
                 "external_playlist_sync",
                 reason,
-                "playlist_entries_hydration",
+                null,
                 work,
                 shutdownReason => { }),
             (reason, work) => startupBackgroundTaskScheduler.Queue(
@@ -3058,20 +2445,10 @@ public partial class MainWindowViewModel : ViewModel,
             request => Task.Run(delegate
             {
                 LogInitStage("file_diff_reload_call", "ReloadFileDiff");
-                files.ReloadFileDiff(request.Capability);
+                return files.ReloadFileDiff(request.Capability, request.WarningObserver);
             }),
             Lr2SongDbSyncWorkflow,
-            request =>
-            {
-                PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue(request);
-                LogInitStage("deferred_playlist_ref_queued", request.Reason);
-            });
-        ScoreOnlyReloadWorkflow = scoreOnlyReloadWorkflow ?? new ScoreOnlyReloadWorkflowOwner(
-            capability => Task.Run(delegate
-            {
-                LogInitStage("score_reload_call", "ReloadScoresOnly");
-                files.InitializeScoresOnlyUnderAdmission(capability);
-            }));
+            _ => tables.ApplyRequiredLibraryReferencesAsync());
         RankingCacheDownloadWorkflow = childComposition.RankingCacheDownloadWorkflow;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PendingPackages.WorkflowChanged += PendingPackageWorkflowChanged;
@@ -3305,7 +2682,7 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(request.Reason);
         }
         if (TrySuppress(UiRefreshChannel.LibraryMainView)
-            || TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, request.Reason))
+            || TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             return;
         }
@@ -3639,7 +3016,7 @@ public partial class MainWindowViewModel : ViewModel,
     private void UpdateLr2SongDbSyncRuntimeStatus(Lr2SongDbSyncStatusSnapshot snapshot)
     {
         ProgressHub.UpdateLr2SongDbSyncStatus(
-            Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now));
+            Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now, files?.Lr2Synchronization.ProgressRequest));
     }
 
     private static void LogShutdown(string message)
@@ -3678,486 +3055,168 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     internal async Task ReloadTablesAsync()
     {
-        if (!initializationCompleted)
-        {
-            return;
-        }
+        if (!initializationCompleted || IsRequiredInitializationShutdownRequested) { return; }
         if (!tables.TryEnterPlaylistMutation(out IDisposable admission))
         {
-            await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
             return;
         }
-        using IDisposable accepted = admission;
-        using LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(accepted);
-        await _semaphore.WaitAsync();
-        long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-        try
+        StartupInitializationResult result;
+        using (admission)
+        using (LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(admission))
         {
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
-            await PlaylistTablesReloadWorkflow
-                .ReloadAsync(new PlaylistTablesReloadRequest(operationToken, authority))
-                .LoggingAndPropagate("ReloadTables");
-        }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            throw;
-        }
-        finally
-        {
+            await _semaphore.WaitAsync();
+            long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree);
             try
             {
-                EndUiUpdateSuppression();
+                await PlaylistTablesReloadWorkflow.ReloadAsync(new(operationToken, authority)).LoggingAndPropagate("ReloadTables");
+                await tables.ApplyRequiredLibraryReferencesAsync();
+                result = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+                    OperationKind: StartupProgressOperationKind.ReloadTables);
             }
-            finally
-            {
-                try
-                {
-                    startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(
-                        StartupProgressPhase.StartupReadyOperable,
-                        operationToken);
-                }
-                finally
-                {
-                    try
-                    {
-                        MarkNonStartupBackgroundSchedulingComplete();
-                    }
-                    finally
-                    {
-                        _semaphore.Release();
-                    }
-                }
-            }
+            catch (Exception failure) { result = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadTables, failure); }
+            finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
         }
-        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
-            "ReloadTables:scheduled",
-            operationToken,
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressPhase.ExternalPlaylistSyncDone,
-            StartupProgressPhase.PlaylistReferenceApplied);
+        await CompleteLimitedInitializationAsync(result);
     }
 
-    /// <summary>
-    /// score source / score.db 設定変更を、playlist/table reload を伴わずに反映します。
-    /// </summary>
-    internal async Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability = null)
+    /// <summary>スコアのみの明示要求をLで受け付け、受付外で必要表示を完了します。ファイル・表・hostを再初期化しません。</summary>
+    internal Task ReloadScoresOnlyAsync()
+        => RunLibraryInputOperationAsync(ReloadScoresOnlyUnderAdmissionAsync, "ReloadScoresOnly");
+
+    /// <summary>保存スコアと投影を同じL権限で終え、表示と順位後続に必要な結果を局所で返します。</summary>
+    private async Task<StartupInitializationResult> ReloadScoresOnlyUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
-        if (!initializationStatePort.IsInitializationCompleted)
-        {
-            return;
-        }
-        LogInitStage("start", "ReloadScoresOnly");
+        if (!initializationStatePort.IsInitializationCompleted) { return null; }
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
+        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
         try
         {
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
             playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
-            LogInitStage("score_reload_task_start", "ReloadScoresOnly");
-            await ScoreOnlyReloadWorkflow.ReloadAsync(capability)
-                .LoggingAndPropagate("ReloadScoresOnly");
+            LibraryFileInitializationResult result = await Task.Run(() => files.InitializeScoresOnlyUnderAdmission(capability,
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "score_only", operationToken)));
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
-            LogInitStage("score_reload_done", "ReloadScoresOnly");
-            RefreshLibraryMainViewForCurrentFilter();
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_only_reload");
-            startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
-                "ReloadScoresOnly:scheduled",
-                operationToken,
-                StartupProgressPhase.ScoreHydrationDone,
-                StartupProgressPhase.RankingRefreshDone);
+            return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+                RequiredResult: new(result, null), OperationKind: StartupProgressOperationKind.ScoreOnly);
         }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            throw;
-        }
-        finally
-        {
-            MarkNonStartupBackgroundSchedulingComplete();
-            EndUiUpdateSuppression();
-            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-            LogInitStage("ui_suppress_end_called", "ReloadScoresOnly");
-            _semaphore.Release();
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-        }
+        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ScoreOnly, failure); }
+        finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
     }
 
-    /// <summary>差分再読込みの停止・変更・後片付けまで共通受付を所有し、失敗通知は解放後に行います。</summary>
+    /// <summary>差分再読込みの停止・変更・必要参照までL/Pを所有し、受付外で表示と失敗通知を終えます。</summary>
     internal Task ReloadFileDiffAsync()
-        => RunLibraryInputOperationAsync(ReloadFileDiffUnderAdmissionAsync, "ReloadFileDiff");
+        => RunLibraryInputOperationAsync(ReloadFileDiffUnderAdmissionAsync, "ReloadFileDiff", requiresPlaylist: true);
 
-    /// <summary>新しい入力変更を非待機で受け付け、実処理終端後に受付を解放して失敗を通知します。</summary>
-    /// <param name="operation">取得済み受付内で実行する停止・変更・後片付け。</param>
-    /// <param name="routeName">失敗通知の診断用経路名。</param>
-    /// <param name="requiresPlaylist">全再構築などPも必要な操作。片側Busyでは停止・変更を始めず、取得済み権限を解放します。</param>
-    /// <returns>受付判定、実処理終端と解放後の通知までを表すTask。元の変更例外は通知後も伝播します。</returns>
-    private async Task RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task> operation, string routeName, bool requiresPlaylist = false)
+    /// <summary>有限の入力変更を非待機で受け付け、局所結果を親解放後の同じ必須UI終端へ渡します。</summary>
+    private async Task RunLibraryInputOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, string routeName, bool requiresPlaylist = false)
     {
+        if (!initializationStatePort.IsInitializationCompleted || IsRequiredInitializationShutdownRequested) { return; }
         if (!chartFileOperations.TryEnter(out IDisposable lease))
         {
-            await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation));
+            if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
             return;
         }
         IDisposable playlistLease = null;
         if (requiresPlaylist && !applicationComposition.PlaylistOperationAdmission.TryEnter(out playlistLease))
         {
             lease.Dispose();
-            await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
-                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
+            if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
             return;
         }
-        try
+        StartupInitializationResult result;
+        using (lease)
+        using (playlistLease)
+        using (LibraryFileMutationCapability playlistCapability = (playlistLease as LibraryFileMutationLease)?.CreateMutationCapability())
+        using (LibraryFileMutationCapability original = chartFileOperations.CreateMutationCapability(lease))
+        using (LibraryFileMutationCapability capability = original.WithPlaylistCapability(playlistCapability))
         {
-            using IDisposable acceptedLibrary = lease;
-            using IDisposable acceptedPlaylist = playlistLease;
-            using LibraryFileMutationCapability playlistCapability = (playlistLease as LibraryFileMutationLease)?.CreateMutationCapability();
-            using LibraryFileMutationCapability original = chartFileOperations.CreateMutationCapability(lease);
-            using LibraryFileMutationCapability capability = original.WithPlaylistCapability(playlistCapability);
-            await operation(capability);
+            result = await operation(capability);
         }
-        catch (LibraryDirectoryPreflightException failure)
-        {
-            await PresentLibraryDirectoryWarningAsync(failure, LibraryDirectoryWarningPhase.Late,
-                routeName + " directory preflight warning");
-            throw;
-        }
+        await CompleteLimitedInitializationAsync(result, routeName);
     }
 
-    /// <summary>受理済み操作の内部継続として、同じ共通受付の中で入力を再読込みします。</summary>
-    private async Task ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    /// <summary>親解放済みの限定操作を完了し、実失敗を既存警告のあと元例外として返します。</summary>
+    private async Task CompleteLimitedInitializationAsync(StartupInitializationResult result, string routeName = "ReloadTables")
     {
-        if (!initializationStatePort.IsInitializationCompleted)
+        if (result == null) { return; }
+        result = await CompleteRequiredInitializationAfterAdmissionAsync(result);
+        if (result.Failure is LibraryDirectoryPreflightException directoryFailure)
         {
-            return;
+            await PresentLibraryDirectoryWarningAsync(directoryFailure, LibraryDirectoryWarningPhase.Late, routeName + " directory preflight warning");
         }
+        if (result.Failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.Failure).Throw(); }
+    }
+
+    private StartupInitializationResult CreateLimitedInitializationFailure(long operationToken, StartupProgressOperationKind kind, Exception failure)
+        => new(StartupInitializationOutcome.SettingsRequired, GetStartupSettingsSnapshot(), operationToken, Failure: failure, OperationKind: kind);
+
+    /// <summary>同じL/Pで差分と必要LR2・保存済み表参照を終え、実表示前の結果を返します。</summary>
+    private async Task<StartupInitializationResult> ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    {
+        if (!initializationStatePort.IsInitializationCompleted) { return null; }
         await PlaybackPanel.StopPlaybackForMutationAsync();
-        LogInitStage("start", "ReloadFileDiff");
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
+        BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+        var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
+        IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
+            .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
         try
         {
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-            LogInitStage("file_diff_reload_task_start", "ReloadFileDiff");
-            await FileDiffReloadWorkflow
-                .ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", operationToken, capability))
-                .LoggingAndPropagate("ReloadFileDiff");
-            LogInitStage("file_diff_reload_done", "ReloadFileDiff");
-            if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
-            {
-                LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
-            }
-            startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
-                "ReloadFileDiff:scheduled",
-                operationToken,
-                StartupProgressPhase.PlaylistReferenceApplied,
-                StartupProgressPhase.PlaylistEntriesHydrationDone);
+            FileDiffReloadWorkflowResult result = await FileDiffReloadWorkflow.ReloadAsync(new("ReloadFileDiff", operationToken, capability,
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reload_file_diff", operationToken), warning => scanWarnings.TryAdd(warning.Kind, warning))).LoggingAndPropagate("ReloadFileDiff");
+            return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+                RequiredResult: new(result.FileResult, null), OperationKind: StartupProgressOperationKind.ReloadFileDiff, BackupNotifications: CaptureNotifications());
         }
-        catch (LibraryDirectoryPreflightException)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(
-                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            throw;
-        }
-        finally
-        {
-            MarkNonStartupBackgroundSchedulingComplete();
-            EndUiUpdateSuppression();
-            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-            LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
-            _semaphore.Release();
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-        }
+        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadFileDiff, failure) with { BackupNotifications = CaptureNotifications() }; }
+        finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
     }
 
-    /// <summary>全再初期化の停止・変更・後片付けまで共通受付を所有し、失敗通知は解放後に行います。</summary>
-    internal Task ReinitializeLibraryAsync()
-        => RunLibraryInputOperationAsync(ReinitializeLibraryUnderAdmissionAsync, "FullReinitialize", requiresPlaylist: true);
-
-    /// <summary>受理済み操作の内部継続として、同じ共通受付の中で入力を再読込みします。</summary>
-    private async Task ReinitializeLibraryUnderAdmissionAsync(LibraryFileMutationCapability capability)
+    /// <summary>全再初期化の必須処理を同じL/Pで終え、解放後の共通UI・通知・後続へ合流します。</summary>
+    internal async Task ReinitializeLibraryAsync()
     {
-        if (!initializationCompleted)
+        if (IsRequiredInitializationShutdownRequested || !initializationCompleted) { return; }
+        LeapYearFolderRepairNotification notification = null;
+        LeapYearFolderRepairApproval approval = await startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
+            files.InitializationSongDbPath, FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
+        await RunLibraryInputOperationAsync(async capability =>
         {
-            return;
-        }
+            StartupInitializationResult result = await ReinitializeLibraryUnderAdmissionAsync(capability, approval, value => notification = value);
+            return result with { RepairNotification = notification };
+        }, "FullReinitialize", requiresPlaylist: true);
+    }
+
+    /// <summary>既存組の保存データ・全差分・出力と必要LR2を親受付内で終え、選択した段階の変更不能な結果を返します。</summary>
+    private async Task<StartupInitializationResult> ReinitializeLibraryUnderAdmissionAsync(LibraryFileMutationCapability capability, LeapYearFolderRepairApproval approval,
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver)
+    {
         await PlaybackPanel.StopPlaybackForMutationAsync();
-        LogInitStage("start", "FullReinitialize");
-        bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.FullReinitialize);
+        startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
+        var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
+        IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
+            .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-            LogInitStage("files_initialize_task_start", "FullReinitialize");
-            await Task.Run(delegate
-            {
-                LogInitStage("files_initialize_call", "FullReinitialize");
-                files.ReinitializeUnderAdmission(capability);
-            }).LoggingAndPropagate("FullReinitialize");
-            LogInitStage("files_initialize_done", "FullReinitialize");
-            scheduleDeferredPlaylistRef = true;
-            if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
-            {
-                LibraryFolderTree.ScheduleDeferredRefresh(operationToken);
-            }
+            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
+            StartupRequiredInitializationResult required = await startupLibraryInitializationWorkflowOwner.ReinitializeAsync(files, tables, Lr2SongDbSyncWorkflow, capability,
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning));
+            if (required.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
+            startupReadyDataReached = true;
+            return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+                RequiredResult: required, OperationKind: StartupProgressOperationKind.FullReinitialize, BackupNotifications: CaptureNotifications());
         }
-        catch (LibraryDirectoryPreflightException)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(
-                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            throw;
-        }
+        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.FullReinitialize, failure) with { BackupNotifications = CaptureNotifications() }; }
         finally
         {
-            EndUiUpdateSuppression();
-            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, operationToken);
-            LogInitStage("ui_suppress_end_called", "FullReinitialize");
-            try
-            {
-                if (scheduleDeferredPlaylistRef)
-                {
-                    PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queue("FullReinitialize", operationToken);
-                    LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
-                }
-            }
-            finally
-            {
-                MarkNonStartupBackgroundSchedulingComplete();
-                _semaphore.Release();
-                startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-            }
-        }
-        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
-            "FullReinitialize:scheduled",
-            operationToken,
-            StartupProgressPhase.PlaylistReferenceApplied,
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressPhase.ChartInfoHydrationDone,
-            StartupProgressPhase.ChartInfoBackfillDone,
-            StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.ScoreHydrationDone,
-            StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone);
-    }
-
-    internal static string BuildAppSchemaRepairWarningMessage(AppSchemaPreflightResult preflightResult)
-    {
-        if (preflightResult == null)
-        {
-            throw new ArgumentNullException(nameof(preflightResult));
-        }
-        return BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningMessage;
-    }
-
-    /// <summary>
-    /// 起動前修復の承認を確認し、承認済みの場合だけ修復処理を開始します。
-    /// 警告が不要な修復は確認を挟まず開始し、警告を承認した事実はこの起動セッションで共有します。
-    /// </summary>
-    /// <param name="preflightResult">修復前のスキーマ検査結果。</param>
-    /// <param name="approvedForSession">この起動セッションで警告を承認済みかどうか。</param>
-    /// <param name="confirmWarning">警告が必要なときに確認を表示する処理。</param>
-    /// <param name="startStartupRepair">承認後に修復処理を開始する処理。</param>
-    /// <param name="shutdown">確認を取り消したときに終了を要求する処理。</param>
-    /// <returns>修復を開始して起動を続ける場合は true。</returns>
-    internal static bool TryStartAppSchemaRepairForStartup(
-        AppSchemaPreflightResult preflightResult,
-        ref bool approvedForSession,
-        Func<string, bool?> confirmWarning,
-        Action startStartupRepair,
-        Action shutdown)
-    {
-        if (preflightResult == null)
-        {
-            throw new ArgumentNullException(nameof(preflightResult));
-        }
-        if (startStartupRepair == null)
-        {
-            throw new ArgumentNullException(nameof(startStartupRepair));
-        }
-        if (shutdown == null)
-        {
-            throw new ArgumentNullException(nameof(shutdown));
-        }
-        if (preflightResult.WarnRequired && !approvedForSession)
-        {
-            if (confirmWarning == null)
-            {
-                throw new ArgumentNullException(nameof(confirmWarning));
-            }
-            if (confirmWarning(BuildAppSchemaRepairWarningMessage(preflightResult)) != true)
-            {
-                shutdown();
-                return false;
-            }
-            approvedForSession = true;
-        }
-        startStartupRepair();
-        return true;
-    }
-
-    private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync(StartupSettingsSnapshot startupSettings)
-    {
-        LogInitStage("app_schema_preflight_inspect_start", "Initialize");
-        var appSchemaPreflightService = new AppSchemaPreflightService();
-        AppSchemaPreflightResult preflightResult = appSchemaPreflightService.Inspect(startupSettings.LR2SongDBPath);
-        LogInitStage("app_schema_preflight_inspect_done", "Initialize");
-        Task repairTask = null;
-        bool continueStartup = TryStartAppSchemaRepairForStartup(
-            preflightResult,
-            ref bmsonMigrationApprovedForSession,
-            warningMessage =>
-            {
-                LogInitStage("app_schema_preflight_prompt_show", "Initialize");
-                bool approved = ShowUiConfirmation(warningMessage, BeMusicSeeker.Properties.Resources.AppSchemaRepairWarningTitle, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel, "App schema repair startup confirmation");
-                LogInitStage("app_schema_preflight_prompt_close", "Initialize");
-                return approved;
-            },
-            () => repairTask = Task.Run(() =>
-                ApplyAppSchemaRepairForStartupOrThrow(
-                    appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath))
-                .LoggingAndPropagate("AppSchemaStartupRepair"),
-            applicationLifetime.RequestShutdown);
-        if (!continueStartup)
-        {
-            return false;
-        }
-        await repairTask;
-        return true;
-    }
-
-    private void ApplyAppSchemaRepairForStartupOrThrow(
-        AppSchemaPreflightService appSchemaPreflightService,
-        AppSchemaPreflightResult preflightResult,
-        string songDbPath)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        LogInitStage("app_schema_repair_start", "Initialize");
-        var gateway = new BmsLibraryDbGateway(songDbPath);
-        long schemaStartMs = stopwatch.ElapsedMilliseconds;
-        if (preflightResult.WarnRequired || preflightResult.NeedsAppSchemaVersionRepair || preflightResult.RepairRequired)
-        {
-            LogInitStage("app_schema_repair_apply_start", "Initialize");
-            gateway.RepairAppOwnedSchema();
-            LogInitStage("app_schema_repair_apply_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
-        }
-        else
-        {
-            LogInitStage("app_schema_ensure_start", "Initialize");
-            gateway.EnsureAppOwnedSchema();
-            LogInitStage("app_schema_ensure_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
-        }
-        LogInitStage("app_schema_preflight_final_reinspect_start", "Initialize");
-        AppSchemaPreflightResult finalResult = appSchemaPreflightService.Inspect(songDbPath);
-        LogInitStage("app_schema_preflight_final_reinspect_done", "Initialize");
-        if (finalResult.NeedsAppSchemaVersionRepair
-            || finalResult.RepairRequired)
-        {
-            throw new InvalidOperationException("app schema repair did not converge.");
-        }
-        LogInitStage("app_schema_repair_done elapsedMs=" + stopwatch.ElapsedMilliseconds, "Initialize");
-    }
-
-    /// <summary>
-    /// 検証済みの起動設定から、ライブラリが利用するモード別のプロファイルを構成します。
-    /// LR2設定はディレクトリ検査で読み込んだ同じインスタンスを使用します。
-    /// </summary>
-    private LibraryProfile CreateLibraryProfileForStartup(
-        StartupSettingsSnapshot startupSettings,
-        LR2Config startupLr2Config)
-    {
-        if (startupSettings.OperationModeLR2DB)
-        {
-            lr2config = startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config));
-            EnsureLR2DatabaseAutoReloadManualOnlyForStartup(startupSettings);
-            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId);
-            return new LibraryProfile(
-                operationModeLR2DB: true,
-                songDbPath: startupSettings.LR2SongDBPath,
-                searchRoots: [],
-                lr2ConfigProvider: () => lr2config,
-                lr2ScoreDbPath: scoreDbPath,
-                canWriteLr2Config: true,
-                canOutputLr2Folders: true,
-                canUseLr2Backup: true,
-                canUseLr2IrScore: true);
-        }
-
-        lr2config = null;
-        StandaloneLibraryDatabaseEnsureResult standaloneSongDb = StandaloneLibraryDatabase.EnsurePortableSongDb(
-            applicationComposition.ApplicationPathSnapshot);
-        return new LibraryProfile(
-            operationModeLR2DB: false,
-            songDbPath: standaloneSongDb.SongDbPath,
-            searchRoots: startupSettings.StandaloneBmsRootPaths,
-            lr2ConfigProvider: null,
-            lr2ScoreDbPath: null,
-            canWriteLr2Config: false,
-            canOutputLr2Folders: false,
-            canUseLr2Backup: false,
-            canUseLr2IrScore: false,
-            startupRequiredFileScanReason: standaloneSongDb.RequiresInitialLibraryBuild ? standaloneSongDb.InitialLibraryBuildReason : null);
-    }
-
-    private void RepairCustomFolderOutputSearchRootsAfterStartupValidation(
-        StartupSettingsSnapshot startupSettings,
-        LR2Config startupLr2Config)
-    {
-        if (!startupSettings.OperationModeLR2DB)
-        {
-            return;
-        }
-
-        ArgumentNullException.ThrowIfNull(startupLr2Config);
-        CustomFolderOutputBaseSearchRootSyncResult result =
-            CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
-                startupLr2Config,
-                startupSettings.LR2CustomFolderOutputBaseDir,
-                startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
-        if (result.Changed)
-        {
-            startupLr2Config.Save();
-            LogInitStage("custom_folder_output_search_root_repair added=" + result.AddedCount, "Initialize");
-        }
-    }
-
-    private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(
-        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings)
-    {
-        if (startupCustomFolderSettings?.OperationModeLR2DB != true)
-        {
-            return;
-        }
-
-        if (PlaylistWorkspace.RepairRootCustomFolderOutputSearchRootsAfterStartup(startupCustomFolderSettings))
-        {
-            LogInitStage("custom_folder_root_output_search_root_repair", "Initialize");
-        }
-    }
-
-    private void EnsureLR2DatabaseAutoReloadManualOnlyForStartup(StartupSettingsSnapshot startupSettings)
-    {
-        if (!startupSettings.OperationModeLR2DB || lr2config == null)
-        {
-            return;
-        }
-        if (lr2config.EnsureDatabaseAutoReloadManualOnly())
-        {
-            lr2config.Save();
+            EndUiUpdateSuppression(scheduleFlush: false);
+            _semaphore.Release();
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
     }
 
@@ -4220,8 +3279,7 @@ public partial class MainWindowViewModel : ViewModel,
         tables.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => startupBackgroundTaskScheduler.Queue(name, reason, dependency, work);
         tables.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
         tables.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
-        tables.ExecutionProgressRequestProvider = startupBackgroundTaskScheduler.CaptureCurrentProgressRequest;
-        tables.BmtOutput.ExecutionProgressRequestProvider = startupBackgroundTaskScheduler.CaptureCurrentProgressRequest;
+        tables.BmtOutput.ProgressRequestFactory = startupBackgroundTaskScheduler.CaptureProgressRequest;
         tables.BmtOutput.RequestProgressReporter = startupBackgroundTaskScheduler.ReportRequestProgress;
         tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
         tables.BmtOutput.FailureReporter = PlaylistWorkspace.ReportBmtOutputFailures;
@@ -4235,90 +3293,317 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>
     /// 起動処理を直列化し、設定画面への案内は排他とUI抑止の解放後に行います。
     /// </summary>
-    /// <returns>初期化に成功した場合だけ true。</returns>
+    /// <returns>必須処理とその終端通知に成功し、この操作の完了を公開した場合だけ true。</returns>
     internal async Task<bool> InitializeAsync()
-        => await InitializeLibraryAsync(isNormalStartup: true) == StartupInitializationOutcome.Succeeded;
+    {
+        StartupInitializationResult result = await InitializeLibraryAsync(isNormalStartup: true);
+        return result.Outcome == StartupInitializationOutcome.Succeeded && result.CompletionPublished && result.Failure == null;
+    }
 
-    private async Task<StartupInitializationOutcome> InitializeLibraryAsync(bool isNormalStartup, LibraryFileMutationCapability capability = null)
+    /// <summary>親L/P解放後の必須UIで実hostを接続する画面境界です。成功property通知を接続開始の根拠にしません。</summary>
+    internal event Action RequiredStartupUiApplying;
+
+    /// <summary>親L/P解放後に必須UI・hostを直接待ち、同じ操作の成功公開・解禁・任意登録閉鎖と開始を順に終えます。</summary>
+    private async Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result, bool isNormalStartup = false)
+    {
+        try
+        {
+            if (result == null) { return null; }
+            if (result.Failure != null)
+            {
+                CompleteStartupFailureAfterAdmission(result.OperationToken, result.Failure);
+                if (IsStartupCompletionTokenCurrent(result.OperationToken) && !IsRequiredInitializationShutdownRequested)
+                {
+                    MarkNonStartupBackgroundSchedulingComplete();
+                    startupBackgroundTaskScheduler.Start();
+                    try
+                    {
+                        await startupLibraryInitializationWorkflowOwner.PresentLeapYearFolderRepairAsync(result.RepairNotification, FileDbMutationDialogs,
+                        () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(result.OperationToken));
+                        Exception warningFailure = await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(null, false, false,
+                            FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(result.OperationToken), result.BackupNotifications);
+                        if (warningFailure != null) { ReportStartupLibraryInitializationFailurePresentationFailure(result.Failure, warningFailure); }
+                    }
+                    catch (Exception secondaryNotificationFailure) { ReportStartupLibraryInitializationFailurePresentationFailure(result.Failure, secondaryNotificationFailure); }
+                }
+                return result;
+            }
+            if (result.Outcome != StartupInitializationOutcome.Succeeded || result.CompletionPublished)
+            {
+                if (result.Outcome == StartupInitializationOutcome.SettingsRequired && IsStartupCompletionTokenCurrent(result.OperationToken)
+                    && !IsRequiredInitializationShutdownRequested)
+                {
+                    startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+                    if (result.ValidationFailure != null)
+                    {
+                        NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + result.ValidationFailure.Replace(Environment.NewLine, " | "));
+                        if (isNormalStartup && applicationLifetime.IsFirstStartup) { SettingDialog?.RequestInitialSetupLanguageDialog(); }
+                        else
+                        {
+                            UiDialogResult warning = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                                BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning,
+                                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK));
+                            if (warning?.Status == UiDialogStatus.AppClosing && IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+                            UiDialogRoute.ThrowIfNotShown(warning, "Startup settings validation notification");
+                        }
+                    }
+                }
+                return result;
+            }
+            ArgumentNullException.ThrowIfNull(result.Settings);
+            if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+            long operationToken = result.OperationToken;
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            await uiScheduler.InvokeAsync(() =>
+            {
+                if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+                if (!IsStartupCompletionTokenCurrent(operationToken)) { return Task.CompletedTask; }
+                UiRefreshChannel channels = result.OperationKind switch
+                {
+                    StartupProgressOperationKind.ScoreOnly => UiRefreshChannel.LibraryMainView,
+                    StartupProgressOperationKind.ReloadTables => UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree,
+                    _ => UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree
+                };
+                return FlushRequiredUiRefreshAsync(channels, operationToken, logReadiness: true);
+            });
+            if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            if (result.OperationKind == StartupProgressOperationKind.Startup)
+            {
+                await uiScheduler.InvokeAsync(() =>
+                {
+                    if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+                    if (IsStartupCompletionTokenCurrent(operationToken)) { RequiredStartupUiApplying?.Invoke(); }
+                    return Task.CompletedTask;
+                });
+                if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+                if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            }
+            startupReadyUiReached = true;
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyUi, operationToken);
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            startupReadyOperableReached = true;
+            bool firstStartup = result.OperationKind == StartupProgressOperationKind.Startup && applicationLifetime.IsFirstStartup;
+            if (firstStartup) { applicationLifetime.CompleteFirstStartup(); }
+            initializationCompleted = true;
+            hasActiveLibraryProfile = true;
+            RaisePropertyChanged(nameof(IsInitializationCompleted));
+            RaisePropertyChanged(nameof(HasActiveLibraryProfile));
+            RaiseLibraryOperationAvailabilityChanged();
+            result = result with { CompletionPublished = true };
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            lock (startupInitializationCompletionLock) { startupCompletionContinuationToken = operationToken; }
+            startupProgressWorkflowOwner.CompleteRequiredInitialization(operationToken);
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
+            if (IsRequiredInitializationShutdownRequested) { return result; }
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            TryLogStartupReadyOperable(operationToken);
+            Exception notificationFailure = await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(
+                result.RepairNotification, result.ShowRootWarning, firstStartup, FileDbMutationDialogs,
+                () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(operationToken), result.BackupNotifications, result.RequiredResult?.Lr2Failure);
+            if (notificationFailure != null)
+            {
+                result = result with { Failure = notificationFailure };
+                CompleteStartupFailureAfterAdmission(operationToken, notificationFailure);
+            }
+            if (IsRequiredInitializationShutdownRequested)
+            {
+                if (result.Failure != null) { return result; }
+                throw new OperationCanceledException();
+            }
+            if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
+            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
+            {
+                ProgressHub.BeginStartupBackgroundInitializationPresentation(operationToken, startupBackgroundTaskScheduler.CurrentGeneration);
+            }
+            files.ScheduleInitializationFollowUp(result.RequiredResult?.FileResult.FollowUp, result.RequiredResult?.ChartInfo);
+            tables.SchedulePlaylistUrlCompletionRefresh("initialization_completed");
+            if (result.OperationKind != StartupProgressOperationKind.ScoreOnly)
+            {
+                PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+            }
+            if (result.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize)
+            {
+                ScheduleStartupPostInitializationWarmup("required_ui_completed", operationToken);
+            }
+            if (result.OperationKind == StartupProgressOperationKind.Startup)
+            {
+                startupBackgroundTaskScheduler.Queue("external_table_catalog", "Initialize", null,
+                    () => PlaylistWorkspace.LoadExternalTableCollectionAsync(result.Settings.TableListURL, BMSPlaylist.GetBMSTableInfoAsync),
+                    _ => PlaylistWorkspace.CancelExternalTableCollectionLoadForShutdown());
+                if (!result.Settings.SkipInitPlaylistLoad) { PlaylistWorkspace.QueueExternalPlaylistSync("Initialize", false, true, 0); }
+            }
+            startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
+            startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
+            startupBackgroundTaskScheduler.Start();
+            return result;
+        }
+        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested && result.Failure == null)
+        {
+            return result with { Outcome = StartupInitializationOutcome.ShutdownRequested };
+        }
+        catch (Exception failure)
+        {
+            Exception primaryFailure = result.Failure ?? failure;
+            if (result.Failure != null) { ReportStartupLibraryInitializationFailurePresentationFailure(primaryFailure, failure); }
+            CompleteStartupFailureAfterAdmission(result.OperationToken, primaryFailure);
+            return result with { Outcome = result.CompletionPublished ? result.Outcome : StartupInitializationOutcome.SettingsRequired, Failure = primaryFailure };
+        }
+    }
+
+    /// <summary>親解放後に元の失敗とcleanupを既存進捗へ確定します。通知から再入した新tokenは変更しません。</summary>
+    private void CompleteStartupFailureAfterAdmission(long operationToken, Exception failure)
+    {
+        if (!IsStartupCompletionTokenCurrent(operationToken)) { return; }
+        if (!startupProgressWorkflowOwner.IsFailed)
+        {
+            startupProgressWorkflowOwner.FailStartupProgressOperation(failure is LibraryDirectoryPreflightException
+                ? BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure : failure.Message);
+        }
+        if (!startupProgressWorkflowOwner.IsRetryableFailure)
+        {
+            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
+        }
+    }
+
+    Task<StartupInitializationResult> ISettingsDialogStatePort.CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+        => CompleteRequiredInitializationAfterAdmissionAsync(result);
+
+    /// <summary>設定の実完了公開と保存通知後の継続に、既存の操作tokenと画面終了の判定を接続します。</summary>
+    bool ISettingsDialogStatePort.IsInitializationCompletionCurrent(long operationToken)
+        => !IsRequiredInitializationShutdownRequested && IsStartupCompletionTokenCurrent(operationToken);
+
+    /// <summary>構成済みモデルまたは画面寿命の終了を、起動成功・解禁の直前に確認します。</summary>
+    private bool IsRequiredInitializationShutdownRequested => ShellShutdownWorkflow?.IsShutdownRequested == true || files?.IsShutdownRequested == true
+        || chartFileOperations.IsAdmissionClosed || applicationComposition.PlaylistOperationAdmission.IsAdmissionClosed;
+
+    private async Task<StartupInitializationResult> InitializeLibraryAsync(bool isNormalStartup, LibraryFileMutationCapability capability = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
+        Exception initializationFailure = null;
+        Exception constructionFailure = null;
         LibraryDirectoryPreflightException directoryFailure = null;
-        string settingsValidationFailure = null;
         StartupSettingsSnapshot initializedSettings = null;
+        LeapYearFolderRepairNotification repairNotification = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
         StartupInitializationOutcome outcome;
+        StartupInitializationResult initializationResult = null;
+        var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
         try
         {
-            outcome = await InitializeCoreAsync(
-                phase => directoryWarningPhase = phase,
-                message => settingsValidationFailure = message,
-                settings => initializedSettings = settings, capability);
+            using (initializationGate)
+            {
+                initializationResult = await InitializeCoreAsync(
+                    phase => directoryWarningPhase = phase,
+                    settings => initializedSettings = settings, capability, exception => constructionFailure = exception, leapYearRepairApproval,
+                    notification => { repairNotification = notification; repairNotificationObserver?.Invoke(notification); },
+                    warning => scanWarnings.TryAdd(warning.Kind, warning));
+                outcome = initializationResult.Outcome;
+            }
         }
-        catch (LibraryDirectoryPreflightException exception)
+        catch (LibraryDirectoryPreflightException failure)
         {
-            directoryFailure = exception;
+            initializationFailure = failure;
             outcome = StartupInitializationOutcome.SettingsRequired;
         }
-        finally
+        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested)
         {
-            initializationGate.Dispose();
+            outcome = StartupInitializationOutcome.ShutdownRequested;
+        }
+        catch (Exception failure)
+        {
+            initializationFailure = failure;
+            outcome = StartupInitializationOutcome.SettingsRequired;
+        }
+        initializationResult ??= new(outcome, initializedSettings, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
+        initializationResult = initializationResult with { Failure = constructionFailure ?? initializationFailure ?? initializationResult.Failure };
+        initializationResult = initializationResult with
+        {
+            RepairNotification = repairNotification,
+            BackupNotifications = Array.AsReadOnly((initializationResult.BackupNotifications ?? [])
+                .Concat(scanWarnings.Values.OrderBy(warning => warning.Kind).Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification)).ToArray()),
+            ShowRootWarning = isNormalStartup && initializedSettings?.OperationModeLR2DB == true && string.IsNullOrWhiteSpace(initializedSettings.LR2RootPath)
+        };
+        if (capability == null && outcome != StartupInitializationOutcome.ShutdownRequested)
+        {
+            initializationResult = await CompleteRequiredInitializationAfterAdmissionAsync(initializationResult, isNormalStartup);
+            outcome = initializationResult.Outcome;
+        }
+        initializationFailure = initializationResult.Failure;
+        if (initializationFailure is LibraryDirectoryPreflightException directoryException)
+        {
+            directoryFailure = directoryException;
+            initializationFailure = null;
+        }
+
+        if (IsRequiredInitializationShutdownRequested && outcome == StartupInitializationOutcome.Succeeded && !initializationResult.CompletionPublished)
+        {
+            outcome = StartupInitializationOutcome.ShutdownRequested;
+        }
+        if (outcome == StartupInitializationOutcome.ShutdownRequested)
+        {
+            return initializationResult with { Outcome = outcome };
+        }
+        if (capability != null) { return initializationResult with { Outcome = outcome }; }
+        if (constructionFailure != null)
+        {
+            try
+            {
+                if (!IsRequiredInitializationShutdownRequested)
+                {
+                    UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                        BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + constructionFailure,
+                        BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                    UiDialogRoute.ThrowIfNotShown(result, "Startup library construction failure notification");
+                }
+            }
+            catch (Exception presentationFailure) { ReportStartupLibraryInitializationFailurePresentationFailure(constructionFailure, presentationFailure); }
+            NLogWrapper.GetLogger(typeof(MainWindowViewModel)).Error(constructionFailure,
+                (Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty) + " - " + Environment.NewLine + constructionFailure, null);
+        }
+
+        if (initializationFailure != null && constructionFailure == null)
+        {
+            PresentStartupLibraryInitializationFailure(initializationFailure);
         }
 
         if (directoryFailure != null)
         {
             // 設定の必須継続では外側leaseのcleanup・解放後に通知し、通知からの再試行を妨げません。
-            if (capability != null) { throw directoryFailure; }
             await PresentLibraryDirectoryWarningAsync(
                 directoryFailure,
                 directoryWarningPhase,
                 "Startup directory preflight warning");
         }
-        else if (settingsValidationFailure != null)
-        {
-            NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + settingsValidationFailure.Replace(Environment.NewLine, " | "));
-            if (isNormalStartup && applicationLifetime.IsFirstStartup)
-            {
-                SettingDialog?.RequestInitialSetupLanguageDialog();
-                return StartupInitializationOutcome.SettingsRequired;
-            }
 
-            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Msg_init_settings_check,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.OK));
-            UiDialogRoute.ThrowIfNotShown(result, "Startup settings validation notification");
-        }
-
-        if (isNormalStartup
-            && outcome == StartupInitializationOutcome.Succeeded
-            && initializedSettings?.OperationModeLR2DB == true
-            && string.IsNullOrWhiteSpace(initializedSettings.LR2RootPath))
-        {
-            UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
-                BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet,
-                BeMusicSeeker.Properties.Resources.Warning));
-            UiDialogRoute.ThrowIfNotShown(result, "Startup LR2 root path warning");
-        }
-
-        if (isNormalStartup && outcome == StartupInitializationOutcome.SettingsRequired)
+        if (isNormalStartup && outcome == StartupInitializationOutcome.SettingsRequired && !IsRequiredInitializationShutdownRequested
+            && !(initializationResult.ValidationFailure != null && applicationLifetime.IsFirstStartup))
         {
             SettingDialog?.RequestOpen();
         }
-        return outcome;
+        return initializationResult with { Outcome = outcome };
     }
 
-    private async Task<StartupInitializationOutcome> InitializeCoreAsync(
+    private async Task<StartupInitializationResult> InitializeCoreAsync(
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
-        Action<string> recordSettingsValidationFailure,
-        Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability)
+        Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability,
+        Action<Exception> recordLibraryConstructionFailure, LeapYearFolderRepairApproval leapYearRepairApproval,
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver)
     {
+        if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+        if (capability == null && (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter))
+        {
+            if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+            throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+        }
         startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
+        startupReadyOperableReached = false;
         RaisePropertyChanged(nameof(IsInitializationCompleted));
         if (hasActiveLibraryProfile)
         {
@@ -4329,8 +3614,9 @@ public partial class MainWindowViewModel : ViewModel,
         _ = string.Empty;
         string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
-        StartupSettingsSnapshot startupSettings;
+        StartupSettingsSnapshot startupSettings = null;
         LR2Config startupLr2Config;
+        AppSchemaPreflightResult schemaApproval = null;
         CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;
         long operationToken = 0L;
         try
@@ -4342,63 +3628,67 @@ public partial class MainWindowViewModel : ViewModel,
                 startupCustomFolderSettings = customFolderOutputSettingsProvider()
                     ?? throw new InvalidOperationException("Custom-folder output settings provider returned null during startup.");
             }
-            (bool configValid, LR2Config config) = await PrepareStartupDirectoriesAsync(
+            (bool configValid, LR2Config config) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
                 startupSettings,
                 startupCustomFolderSettings);
             startupLr2Config = config;
             string startupValidationErrorMessage = BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath;
             if (!configValid || !SettingDialog.CheckValidation(out startupValidationErrorMessage))
             {
-                recordSettingsValidationFailure(startupValidationErrorMessage ?? string.Empty);
-                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                return StartupInitializationOutcome.SettingsRequired;
+                return new(StartupInitializationOutcome.SettingsRequired, startupSettings, ValidationFailure: startupValidationErrorMessage ?? string.Empty);
             }
-            RepairCustomFolderOutputSearchRootsAfterStartupValidation(startupSettings, startupLr2Config);
         }
-        catch (LibraryDirectoryPreflightException)
+        catch (LibraryDirectoryPreflightException failure)
         {
             recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Early);
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
                 StartupProgressOperationKind.Startup);
-            startupProgressWorkflowOwner.FailStartupProgressOperation(
-                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-            throw;
+            return new(StartupInitializationOutcome.SettingsRequired, startupSettings, operationToken, Failure: failure);
         }
+        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested) { throw; }
         catch (Exception ex)
         {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup settings preparation failure notification");
-            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
-            currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            return StartupInitializationOutcome.SettingsRequired;
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            recordLibraryConstructionFailure(ex);
+            return new(StartupInitializationOutcome.SettingsRequired, OperationToken: operationToken);
         }
         recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Late);
         try
         {
-            if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
+            if (startupSettings.OperationModeLR2DB)
             {
-                startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                return StartupInitializationOutcome.ShutdownRequested;
+                schemaApproval = await startupLibraryInitializationWorkflowOwner.PrepareSchemaAsync(startupSettings, FileDbMutationDialogs,
+                    () => IsRequiredInitializationShutdownRequested, applicationLifetime.RequestShutdown);
+                if (schemaApproval == null) { return new(StartupInitializationOutcome.ShutdownRequested); }
             }
         }
+        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested) { throw; }
         catch (Exception ex)
         {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup app schema approval failure notification");
-            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
-            string text2 = Assembly.GetEntryAssembly().GetName().Version.ToString();
-            currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            return StartupInitializationOutcome.SettingsRequired;
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            recordLibraryConstructionFailure(ex);
+            return new(StartupInitializationOutcome.SettingsRequired, OperationToken: operationToken);
         }
+        if (capability == null)
+        {
+            leapYearRepairApproval = await startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
+                startupSettings.OperationModeLR2DB ? startupSettings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
+                FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
+        }
+        ArgumentNullException.ThrowIfNull(leapYearRepairApproval);
+        using StartupRequiredOperationLease requiredOperation = startupLibraryInitializationWorkflowOwner.AcquireRequiredOperation(
+            chartFileOperations, applicationComposition.PlaylistOperationAdmission, capability);
+        capability = requiredOperation.Capability;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("initialize");
-            LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings, startupLr2Config);
+            if (schemaApproval != null) { await startupLibraryInitializationWorkflowOwner.ApplyPreparedSchemaAsync(startupSettings, schemaApproval); }
+            StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
+            LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
+            lr2config = startupLr2Config;
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
-                this, capability);
+                this, capability, files, tables);
             files = libraryServices.Library;
             tables = libraryServices.Playlist;
             LibraryFolderTree.AttachLibrary(files);
@@ -4409,32 +3699,27 @@ public partial class MainWindowViewModel : ViewModel,
                 () => CreateLR2PlayerConfig(startupSettings));
             if (configuredBmsPlayer != null)
             {
-                await PlaybackPanel.ReplacePlayerAsync(configuredBmsPlayer);
+                await PlaybackPanel.ReplacePlayerAsync(configuredBmsPlayer, deferWindowHostAttachment: true);
             }
+            if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
                 StartupProgressOperationKind.Startup);
         }
-        catch (LibraryDirectoryPreflightException)
+        catch (LibraryDirectoryPreflightException failure)
         {
-            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
-                StartupProgressOperationKind.Startup);
-            startupProgressWorkflowOwner.FailStartupProgressOperation(
-                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
-            throw;
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            return new(StartupInitializationOutcome.SettingsRequired, startupSettings, operationToken, Failure: failure);
         }
+        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested) { throw; }
         catch (Exception ex)
         {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.ToString(), BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Startup library construction failure notification");
-            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
-            string text3 = Assembly.GetEntryAssembly().GetName().Version.ToString();
-            currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            return StartupInitializationOutcome.SettingsRequired;
+            operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
+            // 構成失敗も親受付と開始済み処理の解放後に通知する。通知先からの明示再試行を妨げない。
+            recordLibraryConstructionFailure(ex);
+            return new(StartupInitializationOutcome.SettingsRequired, startupSettings, operationToken);
         }
         regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);
+        listenerForBMSLibrary?.Dispose();
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSLibrary.RegisterHandler(() => files.OwnedCollectionVersion, delegate
         {
@@ -4472,7 +3757,7 @@ public partial class MainWindowViewModel : ViewModel,
                 return;
             }
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
+            if (TrySuppress(UiRefreshChannel.PlaylistTree))
             {
                 PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                     "score_hydration_completed");
@@ -4492,19 +3777,14 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                 "score_snapshot_changed");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressRankingRefreshRequested(files.RankingRefreshRequestedVersion, files.RankingRefreshProgressRequest);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshCompletedVersion, delegate
         {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressRankingRefresh(files.RankingRefreshCompletedVersion);
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
             }
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
+            if (TrySuppress(UiRefreshChannel.PlaylistTree))
             {
                 PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                     "ranking_refresh_completed");
@@ -4513,46 +3793,13 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                 "ranking_refresh_completed");
         });
-        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressMaintenanceRequested(files.MaintenanceHydrationRequestedVersion, files.MaintenanceHydrationProgressRequest);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationCompletedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressMaintenance(files.MaintenanceHydrationCompletedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressInstallableMaintenanceRequested(files.InstallableMaintenanceDeferredRequestedVersion, files.InstallableMaintenanceProgressRequest);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.InstallableMaintenanceDeferredCompletedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressInstallableMaintenance(files.InstallableMaintenanceDeferredCompletedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressChartDigestBackfillRequested(files.ChartDigestBackfillRequestedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartDigestBackfillCompletedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressChartDigestBackfill(files.ChartDigestBackfillCompletedVersion);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillRequestedVersion, delegate
-        {
-            startupProgressWorkflowOwner.TrackStartupProgressChartInfoBackfillRequested(files.ChartInfoBackfillRequestedVersion, files.ChartInfoBackfillProgressRequest);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillCompletedVersion, delegate
         {
-            startupProgressWorkflowOwner.TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
             if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
             {
                 InvalidateNormalLibraryIdentitySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
             }
             RefreshChartInfoDependentViews();
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProgressSnapshot, delegate
-        {
-            startupProgressWorkflowOwner.UpdateStartupProgressChartInfoBackfillStatus(files.ChartInfoBackfillProgressSnapshot);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationRequestedVersion, delegate
         {
@@ -4576,69 +3823,7 @@ public partial class MainWindowViewModel : ViewModel,
             UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
         });
         UpdateInstallEstimationProgressStatus(files.GetInstallEstimationProgressSnapshot());
-        if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
-        {
-            Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;
-            string songDBPath = null;
-            List<string> scoreDBPaths = [];
-            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(startupSettings.LR2SongDBPath))
-            {
-                songDBPath = startupSettings.LR2SongDBPath;
-            }
-            string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
-            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
-            {
-                try
-                {
-                    scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", System.IO.SearchOption.AllDirectories)];
-                }
-                catch
-                {
-                    scoreDBPaths = [];
-                }
-            }
-            Backup.BackupSaveResult backupSaveResult = null;
-            backupSaveResult = await Task.Run(delegate
-            {
-                try
-                {
-                    Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
-                        startupSettings.LR2BackupPath,
-                        new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0),
-                        startupSettings.LR2BackupNum,
-                        lR2BackupTarget,
-                        startupSettings.LR2ConfigXmlPath,
-                        startupSettings.LR2SongDBPath,
-                        scoreDirectoryPath);
-                    if (result.Saved)
-                    {
-                        try
-                        {
-                            Backup.RebuildDatabase(songDBPath, scoreDBPaths);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                    return result;
-                }
-                catch (Exception ex)
-                {
-                    return Backup.BackupSaveResult.Failure(ex);
-                }
-            }).LoggingAndPropagate("Initialize");
-            if (backupSaveResult != null)
-            {
-                foreach (string warning in backupSaveResult.Warnings)
-                {
-                    ShowUiMessage(warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, "LR2 backup warning notification");
-                }
-                if (backupSaveResult.FailureException != null)
-                {
-                    ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + backupSaveResult.FailureException.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "LR2 backup failure notification");
-                }
-            }
-        }
+        IReadOnlyList<UiMessageRequest> backupNotifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(startupSettings);
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();
         startupReadyOperableStopwatch = Stopwatch.StartNew();
@@ -4661,144 +3846,65 @@ public partial class MainWindowViewModel : ViewModel,
         startupReadyDataReached = false;
         startupReadyUiReached = false;
         startupReadyOperableReached = false;
-        bool startupLibraryInitialized = await InitializeStartupLibraryFilesAsync(
-            () => files.InitializeStartup(
-                [],
-                null,
-                startupPerformanceInteraction, capability),
-            operationToken,
-            startupCustomFolderSettings,
-            () => tables.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: startupSettings.SkipInitPlaylistLoad, capability: capability?.PlaylistCapability));
-        if (!startupLibraryInitialized)
-        {
-            return StartupInitializationOutcome.SettingsRequired;
-        }
-        if (applicationLifetime.IsFirstStartup)
-        {
-            applicationLifetime.CompleteFirstStartup();
-            lock (startupInitializationCompletionLock)
-            {
-                initialSetupCompletionMessagePending = true;
-            }
-        }
-        initializationCompleted = true;
-        hasActiveLibraryProfile = true;
-        RaisePropertyChanged(nameof(IsInitializationCompleted));
-        RaisePropertyChanged(nameof(HasActiveLibraryProfile));
-        RaiseLibraryOperationAvailabilityChanged();
-        PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
-        startupBackgroundTaskScheduler.Queue(
-            "external_table_catalog",
-            "Initialize",
-            null,
-            () => PlaylistWorkspace.LoadExternalTableCollectionAsync(
-                startupSettings.TableListURL,
-                BMSPlaylist.GetBMSTableInfoAsync),
-            _ => PlaylistWorkspace.CancelExternalTableCollectionLoadForShutdown());
-        LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
-        if (!startupSettings.SkipInitPlaylistLoad)
-        {
-            PlaylistWorkspace.QueueExternalPlaylistSync(
-                "Initialize",
-                fromReloadTables: false,
-                publishReferenceReceipt: true,
-                operationToken: operationToken);
-        }
-        startupProgressWorkflowOwner.SkipUnrequestedStartupProgressPhases(
-            "Initialize:scheduled",
-            operationToken,
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressPhase.ChartInfoHydrationDone,
-            StartupProgressPhase.ChartInfoBackfillDone,
-            StartupProgressPhase.ChartDigestBackfillDone,
-            StartupProgressPhase.ExternalPlaylistSyncDone,
-            StartupProgressPhase.PlaylistReferenceApplied,
-            StartupProgressPhase.ScoreHydrationDone,
-            StartupProgressPhase.RankingRefreshDone,
-            StartupProgressPhase.MaintenanceDeferredDone,
-            StartupProgressPhase.InstallableMaintenanceDeferredDone);
-        startupBackgroundTaskScheduler.MarkRequiredInitializationSchedulingComplete();
-        startupBackgroundTaskScheduler.MarkPostInitializationSchedulingComplete();
-        startupProgressWorkflowOwner.TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-        return StartupInitializationOutcome.Succeeded;
+        StartupRequiredInitializationResult requiredResult = await InitializeStartupLibraryFilesAsync(
+            () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
+                files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
+                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver));
+        if (IsRequiredInitializationShutdownRequested) { return new(StartupInitializationOutcome.ShutdownRequested); }
+        return new(StartupInitializationOutcome.Succeeded, startupSettings, operationToken, RequiredResult: requiredResult, BackupNotifications: backupNotifications);
     }
 
-    /// <summary>
-    /// ファイル初期化とその後処理を所有します。設定画面の再表示は排他解放後の外側へ委ね、
-    /// ディレクトリ検査の停止は外側で通知するために伝播します。
-    /// </summary>
-    /// <param name="initializeStartup">ファイル初期化を実行する操作。</param>
-    /// <param name="operationToken">この起動処理に対応する進捗トークン。</param>
-    /// <param name="startupCustomFolderSettings">プレイリスト読込み後に適用する設定。</param>
-    /// <returns>初期化成功時は true、通常エラーの後処理と通知後は false。</returns>
-    /// <exception cref="LibraryDirectoryPreflightException">後処理後、外側の gate 解放と通知へ引き継ぐ検査失敗。</exception>
-    internal async Task<bool> InitializeStartupLibraryFilesAsync(
-        Action initializeStartup,
-        long operationToken,
-        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings,
-        Func<Task> initializePlaylist = null)
+    /// <summary>必須管理主体の完了中はUI更新を抑制し、確定後の画面接続を適用します。失敗通知は親受付解放後の呼出元が担当します。</summary>
+    /// <param name="initializeRequired">必須起動の実終端までを待つ管理主体の操作。</param>
+    /// <returns>LR2単独失敗を既存の状態表示へ接続した必須処理の結果。終了取消とローカル失敗は例外で伝播します。</returns>
+    internal async Task<StartupRequiredInitializationResult> InitializeStartupLibraryFilesAsync(
+        Func<Task<StartupRequiredInitializationResult>> initializeRequired)
     {
-        if (initializeStartup == null)
-        {
-            throw new ArgumentNullException(nameof(initializeStartup));
-        }
-
+        ArgumentNullException.ThrowIfNull(initializeRequired);
         BeginUiUpdateSuppression(
-            UiRefreshChannel.LibraryMainView
-                | UiRefreshChannel.LibraryFolderTree
-                | UiRefreshChannel.InstallTree
-                | UiRefreshChannel.PlaylistTree
-                | UiRefreshChannel.DuplicateTree);
+            UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
         try
         {
-            Task filesTask = startupLibraryInitializationWorkflowOwner.InitializeAsync(initializeStartup);
-            Task playlistTask;
-            try { playlistTask = initializePlaylist?.Invoke() ?? Task.CompletedTask; }
-            catch (Exception failure) { playlistTask = Task.FromException(failure); }
-            await Task.WhenAll(filesTask, playlistTask);
+            StartupRequiredInitializationResult result = await initializeRequired();
+            if (result.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
-            RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
             LogInitStage("files_initialize_done", "Initialize");
-            TryLogStartupReadyData();
-            return true;
-        }
-        catch (LibraryDirectoryPreflightException)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(
-                BeMusicSeeker.Properties.Resources.LibraryDirectoryPreflightProgressFailure);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            startupProgressWorkflowOwner.FailStartupProgressOperation(ex.Message);
-            try
-            {
-                // 起動の実Taskは回収し元失敗を保持しますが、終了開始後に新しい失敗画面を開きません。
-                if (ShellShutdownWorkflow?.IsClosingOrClosed != true)
-                {
-                    startupLibraryInitializationFailurePresenter.Present(
-                        new StartupLibraryInitializationFailurePresentation(ex));
-                }
-            }
-            catch (Exception presentationException)
-            {
-                ReportStartupLibraryInitializationFailurePresentationFailure(
-                    ex,
-                    presentationException);
-            }
-            Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
-            string version = Assembly.GetEntryAssembly().GetName().Version.ToString();
-            currentClassLogger.Error(ex, version + " - " + Environment.NewLine + ex.ToString(), null);
-            startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-            return false;
+            long operationToken = startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken();
+            startupReadyDataReached = true;
+            startupProgressWorkflowOwner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyData, operationToken);
+            TryLogStartupReadyData(operationToken);
+            return result;
         }
         finally
         {
-            EndUiUpdateSuppression();
+            EndUiUpdateSuppression(scheduleFlush: false);
             LogInitStage("ui_suppress_end_called", "Initialize");
-            startupProgressWorkflowOwner.MarkStartupProgressFailureCleanupComplete(operationToken);
         }
+    }
+
+    /// <summary>開始済みTaskと親受付の解放後、元のローカル失敗を既存の通知経路へ渡します。</summary>
+    private void PresentStartupLibraryInitializationFailure(Exception ex)
+    {
+        try
+        {
+            // 起動の実Taskは回収し元失敗を保持しますが、終了開始後に新しい失敗画面を開きません。
+            if (!IsRequiredInitializationShutdownRequested)
+            {
+                startupLibraryInitializationFailurePresenter.Present(
+                    new StartupLibraryInitializationFailurePresentation(ex));
+            }
+        }
+        catch (Exception presentationException)
+        {
+            ReportStartupLibraryInitializationFailurePresentationFailure(
+                ex,
+                presentationException);
+        }
+        Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
+        string version = Assembly.GetEntryAssembly().GetName().Version.ToString();
+        currentClassLogger.Error(ex, version + " - " + Environment.NewLine + ex.ToString(), null);
     }
 
     private static void ReportStartupLibraryInitializationFailurePresentationFailure(
@@ -4976,12 +4082,6 @@ public partial class MainWindowViewModel : ViewModel,
         {
             return;
         }
-        if (TryDeferStartupPresentationRefresh(
-            UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree,
-            "playlist_ref_apply_completed"))
-        {
-            return;
-        }
         RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
@@ -4993,17 +4093,13 @@ public partial class MainWindowViewModel : ViewModel,
     }
 
     /// <summary>
-    /// メインビュー更新共通の callback 発火と性能ログを確定します。
-    /// </summary>
-
-    /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
-    private void RefreshChartRowsView(
+    private Task RefreshChartRowsView(
         MainViewUpdateMode mode,
         object parameter = null,
         MainChartListSortTarget? expectedSortTarget = null)
@@ -5013,7 +4109,7 @@ public partial class MainWindowViewModel : ViewModel,
                 ? MainChartListSortTarget.PlayHistory
                 : MainChartListSortTarget.Regular))
         {
-            return;
+            return Task.CompletedTask;
         }
         regularChartListOwner.PrepareForMainViewRefresh();
         var viewBuildStopwatch = Stopwatch.StartNew();
@@ -5043,7 +4139,7 @@ public partial class MainWindowViewModel : ViewModel,
                     playHistoryRequest?.RequestId ?? 0L,
                     playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
-                return;
+                return Task.CompletedTask;
             }
         }
         else if (mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest)
@@ -5058,11 +4154,11 @@ public partial class MainWindowViewModel : ViewModel,
                     playHistoryKeywordRequest.RequestId,
                     playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
-                return;
+                return Task.CompletedTask;
             }
             if (files == null)
             {
-                return;
+                return Task.CompletedTask;
             }
             LogPlayHistoryViewExecution(PlayHistory.ExecuteView(
                 new PlayHistoryViewExecutionRequest(
@@ -5073,7 +4169,7 @@ public partial class MainWindowViewModel : ViewModel,
                     playHistoryKeywordRequest,
                     filters.KeywordFilter,
                     PlayHistory.SelectedDisplayTarget)));
-            return;
+            return Task.CompletedTask;
         }
         else if (mode < MainViewUpdateMode.KeywordFilterUpdated)
         {
@@ -5102,7 +4198,7 @@ public partial class MainWindowViewModel : ViewModel,
             files != null);
         if (route.Kind == ChartListRefreshRouteKind.MissingFiles)
         {
-            return;
+            return Task.CompletedTask;
         }
         if (route.Kind == ChartListRefreshRouteKind.ApplyPlayHistoryView)
         {
@@ -5118,7 +4214,7 @@ public partial class MainWindowViewModel : ViewModel,
                     activeRequest?.RequestId ?? 0L,
                     playHistoryWorkflowOwner.CurrentRequestId,
                     viewBuildStopwatch.ElapsedMilliseconds);
-                return;
+                return Task.CompletedTask;
             }
             LogPlayHistoryViewExecution(PlayHistory.ExecuteView(
                 new PlayHistoryViewExecutionRequest(
@@ -5129,18 +4225,14 @@ public partial class MainWindowViewModel : ViewModel,
                     activeRequest,
                     filters.KeywordFilter,
                     PlayHistory.SelectedDisplayTarget)));
-            return;
+            return Task.CompletedTask;
         }
         if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
         {
             UpdatePlaylistDetailActivation(route.IsPlaylistTreeActive);
-            PlaylistWorkspace.RequestDetailRefresh(
-                route.Mode,
-                route.RequestedMode,
-                activeTreeViewFilterMode,
-                ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode),
-                CapturePlaylistOpenReadinessSnapshot());
-            return;
+            return PlaylistWorkspace.RequestDetailRefreshTask(
+                route.Mode, route.RequestedMode, activeTreeViewFilterMode,
+                ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode), CapturePlaylistOpenReadinessSnapshot());
         }
         RegularChartListEntryResult regularResult = regularChartListOwner.ApplyMainLibraryView(
             route,
@@ -5157,6 +4249,7 @@ public partial class MainWindowViewModel : ViewModel,
                 SyncMainChartListSortPresentation();
             }
         }
+        return Task.CompletedTask;
     }
 
     private void LogPlayHistoryViewExecution(PlayHistoryViewExecutionResult execution)
@@ -5537,7 +4630,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         Action refresh = delegate
         {
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, filterReason))
+            if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
             }
@@ -5567,7 +4660,7 @@ public partial class MainWindowViewModel : ViewModel,
         string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
         if (!TrySuppress(UiRefreshChannel.DuplicateTree)
-            && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, refreshReason))
+            && !TrySuppress(UiRefreshChannel.DuplicateTree))
         {
             MaintenanceTree.ApplyDuplicateGroupsPresentation();
         }
@@ -5577,7 +4670,7 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 return;
             }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, refreshReason))
+            if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
                 return;
             }

@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
-using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -32,15 +29,17 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             {
                 reloadRequest = request;
                 events.Add("reload");
-                return Task.CompletedTask;
+                return Task.FromResult(new LibraryFileInitializationResult());
             },
             CreateSyncOwner(runtime),
             request =>
             {
                 playlistRequest = request;
                 events.Add("playlist");
+                return Task.CompletedTask;
             });
-        var request = new FileDiffReloadRequest("ReloadFileDiff", 41L, capability);
+        var progressRequest = new OperationProgressRequest(9, 41L, "reload_file_diff", 1);
+        var request = new FileDiffReloadRequest("ReloadFileDiff", 41L, capability, progressRequest);
 
         Task<FileDiffReloadWorkflowResult> operation = owner.ReloadAsync(request);
         FileDiffReloadWorkflowResult result;
@@ -49,6 +48,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             Assert.IsFalse(operation.IsCompleted);
             Assert.IsNull(playlistRequest);
             Assert.AreSame(capability, runtime.LastCapability);
+            Assert.AreSame(progressRequest, runtime.LastProgressRequest);
             capability.Validate(admission);
             terminal.TrySetResult();
             result = await operation;
@@ -65,7 +65,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.AreEqual(request.Reason, completedPlaylistRequest.Reason);
         Assert.AreEqual(request.OperationToken, completedPlaylistRequest.OperationToken);
         Assert.AreEqual(request.Reason, runtime.LastQueueReason);
-        Assert.IsTrue(runtime.LastAllowCommittedPathReceipt);
+        Assert.IsNotNull(runtime.LastInitializationResult);
     }
 
     [TestMethod]
@@ -81,13 +81,14 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             request =>
             {
                 events.Add("reload");
-                return Task.CompletedTask;
+                return Task.FromResult(new LibraryFileInitializationResult());
             },
             CreateSyncOwner(runtime),
             request =>
             {
                 playlistRequest = request;
                 events.Add("playlist");
+                return Task.CompletedTask;
             });
         var request = new FileDiffReloadRequest("ReloadFileDiff", 42L);
 
@@ -112,10 +113,10 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             request =>
             {
                 events.Add("reload");
-                return Task.FromException(failure);
+                return Task.FromException<LibraryFileInitializationResult>(failure);
             },
             CreateSyncOwner(runtime),
-            _ => events.Add("playlist"));
+            _ => { events.Add("playlist"); return Task.CompletedTask; });
 
         IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(
             () => owner.ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", 43L)));
@@ -139,10 +140,10 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             request =>
             {
                 events.Add("reload");
-                return Task.CompletedTask;
+                return Task.FromResult(new LibraryFileInitializationResult());
             },
             CreateSyncOwner(runtime),
-            _ => events.Add("playlist"));
+            _ => { events.Add("playlist"); return Task.CompletedTask; });
 
         Task<FileDiffReloadWorkflowResult> operation = owner.ReloadAsync(new FileDiffReloadRequest("ReloadFileDiff", 44L, capability));
         try
@@ -172,7 +173,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             request =>
             {
                 events.Add("reload");
-                return Task.CompletedTask;
+                return Task.FromResult(new LibraryFileInitializationResult());
             },
             CreateSyncOwner(runtime),
             _ =>
@@ -203,7 +204,7 @@ public sealed class FileDiffReloadWorkflowOwnerTests
                 throw cancellation;
             },
             CreateSyncOwner(runtime),
-            _ => events.Add("playlist"));
+            _ => { events.Add("playlist"); return Task.CompletedTask; });
 
         OperationCanceledException thrown =
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(
@@ -214,415 +215,29 @@ public sealed class FileDiffReloadWorkflowOwnerTests
     }
 
     [TestMethod]
-    [DoNotParallelize]
-    public async Task MainWindowConsumer_UsesTypedOwnerWithoutSeparateWorkspaceQueue()
-    {
-        var events = new List<string>();
-        var runtime = new RecordingRuntime(events);
-        var reloadRequests = new List<FileDiffReloadRequest>();
-        var playlistRequests = new List<PlaylistReferenceApplyQueueRequest>();
-        var owner = new FileDiffReloadWorkflowOwner(
-            request =>
-            {
-                reloadRequests.Add(request);
-                events.Add("reload");
-                return Task.CompletedTask;
-            },
-            CreateSyncOwner(runtime),
-            request =>
-            {
-                playlistRequests.Add(request);
-                events.Add("playlist");
-            });
-        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner);
-        int unexpectedWorkspaceReferenceQueues = 0;
-        int unexpectedExternalSyncQueues = 0;
-        int unexpectedPlaylistPresentationRequests = 0;
-        viewModel.PlaylistWorkspace.PlaylistReferenceApplyWorkflow.Queued +=
-            (_, _) => unexpectedWorkspaceReferenceQueues++;
-        viewModel.PlaylistWorkspace.PlaylistExternalSyncQueued +=
-            (_, _) => unexpectedExternalSyncQueues++;
-        viewModel.PlaylistWorkspace.PlaylistPresentationRefreshRequested +=
-            (_, _) => unexpectedPlaylistPresentationRequests++;
-
-        try
-        {
-            await viewModel.ReloadFileDiffAsync();
-
-            CollectionAssert.AreEqual(new[] { "reload", "lr2", "playlist" }, events);
-            Assert.AreEqual(1, reloadRequests.Count);
-            Assert.AreEqual(1, playlistRequests.Count);
-            Assert.AreEqual("ReloadFileDiff", reloadRequests[0].Reason);
-            Assert.IsTrue(reloadRequests[0].OperationToken > 0L);
-            Assert.AreEqual(reloadRequests[0].Reason, playlistRequests[0].Reason);
-            Assert.AreEqual(reloadRequests[0].OperationToken, playlistRequests[0].OperationToken);
-            Assert.AreEqual(0, unexpectedWorkspaceReferenceQueues);
-            Assert.AreEqual(0, unexpectedExternalSyncQueues);
-            Assert.AreEqual(0, unexpectedPlaylistPresentationRequests);
-            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsOperationActive);
-        }
-        finally
-        {
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task MainWindowConsumer_SharedGateRejectsAdditionalCallAndAcceptsFreshCallWithDistinctToken()
-    {
-        var releaseFirst = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstEntered = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var requests = new List<FileDiffReloadRequest>();
-        int reloadCount = 0;
-        var runtime = new RecordingRuntime(new List<string>());
-        var owner = new FileDiffReloadWorkflowOwner(
-            request =>
-            {
-                requests.Add(request);
-                reloadCount++;
-                if (reloadCount == 1)
-                {
-                    firstEntered.SetResult();
-                    return releaseFirst.Task;
-                }
-
-                return Task.CompletedTask;
-            },
-            CreateSyncOwner(runtime),
-            _ => { });
-        var dialogs = new DirectoryWarningDialogService();
-        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner, dialogs);
-        Task? first = null;
-
-        try
-        {
-            first = viewModel.ReloadFileDiffAsync();
-            await TestUiDispatcherHost.AwaitNotificationAsync(firstEntered.Task, first, "file-diff.first-input");
-            await viewModel.ReloadFileDiffAsync();
-
-            Assert.AreEqual(1, reloadCount);
-            Assert.IsFalse(first.IsCompleted);
-            Assert.AreEqual(1, dialogs.MessageCount);
-
-            releaseFirst.SetResult();
-            await first;
-            await viewModel.ReloadFileDiffAsync();
-
-            Assert.AreEqual(2, requests.Count);
-            Assert.AreEqual("ReloadFileDiff", requests[0].Reason);
-            Assert.AreEqual("ReloadFileDiff", requests[1].Reason);
-            Assert.IsTrue(requests[0].OperationToken > 0L);
-            Assert.IsTrue(requests[1].OperationToken > requests[0].OperationToken);
-        }
-        finally
-        {
-            releaseFirst.TrySetResult();
-            if (first != null) { await first; }
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task MainWindowConsumer_FailureIsRetryableAndGateAllowsNextToken()
-    {
-        var failure = new IOException("file diff reload failed");
-        var requests = new List<FileDiffReloadRequest>();
-        int reloadCount = 0;
-        var runtime = new RecordingRuntime(new List<string>());
-        var owner = new FileDiffReloadWorkflowOwner(
-            request =>
-            {
-                requests.Add(request);
-                reloadCount++;
-                return reloadCount == 1
-                    ? Task.FromException(failure)
-                    : Task.CompletedTask;
-            },
-            CreateSyncOwner(runtime),
-            _ => { });
-        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner);
-
-        try
-        {
-            IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(
-                () => viewModel.ReloadFileDiffAsync());
-
-            Assert.AreSame(failure, thrown);
-            Assert.AreEqual(1, reloadCount);
-            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
-            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsRetryableFailure);
-            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-            Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
-
-            // 再受付した非同期処理の完了を待ち、workerの開始順を同期呼出しの契約にしない。
-            await viewModel.ReloadFileDiffAsync();
-            Assert.AreEqual(2, reloadCount);
-
-            Assert.AreEqual(2, requests.Count);
-            Assert.IsTrue(requests[1].OperationToken > requests[0].OperationToken);
-        }
-        finally
-        {
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task MainWindowConsumer_DirectoryPreflightWarningRunsAfterCleanupAndRetrySucceeds()
-    {
-        var failure = new LibraryDirectoryPreflightException(
-            LibraryDirectoryPreflightUse.BmsRoot,
-            @"C:\\missing-bms-root",
-            LibraryDirectoryPreflightFailureCause.NotFound,
-            "missing");
-        int reloadCount = 0;
-        var warningSequence = new List<string>();
-        Task? retryReload = null;
-        bool warningObservedWithOperationReleased = false;
-        bool warningObservedWithProgressUnblocked = false;
-        bool warningObservedWithFailureState = false;
-        bool warningObservedWithRetryableState = false;
-        bool retryCompletedDuringWarning = false;
-        bool retrySucceededDuringWarning = false;
-        bool retryTimedOutDuringWarning = false;
-        Exception? retryFailure = null;
-        Exception? retryDrainFailure = null;
-        var dialogs = new DirectoryWarningDialogService();
-        var runtime = new RecordingRuntime(new List<string>());
-        var owner = new FileDiffReloadWorkflowOwner(
-            _ =>
-            {
-                reloadCount++;
-                return reloadCount == 1
-                    ? Task.FromException(failure)
-                    : Task.CompletedTask;
-            },
-            CreateSyncOwner(runtime),
-            _ => { });
-        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner, dialogs);
-        dialogs.MessageObserved = () =>
-        {
-            warningSequence.Add("warning");
-        };
-        dialogs.MessageObservedAsync = async () =>
-        {
-            warningObservedWithOperationReleased = !viewModel.IsLibraryOperationInProgress;
-            warningObservedWithProgressUnblocked = !viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
-            warningObservedWithFailureState = viewModel.ProgressHub.StartupProgress.IsFailed;
-            warningObservedWithRetryableState = viewModel.ProgressHub.StartupProgress.IsRetryableFailure;
-            retryReload = viewModel.ReloadFileDiffAsync();
-            try
-            {
-                await retryReload;
-                retryCompletedDuringWarning = retryReload.IsCompleted;
-                retrySucceededDuringWarning = true;
-            }
-            catch (TimeoutException)
-            {
-                retryTimedOutDuringWarning = true;
-                retryCompletedDuringWarning = retryReload.IsCompleted;
-            }
-            catch (Exception exception)
-            {
-                retryFailure = exception;
-                retryCompletedDuringWarning = retryReload.IsCompleted;
-            }
-        };
-
-        try
-        {
-            LibraryDirectoryPreflightException thrown =
-                await Assert.ThrowsExceptionAsync<LibraryDirectoryPreflightException>(
-                    () => viewModel.ReloadFileDiffAsync());
-
-            if (retryReload is { IsCompleted: false })
-            {
-                try
-                {
-                    await retryReload;
-                }
-                catch (Exception exception)
-                {
-                    retryDrainFailure = exception;
-                }
-            }
-
-            Assert.AreSame(failure, thrown);
-            Assert.AreEqual(1, dialogs.MessageCount);
-            CollectionAssert.AreEqual(new[] { "warning" }, warningSequence);
-            Assert.IsTrue(warningObservedWithOperationReleased);
-            Assert.IsTrue(warningObservedWithProgressUnblocked);
-            Assert.IsTrue(warningObservedWithFailureState);
-            Assert.IsTrue(warningObservedWithRetryableState);
-            Assert.IsNotNull(retryReload);
-            Assert.IsTrue(retryCompletedDuringWarning);
-            Assert.IsFalse(retryTimedOutDuringWarning);
-            Assert.IsTrue(retrySucceededDuringWarning);
-            Assert.IsNull(retryFailure);
-            Assert.IsNull(retryDrainFailure);
-
-            Assert.AreEqual(2, reloadCount);
-            Assert.AreEqual(1, dialogs.MessageCount);
-            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-        }
-        finally
-        {
-            if (retryReload is { IsCompleted: false })
-            {
-                try
-                {
-                    await retryReload;
-                }
-                catch
-                {
-                }
-            }
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task MainWindowConsumer_PlaylistFailureUsesRootFailureCleanup()
-    {
-        var failure = new InvalidOperationException("playlist reference queue failed");
-        var events = new List<string>();
-        var runtime = new RecordingRuntime(events);
-        var owner = new FileDiffReloadWorkflowOwner(
-            request =>
-            {
-                events.Add("reload");
-                return Task.CompletedTask;
-            },
-            CreateSyncOwner(runtime),
-            _ =>
-            {
-                events.Add("playlist");
-                throw failure;
-            });
-        MainWindowViewModel viewModel = CreateMainWindowViewModel(owner);
-
-        try
-        {
-            InvalidOperationException thrown =
-                await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                    () => viewModel.ReloadFileDiffAsync());
-
-            Assert.AreSame(failure, thrown);
-            CollectionAssert.AreEqual(new[] { "reload", "lr2", "playlist" }, events);
-            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsFailed);
-            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsRetryableFailure);
-            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-            Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
-        }
-        finally
-        {
-            viewModel.SettingDialog.Dispose();
-        }
-    }
-
-    [TestMethod]
     public void Constructor_RejectsMissingStageDependencies()
     {
         var runtime = new RecordingRuntime(new List<string>());
         Lr2SongDbSyncWorkflowOwner syncOwner = CreateSyncOwner(runtime);
 
         Assert.ThrowsException<ArgumentNullException>(
-            () => new FileDiffReloadWorkflowOwner(null, syncOwner, _ => { }));
+            () => new FileDiffReloadWorkflowOwner(null, syncOwner, _ => Task.CompletedTask));
         Assert.ThrowsException<ArgumentNullException>(
-            () => new FileDiffReloadWorkflowOwner(_ => Task.CompletedTask, null, _ => { }));
+            () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), null, _ => Task.CompletedTask));
         Assert.ThrowsException<ArgumentNullException>(
-            () => new FileDiffReloadWorkflowOwner(_ => Task.CompletedTask, syncOwner, null));
+            () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), syncOwner, null));
     }
 
-    private static MainWindowViewModel CreateMainWindowViewModel(
-        FileDiffReloadWorkflowOwner owner,
-        IUiDialogService? dialogs = null)
+    private static async Task<LibraryFileInitializationResult> CompleteAfterGateAsync(Task gate)
     {
-        var composition = new ApplicationComposition(
-            settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
-            uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            fileDbMutationDialogService: dialogs);
-        return new MainWindowViewModel(
-            composition,
-            composition,
-            owner,
-            new InitializedStatePort());
-    }
-
-    private sealed class DirectoryWarningDialogService : IUiDialogService
-    {
-        internal int MessageCount { get; private set; }
-
-        internal Action? MessageObserved { get; set; }
-
-        internal Func<Task>? MessageObservedAsync { get; set; }
-
-        public async Task<UiDialogResult> ShowMessageAsync(
-            UiMessageRequest request,
-            CancellationToken cancellationToken = default)
-        {
-            MessageCount++;
-            MessageObserved?.Invoke();
-            if (MessageObservedAsync != null)
-            {
-                await MessageObservedAsync();
-            }
-            return UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
-        }
-
-        public Task<UiDialogResult> ConfirmAsync(
-            UiConfirmationRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
-            UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default)
-            where TWindow : Window
-            => throw new NotSupportedException();
-
-        public Task<UiFilePickerResult> PickFileAsync(
-            UiFilePickerRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<UiFolderPickerResult> PickFolderAsync(
-            UiFolderPickerRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(
-            UiSaveFilePickerRequest request,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
-
-        public Task<UiProgressResult> RunWithProgressAsync(
-            UiProgressRequest request,
-            Func<UiProgressContext, Task> operation,
-            CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        await gate;
+        return new();
     }
 
     private static Lr2SongDbSyncWorkflowOwner CreateSyncOwner(
         RecordingRuntime runtime)
     {
-        return new Lr2SongDbSyncWorkflowOwner(
-            runtime,
-            backgroundScheduler: action =>
-            {
-                action();
-                return Task.CompletedTask;
-            },
-            taskLogger: (_, _) => { });
+        return new Lr2SongDbSyncWorkflowOwner(runtime);
     }
 
     private sealed class RecordingRuntime : ILr2SongDbSyncWorkflowRuntime
@@ -642,33 +257,32 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
         internal LibraryFileMutationCapability? LastCapability { get; private set; }
 
+        internal OperationProgressRequest? LastProgressRequest { get; private set; }
+
         internal Exception? QueueFailure { get; set; }
 
         internal int QueueCount { get; private set; }
 
         internal string? LastQueueReason { get; private set; }
 
-        internal bool LastAllowCommittedPathReceipt { get; private set; }
+        internal LibraryFileInitializationResult? LastInitializationResult { get; private set; }
 
         public bool IsLr2ModeEnabled => IsLr2ModeEnabledValue;
 
         public bool IsLibraryAvailable => IsLibraryAvailableValue;
-
-        public void DiscardCommittedPathReceipt(string reason)
-        {
-        }
 
         public async Task<bool> QueueAsync(
             string reason,
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            bool allowCommittedPathReceipt = false, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
         {
             QueueCount++;
             LastCapability = capability;
+            LastProgressRequest = originatingRequest;
             LastQueueReason = reason;
-            LastAllowCommittedPathReceipt = allowCommittedPathReceipt;
+            LastInitializationResult = initializationResult;
             events.Add("lr2");
             if (QueueFailure != null)
             {

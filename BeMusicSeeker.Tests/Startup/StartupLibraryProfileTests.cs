@@ -43,7 +43,7 @@ public sealed class StartupLibraryProfileTests
             StartupLibraryServices services = owner.CreateAndApply(profile, application);
 
             CollectionAssert.AreEqual(
-                new[] { "factory-library", "application-library", "factory-playlist", "application-services" },
+                new[] { "factory-library", "factory-playlist", "application-library", "application-services" },
                 events);
             Assert.AreSame(profile, factory.LibraryProfile);
             Assert.AreSame(profile, factory.PlaylistProfile);

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -83,7 +84,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
-    public void ApplyFileScanDiff_LatePostLeaseObserverFailureDiscardsCommittedReceipt()
+    public void ApplyFileScanDiff_LatePostLeaseObserverFailurePropagatesFailureWithoutReturningInput()
     {
 
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
@@ -96,8 +97,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true);
             var injectedException = new InvalidOperationException("injected post-lease observer failure");
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
-            int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             InvalidOperationException thrown = Assert.ThrowsException<InvalidOperationException>(
                 () => owner.ApplyFileScanDiff(
@@ -129,11 +128,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
             int committedOwnedCollectionVersion = callbacks.LastCatalogReplacement.Receipt.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
-            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
-            Assert.AreEqual(initialSynchronizationOwnedCollectionVersion, input.OwnedCollectionVersion);
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_first_take"));
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(input, "test_late_receipt_failure_second_take"));
+
+
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
         }
         finally
@@ -146,7 +143,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
-    public void ApplyActiveFileScan_NoDiffDiscardsCommittedReceiptWithoutAdvancingVersion()
+    public void ApplyActiveFileScan_NoDiffPropagatesFailureWithoutReturningInputWithoutAdvancingVersion()
     {
 
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
@@ -166,8 +163,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, lr2ModeEnabled: true, chartFileScanner: chartFileScanner);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
-            int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -179,7 +174,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual(1, first.FileCheckResult.BmsAddedTargetCount);
             Assert.AreEqual(1, first.FileCheckResult.DbCommitBmsChangedCount);
             Assert.IsTrue(callbacks.ParseProgress.Any(progress => progress.Total == 1 && progress.Processed == 1));
-            Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            Assert.IsTrue(first.SynchronizationInput.CommittedBmsPaths.Contains(bmsPath));
             int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
@@ -198,16 +193,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.IsNotNull(callbacks.LastCatalogReplacement);
             Assert.IsFalse(callbacks.LastCatalogReplacement.Receipt.Applied);
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
-            Assert.AreEqual(
-                initialSynchronizationOwnedCollectionVersion,
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion);
-            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput(),
-                "test_no_diff_first_take"));
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput(),
-                "test_no_diff_second_take"));
+
+
         }
         finally
         {
@@ -218,12 +205,20 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
+    /// <summary>実scan失敗でも開始済みmtime Taskを回収し、元の失敗と確定済み目録を保持します。</summary>
     [TestMethod]
-    public void ApplyActiveFileScan_IncompletePrefetchDiscardsCommittedReceiptWithoutAdvancingVersion()
+    public async Task ApplyActiveFileScan_IncompletePrefetchPropagatesFailureWithoutReturningInputWithoutAdvancingVersion()
     {
 
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
+        var readEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scanFailed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? mtime = null;
+        Task<Lr2FolderFileDiffPreparationResult>? apply = null;
+        LibraryFileScanPipelineOwner? owner = null;
+        long generation = 0;
         try
         {
             string bmsPath = Path.Combine(directoryPath, "committed.bms");
@@ -244,15 +239,27 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 IsComplete = false,
                 ErrorReason = "bridge_dll_not_found:test_incomplete_after_commit"
             };
-            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            LibraryFileScanPipelineOwner owner = CreateOwner(
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks
+            {
+                PerformanceObserved = message =>
+                {
+                    if (message.StartsWith("lr2_normal_folder_mtime_snapshot_prefetch", StringComparison.Ordinal))
+                    {
+                        readEntered.TrySetResult();
+                        readRelease.Task.GetAwaiter().GetResult();
+                    }
+                },
+                EverythingObserved = message =>
+                {
+                    if (message.StartsWith("chart_scan_prefetch failed", StringComparison.Ordinal)) { scanFailed.TrySetResult(); }
+                }
+            };
+            owner = CreateOwner(
                 callbacks,
                 lr2ModeEnabled: true,
-                chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan));
+                chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan), directoryPath: directoryPath);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
-            int initialSynchronizationOwnedCollectionVersion =
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion;
 
             long firstGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
             Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
@@ -260,37 +267,44 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 trackLibraryFileCheckProgress: true,
                 installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
             Assert.IsTrue(first.FileCheckResult.HasDbDiff);
-            Assert.IsNotNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
+            Assert.IsTrue(first.SynchronizationInput.CommittedBmsPaths.Contains(bmsPath));
             int committedOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
-            long secondGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete");
-            Assert.ThrowsException<InvalidOperationException>(
-                () => owner.ApplyActiveFileScan(
-                    secondGeneration,
-                    trackLibraryFileCheckProgress: true,
-                    installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty));
+            using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"))) { db.CreateTable<LR2SongDB.folder>(); }
+            generation = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete");
+            mtime = owner.StartActiveNormalFolderMtimeSnapshot(generation);
+            await Task.WhenAny(readEntered.Task, mtime);
+            if (!readEntered.Task.IsCompleted) { await mtime; Assert.Fail("実mtime読取りの制御点へ到達しませんでした。"); }
+            apply = Task.Run(() => owner.ApplyActiveFileScan(generation, true, InstallDestinationCleanupSnapshot.Empty));
+            await Task.WhenAny(scanFailed.Task, apply);
+            if (!scanFailed.Task.IsCompleted) { await apply; Assert.Fail("実scan失敗へ到達しませんでした。"); }
+            Assert.IsFalse(apply.IsCompleted, "開始済みmtime Taskの回収前に実scan失敗を返しません。");
+            readRelease.TrySetResult();
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await apply);
+            StringAssert.Contains(failure.Message, incompleteScan.ErrorReason);
+            await mtime;
 
             Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
-            Assert.AreEqual(
-                initialSynchronizationOwnedCollectionVersion,
-                callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput().OwnedCollectionVersion);
-            Assert.IsNull(callbacks.Lr2Synchronization.CommittedPathReceipt);
             Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
-                input,
-                "test_incomplete_first_take"));
-            Assert.IsNull(callbacks.Lr2Synchronization.TakeLr2SongDbSyncCommittedPathReceipt(
-                input,
-                "test_incomplete_second_take"));
+
+
         }
         finally
         {
-            if (Directory.Exists(directoryPath))
+            readRelease.TrySetResult();
+            try
             {
-                Directory.Delete(directoryPath, recursive: true);
+                if (mtime != null) { await mtime; }
+                if (apply != null)
+                {
+                    try { await apply; }
+                    catch (InvalidOperationException) { }
+                }
+                else if (generation != 0) { owner?.AbortActiveFileScan(generation); }
             }
+            finally { Directory.Delete(directoryPath, recursive: true); }
         }
     }
 
@@ -746,9 +760,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
         RecordingLibraryFileScanPipelineCallbacks callbacks,
         bool lr2ModeEnabled = false,
         IChartFileScanner? chartFileScanner = null,
-        LibraryDirectoryPreflightService? directoryPreflightService = null)
+        LibraryDirectoryPreflightService? directoryPreflightService = null, string? directoryPath = null)
     {
-        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        directoryPath ??= Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         string songDbPath = Path.Combine(directoryPath, "song.db");
         using (new LR2SongDBExtended(songDbPath))
@@ -938,9 +952,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
             DiffCompletedCount++;
         }
 
+        internal Action<string>? PerformanceObserved { get; init; }
+        internal Action<string>? EverythingObserved { get; init; }
+
         public void LogInstallPerformance(string message)
         {
-            PerformanceMessages.Add(message);
+            PerformanceObserved?.Invoke(message);
+            lock (PerformanceMessages) { PerformanceMessages.Add(message); }
         }
 
         public void LogInstallPerformanceWarn(string message)
@@ -949,6 +967,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public void LogEverythingScan(string message)
         {
+            EverythingObserved?.Invoke(message);
             EverythingMessages.Add(message);
         }
 
@@ -973,6 +992,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public void QueueEmptyScanWithExistingDbWarning(string failureReason)
         {
+
         }
 
         public Action PublishCatalogReplacement(FileScanCatalogReplacementEvent replacementEvent)

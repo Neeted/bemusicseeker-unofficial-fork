@@ -12,20 +12,6 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongDbSyncWorkflowOwnerTests
 {
     [TestMethod]
-    public void RequestStatusBarRetry_QueuesWithReasonAndGeneratedDataPreparation()
-    {
-        var runtime = new RecordingRuntime();
-        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
-
-        owner.RequestStatusBarRetry();
-
-        Assert.AreEqual(1, runtime.QueueCalls.Count);
-        Assert.AreEqual("status_bar_retry", runtime.QueueCalls[0].Reason);
-        Assert.IsFalse(runtime.QueueCalls[0].Force);
-        Assert.IsTrue(runtime.QueueCalls[0].PrepareGeneratedData);
-    }
-
-    [TestMethod]
     public async Task RequestManualResync_QueuesForcedRequestAndAwaitsIt()
     {
         var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -38,28 +24,12 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             Assert.AreEqual(1, runtime.QueueCalls.Count);
             Assert.AreEqual("setting_dialog_manual_resync", runtime.QueueCalls[0].Reason);
             Assert.IsTrue(runtime.QueueCalls[0].Force);
-            Assert.IsFalse(runtime.QueueCalls[0].AllowCommittedPathReceipt);
+            Assert.IsFalse(runtime.QueueCalls[0].InitializationResult is not null);
             Assert.IsFalse(runtime.QueueCalls[0].AcceptedBackground);
             terminal.TrySetResult();
             await operation;
         }
         finally { terminal.TrySetResult(); await operation; }
-    }
-
-    [TestMethod]
-    public void DisabledModeOrUnavailableLibrary_DoesNotQueueRetry()
-    {
-        var runtime = new RecordingRuntime { IsLr2ModeEnabled = false };
-        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
-
-        owner.RequestStatusBarRetry();
-
-        runtime.IsLr2ModeEnabled = true;
-        runtime.IsLibraryAvailable = false;
-        owner.RequestStatusBarRetry();
-
-        Assert.AreEqual(0, runtime.QueueCalls.Count);
-        CollectionAssert.AreEqual(Array.Empty<string>(), runtime.Events.ToArray());
     }
 
     [TestMethod]
@@ -116,9 +86,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingRuntime { ExternalSyncTask = completion.Task };
         Task? observed = null;
-        var owner = new Lr2SongDbSyncWorkflowOwner(runtime,
-            action => { action(); return Task.CompletedTask; },
-            (task, _) => observed = task);
+        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
         var failure = new System.IO.IOException("external sync failed");
         var admission = new ChartFileOperationSynchronizer();
         Assert.IsTrue(admission.TryEnter(out IDisposable lease));
@@ -147,68 +115,9 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         }
     }
 
-    [TestMethod]
-    public async Task PostStartupSync_InvokesContinuationAfterQueueAttempt()
-    {
-        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runtime = new RecordingRuntime { QueueTask = terminal.Task };
-        Task? observed = null;
-        var owner = new Lr2SongDbSyncWorkflowOwner(runtime, action => { action(); return Task.CompletedTask; }, (task, _) => observed = task);
-        int continuationCount = 0;
-        owner.SchedulePostStartupSync("initialization_complete", () => continuationCount++);
-        Assert.IsNotNull(observed);
-        try
-        {
-            Assert.IsFalse(observed.IsCompleted);
-            Assert.AreEqual(0, continuationCount);
-            Assert.AreEqual(1, runtime.QueueCalls.Count);
-            Assert.AreEqual("post_startup_initialization_complete", runtime.QueueCalls[0].Reason);
-            Assert.IsTrue(runtime.QueueCalls[0].AllowCommittedPathReceipt);
-            Assert.IsTrue(runtime.QueueCalls[0].AcceptedBackground);
-            terminal.TrySetResult();
-            await observed;
-            Assert.AreEqual(1, continuationCount);
-        }
-        finally { terminal.TrySetResult(); await observed; }
-    }
-
-    [TestMethod]
-    public async Task PostStartupSync_InvokesContinuationWhenQueueFailsAndPreservesFailure()
-    {
-        var failure = new InvalidOperationException("queue failure");
-        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var runtime = new RecordingRuntime { QueueTask = terminal.Task };
-        Task? observed = null;
-        var owner = new Lr2SongDbSyncWorkflowOwner(runtime, action => { action(); return Task.CompletedTask; }, (task, _) => observed = task);
-        int continuationCount = 0;
-        owner.SchedulePostStartupSync("initialization_complete", () => continuationCount++);
-        Assert.IsNotNull(observed);
-        try
-        {
-            Assert.IsFalse(observed.IsCompleted);
-            Assert.AreEqual(0, continuationCount);
-            terminal.SetException(failure);
-            InvalidOperationException thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => observed);
-            Assert.AreSame(failure, thrown);
-            Assert.AreEqual(1, continuationCount);
-        }
-        finally
-        {
-            terminal.TrySetResult();
-            try { await observed; } catch (InvalidOperationException error) when (ReferenceEquals(error, failure)) { }
-        }
-    }
-
     private static Lr2SongDbSyncWorkflowOwner CreateOwner(RecordingRuntime runtime)
     {
-        return new Lr2SongDbSyncWorkflowOwner(
-            runtime,
-            action =>
-            {
-                action();
-                return Task.CompletedTask;
-            },
-            (_, _) => { });
+        return new Lr2SongDbSyncWorkflowOwner(runtime);
     }
 
     private sealed class RecordingRuntime : ILr2SongDbSyncWorkflowRuntime
@@ -231,16 +140,12 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
 
         bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => IsLibraryAvailable;
 
-        public void DiscardCommittedPathReceipt(string reason)
-        {
-        }
-
         public async Task<bool> QueueAsync(
             string reason,
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            bool allowCommittedPathReceipt = false, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
         {
             if (prepareGeneratedData)
             {
@@ -248,7 +153,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
                 if (includeBuiltinGeneratedData) { Events.Add("prepare-builtin:" + reason); }
             }
             Events.Add("queue:" + reason);
-            QueueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue, allowCommittedPathReceipt, capability, acceptedBackground, prepareGeneratedData, includeBuiltinGeneratedData));
+            QueueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue, initializationResult, capability, acceptedBackground, prepareGeneratedData, includeBuiltinGeneratedData));
             if (QueueFailure != null)
             {
                 throw QueueFailure;
@@ -271,7 +176,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         string Reason,
         bool Force,
         bool AllowIncompleteToQueue,
-        bool AllowCommittedPathReceipt,
+        LibraryFileInitializationResult? InitializationResult,
         LibraryFileMutationCapability? Capability,
         bool AcceptedBackground,
         bool PrepareGeneratedData,

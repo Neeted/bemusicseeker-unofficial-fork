@@ -2321,17 +2321,15 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
 
+            Lr2SongDbSyncPreparedDataSurface surface;
             using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation", showMessage: false))
             {
                 Assert.IsNotNull(preparationLease);
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
                 using IDisposable playlistOperation = playlistLease;
                 using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
-                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_actual_preparation", preparationLease, false, playlistCapability: playlistCapability);
-                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_actual_preparation", prepared);
+                surface = runtime.PrepareGeneratedDataUnderLease(library, "test_actual_preparation", preparationLease, false, playlistCapability: playlistCapability);
             }
-            Lr2SongDbSyncPreparedDataSurface surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
-                .TakeLr2SongDbSyncPreparedDataSurface(out _);
             Assert.IsNotNull(surface);
             Assert.IsTrue(surface.Lr2FolderFileDiscoveryComplete);
             CollectionAssert.AreEquivalent(new[]
@@ -2431,11 +2429,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
                 using IDisposable playlistOperation = playlistLease;
                 using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
-                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_empty_snapshot", preparationLease, false, playlistCapability: playlistCapability);
-                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_empty_snapshot", prepared);
+                surface = runtime.PrepareGeneratedDataUnderLease(library, "test_empty_snapshot", preparationLease, false, playlistCapability: playlistCapability);
             }
-            surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
-                .TakeLr2SongDbSyncPreparedDataSurface(out _);
 
             Assert.IsTrue(stages.Count > 0);
             Assert.IsFalse(stages.Any(stage => stage.Stage == "playlist_projection" || stage.Stage == "playlist_files"));
@@ -2535,11 +2530,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
                 using IDisposable playlistOperation = playlistLease;
                 using LibraryFileMutationCapability playlistCapability = playlist.CreatePlaylistMutationCapability(playlistLease);
-                Lr2SongDbSyncPreparedDataSurface prepared = runtime.PrepareGeneratedDataUnderLease(library, "test_external_colocated", preparationLease, false, playlistCapability: playlistCapability);
-                ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization).ApplyLr2SongDbSyncPreparedDataSurface("test_external_colocated", prepared);
+                surface = runtime.PrepareGeneratedDataUnderLease(library, "test_external_colocated", preparationLease, false, playlistCapability: playlistCapability);
             }
-            surface = ((BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization)
-                .TakeLr2SongDbSyncPreparedDataSurface(out _);
 
             Assert.IsFalse(File.Exists(extraFile));
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), expectedFile);

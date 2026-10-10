@@ -514,10 +514,10 @@ public sealed class SettingsDialogBehaviorTests
                 _ =>
                 {
                     sequence.Add("reload");
-                    return Task.CompletedTask;
+                    return Task.FromResult(new LibraryFileInitializationResult());
                 },
                 harness.SyncWorkflow,
-                _ => { });
+                _ => Task.CompletedTask);
 
             await harness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(
                 standaloneAddedRoot + Path.DirectorySeparatorChar);
@@ -566,10 +566,10 @@ public sealed class SettingsDialogBehaviorTests
                 _ =>
                 {
                     sequence.Add("reload");
-                    return Task.CompletedTask;
+                    return Task.FromResult(new LibraryFileInitializationResult());
                 },
                 harness.SyncWorkflow,
-                _ => { });
+                _ => Task.CompletedTask);
 
             await harness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot);
 
@@ -791,10 +791,10 @@ public sealed class SettingsDialogBehaviorTests
                 _ =>
                 {
                     sequence.Add("reload");
-                    return Task.FromException(reloadFailure);
+                    return Task.FromException<LibraryFileInitializationResult>(reloadFailure);
                 },
                 harness.SyncWorkflow,
-                _ => { });
+                _ => Task.CompletedTask);
 
             IOException thrown = await Assert.ThrowsExceptionAsync<IOException>(() =>
                 harness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot));
@@ -827,10 +827,10 @@ public sealed class SettingsDialogBehaviorTests
                 _ =>
                 {
                     sequence.Add("reload");
-                    return Task.CompletedTask;
+                    return Task.FromResult(new LibraryFileInitializationResult());
                 },
                 harness.SyncWorkflow,
-                _ => { });
+                _ => Task.CompletedTask);
 
             InvalidOperationException thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
                 harness.Dialog.AddBmsSearchRootPathFromMainWindowPicker(addedRoot));
@@ -1793,13 +1793,7 @@ public sealed class SettingsDialogBehaviorTests
             var playerFactory = new ThrowingPlayerFactoryPort(runtimeCalls);
             var playbackRuntime = new RecordingPlaybackRuntimePort(runtimeCalls);
             var syncRuntime = new NoOpLr2SongDbSyncRuntime(runtimeCalls);
-            var syncWorkflow = new Lr2SongDbSyncWorkflowOwner(
-                syncRuntime,
-                backgroundScheduler: action =>
-                {
-                    action();
-                    return Task.CompletedTask;
-                });
+            var syncWorkflow = new Lr2SongDbSyncWorkflowOwner(syncRuntime);
             var operationModeRestart = new RecordingOperationModeRestartPort(session);
             SettingsDialogViewModel dialog = composition != null
                 ? composition.CreateSettingDialogViewModel(state, workspace, customFolder, playHistory, searchRoots,
@@ -2073,37 +2067,51 @@ public sealed class SettingsDialogBehaviorTests
 
         internal FileDiffReloadWorkflowOwner? ReloadFileDiffWorkflowOwner { get; set; }
 
-        public Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null)
+        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
+
+        public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+            => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
+
+
+        public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync() => Task.FromResult<LeapYearFolderRepairApproval?>(null);
+
+        public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
+
+        public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null)
         {
             runtimeCalls.ThrowIfUnexpected(nameof(InitializeLibraryAsync));
             InitializeCount++;
-            return Task.FromResult(StartupInitializationOutcome.Succeeded);
+            return Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
         }
 
-        public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+        public async Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
         {
             runtimeCalls.ThrowIfUnexpected(nameof(ReloadScoresOnlyAsync));
             ScoreReloadCount++;
             if (ThrowOnScoreReload)
             {
-                return Task.FromException(new InvalidOperationException("score reload failed"));
+                throw new InvalidOperationException("score reload failed");
             }
 
-            return Task.CompletedTask;
+            await Task.CompletedTask;
+            return new(StartupInitializationOutcome.Succeeded);
         }
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
 
-        public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+        public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
         {
             runtimeCalls.ThrowIfUnexpected(nameof(ReloadFileDiffAsync));
             FileDiffReloadCount++;
             if (ReloadFileDiffWorkflowOwner != null)
             {
-                return ReloadFileDiffWorkflowOwner.ReloadAsync(
+                await ReloadFileDiffWorkflowOwner.ReloadAsync(
                     new FileDiffReloadRequest("SettingsDialog.SearchRoot", 0L));
+                return new(StartupInitializationOutcome.Succeeded);
             }
-            return ReloadFileDiffHandler?.Invoke() ?? Task.CompletedTask;
+            await (ReloadFileDiffHandler?.Invoke() ?? Task.CompletedTask);
+            return new(StartupInitializationOutcome.Succeeded);
         }
 
 #pragma warning disable CS0067 // インターフェイスのイベント面を満たすが、このテストダブルでは発火させない。
@@ -2327,6 +2335,8 @@ public sealed class SettingsDialogBehaviorTests
     private sealed class RecordingCustomFolderOutputPort : ISettingsDialogCustomFolderOutputPort
     {
         private readonly ChartFileOperationSynchronizer outputAdmission = new();
+
+        public bool CanBeginOutputOperation => outputAdmission.CanEnter;
 
         public LibraryFileMutationLease? TryBeginOutputOperation()
             => outputAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease : null;
@@ -2552,16 +2562,12 @@ public sealed class SettingsDialogBehaviorTests
 
         public bool IsLibraryAvailable => IsLibraryAvailableValue;
 
-        public void DiscardCommittedPathReceipt(string reason)
-        {
-        }
-
         public async Task<bool> QueueAsync(
             string reason,
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            bool allowCommittedPathReceipt = false, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
         {
             QueueCount++;
             QueueObserved?.Invoke();

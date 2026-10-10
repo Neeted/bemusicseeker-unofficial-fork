@@ -20,13 +20,12 @@ internal static class Lr2SongDbSyncStatusMapper
             ProgressMaximum = 1.0,
             HasProgress = false,
             HasWarningStatus = false,
-            CanRetry = false,
             CheckedAt = DateTime.MinValue
         };
     }
 
     /// <summary>実処理の状態を表示へ投影します。既知の旧段階も翻訳し、未知の保存済み識別子は診断に残します。</summary>
-    internal static Lr2SongDbSyncRuntimeStatus Create(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt)
+    internal static Lr2SongDbSyncRuntimeStatus Create(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
     {
         if (snapshot == null)
         {
@@ -37,6 +36,7 @@ internal static class Lr2SongDbSyncStatusMapper
         return new Lr2SongDbSyncRuntimeStatus
         {
             Kind = snapshot.Status,
+            Request = request,
             StatusText = statusText,
             Detail = BuildDetail(snapshot, checkedAt),
             ProgressText = BuildProgressText(snapshot),
@@ -44,7 +44,6 @@ internal static class Lr2SongDbSyncStatusMapper
             ProgressMaximum = Math.Max(1.0, snapshot.StageTotalCount.GetValueOrDefault()),
             HasProgress = HasProgress(snapshot),
             HasWarningStatus = HasWarningStatus(snapshot.Status),
-            CanRetry = CanRetry(snapshot),
             CheckedAt = checkedAt
         };
     }
@@ -53,15 +52,6 @@ internal static class Lr2SongDbSyncStatusMapper
     {
         return kind == Lr2SongDbSyncStatusKind.Needed
             || kind == Lr2SongDbSyncStatusKind.Running
-            || kind == Lr2SongDbSyncStatusKind.Failed
-            || kind == Lr2SongDbSyncStatusKind.Incomplete
-            || kind == Lr2SongDbSyncStatusKind.Cancelled;
-    }
-
-    private static bool CanRetry(Lr2SongDbSyncStatusSnapshot snapshot)
-    {
-        Lr2SongDbSyncStatusKind kind = snapshot?.Status ?? Lr2SongDbSyncStatusKind.NotNeeded;
-        return kind == Lr2SongDbSyncStatusKind.Needed
             || kind == Lr2SongDbSyncStatusKind.Failed
             || kind == Lr2SongDbSyncStatusKind.Incomplete
             || kind == Lr2SongDbSyncStatusKind.Cancelled;
@@ -81,7 +71,7 @@ internal static class Lr2SongDbSyncStatusMapper
         };
     }
 
-    private static string BuildDetail(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt)
+    private static string BuildDetail(Lr2SongDbSyncStatusSnapshot snapshot, DateTime checkedAt, OperationProgressRequest request = null)
     {
         string timestampText = checkedAt == DateTime.MinValue ? string.Empty : checkedAt.ToString("yyyy/MM/dd HH:mm:ss");
         string stageText = GetStageText(snapshot.Stage);

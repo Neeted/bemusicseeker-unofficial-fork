@@ -13,14 +13,7 @@ internal sealed class StartupProgressVersionSnapshot
 {
     internal int ScoreHydrationCompletedVersion { get; init; }
     internal int ScoreHydrationRequestedVersion { get; init; }
-    internal int RankingRefreshCompletedVersion { get; init; }
-    internal int RankingRefreshRequestedVersion { get; init; }
-    internal int MaintenanceHydrationRequestedVersion { get; init; }
-    internal int InstallableMaintenanceDeferredRequestedVersion { get; init; }
-    internal int ChartDigestBackfillCompletedVersion { get; init; }
-    internal int ChartInfoBackfillCompletedVersion { get; init; }
     internal int ChartInfoHydrationCompletedVersion { get; init; }
-    internal int ChartInfoBackfillRequestedVersion { get; init; }
     internal int PlaylistEntriesHydrationCompletedVersion { get; init; }
     internal int LibraryDatabaseLoadCompletedVersion { get; init; }
     internal int LibraryFileEnumerationCompletedVersion { get; init; }
@@ -34,9 +27,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private readonly Action<Action> dispatch;
     private readonly Action<string> log;
     private readonly Action<long> startupInitializationCompleted;
-    private readonly Func<bool> backgroundTasksIdle;
-    private readonly Func<long, long, bool> backgroundTasksIdleSnapshotCurrent;
-    private readonly Func<bool> requiredInitializationSchedulingComplete;
     private readonly Func<Task> completionHideDelay;
     private readonly object backgroundTaskProgressSynchronization;
     private readonly object startupProgressLock = new();
@@ -52,19 +42,16 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     private double progressMaximum = 1.0;
 
     /// <summary>
-    /// Initializes the owner with the startup-progress runtime boundaries.
+    /// 既存の実行・表示境界を起動進捗へ接続します。
     /// </summary>
-    /// <param name="versionSnapshotProvider">Provides the current completion versions when an operation starts.</param>
-    /// <param name="prepareOperation">Prepares operation-scoped collaborators for a newly assigned token.</param>
-    /// <param name="dispatch">Dispatches presentation notifications to their owning thread.</param>
-    /// <param name="log">Writes startup-progress diagnostics.</param>
-    /// <param name="startupInitializationCompleted">Publishes completion of required startup initialization.</param>
-    /// <param name="backgroundTasksIdle">Reports whether startup background tasks are currently idle.</param>
-    /// <param name="backgroundTasksIdleSnapshotCurrent">Validates a scheduler generation and revision as an idle snapshot.</param>
-    /// <param name="requiredInitializationSchedulingComplete">Reports whether required task enrollment is closed for the current generation.</param>
-    /// <param name="backgroundTaskProgressSynchronization">Synchronizes scheduler enrollment with progress completion.</param>
+    /// <param name="versionSnapshotProvider">操作開始時の現在の完了版を返す境界。</param>
+    /// <param name="prepareOperation">新しい操作tokenの構成要素を準備する境界。</param>
+    /// <param name="dispatch">表示を所有するスレッドへ通知する境界。</param>
+    /// <param name="log">進捗診断の出力。</param>
+    /// <param name="startupInitializationCompleted">必須初期化の完了を記録する境界。</param>
+    /// <param name="backgroundTaskProgressSynchronization">操作準備とscheduler登録の既存同期。</param>
     /// <param name="completionHideDelay">
-    /// Waits before a completed operation is hidden. When omitted, the production two-second delay is used.
+    /// 完了の余韻表示を消すまで待ちます。省略時は既存の2秒待機を使います。
     /// </param>
     internal StartupProgressWorkflowOwner(
         Func<StartupProgressVersionSnapshot> versionSnapshotProvider,
@@ -72,9 +59,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         Action<Action> dispatch,
         Action<string> log,
         Action<long> startupInitializationCompleted,
-        Func<bool> backgroundTasksIdle,
-        Func<long, long, bool> backgroundTasksIdleSnapshotCurrent,
-        Func<bool> requiredInitializationSchedulingComplete,
         object backgroundTaskProgressSynchronization,
         Func<Task> completionHideDelay = null)
     {
@@ -84,11 +68,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.startupInitializationCompleted = startupInitializationCompleted
             ?? throw new ArgumentNullException(nameof(startupInitializationCompleted));
-        this.backgroundTasksIdle = backgroundTasksIdle ?? throw new ArgumentNullException(nameof(backgroundTasksIdle));
-        this.backgroundTasksIdleSnapshotCurrent = backgroundTasksIdleSnapshotCurrent
-            ?? throw new ArgumentNullException(nameof(backgroundTasksIdleSnapshotCurrent));
-        this.requiredInitializationSchedulingComplete = requiredInitializationSchedulingComplete
-            ?? throw new ArgumentNullException(nameof(requiredInitializationSchedulingComplete));
         this.completionHideDelay = completionHideDelay
             ?? (() => Task.Delay(TimeSpan.FromSeconds(2)));
         this.backgroundTaskProgressSynchronization = backgroundTaskProgressSynchronization
@@ -200,43 +179,18 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 && AreExpectedStartupProgressPhasesCompleted(startupProgressState);
         }
     }
-    internal void TryCompleteStartupBackgroundTasksPhaseIfIdle(
-        long operationToken = 0L,
-        long schedulerGeneration = 0L,
-        long schedulerRevision = 0L)
+    /// <summary>直接待った必須起動と親受付の解放後に完了します。後続schedulerのidleを成功条件にしません。</summary>
+    internal void CompleteRequiredInitialization(long operationToken)
     {
-        bool marked = false;
-        lock (backgroundTaskProgressSynchronization)
+        lock (startupProgressLock)
         {
-            lock (startupProgressLock)
-            {
-                if (!requiredInitializationSchedulingComplete())
-                {
-                    return;
-                }
-                if (schedulerGeneration != 0L
-                    ? !backgroundTasksIdleSnapshotCurrent(schedulerGeneration, schedulerRevision)
-                    : !backgroundTasksIdle())
-                {
-                    return;
-                }
-                StartupProgressPhase expectedExceptBackgroundTasks = startupProgressState.ExpectedPhases & ~StartupProgressPhase.StartupBackgroundTasksDone;
-                if (startupProgressState.IsActive
-                    && (operationToken == 0L || startupProgressState.OperationToken == operationToken)
-                    && (startupProgressState.ExpectedPhases & StartupProgressPhase.StartupBackgroundTasksDone) != 0
-                    && (startupProgressState.CompletedPhases & StartupProgressPhase.StartupBackgroundTasksDone) == 0
-                    && (startupProgressState.CompletedPhases & expectedExceptBackgroundTasks) == expectedExceptBackgroundTasks)
-                {
-                    startupProgressState.CompletedPhases |= StartupProgressPhase.StartupBackgroundTasksDone;
-                    marked = true;
-                }
-            }
+            if (!startupProgressState.IsActive || startupProgressState.OperationToken != operationToken
+                || startupProgressState.IsFailed) { return; }
+            startupProgressState.CompletedPhases |= startupProgressState.ExpectedPhases;
         }
-        if (marked)
-        {
-            RecomputeStartupProgressPresentation();
-        }
+        RecomputeStartupProgressPresentation(operationToken);
     }
+
     internal void ApplyPresentation(bool active, string valueLabel, string valueSubLabel, double progress, double maximum)
     {
         IsActive = active;
@@ -273,12 +227,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             ExpectedPhases = GetInitialExpectedStartupProgressPhases(operationKind),
             ScoreHydrationBaselineCompletedVersion = versionSnapshot.ScoreHydrationCompletedVersion,
             ScoreHydrationRequestedBaselineVersion = versionSnapshot.ScoreHydrationRequestedVersion,
-            RankingRefreshBaselineCompletedVersion = versionSnapshot.RankingRefreshCompletedVersion,
-            RankingRefreshRequestedBaselineVersion = versionSnapshot.RankingRefreshRequestedVersion,
-            MaintenanceRequestedBaselineVersion = versionSnapshot.MaintenanceHydrationRequestedVersion,
-            InstallableMaintenanceRequestedBaselineVersion = versionSnapshot.InstallableMaintenanceDeferredRequestedVersion,
-            ChartDigestBackfillBaselineCompletedVersion = versionSnapshot.ChartDigestBackfillCompletedVersion,
-            ChartInfoBackfillBaselineCompletedVersion = versionSnapshot.ChartInfoBackfillCompletedVersion,
             ChartInfoHydrationBaselineCompletedVersion = versionSnapshot.ChartInfoHydrationCompletedVersion,
             PlaylistEntriesHydrationBaselineCompletedVersion = versionSnapshot.PlaylistEntriesHydrationCompletedVersion,
             LibraryDatabaseLoadBaselineCompletedVersion = versionSnapshot.LibraryDatabaseLoadCompletedVersion,
@@ -362,12 +310,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 return;
             }
             startupProgressState.CompletedPhases |= phase;
-            if (phase == StartupProgressPhase.RankingRefreshDone
-                || phase == StartupProgressPhase.MaintenanceDeferredDone
-                || phase == StartupProgressPhase.InstallableMaintenanceDeferredDone)
-            {
-                startupProgressState.LastCompletedAtUtc = DateTime.UtcNow;
-            }
             marked = true;
         }
         if (!marked)
@@ -375,10 +317,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             return;
         }
         RecomputeStartupProgressPresentation(operationToken);
-        if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
-        {
-            TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-        }
     }
 
     internal void SkipStartupProgressPhaseIfExpected(StartupProgressPhase phase, string reason, long operationToken = 0L)
@@ -403,10 +341,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         {
             log?.Invoke("startup_progress_phase_skipped operation=" + operationKind + " phase=" + phase + " reason=" + (reason ?? string.Empty));
             RecomputeStartupProgressPresentation(operationToken);
-            if (phase != StartupProgressPhase.StartupBackgroundTasksDone)
-            {
-                TryCompleteStartupBackgroundTasksPhaseIfIdle(operationToken);
-            }
         }
     }
 
@@ -512,8 +446,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             && phase != StartupProgressPhase.StartupReadyOperable
             && phase != StartupProgressPhase.LibraryDatabaseLoadDone
             && phase != StartupProgressPhase.LibraryFileEnumerationDone
-            && phase != StartupProgressPhase.LibraryFileDiffDone
-            && phase != StartupProgressPhase.StartupBackgroundTasksDone;
+            && phase != StartupProgressPhase.LibraryFileDiffDone;
     }
 
     internal static bool CanCompleteStartupProgressPhase(StartupProgressState state, StartupProgressPhase phase)
@@ -614,44 +547,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
     }
 
-    /// <summary>
-    /// maintenance deferred 要求を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="requestedVersion">要求版数。</param>
-    /// <param name="request">表示用の発生元と実要求版。既存の最大必要版・完了条件とは別に保持します。</param>
-    internal void TrackStartupProgressMaintenanceRequested(int requestedVersion, OperationProgressRequest request = null)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.MaintenanceDeferredDone,
-            requestedVersion,
-            "maintenance_deferred",
-            state => requestedVersion > state.MaintenanceRequestedBaselineVersion,
-            state =>
-            {
-                state.RequiredMaintenanceCompletedVersion = Math.Max(state.RequiredMaintenanceCompletedVersion, requestedVersion);
-                state.RequiredMaintenanceProgressRequest = request;
-            });
-    }
-
-    /// <summary>
-    /// installable maintenance deferred 要求を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="requestedVersion">要求版数。</param>
-    /// <param name="request">表示用の発生元と実要求版。既存の最大必要版・完了条件とは別に保持します。</param>
-    internal void TrackStartupProgressInstallableMaintenanceRequested(int requestedVersion, OperationProgressRequest request = null)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.InstallableMaintenanceDeferredDone,
-            requestedVersion,
-            "installable_maintenance_deferred",
-            state => requestedVersion > state.InstallableMaintenanceRequestedBaselineVersion,
-            state =>
-            {
-                state.RequiredInstallableMaintenanceCompletedVersion = Math.Max(state.RequiredInstallableMaintenanceCompletedVersion, requestedVersion);
-                state.RequiredInstallableMaintenanceProgressRequest = request;
-            });
-    }
-
     /// <summary>スコア要求の既存必要版と捕捉した表示識別を記録します。</summary>
     /// <param name="requestedVersion">既存の完了計算へ使う要求版。</param>
     /// <param name="request">受付時の発生元と同主体の実要求版。未捕捉なら親行一致とは扱いません。</param>
@@ -666,23 +561,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             {
                 state.RequiredScoreHydrationCompletedVersion = Math.Max(state.RequiredScoreHydrationCompletedVersion, requestedVersion);
                 state.RequiredScoreHydrationProgressRequest = request;
-            });
-    }
-
-    /// <summary>順位要求の既存必要版と捕捉した表示識別を記録します。</summary>
-    /// <param name="requestedVersion">既存の完了計算へ使う要求版。</param>
-    /// <param name="request">受付時の発生元と同主体の実要求版。未捕捉なら親行一致とは扱いません。</param>
-    internal void TrackStartupProgressRankingRefreshRequested(int requestedVersion, OperationProgressRequest request = null)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.RankingRefreshDone,
-            requestedVersion,
-            "ranking_refresh",
-            state => requestedVersion > state.RankingRefreshRequestedBaselineVersion,
-            state =>
-            {
-                state.RequiredRankingRefreshCompletedVersion = Math.Max(state.RequiredRankingRefreshCompletedVersion, requestedVersion);
-                state.RequiredRankingRefreshProgressRequest = request;
             });
     }
 
@@ -702,11 +580,11 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             return request.Source switch
             {
                 "score_hydration_deferred" => request == state.RequiredScoreHydrationProgressRequest,
-                "ranking_refresh_deferred" => request == state.RequiredRankingRefreshProgressRequest,
                 "chart_info_hydration" => request == state.RequiredChartInfoHydrationProgressRequest,
-                "chart_info_backfill" => request == state.RequiredChartInfoBackfillProgressRequest,
-                "maintenance_hydration" => request == state.RequiredMaintenanceProgressRequest,
-                "installable_maintenance" => request == state.RequiredInstallableMaintenanceProgressRequest,
+                "playlist_bmt_output" or "playlist_custom_folder_output_repair"
+                    => state.OperationKind is StartupProgressOperationKind.Startup or StartupProgressOperationKind.FullReinitialize,
+                "lr2_song_db_sync" => state.OperationKind is StartupProgressOperationKind.Startup
+                    or StartupProgressOperationKind.FullReinitialize or StartupProgressOperationKind.ReloadFileDiff,
                 "playlist_entries_hydration" => request == state.RequiredPlaylistEntriesHydrationProgressRequest
                     || request == state.RequiredPlaylistReferenceProgressRequest,
                 "playlist_ref_apply" => request == state.RequiredPlaylistReferenceProgressRequest
@@ -718,44 +596,13 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
     }
 
-    internal void TrackStartupProgressChartDigestBackfillRequested(int requestedVersion)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartDigestBackfillDone,
-            requestedVersion,
-            "chart_digest_backfill",
-            state => requestedVersion > state.ChartDigestBackfillBaselineCompletedVersion,
-            state =>
-            {
-                state.RequiredChartDigestBackfillCompletedVersion = Math.Max(state.RequiredChartDigestBackfillCompletedVersion, requestedVersion);
-            });
-    }
-
-    /// <summary>譜面情報補完の既存必要版と捕捉した表示識別を記録します。</summary>
-    /// <param name="requestedVersion">既存の完了計算へ使う要求版。</param>
-    /// <param name="request">受付時の発生元と同主体の実要求版。未捕捉なら親行一致とは扱いません。</param>
-    internal void TrackStartupProgressChartInfoBackfillRequested(int requestedVersion, OperationProgressRequest request = null)
-    {
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartInfoBackfillDone,
-            requestedVersion,
-            "chart_info_backfill",
-            state => requestedVersion > state.ChartInfoBackfillBaselineCompletedVersion,
-            state =>
-            {
-                state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, requestedVersion);
-                state.RequiredChartInfoBackfillProgressRequest = request;
-            });
-    }
-
-    /// <summary>譜面情報読込みと対応する補完の必要版・表示識別を記録します。</summary>
+    /// <summary>必須の保存済み譜面情報読込みの必要版・表示識別だけを記録します。</summary>
     /// <param name="requestedVersion">既存の完了計算へ使う要求版。</param>
     /// <param name="request">受付時の発生元と同主体の実要求版。未捕捉なら親行一致とは扱いません。</param>
     internal void TrackStartupProgressChartInfoHydrationRequested(int requestedVersion, OperationProgressRequest request = null)
     {
         long operationToken = GetActiveStartupProgressOperationToken();
-        int expectedBackfillVersion = versionSnapshotProvider().ChartInfoBackfillRequestedVersion + 1;
-        bool shouldTrack = TryTrackStartupProgressPhaseRequest(
+        TryTrackStartupProgressPhaseRequest(
             StartupProgressPhase.ChartInfoHydrationDone,
             requestedVersion,
             "chart_info_hydration",
@@ -766,22 +613,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                 state.RequiredChartInfoHydrationProgressRequest = request;
             },
             operationToken);
-        if (!shouldTrack)
-        {
-            return;
-        }
-        TryTrackStartupProgressPhaseRequest(
-            StartupProgressPhase.ChartInfoBackfillDone,
-            expectedBackfillVersion,
-            "chart_info_backfill_after_hydration",
-            state => true,
-            state =>
-            {
-                state.RequiredChartInfoBackfillCompletedVersion = Math.Max(state.RequiredChartInfoBackfillCompletedVersion, expectedBackfillVersion);
-                state.RequiredChartInfoBackfillProgressRequest = request == null ? null
-                    : request with { Source = "chart_info_backfill", Version = expectedBackfillVersion };
-            },
-            operationToken);
+
     }
 
     /// <summary>項目読込みの必要版と捕捉した表示識別を、既存の完了条件へ記録します。</summary>
@@ -900,12 +732,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                     AddDetail(rows, "library:" + status.Stage + ":" + status.ScannerLabel, label,
                         status.TotalCount, status.ProcessedCount, status.CurrentPath);
                 }
-                if (state.ChartInfoBackfillTotalCount > 0 && !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoBackfillDone))
-                {
-                    AddDetail(rows, "task:chart_info_backfill", BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info,
-                        state.ChartInfoBackfillTotalCount, state.ChartInfoBackfillProcessedCount, state.ChartInfoBackfillCurrentPath);
-                }
-
                 if (state.ChartInfoHydrationTotalCount > 0 && !IsStartupProgressPhaseCompletedOrNotExpected(state, StartupProgressPhase.ChartInfoHydrationDone))
                 {
                     AddDetail(rows, "task:chart_info_hydration", BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load,
@@ -943,26 +769,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
             libraryInitializationStatuses = current;
         }
         RecomputeStartupProgressPresentation(token);
-    }
-
-    /// <summary>現在の親操作が待つ要求版と一致する補完件数だけを反映します。</summary>
-    internal void UpdateStartupProgressChartInfoBackfillStatus(ChartInfoWorkflowProgressSnapshot snapshot)
-    {
-        lock (startupProgressLock)
-        {
-            if (snapshot == null || !startupProgressState.IsActive
-                || snapshot.Request != startupProgressState.RequiredChartInfoBackfillProgressRequest
-                || snapshot.RequestVersion != startupProgressState.RequiredChartInfoBackfillCompletedVersion
-                || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
-            {
-                return;
-            }
-
-            startupProgressState.ChartInfoBackfillTotalCount = snapshot.TotalCount;
-            startupProgressState.ChartInfoBackfillProcessedCount = snapshot.ProcessedCount;
-            startupProgressState.ChartInfoBackfillCurrentPath = snapshot.CurrentPath;
-        }
-        RecomputeStartupProgressPresentation();
     }
 
     /// <summary>現在の親操作が待つ要求版と一致する読込み件数だけを反映します。</summary>
@@ -1041,44 +847,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         }
     }
 
-    internal void TryCompleteStartupProgressChartDigestBackfill(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartDigestBackfillDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredChartDigestBackfillCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartDigestBackfillDone, operationToken);
-        }
-    }
-
-    internal void TryCompleteStartupProgressChartInfoBackfill(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.ChartInfoBackfillDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredChartInfoBackfillCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.ChartInfoBackfillDone, operationToken);
-        }
-    }
-
     internal void TryCompleteStartupProgressChartInfoHydration(int completedVersion)
     {
         bool shouldComplete = false;
@@ -1120,52 +888,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
     }
 
     /// <summary>
-    /// maintenance deferred 完了を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    internal void TryCompleteStartupProgressMaintenance(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.MaintenanceDeferredDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredMaintenanceCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.MaintenanceDeferredDone, operationToken);
-        }
-    }
-
-    /// <summary>
-    /// installable maintenance deferred 完了を起動・リロード進捗へ反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    internal void TryCompleteStartupProgressInstallableMaintenance(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.InstallableMaintenanceDeferredDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredInstallableMaintenanceCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.InstallableMaintenanceDeferredDone, operationToken);
-        }
-    }
-
-    /// <summary>
     /// 起動・リロード進捗で deferred score hydration 完了を反映します。
     /// </summary>
     /// <param name="completedVersion">完了版数。</param>
@@ -1186,30 +908,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         if (shouldComplete)
         {
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.ScoreHydrationDone, operationToken);
-        }
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗で deferred ranking refresh 完了を反映します。
-    /// </summary>
-    /// <param name="completedVersion">完了版数。</param>
-    internal void TryCompleteStartupProgressRankingRefresh(int completedVersion)
-    {
-        bool shouldComplete = false;
-        long operationToken = 0L;
-        lock (startupProgressLock)
-        {
-            if (!startupProgressState.IsActive || !CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.RankingRefreshDone))
-            {
-                return;
-            }
-            shouldComplete = completedVersion >= startupProgressState.RequiredRankingRefreshCompletedVersion
-                && completedVersion > startupProgressState.RankingRefreshBaselineCompletedVersion;
-            operationToken = startupProgressState.OperationToken;
-        }
-        if (shouldComplete)
-        {
-            MarkStartupProgressPhaseCompleted(StartupProgressPhase.RankingRefreshDone, operationToken);
         }
     }
 
@@ -1390,14 +1088,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
         return count;
     }
 
@@ -1413,11 +1105,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.StartupReadyUi
                                 | StartupProgressPhase.StartupReadyOperable
                                 | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.ChartDigestBackfillDone
-                                | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
-                                | StartupProgressPhase.PlaylistEntriesHydrationDone
-                                | StartupProgressPhase.StartupBackgroundTasksDone,
+                                | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.FullReinitialize => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.LibraryDatabaseLoadDone
                                 | StartupProgressPhase.LibraryFileEnumerationDone
@@ -1425,11 +1114,6 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.StartupReadyOperable
                                 | StartupProgressPhase.PlaylistReferenceApplied
                                 | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone
-                                | StartupProgressPhase.MaintenanceDeferredDone
-                                | StartupProgressPhase.InstallableMaintenanceDeferredDone
-                                | StartupProgressPhase.ChartDigestBackfillDone
-                                | StartupProgressPhase.ChartInfoBackfillDone
                                 | StartupProgressPhase.ChartInfoHydrationDone
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.ReloadFileDiff => StartupProgressPhase.CoreInitializeStarted
@@ -1440,8 +1124,7 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
                                 | StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressOperationKind.ScoreOnly => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.StartupReadyOperable
-                                | StartupProgressPhase.ScoreHydrationDone
-                                | StartupProgressPhase.RankingRefreshDone,
+                                | StartupProgressPhase.ScoreHydrationDone,
             StartupProgressOperationKind.ReloadTables => StartupProgressPhase.CoreInitializeStarted
                                 | StartupProgressPhase.StartupReadyOperable
                                 | StartupProgressPhase.PlaylistReferenceApplied
@@ -1464,14 +1147,8 @@ public sealed class StartupProgressWorkflowOwner : ViewModel
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistReferenceApplied, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ExternalPlaylistSyncDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.PlaylistEntriesHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.MaintenanceDeferredDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.InstallableMaintenanceDeferredDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartDigestBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ChartInfoBackfillDone, ref count);
         CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.ScoreHydrationDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.RankingRefreshDone, ref count);
-        CountCompletedExpectedStartupProgressPhase(state, StartupProgressPhase.StartupBackgroundTasksDone, ref count);
         return count;
     }
 
@@ -1565,17 +1242,11 @@ internal enum StartupProgressPhase
     PlaylistReferenceApplied = 16,
     ExternalPlaylistSyncDone = 32,
     ScoreHydrationDone = 64,
-    RankingRefreshDone = 128,
-    MaintenanceDeferredDone = 256,
-    ChartDigestBackfillDone = 512,
-    ChartInfoBackfillDone = 1024,
     ChartInfoHydrationDone = 2048,
     PlaylistEntriesHydrationDone = 4096,
     LibraryDatabaseLoadDone = 8192,
     LibraryFileEnumerationDone = 16384,
     LibraryFileDiffDone = 32768,
-    InstallableMaintenanceDeferredDone = 65536,
-    StartupBackgroundTasksDone = 262144
 }
 
 /// <summary>
@@ -1612,22 +1283,6 @@ internal sealed class StartupProgressState
 
     internal int RequiredScoreHydrationCompletedVersion;
 
-    internal int RankingRefreshBaselineCompletedVersion;
-
-    internal int RankingRefreshRequestedBaselineVersion;
-
-    internal OperationProgressRequest RequiredRankingRefreshProgressRequest;
-
-    internal int RequiredRankingRefreshCompletedVersion;
-
-    internal int MaintenanceRequestedBaselineVersion;
-
-    internal int InstallableMaintenanceRequestedBaselineVersion;
-
-    internal int ChartDigestBackfillBaselineCompletedVersion;
-
-    internal int ChartInfoBackfillBaselineCompletedVersion;
-
     internal int ChartInfoHydrationBaselineCompletedVersion;
 
     internal int PlaylistEntriesHydrationBaselineCompletedVersion;
@@ -1652,30 +1307,9 @@ internal sealed class StartupProgressState
 
     internal int RequiredPlaylistEntriesHydrationCompletedVersion;
 
-    internal OperationProgressRequest RequiredMaintenanceProgressRequest;
-
-    internal int RequiredMaintenanceCompletedVersion;
-
-    internal OperationProgressRequest RequiredInstallableMaintenanceProgressRequest;
-
-    internal int RequiredInstallableMaintenanceCompletedVersion;
-
-
-    internal int RequiredChartDigestBackfillCompletedVersion;
-
-    internal OperationProgressRequest RequiredChartInfoBackfillProgressRequest;
-
-    internal int RequiredChartInfoBackfillCompletedVersion;
-
     internal OperationProgressRequest RequiredChartInfoHydrationProgressRequest;
 
     internal int RequiredChartInfoHydrationCompletedVersion;
-
-    internal int ChartInfoBackfillTotalCount;
-
-    internal int ChartInfoBackfillProcessedCount;
-
-    internal string ChartInfoBackfillCurrentPath = string.Empty;
 
     internal int ChartInfoHydrationTotalCount;
 

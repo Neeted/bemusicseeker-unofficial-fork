@@ -343,7 +343,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-        var dataSource = new FakePlaylistDetailDataSource();
+        var buildEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var buildRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dataSource = new FakePlaylistDetailDataSource
+        {
+            EnsureEntriesLoadedAction = () => { buildEntered.TrySetResult(); buildRelease.Task.GetAwaiter().GetResult(); }
+        };
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
         var table = new BMSTable { entries = [entry] };
@@ -355,17 +360,25 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Direction = System.ComponentModel.ListSortDirection.Ascending
         });
 
-        int requestVersion = workspace.RequestDetailRefresh(
+        Task requestCompletion = workspace.RequestDetailRefreshTask(
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
             useCoalescingWindow: false,
             openReadiness: default);
 
-        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
-        Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
-        await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
-        Assert.AreEqual(requestVersion, workspace.DetailBuildState.RequestVersion);
+        try
+        {
+            await Task.WhenAny(buildEntered.Task, requestCompletion);
+            if (!buildEntered.Task.IsCompleted) { await requestCompletion; Assert.Fail("実detail producerに到達しませんでした。"); }
+            Assert.IsFalse(requestCompletion.IsCompleted);
+            Assert.AreEqual(0L, mainChartList.LastCompletion.RequestId);
+        }
+        finally
+        {
+            buildRelease.TrySetResult();
+            await Task.WhenAll(requestCompletion, workspace.WaitForDetailBuildIdleAsync()).ConfigureAwait(false);
+        }
         Assert.AreSame(table, workspace.DetailViewState.Source.CurrentTable);
         Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
         Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
@@ -1049,30 +1062,31 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var failureEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var failureRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var originalFailure = new InvalidOperationException("detail data source failed");
         dataSource.EnsureEntriesLoadedAction = () =>
         {
             failureEntered.TrySetResult(true);
             failureRelease.Task.GetAwaiter().GetResult();
-            throw new InvalidOperationException("detail data source failed");
+            throw originalFailure;
         };
         var table = new BMSTable
         {
             entries = [new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "failure")]
         };
         workspace.RequestDetailSelection(table);
-        int requestVersion = workspace.RequestDetailRefresh(
+        Task requestCompletion = workspace.RequestDetailRefreshTask(
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
             useCoalescingWindow: false,
             openReadiness: default);
-        Task requestCompletion = workspace.WaitForDetailRequestCompletionAsync(requestVersion);
         Task workerIdle = workspace.WaitForDetailBuildIdleAsync();
 
         Exception? primaryFailure = null;
         try
         {
-            await failureEntered.Task.ConfigureAwait(false);
+            await Task.WhenAny(failureEntered.Task, requestCompletion);
+            if (!failureEntered.Task.IsCompleted) { await requestCompletion; Assert.Fail("実detail producerに到達しませんでした。"); }
             Assert.IsFalse(requestCompletion.IsCompleted);
             Assert.IsFalse(workerIdle.IsCompleted);
         }
@@ -1084,10 +1098,14 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         finally
         {
             // 本体の失敗を確定させた後、ゲートを開けて要求と worker の終端を回収する。
+            workspace.RequestDetailSelection(new BMSTable());
             failureRelease.TrySetResult(true);
             try
             {
-                await Task.WhenAll(requestCompletion, workerIdle).ConfigureAwait(false);
+                InvalidOperationException actualFailure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                    async () => await requestCompletion);
+                Assert.AreSame(originalFailure, actualFailure, "後発の選択変更で実failureを隠しません。");
+                await workerIdle.ConfigureAwait(false);
             }
             catch (Exception cleanupFailure) when (primaryFailure != null)
             {

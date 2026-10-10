@@ -18,17 +18,19 @@
 
 操作トークンは共通セマフォの取得後、実際の開始直前に作ります。初回はモデルの作成後に基準を捕捉します。遅延表示、フォルダ更新、外部同期、参照反映は、予約時と現在のトークンが一致する場合だけ段階を進めます。
 
+通常起動・初期設定・Allの必須終端はcoreから捕捉設定と既存tokenを持つ局所結果で渡します。UI flush予約を成功へ数えず、受付外のUI実Taskを待って完了を公開します。解禁後、停止中schedulerに任意登録をそろえ、登録閉鎖後に開始します。記録用stopwatchや背景idleを必須完了条件にしません。終了取消・実UI失敗と旧tokenは成功として完了させません。
+
 ### 操作ごとの予定
 
-| 操作 | 件数 | 対象 |
-| --- | ---: | --- |
-| `Startup` | 13 | 開始、DB・列挙・差分、データ・画面・操作可能、スコア、ハッシュ、譜面情報の読込み・補完、プレイリスト項目、必須処理の収束 |
-| `FullReinitialize` | 14 | 開始、DB・列挙・差分、操作可能、参照、スコア・順位、保守・導入可能譜面の保守、ハッシュ、譜面情報の読込み・補完、項目 |
-| `ReloadFileDiff` | 6 | 開始、列挙、差分、操作可能、参照、項目 |
-| `ScoreOnly` | 4 | 開始、操作可能、スコア、順位 |
-| `ReloadTables` | 5 | 開始、操作可能、参照、外部同期、項目 |
+| 操作 | 必須の対象 |
+| --- | --- |
+| `Startup` | 開始、DB・列挙・差分、データ・実UI・操作解禁、保存スコア・譜面情報・プレイリスト項目。必要参照と出力・LR2・cleanupは直接待った手続きの終端に含めます。 |
+| `FullReinitialize` | 既存組のDB・列挙・差分、保存スコア・譜面情報・項目・参照、実UIと操作解禁。 |
+| `ReloadFileDiff` | 開始、列挙・差分、項目・参照、必要表示と操作解禁。 |
+| `ScoreOnly` | 開始、保存スコア・必要表示と操作解禁。 |
+| `ReloadTables` | 開始、項目・参照・利用者が要求した外部同期、必要表示と操作解禁。 |
 
-起動では参照、外部同期、保守、導入可能譜面の保守、順位を初期の予定へ入れません。前四つは後続処理、順位は独立した処理または別操作の段階です。
+段階数は表示の実装上の集約です。順位・保守・installable・chart_info補完など任意処理は親の初期予定へ入れず、要求の同一性を持つ後続・独立行として追跡します。直接待った必須手続きと実UIの終端で完了し、ログ・scheduler登録閉鎖・全idleを成功条件にしません。
 
 ### 段階の意味
 
@@ -39,21 +41,15 @@
 | `LibraryFileEnumerationDone` | 譜面・リソースの列挙を完了した |
 | `LibraryFileDiffDone` | 差分を反映した |
 | `StartupReadyData` | 導入判定用データが揃った |
-| `StartupReadyUi` | 必須の表示を適用した |
-| `StartupReadyOperable` | 通常入力を解禁し、スケジューラーを開始した |
+| `StartupReadyUi` | 親L/P解放後に必須の表示と実host接続のUI Taskを終えた |
+| `StartupReadyOperable` | 必須処理・親解放・必須UI/hostが終わり、成功公開と通常入力の解禁が成立した |
 | `ScoreHydrationDone` | 現在のスコアを適用した |
-| `ChartDigestBackfillDone` | ハッシュの補完を完了または不要と確定した |
 | `ChartInfoHydrationDone` | 現在の譜面情報を読み込んだ |
-| `ChartInfoBackfillDone` | 譜面情報の補完を完了または不要と確定した |
 | `PlaylistEntriesHydrationDone` | ローカルのプレイリスト項目を読み込んだ |
-| `StartupBackgroundTasksDone` | 必須処理の登録を閉じ、待機・実行中の必須要求がなくなった |
 | `PlaylistReferenceApplied` | 参照を適用した |
 | `ExternalPlaylistSyncDone` | 外部同期を終えた |
-| `MaintenanceDeferredDone` | 保守結果の読込みを終えた |
-| `InstallableMaintenanceDeferredDone` | 導入可能譜面の保守を終えた |
-| `RankingRefreshDone` | 順位更新を終えた |
 
-必須処理が一時的に空でも、登録を閉じる前に `StartupBackgroundTasksDone` を完了させません。後続処理が残っていても必須段階は完了できます。自動LR2同期は分母・値・成功・失敗のいずれにも含めません。
+必須進捗は親受付解放後の実UIと成功公開で完了します。後続が残っていても必須段階は完了でき、LR2の段階件数・単独失敗を親の分母・ローカル準備成功へ混ぜません。
 
 ### 行の単位と配置
 
@@ -61,9 +57,9 @@
 
 並行する独立処理はそれぞれ一行で同時に表示します。初期化など全体進捗が必要な操作は親行、そこで実行中の処理はインデントした子行とし、原則二段までにします。逐次進む一つの処理の読取り・解析・反映は同じ行の段階変更で表します。内部ワーカーや個々のファイルは独立行にしません。
 
-各行は左のゲージ、残り幅を使う処理名・状態・件数・対象、必要な末尾の取消・再試行で構成します。対象名は幅に応じて省略し、全文をツールチップへ渡します。ステータスバー全体を固定一行高さにせず、詳細文字列にも固定幅を設けません。画面の実測高さを配置に使い、行数から別の高さ状態を管理しません。
+各行は左のゲージ、残り幅を使う処理名・状態・件数・対象、必要な末尾の取消で構成します。対象名は幅に応じて省略し、全文をツールチップへ渡します。ステータスバー全体を固定一行高さにせず、詳細文字列にも固定幅を設けません。画面の実測高さを配置に使い、行数から別の高さ状態を管理しません。
 
-表示順は処理の意味ごとに固定し、件数更新で並べ替えません。実行中の行を中心に表示し、進めない理由がある待機はその理由を示します。未開始の全予定を子行として並べる必要はありません。同じ仕事のスケジューラー通知と機能専用通知は一つの行へ統合します。独立したURL取得、導入、推定を優先順位で一つの表示枠へまとめません。取消・再試行は対象行の本来の所有者へ届きます。
+表示順は処理の意味ごとに固定し、件数更新で並べ替えません。実行中の行を中心に表示し、進めない理由がある待機はその理由を示します。未開始の全予定を子行として並べる必要はありません。同じ仕事のスケジューラー通知と機能専用通知は一つの行へ統合します。独立したURL取得、導入、推定を優先順位で一つの表示枠へまとめません。取消は対象行の本来の所有者へ届きます。LR2の明示同期は設定画面から行います。
 
 プレイリストも要求元の処理を区別します。外部同期、通常の表URL取込み、beatorajaの表URL取込み、選択表の再同期、サマリー一括編集は、それぞれの開始・進捗・終端を同じ要求元の識別へ渡します。既存の操作IDがある場合は保持し、受付が一つに制限される経路に表示用の新しい操作台帳を追加しません。外部同期のスケジューラー行は、同じ外部同期の専用行がある場合だけ統合し、別の取込み・編集の行を理由に隠しません。
 
@@ -87,13 +83,13 @@
 
 表示は少なくとも開始、DB読込み、列挙、差分、画面準備、各種情報の読込み、必須処理の完了を区別します。件数を持つ子処理は処理済み件数・総数と対象を出せます。
 
-`startup_post_initialization_maintenance_complete` は進捗の段階ではありません。後続の登録と動的な追加が閉じ、スケジューラーが一度空になってから任意の事前計算を一回登録し、それも含めて再び空、未完の事前計算0になったことを記録します。不要なLR2同期には存在しない要求への依存を作りません。独立した順位・XML更新と遅延表示はこの記録に含めません。
+`startup_post_initialization_maintenance_complete` は進捗の段階ではありません。実UIと成功公開後の明示した一括登録を閉じ、固有の依存で実行した後続と事前計算の実終端が揃って空になったことを記録します。ログや集計が新しい仕事を開始しません。必要でないLR2要求への依存を作らず、独立readerの表示収束は含めません。
 
 操作可能の直前から、起動の操作トークンと表示世代を持つ「起動に伴う追加処理」の親を有効にします。別の永続状態や処理件数として扱いません。必須初期化の親行が終了しても後続が残る場合は、起動後処理のグループで追います。プレイリストやLR2などの独立した行の存在を理由に隠しません。
 
-専用のLR2は対応する起動後続の実行中だけ追加親の子とし、終端後の警告・未完・失敗・再試行可能な状態は独立行として表示します。初期化親の実行中・完了余韻中も同時に表示し、親の成功や分母へ混ぜません。
+専用のLR2は必須起動・再初期化・差分再読込みで直接待つ実行中に同じ要求の親へ対応させ、終端後の警告・未完・失敗は独立行として表示します。初期化親の実行中・完了余韻中も同時に表示し、親の成功や分母へ混ぜません。
 
-背景表示の終了条件は後続完了の記録と同じです。順位・XML・遅延表示で寿命を延ばしません。別の操作が起動を置き換えたときは古い表示を無効にします。終了時の画面破棄後までプロセス内の値が残ることは許容します。
+背景表示の終了条件は追跡対象の後続の実終端と同じです。独立readerの遅延表示で寿命を延ばしません。別の操作が起動を置き換えたときは古い表示を無効にします。終了時の画面破棄後までプロセス内の値が残ることは許容します。
 
 作業スレッドからの後続完了も、表示の終端だけを既存のUIディスパッチ経路へ渡します。終端の送出時に操作トークンとスケジューラー世代を捕捉し、UIへ反映する直前に両方の一致を検査します。本体の収束・完了記録は表示排出を待たず、古い終端で次の操作の背景行を消しません。
 
@@ -133,8 +129,8 @@ Playlist・通常フォルダ・差分更新・出力先設定変更・Catalog�
 | 譜面情報の要求版と進捗件数の一体送出、一致する要求だけの親投影 | [`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs)、[`StartupProgressWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupProgressWorkflowOwner.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs) は同じワーカーの旧要求・後続要求を区別し、[`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) は不一致の件数・対象が現在の子行を更新しないことを確認する。 |
 | スコア・順位の要求ごとの表示世代捕捉、親所属と独立した終結 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)、[`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)、[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) は後続要求と通知例外の隔離、[`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs) は受付時の世代と非重複、[`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) は予定・要求版による所属、[`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) は独立順位処理で後続表示を延命しないことを確認する。 |
 | 必須の登録終了、後続の収束と一回の事前計算 | [`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs) | [`StartupBackgroundTaskSchedulerOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs)、[`StartupPostInitializationWarmupOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupPostInitializationWarmupOwnerTests.cs) |
-| 後続の動的登録を含む先行処理の終了、一回の事前計算と背景表示の終了 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の `StartupPostInitializationIdleRouteEnrollsWarmupOnceAfterPredecessors` は、UI上で開始表示を反映し、本体の収束とUIの終端反映を分けて確認する。実ライブラリの書込みガードで事前計算の未完了を保持し、ゲート解放後は所有する処理を回収する。[`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs) は、表示を保留しても本体が完了すること、UIで実際の背景行を消すこと、設定保存による次の全初期化の背景行を古い終端で消さないことを確認する。 |
-| LR2未完了状態と初期化の同時表示、親計算からの独立と再試行 | [`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) |
+| 実UI後の任意登録、実Taskの追跡と背景表示の終了 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs)は実起動・ツリー全再初期化のUI gate保持中に任意開始がないこと、解禁後の開始と末尾Taskまでidleでないことを確認します。[`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs)は実初期化・任意Taskからのcompiled Bindingと行の終端を代表で確認します。 |
+| LR2未完了状態と初期化の同時表示、親計算からの独立と失敗表示 | [`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) |
 | LR2反映の保存結果と表示排出に依存しない差分完了 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) は実DB結果・完了版とUI排出前の未通知、排出後の最新モデル状態・通知例外隔離を確認する。[`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) は差分完了の親反映を確認し、LR2表示は [`Lr2SongDbSyncStatusMapperTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncStatusMapperTests.cs) とHubのLR2ケースで確認する。 |
 | LR2全体同期の実段階・件数と保存前の未確定 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`Lr2FolderTableReconciliationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderTableReconciliationService.cs) | [`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs) の `SyncService_ReportsActualStageTargetsAndKeepsPreparationSeparateFromCommit` は小さい実DBと通常・カスタム・楽曲の複数入力から通知を観測し、分母を入力から判定する。通知例外・空投影は既存ケース、実QueueとUI排出の独立は `BmsLibraryLr2SongDbSyncTests` が担う。 |
 | LR2の翻訳・保存位置から独立した段階進捗 | [`Lr2SongDbSyncStatusMapper`](../../../BeMusicSeeker/ViewModels/Lr2/Lr2SongDbSyncStatusMapper.cs) | `Lr2SongDbSyncStatusMapperTests` は既知・旧・未知・空段階、段階総数なし・0・正数、日本語と英語を確認する。辞書整合は `LocalizationResourceParityTests`、有限→不定→正常終端と親計算の独立は `OperationProgressHubViewModelTests`、Bindingは既存の `MainWindowProgressStatusBarWpfTests` が担う。 |

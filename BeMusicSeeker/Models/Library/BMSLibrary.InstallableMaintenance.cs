@@ -45,7 +45,6 @@ public partial class BMSLibrary
 
         LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown")
             + " version=" + queueState.Version
-            + " snapshotCount=" + CountInstallableMaintenanceSnapshotTargets()
             + " criticalMs=" + criticalElapsedMs);
         if (!queueState.ShouldStartWorker)
         {
@@ -128,6 +127,11 @@ public partial class BMSLibrary
                     LibraryFileMutationLease mutationLease =
                         await lr2SynchronizationOwner.AcquireAcceptedBackgroundMutationAsync("installable_maintenance_deferred").ConfigureAwait(false);
                     admissionLease = mutationLease;
+                    if (IsShutdownRequested)
+                    {
+                        MarkInstallableMaintenanceSkipped(request.Version);
+                        return;
+                    }
                     using (LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability())
                     {
                         snapshot = CreateInstallableMaintenanceSnapshot();

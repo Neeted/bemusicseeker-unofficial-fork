@@ -202,9 +202,6 @@ public partial class BMSPlaylist : ObservableObject
         set => playlistEntriesHydrationOwner.RequestProgressReporter = value;
     }
 
-    /// <summary>専用出力が汎用通知と同じ実行要求を捕捉する窓口です。</summary>
-    internal Func<OperationProgressRequest> ExecutionProgressRequestProvider { get; set; }
-
     internal Action<PlaylistSyncProgressSnapshot> CustomFolderOutputRepairProgressReporter { get; set; }
 
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
@@ -219,6 +216,12 @@ public partial class BMSPlaylist : ObservableObject
     internal void RequestShutdown(string reason)
     {
         playlistMutationAdmission.CloseAdmission();
+        RequestStop(reason);
+    }
+
+    /// <summary>このモデル固有の取消とcleanupを開始します。サービス置換では共有P受付を閉鎖しません。</summary>
+    internal void RequestStop(string reason)
+    {
         shutdownCoordinator.Request(
             reason,
             () => startupReadinessCoordinator.RequestShutdown(reason),
@@ -481,6 +484,9 @@ public partial class BMSPlaylist : ObservableObject
 
     /// <summary>Pの受理済み処理の通知・cleanup実終端を待ちます。</summary>
     internal Task WaitForPlaylistMutationIdleAsync() => playlistMutationAdmission.WaitForIdleAsync();
+
+    /// <summary>取得・予約せず、設定の限定前段を始められるか読み取ります。実受付は確認後に再判定します。</summary>
+    internal bool CanEnterPlaylistMutation => !IsShutdownRequested && playlistMutationAdmission.CanEnter;
 
     public bool ContainsBMSTable(BMSTable table)
     {
@@ -980,7 +986,26 @@ public partial class BMSPlaylist : ObservableObject
         }
     }
 
-    private bool InitializeHeaders()
+    /// <summary>保存済みヘッダーの読取りをファイル走査と並列に開始します。Pは親が所有します。</summary>
+    internal Task<bool> LoadStartupHeadersAsync(LibraryFileMutationCapability capability)
+    {
+        capability.Validate(playlistMutationAdmission);
+        return Task.Run(() => InitializeHeaders(synchronizeOutputRoots: false, scheduleUrlCompletion: false));
+    }
+
+    /// <summary>ローカルライブラリ準備後に項目・必要修復・BMTを確定し、全体同期に必要な完全な生成面を返します。</summary>
+    internal async Task<Lr2SongDbSyncPreparedDataSurface> CompleteStartupOutputsAsync(bool verifyRows, bool prepareAllCustomFolders,
+        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null)
+    {
+        capability.Validate(playlistMutationAdmission);
+        settings ??= GetCustomFolderOutputSettings();
+        // 読取りと独立走査の合流後に設定正本を更新し、並列の見出し読取りへ書込みを混ぜない。
+        bool rootsChanged = await Task.Run(() => SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            settings.LR2CustomFolderOutputBaseDirRootType, null, settings)).ConfigureAwait(false);
+        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings).ConfigureAwait(false);
+    }
+
+    private bool InitializeHeaders(bool synchronizeOutputRoots = true, bool scheduleUrlCompletion = true)
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long updateTablesMs = 0L;
@@ -1044,13 +1069,13 @@ public partial class BMSPlaylist : ObservableObject
             {
                 updateTablesMs = 0L;
                 var stopwatchLr2configSync = Stopwatch.StartNew();
-                rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
+                rootOutputSearchRootsChanged = synchronizeOutputRoots && SyncRootFolderOutputDirectoriesToLr2Config();
                 stopwatchLr2configSync.Stop();
                 lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
             }
             stopwatchInitialize.Stop();
             LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
-            SchedulePlaylistUrlCompletionRefresh("Initialize");
+            if (scheduleUrlCompletion) { SchedulePlaylistUrlCompletionRefresh("Initialize"); }
             return rootOutputSearchRootsChanged;
         }
         catch (Exception exception)
@@ -1074,11 +1099,11 @@ public partial class BMSPlaylist : ObservableObject
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReloadTables", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-        bool verifyRows = await Task.Run(() => ReloadHeaders()).ConfigureAwait(false);
+        bool verifyRows = await Task.Run(() => ReloadHeaders(scheduleUrlCompletion: capability == null)).ConfigureAwait(false);
         await HydrateRequiredAsync("ReloadTables", exportBeatorajaBmt, verifyRows, authority).ConfigureAwait(false);
     }
 
-    private bool ReloadHeaders()
+    private bool ReloadHeaders(bool scheduleUrlCompletion = true)
     {
         var stopwatchReloadTables = Stopwatch.StartNew();
         long lr2configSyncMs = 0L;
@@ -1118,7 +1143,7 @@ public partial class BMSPlaylist : ObservableObject
             lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
             stopwatchReloadTables.Stop();
             LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
-            SchedulePlaylistUrlCompletionRefresh("ReloadTables");
+            if (scheduleUrlCompletion) { SchedulePlaylistUrlCompletionRefresh("ReloadTables"); }
             return rootOutputSearchRootsChanged;
         }
         catch (Exception exception)
@@ -1231,24 +1256,45 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private async Task HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability)
+    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null)
     {
+        OperationProgressRequest progressRequest = null;
         try
         {
             PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt =
-                await playlistEntriesHydrationOwner.HydrateAsync(reason).ConfigureAwait(false);
-            CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-            await Task.Run(() => RepairMissingCustomFolderOutputsAfterHydrationCore(
-                reason, verifyRootOutputDirectoryRows, settings,
-                (processed, total, name) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
-                    processed, total, name, receipt.ProgressRequest), capability)).ConfigureAwait(false);
+                await playlistEntriesHydrationOwner.HydrateAsync(reason, originatingRequest).ConfigureAwait(false);
+            progressRequest = receipt.ProgressRequest with { Source = "playlist_custom_folder_output_repair" };
+            settings ??= GetCustomFolderOutputSettings();
+            Lr2SongDbSyncPreparedDataSurface preparedSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
+            if (prepareAllCustomFolders)
+            {
+                preparedSurface = await Task.Run(() => ReOutputAllCustomFoldersForLr2SongDbSyncUnderExistingReservation(
+                    reason, capability, (stage, processed, total) => PublishCustomFolderOutputRepairProgress(
+                        CustomFolderOutputRepairProgressReporter, processed, total, stage, progressRequest), settings)).ConfigureAwait(false);
+            }
+            else
+            {
+                await Task.Run(() => RepairMissingCustomFolderOutputsAfterHydrationCore(
+                    reason, verifyRootOutputDirectoryRows, settings,
+                    (processed, total, name) => PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter,
+                        processed, total, name, progressRequest), capability)).ConfigureAwait(false);
+            }
             if (exportBeatorajaBmt)
             {
                 await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability).ConfigureAwait(false);
             }
-            PlaylistEntriesHydrationReceiptPublished?.Invoke(this,
-                new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(receipt));
+            if (libraryBindings != null)
+            {
+                // 必須entriesと同じPの内側で参照の実確定まで終える。保存読込みから別workerを予約しない。
+                await ApplyRequiredLibraryReferencesAsync().ConfigureAwait(false);
+            }
+            else
+            {
+                PlaylistEntriesHydrationReceiptPublished?.Invoke(this,
+                    new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(receipt));
+            }
             playlistEntriesHydrationOwner.CompleteHydration(receipt);
+            return preparedSurface;
         }
         catch (Exception exception)
         {
@@ -1257,8 +1303,24 @@ public partial class BMSPlaylist : ObservableObject
         }
         finally
         {
-            PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter, 0, 0, string.Empty);
+            if (progressRequest != null) { PublishCustomFolderOutputRepairProgress(CustomFolderOutputRepairProgressReporter, 0, 0, string.Empty, progressRequest); }
         }
+    }
+
+    /// <summary>捕捉した保存済み表参照を現在のライブラリへ実確定します。呼出元が保持する変更受付の内側で直接待ち、別workerを予約しません。</summary>
+    internal async Task ApplyRequiredLibraryReferencesAsync()
+    {
+        if (libraryBindings == null) { return; }
+        BMSLibrary library = libraryBindings.SourceLibrary;
+        await Task.Run(() =>
+        {
+            List<BMSTable> snapshot;
+            using (rwlockBMSTables.GetReaderGuard()) { snapshot = [.. BMSTables]; }
+            while (!library.TryCommitReferenceBMSTableSynchronization(library.PrepareReferenceBMSTableSynchronization(snapshot)))
+            {
+                startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
+            }
+        }).ConfigureAwait(false);
     }
 
     private bool SyncRootFolderOutputDirectoriesToLr2Config()
@@ -2500,7 +2562,7 @@ public partial class BMSPlaylist : ObservableObject
         }
 
         bool isInactive = total == 0 && processed == 0;
-        bool isActive = total > 0 && processed > 0 && processed < total;
+        bool isActive = total > 0 && processed >= 0 && processed < total;
         if (!isInactive && !isActive)
         {
             return;

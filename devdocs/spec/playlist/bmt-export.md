@@ -108,6 +108,8 @@ URL同期は確定した台帳の所有情報から行い、物理書込み・�
 
 beatorajaの登録URL取込みでは成功・既存一致した表を元URL順でBMT順の先頭へ反映します。失敗URLは管理外として残します。詳細は[Table URL取込み](table-url-import.md)を参照します。
 
+起動の保存済み表の必要出力は、最小カタログと必要譜面情報・ハッシュの準備後、親L/P内で直接待ちます。外部ネットワーク同期は親受付解放・操作解禁後です。全体LR2が必要なら修復と共通の生成・検証経路から完全な面を一度だけ返します。開始・更新・全終端は空でない発生元と同じ親関係を持つ要求識別で通知し、BMTはschedulerの暗黙実行文脈を参照しません。カスタム修復のfinallyにも同じ要求を渡します。実出力の接続は[`StartupRequiredInitializationTests`](../../../BeMusicSeeker.Tests/Startup/StartupRequiredInitializationTests.cs)、BMTの生産側通知は[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で確認します。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |

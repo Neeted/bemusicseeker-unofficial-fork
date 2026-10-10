@@ -502,11 +502,16 @@ public partial class BMSLibrary : ObservableObject
     {
         OperationAdmission.CloseAdmission();
         lr2SynchronizationOwner.PlaylistOperationAdmission.CloseAdmission();
+        RequestStop(reason);
+    }
+
+    /// <summary>このモデルの通信と変更継続を停止します。サービス置換では構成が所有するL/P受付を閉鎖しません。</summary>
+    internal void RequestStop(string reason)
+    {
         Interlocked.Exchange(ref shutdownRequested, 1);
         GetLr2SynchronizationRuntimeState().RequestShutdown();
         irScoreShutdownCancellation.Cancel();
         DetachScoreSubscriptions();
-        lr2SynchronizationOwner.DiscardLr2SongDbSyncCommittedPathReceipt("shutdown_requested");
         string shutdownReason = "shutdown:" + (reason ?? "unknown");
         try
         {
@@ -527,8 +532,7 @@ public partial class BMSLibrary : ObservableObject
         || MaintenanceHydrationRunning
         || InstallableMaintenanceDeferredRunning
         || ScoreHydrationRunning
-        || RankingRefreshRunning
-        || IrScorePrefetchRunning;
+        || RankingRefreshRunning;
 
     internal string GetShutdownBlockingWorkLogFields()
     {
@@ -540,7 +544,6 @@ public partial class BMSLibrary : ObservableObject
             + " installableMaintenanceDeferredRunning=" + FormatBool(InstallableMaintenanceDeferredRunning)
             + " scoreHydrationRunning=" + FormatBool(ScoreHydrationRunning)
             + " rankingRefreshRunning=" + FormatBool(RankingRefreshRunning)
-            + " irScorePrefetchRunning=" + FormatBool(IrScorePrefetchRunning)
 ;
     }
 
@@ -837,30 +840,7 @@ public partial class BMSLibrary : ObservableObject
 
     private int deferredRankingRefreshLastCompletedVersion;
 
-    private readonly object lockIrScorePrefetch = new();
-
     private readonly CancellationTokenSource irScoreShutdownCancellation = new();
-
-    private bool IrScorePrefetchRunning
-    {
-        get
-        {
-            lock (lockIrScorePrefetch)
-            {
-                return irScorePrefetchTask is { IsCompleted: false };
-            }
-        }
-    }
-
-    private int irScorePrefetchGeneration;
-
-    private Task<IrScorePrefetchResult> irScorePrefetchTask;
-
-    private int irScorePrefetchLr2Id;
-
-    private string irScorePrefetchScoreDbPath;
-
-    private bool irScorePrefetchEnabled;
 
     private readonly PropertyChangedSubscription listenerForRwlockBMSFilesInitializedAll;
 
@@ -1554,6 +1534,27 @@ public partial class BMSLibrary : ObservableObject
                 _ScoreSnapshotVersion = value;
                 RaisePropertyChanged(() => ScoreSnapshotVersion);
             }
+        }
+    }
+
+    /// <summary>通信・DB確定・画面公開の実終端を一つのscheduler workとして追跡します。</summary>
+    private void ScheduleDeferredRankingRefreshWorker(string reason)
+    {
+        Task Work() => Task.Run(ProcessDeferredRankingRefreshRequests);
+        if (StartupBackgroundTaskScheduler == null)
+        {
+            Work().ObserveFault("ProcessDeferredRankingRefreshRequests");
+            return;
+        }
+        if (!StartupBackgroundTaskScheduler("ranking_refresh_deferred", reason, null, Work))
+        {
+            lock (lockDeferredRankingRefresh)
+            {
+                deferredRankingRefreshLastCompletedVersion = deferredRankingRefreshRequestedVersion;
+                deferredRankingRefreshRunning = false;
+            }
+            RankingRefreshCompletedVersion = deferredRankingRefreshLastCompletedVersion;
+            RankingRefreshRunning = false;
         }
     }
 
@@ -4756,21 +4757,29 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>起動の必須ファイル初期化を同じ受理済み権限で行います。独立した受理済み背景更新は先行操作の実終端後に実行します。</summary>
-    internal void InitializeStartup(
+    /// <param name="originatingRequest">保存済みスコアの受付と実終端へ引き継ぐ親の表示識別。</param>
+    /// <param name="leapYearRepairApproval">親受付前の限定読取・YesNo判断。借用経路では同じDBの要求を必須とします。</param>
+    /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
+    internal LibraryFileInitializationResult InitializeStartup(
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
-        in PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability = null)
+        in PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
     {
-        InitializeCore(
+        return InitializeCore(
             tasksContinuation,
             semaphore,
             LibraryInitializeMode.Startup,
-            performanceInteraction, capability);
+            performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver);
     }
 
     /// <summary>受理済み共通権限の内部継続として再初期化します。</summary>
-    internal void ReinitializeUnderAdmission(LibraryFileMutationCapability capability)
-        => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability);
+    /// <param name="originatingRequest">保存済みスコアの受付と実終端へ引き継ぐ親の表示識別。</param>
+    /// <param name="leapYearRepairApproval">親受付前の限定読取・YesNo判断。借用経路では同じDBの要求を必須とします。</param>
+    /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
+    internal LibraryFileInitializationResult ReinitializeUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
+        => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver);
 
     public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
     {
@@ -4779,8 +4788,8 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>受理済みの同owner生存権限を借用してスコアだけを更新し、公開と後片付けの終端後に戻ります。</summary>
     /// <param name="capability">呼出元が終端まで保持する共通受付の権限。nullは新規の非待機受付です。</param>
-    internal void InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability)
-        => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability);
+    internal LibraryFileInitializationResult InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null)
+        => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability, originatingRequest);
 
     public void InitializeScoresOnly(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
     {
@@ -4789,7 +4798,8 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// BMS ライブラリの初期化を行います。song.db からの譜面データ読み込み、ファイルスキャン、
-    /// スコア / 保守情報の取得を統合的に実行します。復元した保留は明示的な手動推定で扱います。
+    /// スコア / 保守情報の取得を統合的に実行します。閏年判断は受付前、終端通知は公開処理と受付の解放後です。
+    /// 復元した保留は明示的な手動推定で扱います。
     /// </summary>
     /// <param name="tasksContinuation">初期化中に並行で実行する追加タスクのリスト。</param>
     /// <param name="semaphore">追加タスクの同期用セマフォ。</param>
@@ -4799,11 +4809,53 @@ public partial class BMSLibrary : ObservableObject
         InitializeCore(tasksContinuation, semaphore, mode, null);
     }
 
-    private void InitializeCore(
+    /// <summary>公開初期化の閏年候補だけを受付前に読み、既存のNo既定YesNoで承認対象を捕捉します。</summary>
+    internal LeapYearFolderRepairApproval PrepareLeapYearFolderRepair()
+    {
+        IReadOnlyList<LeapYearFolderRepairCandidate> candidates = initializationService.CaptureLeapYearFolderRepairCandidates(dbGateway, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+        List<LeapYearFolderRepairCandidate> approved = [];
+        foreach (LeapYearFolderRepairCandidate candidate in candidates)
+        {
+            if (IsShutdownRequested) { break; }
+            MessageBoxResult? decision = dialogService?.Show(candidate.ConfirmationMessage, Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No);
+            if (IsShutdownRequested) { break; }
+            if (decision == MessageBoxResult.Yes)
+            {
+                approved.Add(candidate);
+            }
+        }
+        return new(dbGateway.SongDbPath, candidates.Count > 0, approved, unreadable);
+    }
+
+    /// <summary>再初期化の限定候補を読む、このライブラリが所有するDBの対象です。</summary>
+    internal string InitializationSongDbPath => dbGateway.SongDbPath;
+
+    /// <summary>実終端の通知結果を公開初期化の受付解放後に提示します。元の対象・原因と既存警告を保ちます。</summary>
+    private void PresentLeapYearFolderRepair(LeapYearFolderRepairNotification notification)
+    {
+        foreach ((string path, Exception exception) in notification.Failures)
+        {
+            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+            ShowOperationDialog(string.Format(Resources.Error_FailedToChangeDate, DisplayedExceptionMessage.Format(exception)) + Environment.NewLine + path,
+                Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+        }
+        if (notification.ShowWarning)
+        {
+            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+            ShowOperationDialog(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+        }
+    }
+
+    private LibraryFileInitializationResult InitializeCore(
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
         LibraryInitializeMode mode,
-        PerformanceInteraction? parentPerformanceInteraction, LibraryFileMutationCapability capability = null)
+        PerformanceInteraction? parentPerformanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
     {
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
@@ -4825,33 +4877,73 @@ public partial class BMSLibrary : ObservableObject
                 "mode=" + mode);
         }
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool scheduleDeferredInstallableMaintenance = false;
         string deferredMaintenanceReason = mode == LibraryInitializeMode.FullReinitialize ? "full_reinitialize" : "initialize";
         bool isScoreOnly = mode == LibraryInitializeMode.ScoreOnly;
         bool isStartup = mode == LibraryInitializeMode.Startup;
         if (mode == LibraryInitializeMode.FullReinitialize
             && capability == null && TryBlockLr2SongDbSyncMutation(nameof(Reinitialize)))
         {
-            return;
+            return new();
         }
         SongTableLoadResult initialSongTableLoadResult = null;
+        LibraryFileInitializationResult synchronizationInput = new(options: options);
+
+        if (!isScoreOnly)
+        {
+            if (capability == null)
+            {
+                if (IsShutdownRequested || OperationAdmission.IsAdmissionClosed || lr2SynchronizationOwner.PlaylistOperationAdmission.IsAdmissionClosed) { return new(); }
+                if (!OperationAdmission.CanEnter || !lr2SynchronizationOwner.PlaylistOperationAdmission.CanEnter)
+                {
+                    ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                    return new();
+                }
+                directoryPreflightService.EnsureAvailable(CaptureDirectoryPreflightRequest(options), probeOutputBases: true);
+                leapYearRepairApproval ??= PrepareLeapYearFolderRepair();
+                if (IsShutdownRequested) { return new(); }
+            }
+            ArgumentNullException.ThrowIfNull(leapYearRepairApproval);
+            if (capability != null) { ArgumentNullException.ThrowIfNull(repairNotificationObserver); }
+            if (!string.Equals(leapYearRepairApproval.SongDbPath, dbGateway.SongDbPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Leap-year repair approval belongs to a different song database.");
+            }
+        }
 
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(Initialize),
             showMessage: !isScoreOnly, capability: capability);
         if (mutationReservation == null)
         {
-            return;
+            return new();
+        }
+        LibraryFileMutationLease publicPlaylistReservation = null;
+        LibraryFileMutationCapability publicPlaylistCapability = null;
+        if (capability == null && !isScoreOnly)
+        {
+            if (!lr2SynchronizationOwner.PlaylistOperationAdmission.TryEnter(out IDisposable playlistAdmission))
+            {
+                mutationReservation.Dispose();
+                ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                return new();
+            }
+            publicPlaylistReservation = (LibraryFileMutationLease)playlistAdmission;
+            publicPlaylistCapability = publicPlaylistReservation.CreateMutationCapability();
         }
         LibraryFileMutationCapability mutationCapability;
+        LibraryFileMutationCapability primaryCapability = null;
         try
         {
-            mutationCapability = mutationReservation.CreateMutationCapability();
+            primaryCapability = mutationReservation.CreateMutationCapability();
+            mutationCapability = publicPlaylistCapability == null ? primaryCapability : primaryCapability.WithPlaylistCapability(publicPlaylistCapability);
             mutationCapability.Validate(OperationAdmission);
         }
         catch
         {
             mutationReservation.Dispose();
+            primaryCapability?.Dispose();
+            publicPlaylistCapability?.Dispose();
+            publicPlaylistReservation?.Dispose();
             throw;
         }
         ResetEverythingFallbackWarningQueue();
@@ -4865,7 +4957,6 @@ public partial class BMSLibrary : ObservableObject
                     ? CatalogPathConvergenceBlockReason.StartupFileScanDisabled
                     : CatalogPathConvergenceBlockReason.Other);
         }
-        bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
         bool fileScanLifecycleStarted = false;
         long fileScanGeneration = 0L;
@@ -4878,6 +4969,9 @@ public partial class BMSLibrary : ObservableObject
         InitializationExecutionResult initializeResult;
         IDisposable installTableCollectionMutationScope = null;
         List<Action> initializationPostLeaseEffects = [];
+        LeapYearFolderRepairResult leapYearRepairResult = new();
+        LeapYearFolderRepairNotification repairNotification = null;
+        bool initializationFailed = false;
         try
         {
             if (!isScoreOnly)
@@ -4886,6 +4980,8 @@ public partial class BMSLibrary : ObservableObject
                 directoryPreflightService.EnsureAvailable(
                     directoryPreflightRequest,
                     probeOutputBases: true);
+                leapYearRepairResult = initializationService.RepairLeapYearFolderTimestamps(dbGateway, leapYearRepairApproval.ApprovedCandidates,
+                    fileMutationService, targetOnlyFileMutationOptions, GetDisplayedExceptionMessage);
             }
             if (songTblFileCheck)
             {
@@ -4899,13 +4995,13 @@ public partial class BMSLibrary : ObservableObject
                         LibraryInitializationProgressStage.FileEnumeration,
                         scannerLabel,
                         force: true),
-                    directoryPreflightRequest);
+                    directoryPreflightRequest, warningObserver);
                 fileScanLifecycleStarted = true;
             }
             try
             {
                 NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
-                LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " setMaintenanceInfo=" + setMaintenanceInfo.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
+                LogInstallPerformance("init_library_enter mode=" + mode + " songTblLoad=" + songTblLoad.ToString().ToLowerInvariant() + " songTblFileCheck=" + songTblFileCheck.ToString().ToLowerInvariant() + " installTblCheck=" + flag.ToString().ToLowerInvariant() + " rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
                 if (isStartup)
                 {
                     TryImportChartInfoMetadataBundleAtStartup();
@@ -4915,14 +5011,15 @@ public partial class BMSLibrary : ObservableObject
                 {
                     LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
                     now = DateTime.Now;
-                    initializeResult = initializationService.RunInitialize(
+                    initializeResult = initializationService.RunInitialization(
                         tasksContinuation,
                         semaphore,
                         delegate
                         {
                             using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                             {
-                                _initialize(songTblLoad: songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true, songTableLoadResultObserver: result => initialSongTableLoadResult = result, postLeaseEffectObserver: initializationPostLeaseEffects.Add, directoryPreflightRequest: directoryPreflightRequest);
+                                if (songTblLoad) { LoadSavedCatalog(options, leapYearRepairApproval, result => initialSongTableLoadResult = result, initializationPostLeaseEffects.Add); }
+                                LoadSavedScores(options);
                                 if (songTblLoad)
                                 {
                                     packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
@@ -4935,18 +5032,10 @@ public partial class BMSLibrary : ObservableObject
                         },
                         delegate
                         {
-                            Lr2FolderFileDiffPreparationResult scanPreparation = _initialize(
-                                songTblLoad: false,
-                                scoreTblrLoad: false,
-                                songTblFileCheck: songTblFileCheck,
-                                setMainteInfo: false,
-                                updateIrScore: true,
-                                installTblCheck: false,
-                                trackLibraryFileCheckProgress: true,
-                                fileScanGeneration: fileScanGeneration,
-                                fileScanReason: isStartup ? "initialize" : "full_reinitialize",
-                                postLeaseEffectObserver: initializationPostLeaseEffects.Add,
-                                directoryPreflightRequest: directoryPreflightRequest, mutationCapability: mutationCapability);
+                            Lr2FolderFileDiffPreparationResult scanPreparation = ApplyInitializationFilesAndScores(
+                                songTblFileCheck, fileScanGeneration, isStartup ? "initialize" : "full_reinitialize",
+                                mutationCapability, originatingRequest, initializationPostLeaseEffects.Add);
+                            synchronizationInput = scanPreparation?.SynchronizationInput ?? new(options: options);
                             if (scanPreparation?.Request != null)
                             {
                                 libraryFileScanPipelineOwner.ApplyPreparedLr2FolderFileDiffForFileMutation(
@@ -4961,20 +5050,7 @@ public partial class BMSLibrary : ObservableObject
                             {
                                 packageLifecycleOwner.StartupReadiness.MarkDestinationResourceIndexReady();
                             }
-                        },
-                        delegate
-                        {
-                            _initialize(
-                                songTblLoad: false,
-                                scoreTblrLoad: false,
-                                songTblFileCheck: false,
-                                setMainteInfo: false,
-                                updateIrScore: false,
-                                installTblCheck: false,
-                                postLeaseEffectObserver: initializationPostLeaseEffects.Add,
-                                directoryPreflightRequest: directoryPreflightRequest);
                         });
-                    scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
                     TimeSpan timeSpan = DateTime.Now - now;
                     NLogWrapper.DebuggerLogger?.Trace(timeSpan.ToString());
 
@@ -5015,6 +5091,7 @@ public partial class BMSLibrary : ObservableObject
         }
         catch
         {
+            initializationFailed = true;
             if (fileScanLifecycleStarted)
             {
                 libraryFileScanPipelineOwner.AbortActiveFileScan(fileScanGeneration);
@@ -5027,64 +5104,26 @@ public partial class BMSLibrary : ObservableObject
             installTableCollectionMutationScope?.Dispose();
             installTableCollectionMutationScope = null;
             mutationCapability.Dispose();
+            primaryCapability.Dispose();
+            publicPlaylistCapability?.Dispose();
+            publicPlaylistReservation?.Dispose();
             mutationReservation?.Dispose();
+            if (!isScoreOnly)
+            {
+                repairNotification = LeapYearFolderRepairNotification.Capture(leapYearRepairApproval, leapYearRepairResult,
+                    initialSongTableLoadResult?.LeapYearDetected == true);
+                if (repairNotificationObserver != null) { repairNotificationObserver(repairNotification); }
+                else if (initializationFailed)
+                {
+                    TryInvokePostLeaseNotification(() => PresentLeapYearFolderRepair(repairNotification), "initialization_failure_notification_failed");
+                }
+            }
         }
-        FlushPostLeaseEffects(initializationPostLeaseEffects, diagnosticEffects: null);
-        if (!isScoreOnly && initialSongTableLoadResult != null)
+        // 公開入口は既存の公開効果を排出してから通知し、後続の独立背景処理をまだ開始しない。
+        try { FlushPostLeaseEffects(initializationPostLeaseEffects, diagnosticEffects: null); }
+        finally
         {
-            var approvedLeapYearRepairCandidates = new List<LeapYearFolderRepairCandidate>();
-            foreach (LeapYearFolderRepairCandidate candidate in initialSongTableLoadResult.LeapYearRepairCandidates)
-            {
-                if (dialogService?.Show(
-                        string.Format(
-                            Resources.Warn_LR2LeapYearFolderDetected,
-                            candidate.Path,
-                            candidate.LastWriteTime.ToShortDateString(),
-                            DateTime.Now.ToShortDateString()),
-                        Resources.MessageBoxTitle_Warning,
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Exclamation,
-                        MessageBoxResult.No) == MessageBoxResult.Yes)
-                {
-                    approvedLeapYearRepairCandidates.Add(candidate);
-                }
-            }
-
-            LeapYearFolderRepairResult leapYearRepairResult = new();
-            if (approvedLeapYearRepairCandidates.Count > 0)
-            {
-                using LibraryFileMutationLease repairReservation = TryBeginLr2SongDbSyncBlockedMutation(
-                    nameof(Initialize) + ".leap_year_repair",
-                    showMessage: true, capability: capability);
-                if (repairReservation != null)
-                {
-                    leapYearRepairResult = initializationService.RepairLeapYearFolderTimestamps(
-                        dbGateway,
-                        approvedLeapYearRepairCandidates,
-                        fileMutationService,
-                        targetOnlyFileMutationOptions,
-                        GetDisplayedExceptionMessage);
-                }
-            }
-            foreach ((string path, Exception exception) in leapYearRepairResult.Failures)
-            {
-                ShowOperationDialog(
-                    string.Format(Resources.Error_FailedToChangeDate, DisplayedExceptionMessage.Format(exception)),
-                    Resources.MessageBoxTitle_Error,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Hand,
-                    MessageBoxResult.OK);
-            }
-            if (leapYearRepairResult.RepairedCount > 0
-                || (initialSongTableLoadResult.LeapYearDetected && approvedLeapYearRepairCandidates.Count == 0))
-            {
-                ShowOperationDialog(
-                    Resources.Warn_LR2LeapYearBugDetected,
-                    Resources.MessageBoxTitle_Warning,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK);
-            }
+            if (repairNotificationObserver == null && repairNotification != null) { PresentLeapYearFolderRepair(repairNotification); }
         }
         DirectoryResourceLookupCache installableLookupCacheSnapshot = null;
         int catalogRowCount = 0;
@@ -5103,7 +5142,6 @@ public partial class BMSLibrary : ObservableObject
             pendingPackageCount = ChartPackagesPending.Count;
         }
         long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
-        bool scheduleDeferredMaintenanceHydration = !isScoreOnly && songTblLoad;
         if (packageLifecycleOwner.StartupReadiness.TryMarkInstallEstimationReady())
         {
             LogInstallPerformance("startup_install_estimation_ready elapsedMs=" + installableElapsedMs
@@ -5123,36 +5161,11 @@ public partial class BMSLibrary : ObservableObject
         }
         TimeSpan timeSpan2 = DateTime.Now - now;
         NLogWrapper.DebuggerLogger?.Trace(timeSpan2.ToString());
-        bool chartInfoHydrationScheduled = false;
-        if (!isScoreOnly)
-        {
-            QueueDeferredChartInfoHydration(deferredMaintenanceReason, queueFullBackfillAfterHydration: true);
-            chartInfoHydrationScheduled = true;
-        }
-        if (scheduleDeferredMaintenanceHydration)
-        {
-            QueueDeferredMaintenanceHydration(deferredMaintenanceReason);
-        }
-        if (scheduleDeferredInstallableMaintenance)
-        {
-            string installableDependency = chartInfoHydrationScheduled ? "chart_info_hydration" : null;
-            if (scheduleDeferredMaintenanceHydration)
-            {
-                installableDependency = string.IsNullOrWhiteSpace(installableDependency)
-                    ? "maintenance_hydration"
-                    : installableDependency + ",maintenance_hydration";
-            }
-            QueueDeferredInstallableMaintenance(
-                deferredMaintenanceReason,
-                installableElapsedMs,
-                installableDependency);
-        }
-        else
-        {
-            LogInstallPerformance("init_library_installable critical_ms=" + installableElapsedMs + " deferred_ms=0");
-        }
-        QueuePostInitializeGarbageCollection(mode.ToString());
-        LogInstallPerformance("init_library phase1_min_load_ms=" + initializeResult.Phase1MinLoadMs + " phase2_scan_maint_ms=" + initializeResult.Phase2ScanMaintMs + " phase3_install_maintenance_ms=" + initializeResult.Phase3InstallMaintenanceMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs + " wait_continuation_start_ms=" + initializeResult.WaitBeforeContinuationStartMs + " wait_continuation_signal_ms=" + initializeResult.WaitForContinuationSignalMs + " wait_continuation_tasks_ms=" + initializeResult.WaitForContinuationTasksMs + " total_ms=" + initializeResult.TotalMs + " set_maintenance_enabled=" + setMaintenanceInfo.ToString().ToLowerInvariant());
+        synchronizationInput = synchronizationInput with { FollowUp = new(deferredMaintenanceReason, !isScoreOnly, installableElapsedMs) };
+        if (capability == null) { ScheduleInitializationFollowUp(synchronizationInput.FollowUp); }
+        LogInstallPerformance("init_library saved_data_ms=" + initializeResult.SavedDataMs
+            + " files_projection_ms=" + initializeResult.FilesAndProjectionMs + " wait_continuation_ms=" + initializeResult.WaitContinuationMs
+            + " total_ms=" + initializeResult.TotalMs);
         if (Net10PerformanceLog.IsEnabled)
         {
             Net10PerformanceLog.Write(
@@ -5163,6 +5176,27 @@ public partial class BMSLibrary : ObservableObject
                 + " bmsonRows=" + bmsonRowCount
                 + " totalMs=" + initializeResult.TotalMs);
         }
+        return synchronizationInput;
+    }
+
+    /// <summary>必須UIの成功後に捕捉済み後続を明示登録します。公開モデル入口も同じ手順を使います。</summary>
+    internal void ScheduleInitializationFollowUp(LibraryInitializationFollowUp followUp, RequiredChartInfoHydrationResult chartInfo = null)
+    {
+        if (followUp == null || IsShutdownRequested) { return; }
+        string chartDependency = null;
+        if (followUp.IncludeMaintenance)
+        {
+            if (chartInfo != null) { catalogChartInfoOwner.ScheduleRequiredHydrationBackfill(followUp.Reason, chartInfo); chartDependency = "chart_info_backfill"; }
+            else { QueueDeferredChartInfoHydration(followUp.Reason, true); chartDependency = "chart_info_hydration"; }
+            QueueDeferredMaintenanceHydration(followUp.Reason);
+            QueueDeferredInstallableMaintenance(followUp.Reason, followUp.CriticalElapsedMs, chartDependency + ",maintenance_hydration");
+        }
+        StartupRankingRefreshWorkPlan plan = StartupRankingRefreshPolicy.CreateWorkPlan(CurrentOptionsSnapshot);
+        if (StartupRankingRefreshPolicy.ShouldQueue(true, activeScoreSource, lr2ScoreDBPath != null, plan))
+        {
+            QueueDeferredRankingRefresh(followUp.Reason);
+        }
+        QueuePostInitializeGarbageCollection(followUp.Reason);
     }
 
     private long postInitializeGcGeneration;
@@ -5284,259 +5318,162 @@ public partial class BMSLibrary : ObservableObject
         catalogChartInfoOwner.TryImportMetadataBundle(applicationPathSnapshot.BaseDirectory, dbGateway);
     }
 
-    /// <summary>
-    /// Initialize から呼ばれる実際の初期化内部ロジックです。
-    /// song.db からのデータ再取得、BMS ファイルのディレクトリ走査、スコア反映、保守テーブルチェックを順次実行します。
-    /// </summary>
-    private Lr2FolderFileDiffPreparationResult _initialize(
-        bool songTblLoad = true,
-        bool scoreTblrLoad = true,
-        bool songTblFileCheck = true,
-        bool setMainteInfo = true,
-        bool updateIrScore = true,
-        bool installTblCheck = true,
-        bool trackLibraryDatabaseProgress = false,
-        bool trackLibraryFileCheckProgress = false,
-        long fileScanGeneration = 0L,
-        string fileScanReason = "initialize",
-        Action<SongTableLoadResult> songTableLoadResultObserver = null,
-        Action<Action> postLeaseEffectObserver = null,
-        LibraryDirectoryPreflightRequest directoryPreflightRequest = null, LibraryFileMutationCapability mutationCapability = null)
+    /// <summary>保存目録を一度読込み、親操作の公開効果へ接続します。通信や補完は開始しません。</summary>
+    private void LoadSavedCatalog(BmsLibraryOptionsSnapshot options, LeapYearFolderRepairApproval leapYearRepairApproval,
+        Action<SongTableLoadResult> songTableLoadResultObserver, Action<Action> postLeaseEffectObserver)
     {
-        var stopwatchInitialize = Stopwatch.StartNew();
-        long songTblLoadMs = 0L;
-        long scoreTblLoadMs = 0L;
-        long songTblFileCheckMs = 0L;
-        long setMaintenanceMs = 0L;
-        long setModeMs = 0L;
-        long setHealthMs = 0L;
-        long setZeroNoteMs = 0L;
-        long installTblCheckMs = 0L;
-        int lr2IdAfterScoreLoad = 0;
-        Lr2FolderFileDiffPreparationResult fileScanPreparation = null;
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
-        bool logRootNormalizationForFileScan = songTblFileCheck;
-        List<string> bMSDirectories;
-        BmsSearchRootNormalizationSnapshot rootNormalization;
-        if (directoryPreflightRequest == null)
+        ReportLibraryInitializationProgress(LibraryInitializationProgressStage.DatabaseLoad, force: true);
+        SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
+            dbGateway,
+            options,
+            dialogService,
+            fileMutationService,
+            targetOnlyFileMutationOptions,
+            GetDisplayedExceptionMessage,
+            LogInstallPerformance,
+            message => NLogWrapper.DebuggerLogger?.Trace(message), leapYearRepairApproval);
+        songTableLoadResultObserver?.Invoke(songTableLoadResult);
+        var stopwatchBmsFilesAssign = Stopwatch.StartNew();
+        ApplyCatalogStorageRows(
+            songTableLoadResult.LoadedFiles,
+            songTableLoadResult.LoadedBmsonSongs,
+            replaceBmsRows: true,
+            replaceBmsonRows: true,
+            notifyBmsRows: true,
+            notifyBmsonRows: true,
+            postLeaseNotificationObserver: postLeaseEffectObserver);
+        stopwatchBmsFilesAssign.Stop();
+        songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
+        LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " storage_rows_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
+        if (Net10PerformanceLog.IsEnabled)
         {
-            bMSDirectories = getBMSDirectories(out rootNormalization);
+            var songTableInteraction =
+                PerformanceInteraction.Start("song_table", libraryInitializationProgressContext.Value ?? Interlocked.Read(ref libraryInitializationProgressOperationToken));
+            Net10PerformanceLog.Write(
+                songTableInteraction,
+                "snapshot_query_projection",
+                "songs=" + songTableLoadResult.LoadedFiles.Count
+                + " bmson=" + songTableLoadResult.LoadedBmsonSongs.Count
+                + " queryMs=" + songTableLoadResult.SongTableLoadMs
+                + " normalizeMs=" + songTableLoadResult.SongNormalizeLoopMs
+                + " publishMs=" + songTableLoadResult.BmsFilesAssignMs);
         }
-        else
+        CompleteLibraryDatabaseLoadProgress();
+    }
+
+    /// <summary>保存済みスコアを一度読込み、表示用の正本を置換します。IRは後続の明示要求です。</summary>
+    private void LoadSavedScores(BmsLibraryOptionsSnapshot options)
+    {
+        long scoreTblLoadMs;
+        var stopwatchScoreTblLoad = Stopwatch.StartNew();
+        using (rwlockBMSScores.GetWriterGuard())
         {
-            bMSDirectories = [.. directoryPreflightRequest.ScanRootDirectories];
-            rootNormalization = CreateUpdateRootNormalizationSnapshot(
-                directoryPreflightRequest,
-                options);
-        }
-        if (logRootNormalizationForFileScan)
-        {
-            LogBmsSearchRootNormalization(fileScanReason, options, rootNormalization, bMSDirectories);
-        }
-        if (bMSDirectories.Count == 0 && fileScanGeneration == 0L)
-        {
-            songTblFileCheck = false;
-        }
-        if (songTblLoad)
-        {
-            var stopwatchSongTblLoad = Stopwatch.StartNew();
-            if (trackLibraryDatabaseProgress)
+            if (lr2ScoreDBPath != null || options.UseBeatorajaScoreDb)
             {
-                ReportLibraryInitializationProgress(LibraryInitializationProgressStage.DatabaseLoad, force: true);
-            }
-            SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
-                dbGateway,
-                options,
-                dialogService,
-                fileMutationService,
-                targetOnlyFileMutationOptions,
-                GetDisplayedExceptionMessage,
-                LogInstallPerformance,
-                message => NLogWrapper.DebuggerLogger?.Trace(message));
-            songTableLoadResultObserver?.Invoke(songTableLoadResult);
-            var stopwatchBmsFilesAssign = Stopwatch.StartNew();
-            ApplyCatalogStorageRows(
-                songTableLoadResult.LoadedFiles,
-                songTableLoadResult.LoadedBmsonSongs,
-                replaceBmsRows: true,
-                replaceBmsonRows: true,
-                notifyBmsRows: true,
-                notifyBmsonRows: true,
-                postLeaseNotificationObserver: postLeaseEffectObserver);
-            stopwatchBmsFilesAssign.Stop();
-            songTableLoadResult.BmsFilesAssignMs = stopwatchBmsFilesAssign.ElapsedMilliseconds;
-            LogInstallPerformance("song_tbl_load_breakdown song_table_load_ms=" + songTableLoadResult.SongTableLoadMs + " song_normalize_loop_ms=" + songTableLoadResult.SongNormalizeLoopMs + " folder_table_load_ms=" + songTableLoadResult.FolderTableLoadMs + " folder_normalize_loop_ms=" + songTableLoadResult.FolderNormalizeLoopMs + " fix_apply_ms=" + songTableLoadResult.FixApplyMs + " storage_rows_assign_ms=" + songTableLoadResult.BmsFilesAssignMs + " commit_ms=" + songTableLoadResult.CommitMs);
-            if (Net10PerformanceLog.IsEnabled)
-            {
-                var songTableInteraction =
-                    PerformanceInteraction.Start("song_table", fileScanGeneration);
-                Net10PerformanceLog.Write(
-                    songTableInteraction,
-                    "snapshot_query_projection",
-                    "songs=" + songTableLoadResult.LoadedFiles.Count
-                    + " bmson=" + songTableLoadResult.LoadedBmsonSongs.Count
-                    + " queryMs=" + songTableLoadResult.SongTableLoadMs
-                    + " normalizeMs=" + songTableLoadResult.SongNormalizeLoopMs
-                    + " publishMs=" + songTableLoadResult.BmsFilesAssignMs);
-            }
-            stopwatchSongTblLoad.Stop();
-            songTblLoadMs = stopwatchSongTblLoad.ElapsedMilliseconds;
-            if (trackLibraryDatabaseProgress)
-            {
-                CompleteLibraryDatabaseLoadProgress();
-            }
-        }
-        if (scoreTblrLoad)
-        {
-            var stopwatchScoreTblLoad = Stopwatch.StartNew();
-            using (rwlockBMSScores.GetWriterGuard())
-            {
-                if (lr2ScoreDBPath != null || options.UseBeatorajaScoreDb)
+                ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway, options);
+                LogInstallPerformance("score_tbl_load readOnly=" + scoreTableLoadResult.ReadOnly.ToString().ToLowerInvariant()
+                    + " dbLockWaitMs=" + scoreTableLoadResult.DbLockWaitMs
+                    + " source=" + scoreTableLoadResult.ActiveScoreSource
+                    + " status=" + scoreTableLoadResult.Status
+                    + " rows=" + scoreTableLoadResult.Scores.Count
+                    + " beatorajaRows=" + scoreTableLoadResult.BeatorajaScoresBySha256.Count
+                    + " lr2Id=" + scoreTableLoadResult.LR2Id
+                    + " failure=" + (scoreTableLoadResult.FailureMessage ?? string.Empty)
+                    + " lr2PlayHistorySchemaStatus=" + (scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown"));
+                lr2PlayHistorySchemaCheckResult = scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult;
+                activeScoreSource = scoreTableLoadResult.ActiveScoreSource;
+                scoreTableLoadStatus = scoreTableLoadResult.Status;
+                scoreTableLoadFailureMessage = scoreTableLoadResult.FailureMessage ?? string.Empty;
+                if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Beatoraja)
                 {
-                    ScoreTableLoadResult scoreTableLoadResult = initializationService.LoadScoreTable(dbGateway, options);
-                    LogInstallPerformance("score_tbl_load readOnly=" + scoreTableLoadResult.ReadOnly.ToString().ToLowerInvariant()
-                        + " dbLockWaitMs=" + scoreTableLoadResult.DbLockWaitMs
-                        + " source=" + scoreTableLoadResult.ActiveScoreSource
-                        + " status=" + scoreTableLoadResult.Status
-                        + " rows=" + scoreTableLoadResult.Scores.Count
-                        + " beatorajaRows=" + scoreTableLoadResult.BeatorajaScoresBySha256.Count
-                        + " lr2Id=" + scoreTableLoadResult.LR2Id
-                        + " failure=" + (scoreTableLoadResult.FailureMessage ?? string.Empty)
-                        + " lr2PlayHistorySchemaStatus=" + (scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult?.Status.ToString() ?? "Unknown"));
-                    lr2PlayHistorySchemaCheckResult = scoreTableLoadResult.Lr2PlayHistorySchemaCheckResult;
-                    activeScoreSource = scoreTableLoadResult.ActiveScoreSource;
-                    scoreTableLoadStatus = scoreTableLoadResult.Status;
-                    scoreTableLoadFailureMessage = scoreTableLoadResult.FailureMessage ?? string.Empty;
-                    if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Beatoraja)
+                    LR2ID = 0;
+                    BMSScores = [];
+                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(scoreTableLoadResult.BeatorajaScoresBySha256, StringComparer.OrdinalIgnoreCase);
+                }
+                else if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Lr2)
+                {
+                    LR2ID = scoreTableLoadResult.LR2Id;
+                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+                    if (scoreTableLoadResult.Scores.Count > 0)
                     {
-                        LR2ID = 0;
-                        BMSScores = [];
-                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(scoreTableLoadResult.BeatorajaScoresBySha256, StringComparer.OrdinalIgnoreCase);
-                    }
-                    else if (scoreTableLoadResult.ActiveScoreSource == ActiveScoreSource.Lr2)
-                    {
-                        LR2ID = scoreTableLoadResult.LR2Id;
-                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-                        if (scoreTableLoadResult.Scores.Count > 0)
-                        {
-                            BMSScores = scoreTableLoadResult.Scores;
-                        }
-                        else
-                        {
-                            LR2ID = 0;
-                            BMSScores = [];
-                        }
+                        BMSScores = scoreTableLoadResult.Scores;
                     }
                     else
                     {
                         LR2ID = 0;
                         BMSScores = [];
-                        beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     }
                 }
                 else
                 {
-                    lr2PlayHistorySchemaCheckResult = null;
-                    activeScoreSource = ActiveScoreSource.None;
-                    scoreTableLoadStatus = ScoreTableLoadStatus.NotConfigured;
-                    scoreTableLoadFailureMessage = string.Empty;
                     LR2ID = 0;
-                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                     BMSScores = [];
+                    beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
                 }
-                scoreSourceGeneration++;
             }
-            RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
-            lr2IdAfterScoreLoad = LR2ID;
-            stopwatchScoreTblLoad.Stop();
-            scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
-            if (!options.EnableDownloadLr2IrScoreAndDetectUnsent)
+            else
             {
-                ClearScoreUnsentStatus();
+                lr2PlayHistorySchemaCheckResult = null;
+                activeScoreSource = ActiveScoreSource.None;
+                scoreTableLoadStatus = ScoreTableLoadStatus.NotConfigured;
+                scoreTableLoadFailureMessage = string.Empty;
+                LR2ID = 0;
+                beatorajaScoresBySha256 = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
+                BMSScores = [];
             }
-            TryStartIrScorePrefetch(lr2IdAfterScoreLoad, options, "score_tbl_load");
+            scoreSourceGeneration++;
         }
-        if (songTblFileCheck)
+        RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
+        stopwatchScoreTblLoad.Stop();
+        scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
+        if (!options.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
-            var stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            fileScanPreparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(
-                fileScanGeneration,
-                trackLibraryFileCheckProgress,
-                installDestinationStateOwner.CreateCleanupSnapshot(),
-                postLeaseEffectObserver, mutationCapability);
-            stopwatchSongTblFileCheck.Stop();
-            songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
+            ClearScoreUnsentStatus();
         }
-        else if (trackLibraryFileCheckProgress)
+    }
+
+    /// <summary>先行走査の実結果を確定し、保存済み譜面情報に必要なdigestとスコア投影を直接完了します。</summary>
+    private Lr2FolderFileDiffPreparationResult ApplyInitializationFilesAndScores(bool scanRequired, long fileScanGeneration,
+        string reason, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest, Action<Action> postLeaseEffectObserver)
+    {
+        Lr2FolderFileDiffPreparationResult preparation = null;
+        if (scanRequired)
+        {
+            preparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(fileScanGeneration, true,
+                installDestinationStateOwner.CreateCleanupSnapshot(), postLeaseEffectObserver, capability);
+        }
+        else
         {
             CompleteLibraryFileEnumerationProgress();
             CompleteLibraryFileDiffProgress();
         }
         RunChartDigestBackfill();
-        if (setMainteInfo)
+        if (activeScoreSource != ActiveScoreSource.None)
         {
-            var stopwatchSetMaintenance = Stopwatch.StartNew();
-            try
-            {
-                var stopwatchSetMode = Stopwatch.StartNew();
-                setModeAndCommitToDB(BmsCharts, postLeaseEffectObserver: postLeaseEffectObserver);
-                stopwatchSetMode.Stop();
-                setModeMs = stopwatchSetMode.ElapsedMilliseconds;
-                var stopwatchSetHealth = Stopwatch.StartNew();
-                ApplyOwnedCatalogMaintenanceUnderExistingReservation(
-                    "initialize_set_maintenance",
-                    postLeaseEffectObserver: postLeaseEffectObserver);
-                stopwatchSetHealth.Stop();
-                setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
-            }
-            finally
-            {
-                IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
-                IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
-                IsWriteLockHeldInitializeBMSFilesZeroNote = false;
-                stopwatchSetMaintenance.Stop();
-                setMaintenanceMs = stopwatchSetMaintenance.ElapsedMilliseconds;
-                GC.Collect();
-                NLogWrapper.DebuggerLogger?.Trace(GC.GetTotalMemory(forceFullCollection: false));
-            }
+            QueueDeferredScoreHydration(reason, deferToScheduler: false, originatingRequest: originatingRequest);
+            ProcessDeferredScoreHydrationRequests(propagateFailure: true);
         }
-        if (updateIrScore && activeScoreSource != ActiveScoreSource.None)
-        {
-            QueueDeferredScoreHydration("initialize_update_ir_score");
-        }
-        StartupRankingRefreshWorkPlan startupRankingRefreshPlan = StartupRankingRefreshPolicy.CreateWorkPlan(options);
-        if (StartupRankingRefreshPolicy.ShouldQueue(
-            updateIrScore,
-            activeScoreSource,
-            lr2ScoreDBPath != null,
-            startupRankingRefreshPlan))
-        {
-            QueueDeferredRankingRefresh("initialize_update_ir_score");
-        }
-        stopwatchInitialize.Stop();
-        LogInstallPerformance("init_library_internal song_tbl_load_ms=" + songTblLoadMs + " score_tbl_load_ms=" + scoreTblLoadMs + " song_tbl_file_check_ms=" + songTblFileCheckMs + " set_maintenance_ms=" + setMaintenanceMs + " set_mode_ms=" + setModeMs + " set_health_ms=" + setHealthMs + " set_zero_note_ms=" + setZeroNoteMs + " install_tbl_check_ms=" + installTblCheckMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
-        return fileScanPreparation;
+        return preparation;
     }
 
     /// <summary>新しい差分要求として共通受付を取得します。Busyは変更前に拒否し、受理時はDB確定とcleanupまで保持します。</summary>
     public void ReloadFileDiff() => ReloadFileDiff(null);
 
     /// <summary>受理済み差分の共通権限を借用し、ファイル検査・DB確定・cleanupを完了します。</summary>
-    internal void ReloadFileDiff(LibraryFileMutationCapability capability)
+    internal LibraryFileInitializationResult ReloadFileDiff(LibraryFileMutationCapability capability, Action<LibraryScanWarning> warningObserver = null)
     {
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
         if (capability == null && TryBlockLr2SongDbSyncMutation(nameof(ReloadFileDiff)))
         {
-            return;
+            return new();
         }
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             nameof(ReloadFileDiff),
             showMessage: true, capability: capability);
         if (mutationReservation == null)
         {
-            return;
+            return new();
         }
         BmsLibraryOptionsSnapshot options = null;
         LibraryDirectoryPreflightRequest directoryPreflightRequest = null;
@@ -5548,6 +5485,7 @@ public partial class BMSLibrary : ObservableObject
         var performanceInteraction =
             PerformanceInteraction.Start("managed_file_diff");
         List<Action> postLeaseEffects = [];
+        LibraryFileInitializationResult synchronizationInput = new(options: options);
         try
         {
             using (mutationReservation)
@@ -5587,13 +5525,14 @@ public partial class BMSLibrary : ObservableObject
                             LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
                             force: true),
-                        directoryPreflightRequest);
+                        directoryPreflightRequest, warningObserver);
                     libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
                     Lr2FolderFileDiffPreparationResult scanPreparation = libraryFileScanPipelineOwner.ApplyActiveFileScan(
                         fileScanGeneration,
                         trackLibraryFileCheckProgress: true,
                         installDestinationCleanupSnapshot: installDestinationStateOwner.CreateCleanupSnapshot(),
                         postLeaseEffectObserver: action => postLeaseEffects.Add(action), capability: mutationCapability);
+                    synchronizationInput = scanPreparation?.SynchronizationInput ?? new(options: options);
                     SongTableFileCheckResult result = scanPreparation?.FileCheckResult;
                     if (scanPreparation?.Request != null)
                     {
@@ -5636,6 +5575,7 @@ public partial class BMSLibrary : ObservableObject
             throw;
         }
         InvokePostLeaseNotificationsBestEffort(postLeaseEffects);
+        return synchronizationInput;
     }
 
     internal void ShowEverythingFallbackWarning(string fallbackReason)
@@ -5901,9 +5841,9 @@ public partial class BMSLibrary : ObservableObject
         bool force = false,
         Func<LibraryFileMutationLease, BmsLibraryOptionsSnapshot, Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
         bool allowIncompleteToQueue = true,
-        bool allowCommittedPathReceipt = false,
+        LibraryFileInitializationResult initializationResult = null,
         LibraryFileMutationCapability capability = null, bool acceptedBackground = false,
-        BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null)
+        BmsLibraryOptionsSnapshot optionsSnapshot = null, Action<LibraryFileMutationCapability> capturePreparationInputs = null, LibraryFileMutationCapability playlistCapability = null, Action<bool> admissionResult = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null)
     {
         return Lr2SongDbSyncRequestCoordinator.QueueAsync(
             lr2SynchronizationOwner,
@@ -5911,7 +5851,7 @@ public partial class BMSLibrary : ObservableObject
             force,
             prepareGeneratedData,
             allowIncompleteToQueue,
-            allowCommittedPathReceipt, capability, acceptedBackground, optionsSnapshot, capturePreparationInputs, playlistCapability, admissionResult);
+            initializationResult, capability, acceptedBackground, optionsSnapshot, capturePreparationInputs, playlistCapability, admissionResult, preparedSurface, originatingRequest);
     }
 
 
@@ -6261,10 +6201,15 @@ public partial class BMSLibrary : ObservableObject
         return Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(options.LR2RootPath);
     }
 
-    /// <summary>
-    /// 既存 chart_info 行を起動後にメモリ上の譜面へ適用します。
-    /// 一覧表示用メタデータであり、導入先推定の critical path からは外します。
-    /// </summary>
+    /// <summary>必要出力へ渡す譜面情報・保存済みスコアを親受付内で直接準備します。停止中schedulerの実行を待ちません。</summary>
+    internal RequiredChartInfoHydrationResult EnsureRequiredStartupData(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null)
+    {
+        capability.Validate(OperationAdmission);
+        RequiredChartInfoHydrationResult result = catalogChartInfoOwner.HydrateRequiredForStartup("required_startup_output", originatingRequest);
+        if (ScoreHydrationRunning) { ProcessDeferredScoreHydrationRequests(propagateFailure: true); }
+        return result;
+    }
+
     private void QueueDeferredChartInfoHydration(string reason, bool queueFullBackfillAfterHydration)
     {
         catalogChartInfoOwner.QueueDeferredHydration(reason, queueFullBackfillAfterHydration);
@@ -6547,14 +6492,6 @@ public partial class BMSLibrary : ObservableObject
         QueueInstallableMaintenanceWorker(reason, criticalElapsedMs, dependency);
     }
 
-    private int CountInstallableMaintenanceSnapshotTargets()
-    {
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            return (BmsCharts?.Count ?? 0) + (BmsonCharts?.Count ?? 0);
-        }
-    }
-
     private void LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
     {
         if (!mutationResult.Changed)
@@ -6575,10 +6512,12 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// deferred score hydration を要求します。
-    /// BMSFile.bmsScore の全件反映は UI operable 後に後追いで実行します。
+    /// 必須継続では要求だけを捕捉して直接実行し、それ以外は後続schedulerで反映します。
     /// </summary>
     /// <param name="reason">要求理由。</param>
-    private void QueueDeferredScoreHydration(string reason)
+    /// <param name="deferToScheduler">通常の後続要求だけschedulerへ登録します。必須継続は直接消化します。</param>
+    /// <param name="originatingRequest">必須継続の受付時に捕捉した親要求。後から現在の親へ付け直しません。</param>
+    private void QueueDeferredScoreHydration(string reason, bool deferToScheduler = true, OperationProgressRequest originatingRequest = null)
     {
         if (TrySkipForShutdown("score_hydration_deferred", reason))
         {
@@ -6592,8 +6531,12 @@ public partial class BMSLibrary : ObservableObject
         {
             deferredScoreHydrationRequestedVersion++;
             version = deferredScoreHydrationRequestedVersion;
-            ScoreHydrationProgressRequest = StartupProgressRequestFactory?.Invoke("score_hydration_deferred", version);
-            deferredScoreHydrationProgressReporter = progressReporter;
+            OperationProgressRequest request = originatingRequest == null
+                ? StartupProgressRequestFactory?.Invoke("score_hydration_deferred", version)
+                : new(originatingRequest.Generation, originatingRequest.OperationToken, "score_hydration_deferred", version);
+            ScoreHydrationProgressRequest = request;
+            deferredScoreHydrationProgressReporter = originatingRequest == null ? progressReporter
+                : (requestVersion, running) => StartupRequestProgressReporter?.Invoke(request with { Version = requestVersion }, running);
             if (!deferredScoreHydrationRunning)
             {
                 deferredScoreHydrationRunning = true;
@@ -6608,7 +6551,7 @@ public partial class BMSLibrary : ObservableObject
         ScoreHydrationRequestedVersion = version;
         LogInstallPerformance("score_hydration_deferred queue reason=" + (reason ?? "unknown") + " version=" + version);
         ReportStartupBackgroundTask("score_hydration_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
-        if (shouldStartWorker)
+        if (shouldStartWorker && deferToScheduler)
         {
             ScheduleDeferredScoreHydrationWorker(reason);
         }
@@ -6635,136 +6578,7 @@ public partial class BMSLibrary : ObservableObject
             return;
         }
 
-        Task.Run(ProcessDeferredScoreHydrationRequests).ObserveFault("ProcessDeferredScoreHydrationRequests");
-    }
-
-    private void TryStartIrScorePrefetch(int lr2Id, BmsLibraryOptionsSnapshot options, string reason)
-    {
-        if (lr2Id == 0 || string.IsNullOrWhiteSpace(lr2ScoreDBPath) || options?.EnableDownloadLr2IrScoreAndDetectUnsent != true)
-        {
-            return;
-        }
-        int generation;
-        string scoreDbPathSnapshot = lr2ScoreDBPath;
-        lock (lockIrScorePrefetch)
-        {
-            if (IsShutdownRequested)
-            {
-                return;
-            }
-
-            if (irScorePrefetchTask != null
-                && !irScorePrefetchTask.IsCompleted
-                && irScorePrefetchLr2Id == lr2Id
-                && string.Equals(irScorePrefetchScoreDbPath, scoreDbPathSnapshot, StringComparison.OrdinalIgnoreCase)
-                && irScorePrefetchEnabled)
-            {
-                return;
-            }
-            generation = ++irScorePrefetchGeneration;
-            irScorePrefetchLr2Id = lr2Id;
-            irScorePrefetchScoreDbPath = scoreDbPathSnapshot;
-            irScorePrefetchEnabled = true;
-            LogInstallPerformance("ir_score_prefetch start generation=" + generation + " reason=" + (reason ?? "unknown") + " lr2Id=" + lr2Id);
-            irScorePrefetchTask = Task.Run(delegate
-            {
-                var stopwatch = Stopwatch.StartNew();
-                try
-                {
-                    IrScorePrefetchResult result = irService.PrefetchIrScoreTableWithMetrics(lr2Id, irClient, lr2IRScoreRegex, irScoreShutdownCancellation.Token);
-                    stopwatch.Stop();
-                    LogInstallPerformance("ir_score_prefetch done generation=" + generation
-                        + " lr2Id=" + lr2Id
-                        + " succeeded=" + result.Succeeded.ToString().ToLowerInvariant()
-                        + " reason=" + (string.IsNullOrWhiteSpace(result.FailureReason) ? "ok" : result.FailureReason)
-                        + " fetchMs=" + result.XmlFetchMs
-                        + " parseMs=" + result.XmlParseMs
-                        + " digestMs=" + result.DigestMs
-                        + " parsedRows=" + result.ParsedRows
-                        + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                    return result;
-                }
-                catch (Exception ex)
-                {
-                    stopwatch.Stop();
-                    LogInstallPerformance("ir_score_prefetch failed generation=" + generation + " lr2Id=" + lr2Id + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
-                    return new IrScorePrefetchResult
-                    {
-                        Lr2Id = lr2Id,
-                        Failure = IrScoreFailure.Unavailable,
-                        FailureReason = "exception"
-                    };
-                }
-            }).LoggingAndPropagate("IrScorePrefetch");
-        }
-    }
-
-    private IrScorePrefetchResult TryConsumeIrScorePrefetch(int requestVersion, BmsLibraryOptionsSnapshot options, out long waitMs, out string status)
-    {
-        waitMs = 0L;
-        status = "not_started";
-        if (options?.EnableDownloadLr2IrScoreAndDetectUnsent != true)
-        {
-            status = "disabled";
-            return null;
-        }
-        Task<IrScorePrefetchResult> task;
-        int generation;
-        int lr2IdSnapshot;
-        string scoreDbPathSnapshot;
-        lock (lockIrScorePrefetch)
-        {
-            task = irScorePrefetchTask;
-            generation = irScorePrefetchGeneration;
-            lr2IdSnapshot = irScorePrefetchLr2Id;
-            scoreDbPathSnapshot = irScorePrefetchScoreDbPath;
-        }
-        if (task == null)
-        {
-            return null;
-        }
-        if (lr2IdSnapshot != LR2ID || !string.Equals(scoreDbPathSnapshot, lr2ScoreDBPath, StringComparison.OrdinalIgnoreCase))
-        {
-            status = "stale";
-            LogInstallPerformance("ir_score_prefetch consume generation=" + generation + " status=stale requestVersion=" + requestVersion + " prefetchedLr2Id=" + lr2IdSnapshot + " currentLr2Id=" + LR2ID);
-            return null;
-        }
-        var waitStopwatch = Stopwatch.StartNew();
-        try
-        {
-            task.GetAwaiter().GetResult();
-        }
-        catch
-        {
-            waitStopwatch.Stop();
-            waitMs = waitStopwatch.ElapsedMilliseconds;
-            status = "failed";
-            LogInstallPerformance("ir_score_prefetch consume generation=" + generation + " status=failed requestVersion=" + requestVersion + " waitMs=" + waitMs);
-            return new IrScorePrefetchResult { Lr2Id = lr2IdSnapshot, Failure = IrScoreFailure.Unavailable, FailureReason = "exception" };
-        }
-        waitStopwatch.Stop();
-        waitMs = waitStopwatch.ElapsedMilliseconds;
-        IrScorePrefetchResult result = task.Result;
-        if (result == null || !result.Succeeded || result.Lr2Id != LR2ID)
-        {
-            status = "unavailable";
-            LogInstallPerformance("ir_score_prefetch consume generation=" + generation
-                + " status=unavailable requestVersion=" + requestVersion
-                + " waitMs=" + waitMs
-                + " reason=" + (result?.FailureReason ?? "null")
-                + " prefetchedLr2Id=" + (result?.Lr2Id ?? 0)
-                + " currentLr2Id=" + LR2ID);
-            return result ?? new IrScorePrefetchResult { Lr2Id = lr2IdSnapshot, Failure = IrScoreFailure.Unavailable, FailureReason = "unavailable" };
-        }
-        status = "used";
-        LogInstallPerformance("ir_score_prefetch consume generation=" + generation
-            + " status=used requestVersion=" + requestVersion
-            + " waitMs=" + waitMs
-            + " fetchMs=" + result.XmlFetchMs
-            + " parseMs=" + result.XmlParseMs
-            + " digestMs=" + result.DigestMs
-            + " parsedRows=" + result.ParsedRows);
-        return result;
+        Task.Run(() => ProcessDeferredScoreHydrationRequests()).ObserveFault("ProcessDeferredScoreHydrationRequests");
     }
 
     /// <summary>
@@ -6804,7 +6618,7 @@ public partial class BMSLibrary : ObservableObject
         ReportStartupBackgroundTask("ranking_refresh_deferred", "queued", 0L, failed: false, detail: reason ?? string.Empty);
         if (shouldStartWorker)
         {
-            Task.Run(ProcessDeferredRankingRefreshRequests).ObserveFault("ProcessDeferredRankingRefreshRequests");
+            ScheduleDeferredRankingRefreshWorker(reason);
         }
     }
 
@@ -6837,7 +6651,7 @@ public partial class BMSLibrary : ObservableObject
         if (shouldStartWorker)
         {
             LogInstallPerformance("ranking_refresh_deferred start version=" + version);
-            Task.Run(ProcessDeferredRankingRefreshRequests).ObserveFault("ProcessDeferredRankingRefreshRequests");
+            ScheduleDeferredRankingRefreshWorker("score_hydration_done");
         }
     }
 
@@ -6845,7 +6659,7 @@ public partial class BMSLibrary : ObservableObject
     /// deferred score hydration worker です。
     /// 最新要求だけを最後まで処理し、中間要求は chunk 境界で打ち切ります。
     /// </summary>
-    private void ProcessDeferredScoreHydrationRequests()
+    private void ProcessDeferredScoreHydrationRequests(bool propagateFailure = false)
     {
         while (true)
         {
@@ -6874,10 +6688,12 @@ public partial class BMSLibrary : ObservableObject
                     }
                 }
                 TryStartDeferredRankingRefreshWorker();
+                if (propagateFailure) { throw new OperationCanceledException(); }
                 return;
             }
             ReportStartupBackgroundTask("score_hydration_deferred", "start", 0L, failed: false, detail: "version=" + requestVersion);
             ReportStartupExecutionProgress(progressReporter, "score_hydration_deferred", requestVersion, running: true);
+            Exception failure = null;
             try
             {
                 LogInstallPerformance("score_hydration_deferred run version=" + requestVersion);
@@ -6886,14 +6702,16 @@ public partial class BMSLibrary : ObservableObject
                 LogInstallPerformance("score_hydration_deferred done version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("score_hydration_deferred", "done", stopwatch.ElapsedMilliseconds, failed: false);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException exception)
             {
+                if (propagateFailure) { failure = exception; }
                 stopwatch.Stop();
                 LogInstallPerformance("score_hydration_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("score_hydration_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false);
             }
             catch (Exception ex)
             {
+                failure = ex;
                 stopwatch.Stop();
                 LogInstallPerformance("score_hydration_deferred failed version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
                 ReportStartupBackgroundTask("score_hydration_deferred", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
@@ -6920,6 +6738,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 ScoreHydrationRunning = false;
             }
+            if (propagateFailure && failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw(); }
             if (shouldStop)
             {
                 TryStartDeferredRankingRefreshWorker();
@@ -6976,12 +6795,6 @@ public partial class BMSLibrary : ObservableObject
                     + " irScoreXmlFetchMs=" + result.IrScoreXmlFetchMs
                     + " irScoreXmlParseMs=" + result.IrScoreXmlParseMs
                     + " irScoreDigestMs=" + result.IrScoreDigestMs
-                    + " irScorePrefetchUsed=" + result.IrScorePrefetchUsed
-                    + " irScorePrefetchStatus=" + result.IrScorePrefetchStatus
-                    + " irScorePrefetchWaitMs=" + result.IrScorePrefetchWaitMs
-                    + " irScorePrefetchFetchMs=" + result.IrScorePrefetchFetchMs
-                    + " irScorePrefetchParseMs=" + result.IrScorePrefetchParseMs
-                    + " irScorePrefetchDigestMs=" + result.IrScorePrefetchDigestMs
                     + " irScoreDbLoadMs=" + result.IrScoreDbLoadMs
                     + " irScoreDbLockWaitMs=" + result.IrScoreDbLockWaitMs
                     + " irScoreDbReplaceMs=" + result.IrScoreDbReplaceMs
@@ -7077,18 +6890,6 @@ public partial class BMSLibrary : ObservableObject
 
         public long IrScoreDigestMs { get; set; }
 
-        public bool IrScorePrefetchUsed { get; set; }
-
-        public long IrScorePrefetchWaitMs { get; set; }
-
-        public long IrScorePrefetchFetchMs { get; set; }
-
-        public long IrScorePrefetchParseMs { get; set; }
-
-        public long IrScorePrefetchDigestMs { get; set; }
-
-        public string IrScorePrefetchStatus { get; set; } = "not_started";
-
         public long IrScoreDbLoadMs { get; set; }
 
         public long IrScoreDbLockWaitMs { get; set; }
@@ -7125,22 +6926,24 @@ public partial class BMSLibrary : ObservableObject
         StartupRankingRefreshWorkPlan workPlan = StartupRankingRefreshPolicy.CreateWorkPlan(optionsSnapshot);
         if (workPlan.RefreshIrScore)
         {
-            IrScorePrefetchResult prefetchedScore = TryConsumeIrScorePrefetch(requestVersion, optionsSnapshot, out long prefetchWaitMs, out string prefetchStatus);
+            IrScorePrefetchResult fetched = irService.PrefetchIrScoreTableWithMetrics(
+                rankingContext.Lr2Id, irClient, lr2IRScoreRegex, irScoreShutdownCancellation.Token);
             irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
-            IrScoreTableUpdateResult irScoreUpdateResult =
-                updateLR2IRScoreTableWithMetrics(
-                    prefetchedScore,
-                    rankingContext.Lr2Id);
+            IrScoreTableUpdateResult irScoreUpdateResult;
+            Action publishScores;
+            using (IDisposable lease = OperationAdmission.EnterAcceptedBackgroundAsync(irScoreShutdownCancellation.Token).GetAwaiter().GetResult())
+            {
+                irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
+                EnsureCurrentRankingDownloadContext(rankingContext);
+                if (IsDeferredRankingRefreshRequestSuperseded(requestVersion)) { throw new OperationCanceledException(); }
+                irScoreUpdateResult = irService.CommitPreparedIrScoreTableWithMetrics(rankingContext.Lr2Id, dbGateway, fetched, irScoreShutdownCancellation.Token);
+                publishScores = ApplyIrScoresUnderAdmission(irScoreUpdateResult.ScoreTable, true, rankingContext);
+            }
+            uiScheduler.Invoke(publishScores);
             List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
             result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
             result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
             result.IrScoreDigestMs = irScoreUpdateResult.DigestMs;
-            result.IrScorePrefetchUsed = irScoreUpdateResult.PrefetchUsed;
-            result.IrScorePrefetchStatus = prefetchStatus;
-            result.IrScorePrefetchWaitMs = prefetchWaitMs;
-            result.IrScorePrefetchFetchMs = irScoreUpdateResult.PrefetchXmlFetchMs;
-            result.IrScorePrefetchParseMs = irScoreUpdateResult.PrefetchXmlParseMs;
-            result.IrScorePrefetchDigestMs = irScoreUpdateResult.PrefetchDigestMs;
             result.IrScoreDbLoadMs = irScoreUpdateResult.DbLoadMs;
             result.IrScoreDbLockWaitMs = irScoreUpdateResult.DbLockWaitMs;
             result.IrScoreDbReplaceMs = irScoreUpdateResult.DbReplaceMs;
@@ -7155,13 +6958,6 @@ public partial class BMSLibrary : ObservableObject
             {
                 throw new OperationCanceledException();
             }
-            var mergeStopwatch = Stopwatch.StartNew();
-            updateBMSScores(
-                scoreTable,
-                detectUnsentScores: true,
-                rankingContext);
-            mergeStopwatch.Stop();
-            result.IrScoreMergeMs = mergeStopwatch.ElapsedMilliseconds;
         }
         else
         {
@@ -8010,45 +7806,12 @@ public partial class BMSLibrary : ObservableObject
             logOverride ?? LogInstallPerformance);
     }
 
-    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics()
-    {
-        return updateLR2IRScoreTableWithMetrics(null);
-    }
-
-    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics(IrScorePrefetchResult prefetchedScore)
-    {
-        return updateLR2IRScoreTableWithMetrics(prefetchedScore, LR2ID);
-    }
-
-    private IrScoreTableUpdateResult updateLR2IRScoreTableWithMetrics(
-        IrScorePrefetchResult prefetchedScore,
-        int lr2Id)
-    {
-        return irService.UpdateIrScoreTableWithMetrics(
-            lr2Id,
-            dbGateway,
-            irClient,
-            lr2IRScoreRegex,
-            prefetchedScore,
-            irScoreShutdownCancellation.Token);
-    }
-
-    private void updateBMSScores(List<LR2IRScore> scoreTable)
-    {
-        updateBMSScores(
-            scoreTable,
-            detectUnsentScores: true,
-            CaptureRankingDownloadContext());
-    }
-
-    private void updateBMSScores(
-        List<LR2IRScore> scoreTable,
-        bool detectUnsentScores,
-        RankingDownloadContext context)
+    /// <summary>既存writer内でスコアを確定し、受付解放後に実行する表示公開を局所で返します。</summary>
+    private Action ApplyIrScoresUnderAdmission(List<LR2IRScore> scoreTable, bool detectUnsentScores, RankingDownloadContext context)
     {
         if (scoreTable == null)
         {
-            return;
+            return () => { };
         }
         PlaylistLibraryResolveIndexSnapshot ownedIndex = GetPlaylistLibraryResolveIndexSnapshot(
             CancellationToken.None, out _, out _);
@@ -8078,14 +7841,14 @@ public partial class BMSLibrary : ObservableObject
                 && priorUnsentByScore.TryGetValue(score, out bool priorUnsent)
                 && priorUnsent != score.IsLr2IrScoreUnsent)
         ];
-        uiScheduler.Invoke(() =>
+        return () =>
         {
             foreach (BMSScore score in changedUnsentScores)
             {
                 score.PublishLr2IrScoreUnsentChanged();
             }
             RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
-        });
+        };
     }
 
     private void ClearScoreUnsentStatus()
@@ -8125,11 +7888,15 @@ public partial class BMSLibrary : ObservableObject
                 dbGateway,
                 options.EstimateOfflineScoreRanking);
         IrCacheRefreshResult result;
+        using (IDisposable lease = OperationAdmission.EnterAcceptedBackgroundAsync(irScoreShutdownCancellation.Token).GetAwaiter().GetResult())
         using (rwlockLR2IrDir.GetWriterGuard())
         {
             using (rwlockBMSScores.GetWriterGuard())
             {
                 EnsureCurrentRankingDownloadContext(context);
+                irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
+                irService.CommitPreparedRankingScoresRefreshPlan(preparedPlan, context.Lr2Id, dbGateway);
+
 
                 using (BMSScore.SuppressPropertyChangedScope())
                 {

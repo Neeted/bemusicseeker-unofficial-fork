@@ -251,7 +251,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus;
                 rows.Add(new("lr2", status.StatusText, status.ProgressText, status.ProgressValue, status.ProgressMaximum,
                     status.Kind == Lr2SongDbSyncStatusKind.Running && !status.HasProgress,
-                    status.CanRetry ? OperationProgressAction.RetryLr2 : OperationProgressAction.None, status.Detail,
+                    OperationProgressAction.None, status.Detail,
                     ParentKey: GetLr2ParentKey(),
                     HasGauge: status.HasProgress || status.Kind == Lr2SongDbSyncStatusKind.Running));
             }
@@ -329,7 +329,6 @@ public sealed class OperationProgressHubViewModel : ViewModel
         "maintenance_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance,
         "installable_maintenance" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_installable_maintenance,
         "lr2_song_db_sync" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync,
-        "lr2_song_db_sync_enrollment" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_lr2_sync_enrollment,
         "playlist_ref_apply" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_ref,
         "external_playlist_sync" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync,
         "external_table_catalog" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_table_catalog,
@@ -337,6 +336,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         "playlist_virtual_order_prewarm" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_chart_list_preparation,
         "playlist_url_completion" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_url_completion,
         "library_folder_tree_refresh" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_folder_tree,
+        "playlist_bmt_output" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_bmt_output,
         "playlist_custom_folder_output_repair" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_custom_folder_repair,
         "post_initialize_gc" => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_gc,
         _ when name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal) => BeMusicSeeker.Properties.Resources.Statusbar_progress_task_bmt_output,
@@ -418,9 +418,8 @@ public sealed class OperationProgressHubViewModel : ViewModel
             "maintenance_hydration" => 200,
             "installable_maintenance" => 210,
             "playlist_custom_folder_output_repair" or "custom_folder_repair" => 220,
-            "bmt" => 230,
+            "bmt" or "playlist_bmt_output" => 230,
             _ when name.StartsWith("beatoraja_bmt_", StringComparison.Ordinal) => 230,
-            "lr2_song_db_sync_enrollment" => 235,
             "lr2_song_db_sync" or "lr2" => 240,
             "playlist_library_index_prewarm" => 250,
             "playlist_virtual_order_prewarm" => 260,
@@ -435,9 +434,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
         {
             return string.Empty;
         }
-        // LR2の既存単一実行中だけ対応通知を持ちます。終端後の警告や再試行には所属を引き継ぎません。
-        return backgroundStatuses.Values.Where(status => status.Name == "lr2_song_db_sync")
-            .Select(GetBackgroundParentKey).FirstOrDefault(parent => parent == "startup_background") ?? string.Empty;
+        return GetRequestParentKey(latestLr2SongDbSyncStatus.Request);
     }
 
     private string GetBackgroundParentKey(StartupBackgroundTaskProgressSnapshot status) => GetRequestParentKey(status?.Request);

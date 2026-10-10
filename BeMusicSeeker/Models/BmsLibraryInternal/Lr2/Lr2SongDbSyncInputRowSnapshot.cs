@@ -2,15 +2,10 @@ using System.Collections.Generic;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncInputRowSnapshot(IReadOnlyList<string> chartPaths, IReadOnlyList<ChartFile> songRows, int ownedCollectionVersion, IReadOnlyDictionary<string, OwnedChartToken> pathMembershipIndex = null)
+/// <summary>親受付内で捕捉した楽曲行とパスを後段へ渡します。因果を推測する全体版を保持しません。</summary>
+/// <summary>生存する親受付内で捕捉した所持パスと楽曲行の値です。後続処理はモデル行を再参照しません。</summary>
+internal sealed class Lr2SongDbSyncInputRowSnapshot(IReadOnlyList<string> chartPaths, IReadOnlyList<ChartFile> songRows)
 {
     public IReadOnlyList<string> ChartPaths { get; } = chartPaths ?? [];
-
     public IReadOnlyList<ChartFile> SongRows { get; } = songRows ?? [];
-
-    public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
-
-
-    /// <summary>同じ捕捉時点の所属・DB exact path索引です。表示値の差替えでは共有されます。</summary>
-    internal IReadOnlyDictionary<string, OwnedChartToken> PathMembershipIndex { get; } = pathMembershipIndex;
 }

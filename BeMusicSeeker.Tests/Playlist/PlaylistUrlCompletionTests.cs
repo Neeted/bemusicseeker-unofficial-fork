@@ -398,11 +398,18 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
-    [TestMethod]
+    /// <summary>独立した設定入力で実TSVの適用を確認し、通信中の退役ではモデルtokenを取り消して旧行へ適用しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [TestCategory("Playlist")]
-    public async Task BMSPlaylist_UrlCompletionUsesInjectedOptionsProvider()
+    public async Task BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply(bool retire)
     {
         string tempDbPath = CreateEmptySongDbPath();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task refresh = Task.CompletedTask;
+        CancellationToken capturedToken = default;
         try
         {
             PlaylistUrlCompletionOptionsSnapshot options = new()
@@ -412,10 +419,13 @@ public sealed class PlaylistUrlCompletionTests
                 OverwritePlaylistUrlsWithCompletion = true
             };
             int fetchCount = 0;
-            Func<Uri, CancellationToken, Task<string>> tsvFetcher = (uri, cancellationToken) =>
+            Func<Uri, CancellationToken, Task<string>> tsvFetcher = async (uri, cancellationToken) =>
             {
                 fetchCount++;
-                return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected");
+                capturedToken = cancellationToken;
+                entered.TrySetResult();
+                await release.Task;
+                return "md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected";
             };
             var playlist = new TestBmsPlaylist(
                 tempDbPath,
@@ -444,13 +454,22 @@ public sealed class PlaylistUrlCompletionTests
                 PlaylistMd5UrlMappingTsvUri = "https://example.com/injected.tsv",
                 OverwritePlaylistUrlsWithCompletion = true
             };
-            await ScheduleUrlCompletionRefreshAsync(playlist, "enabled");
+            refresh = ScheduleUrlCompletionRefreshAsync(playlist, "enabled");
+            await Task.WhenAny(entered.Task, refresh);
+            if (!entered.Task.IsCompleted) { await refresh; Assert.Fail("実TSV通信へ到達しませんでした。"); }
+            Assert.IsFalse(refresh.IsCompleted);
+            if (retire) { playlist.RequestStop("test_replaced_pair"); Assert.IsTrue(capturedToken.IsCancellationRequested); }
+            release.TrySetResult();
+            await refresh;
 
             Assert.AreEqual(1, fetchCount);
-            Assert.AreEqual(new Uri("https://example.com/injected"), entry.RuntimeUrlCompletion);
+            if (retire) { Assert.IsNull(entry.RuntimeUrlCompletion); }
+            else { Assert.AreEqual(new Uri("https://example.com/injected"), entry.RuntimeUrlCompletion); }
         }
         finally
         {
+            release.TrySetResult();
+            await refresh;
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }

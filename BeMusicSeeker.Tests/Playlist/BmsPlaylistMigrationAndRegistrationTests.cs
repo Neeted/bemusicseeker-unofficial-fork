@@ -2053,7 +2053,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 BMSTables = new ObservableCollection<BMSTable>()
             };
-            playlist.BmtOutput.ExecutionProgressRequestProvider = () => new(4, 11, "scheduler:beatoraja_bmt_export_all", 13);
+            playlist.BmtOutput.ProgressRequestFactory = (source, version) => new(4, 11, source, version);
             var execution = new List<(OperationProgressRequest Request, bool Running)>();
             playlist.BmtOutput.RequestProgressReporter = (request, running) => execution.Add((request, running));
             var progress = new List<PlaylistSyncProgressSnapshot>();
@@ -2061,7 +2061,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
             await playlist.BmtOutput.ExportAllAsync("empty_playlist", originatingRequest: new(5, 22, "playlist_entries_hydration", 3));
             Assert.AreEqual(0, progress.Count);
-            var expected = new OperationProgressRequest(5, 22, "scheduler:beatoraja_bmt_export_all", 13);
+            var expected = new OperationProgressRequest(5, 22, "playlist_bmt_output", 1);
             CollectionAssert.AreEqual(new[] { (expected, true), (expected, false) }, execution);
             Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
             next.Dispose();

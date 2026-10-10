@@ -21,21 +21,9 @@ internal interface ILr2SynchronizationDataPort
 
     EverythingNative EverythingNative { get; }
 
-    int OwnedCollectionVersion { get; }
-
     IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot();
 
     Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot();
-
-    /// <summary>surface再利用に必要な既存所属・exact path索引を共有して捕捉します。</summary>
-    IReadOnlyDictionary<string, OwnedChartToken> CapturePathMembershipIndex();
-
-    /// <summary>指定項目だけを既存の所持排他内で解決し、不変の現在値を返します。</summary>
-    IReadOnlyList<ChartFile> CaptureCurrentCharts(IEnumerable<LibraryChartRef> targets);
-
-    OwnedChartCollectionVersionSnapshot CaptureOwnedChartCollectionVersionSnapshot();
-
-    ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot();
 
     TimeSpan CurrentChartInfoParseTimeout { get; }
 
@@ -206,8 +194,6 @@ internal interface ILr2SynchronizationProjectionPort
 /// </summary>
 internal interface ILr2ChartInfoCapability
 {
-    ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot();
-
     TimeSpan CurrentParseTimeout { get; }
 
     void EnsureHydratedForLr2(string reason);
@@ -232,9 +218,6 @@ internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
         ownerReference = new WeakReference<CatalogChartInfoOwner>(
             owner ?? throw new ArgumentNullException(nameof(owner)));
     }
-
-    public ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot() =>
-        GetOwner().CaptureOwnerVersionSnapshot();
 
     public TimeSpan CurrentParseTimeout => GetOwner().BuildService.CurrentParseTimeout;
 
@@ -534,40 +517,11 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public EverythingNative EverythingNative => everythingNative;
 
-    public int OwnedCollectionVersion => catalogOwnedCollectionOwner.OwnedCollectionVersion;
-
     public IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationBmsFilesSnapshot();
 
     public Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
-
-    /// <inheritdoc/>
-    public IReadOnlyDictionary<string, OwnedChartToken> CapturePathMembershipIndex()
-    {
-        lock (catalogOwnedCollectionOwner.Gate)
-        {
-            return catalogOwnedCollectionOwner.Collection.CapturePathMembershipIndex();
-        }
-    }
-
-    /// <inheritdoc/>
-    public IReadOnlyList<ChartFile> CaptureCurrentCharts(IEnumerable<LibraryChartRef> targets)
-    {
-        using (catalogOwnedCollectionOwner.WriteGate.GetReaderGuard())
-        {
-            lock (catalogOwnedCollectionOwner.Gate)
-            {
-                return [.. targets.Select(target => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(target))];
-            }
-        }
-    }
-
-    public OwnedChartCollectionVersionSnapshot CaptureOwnedChartCollectionVersionSnapshot() =>
-        catalogMutationOwner.CaptureLr2SynchronizationOwnedChartCollectionVersionSnapshot();
-
-    public ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot() =>
-        chartInfoCapability.CaptureOwnerVersionSnapshot();
 
     public TimeSpan CurrentChartInfoParseTimeout => chartInfoCapability.CurrentParseTimeout;
 

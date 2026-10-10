@@ -28,7 +28,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Needed, status.Kind);
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_needed, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
-        Assert.IsTrue(status.CanRetry);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
         StringAssert.Contains(status.Detail, "failed before");
@@ -46,7 +45,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
 
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_completed, status.StatusText);
         Assert.IsFalse(status.HasWarningStatus);
-        Assert.IsFalse(status.CanRetry);
     }
 
     [DataTestMethod]
@@ -67,7 +65,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, status.Kind);
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_running, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
-        Assert.IsFalse(status.CanRetry);
         StringAssert.Contains(status.Detail, "[12/100]");
         StringAssert.Contains(status.Detail, Resources.Lr2_song_db_sync_stage_song_rows);
         Assert.AreEqual(Resources.Lr2_song_db_sync_stage_song_rows + " [" + processedCount + "/50]", status.ProgressText);
@@ -108,7 +105,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
             LastError = "song rows"
         }, DateTime.MinValue);
 
-        Assert.IsTrue(status.CanRetry);
     }
 
     [TestMethod]
@@ -123,7 +119,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
 
         Assert.AreEqual(Resources.Lr2_song_db_sync_status_incomplete, status.StatusText);
         Assert.IsTrue(status.HasWarningStatus);
-        Assert.IsTrue(status.CanRetry);
     }
 
     [DataTestMethod]
@@ -277,7 +272,6 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         {
             StringAssert.Contains(status.Detail, expected);
         }
-        Assert.IsTrue(status.CanRetry);
     }
 
     [DataTestMethod]

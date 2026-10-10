@@ -123,6 +123,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// 明示設定とUI境界で実ライブラリを作り、後片付け・公開・推定を共有設定の変更なしで確認します。
     /// </summary>
     /// <param name="chartFileScanner">実差分読込みの入口へ渡す固定走査境界。</param>
+    /// <param name="rootFileEnumerator">実再初期化のLR2候補を同じ専用FSから読む一括列挙境界。</param>
     /// <param name="installEstimationExecutionObserver">起動復元から明示推定までの評価開始を観測します。</param>
     /// <param name="operationAdmission">実ownerと共有する受付。省略時は独立受付。</param>
     /// <param name="playlistOperationAdmission">実起動構成と共有するプレイリスト局所受付。</param>
@@ -138,7 +139,8 @@ internal sealed class TestBmsLibrary : BMSLibrary
         IInstallEstimationExecutionObserver installEstimationExecutionObserver = null,
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
-        Settings settings = null)
+        Settings settings = null,
+        IRootFileEnumerator rootFileEnumerator = null)
         : base(
             songDbPath,
             getLR2Config,
@@ -151,6 +153,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             TestBmsFactory.MissingEverythingBridge,
             installEstimationExecutionObserver: installEstimationExecutionObserver,
             chartFileScanner: chartFileScanner,
+            rootFileEnumerator: rootFileEnumerator,
             operationAdmission: operationAdmission,
             playlistOperationAdmission: playlistOperationAdmission)
     {
@@ -271,7 +274,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CancellationToken, Task<WalkureScoreInput>> recommendationScoreReader = null,
-        Settings settings = null)
+        Settings settings = null, IUiScheduler uiScheduler = null)
         : base(
             libraryBindings,
             songDbPath,
@@ -281,7 +284,7 @@ internal sealed class TestBmsPlaylist : BMSPlaylist
             beatorajaBmtOptionsProvider ?? CreateBeatorajaOptions(settings),
             customFolderOutputSettingsProvider,
             TestBmsFactory.MissingEverythingBridge,
-            new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             recommendationScoreReader: recommendationScoreReader)
     {
     }

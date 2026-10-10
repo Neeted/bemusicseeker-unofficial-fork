@@ -259,7 +259,7 @@ public partial class BMSLibrary
             }).ConfigureAwait(false);
             if (result.HasDurableCommit && !result.HasRequiredFailure && options.OperationModeLR2DB)
             {
-                try { await QueueLr2SongDbSyncAsync("package_install", allowCommittedPathReceipt: true, capability: combinedAuthority ?? authority).ConfigureAwait(false); }
+                try { await QueueLr2SongDbSyncAsync("package_install", capability: combinedAuthority ?? authority).ConfigureAwait(false); }
                 catch (Exception failure) { return new PackageInstallCommandResult(result.RegisteredPackages, result.SessionReceipt, failure, result.OperationMessages); }
             }
             if (estimateRequest != null)

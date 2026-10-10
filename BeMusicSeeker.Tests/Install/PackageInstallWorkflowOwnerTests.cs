@@ -1423,6 +1423,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>Busyを導入前に拒否し、解放後の次要求だけを一回実行します。実workerのidleと発送済み通知の実行を別々に回収します。</summary>
     [TestMethod]
     public async Task Enqueue_RejectsBusyBeforeQueueingThenRunsAfterRelease()
     {
@@ -1437,6 +1438,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         string secondDb = Path.Combine(secondDirectory, "song.db");
         File.WriteAllBytes(firstDb, []);
         File.WriteAllBytes(secondDb, []);
+        var notifications = new Queue<Action>();
+        PackageInstallWorkflowOwner? owner = null;
         try
         {
             using (var _ = new BeMusicSeeker.Models.LR2.LR2SongDBExtended(firstDb))
@@ -1451,7 +1454,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             int mutationCalls = 0;
             var failure = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<PackageInstallCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var owner = new PackageInstallWorkflowOwner(
+            owner = new PackageInstallWorkflowOwner(
                 new FileDbReportRecordingDialogs(),
                 chartFileOperations,
                 chartMutationActivity,
@@ -1464,19 +1467,22 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 new NoOpChartMutationPlaybackPort(),
                 action =>
                 {
-                    Task.Run(action);
+                    lock (notifications) { notifications.Enqueue(action); }
                     return true;
                 });
             owner.FailurePublished += published => failure.TrySetResult(published);
             owner.CompletionPublished += published => completion.TrySetResult(published);
             owner.AttachLibrary(first);
+            DrainNotifications(notifications);
 
             Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
             try
             {
                 Assert.IsFalse(owner.Enqueue([Path.Combine(root, "first-generation.zip")]));
                 await AssertOwnerIdleAsync(owner);
+                DrainNotifications(notifications);
                 Assert.IsFalse(failure.Task.IsCompleted);
+                Assert.IsFalse(completion.Task.IsCompleted);
                 Assert.AreEqual(0, mutationCalls);
             }
             finally
@@ -1484,14 +1490,21 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 incumbent.Dispose();
             }
 
-            owner.Enqueue([Path.Combine(root, "second-generation.zip")]);
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "second-generation.zip")]));
             await AssertOwnerIdleAsync(owner);
+            // queue idleは通知の発送までを含む。fixtureの発送先を実行してから通知欠落を判定する。
+            DrainNotifications(notifications);
             await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "PackageInstallWorkflowOwnerTests.completion");
             Assert.IsFalse(failure.Task.IsCompleted);
             Assert.AreEqual(1, mutationCalls);
         }
         finally
         {
+            if (owner != null)
+            {
+                await owner.WaitForIdleAsync();
+                DrainNotifications(notifications);
+            }
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);

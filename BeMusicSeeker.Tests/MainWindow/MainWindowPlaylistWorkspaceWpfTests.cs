@@ -99,7 +99,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual(9d, currentEntry.level);
                 Assert.AreEqual("https://current.example/song", currentEntry.url);
                 Assert.AreEqual(expectedMemo, currentEntry.memo);
-                using (LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "song.db")).OpenSongDbReadOnly())
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
                 {
                     BMSTableEntry persisted = read.Table<BMSTableEntry>().Single(entry => entry.playlist_id == current.playlist_id && !entry.is_removed);
                     Assert.AreEqual(9d, persisted.level);
@@ -115,7 +115,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual("fresh edit D", currentEntry.memo);
                 Assert.AreEqual("fresh edit D", currentRow.memo);
                 Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(fixture.ViewModel).PlaylistOperationAdmission.IsActive);
-                using (LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "song.db")).OpenSongDbReadOnly())
+                using (LR2SongDBExtended read = new BmsLibraryDbGateway(Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
                 {
                     BMSTableEntry persisted = read.Table<BMSTableEntry>().Single(entry => entry.playlist_id == current.playlist_id && !entry.is_removed);
                     Assert.AreEqual(9d, persisted.level);
@@ -205,7 +205,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual(expectedName, active.name);
                 Assert.AreEqual(expectedName, active.org_name);
                 Assert.AreEqual(original.last_update, active.last_update);
-                var repository = new PlaylistPersistenceRepository(Path.Combine(fixture.Root, "song.db"));
+                var repository = new PlaylistPersistenceRepository(Path.Combine(fixture.Root, "data", "song.db"));
                 BMSTable persisted = repository.LoadPlaylistHeaders().Single();
                 Assert.AreEqual(expectedName, persisted.name);
                 Assert.AreEqual(expectedName, persisted.org_name);
@@ -392,7 +392,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 if (bulkOutcome is "output_failure" or "notification_failure") { outputBlocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None); }
                 if (bulkOutcome == "database_failure")
                 {
-                    using var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "song.db"));
+                    using var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "data", "song.db"));
                     database.Execute("CREATE TRIGGER fail_bulk_save BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced bulk DB failure'); END;");
                 }
                 captureOutput = bulkOutcome is "success" or "output_failure" or "notification_failure";
@@ -430,7 +430,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreSame(bulkOutcome == "success" ? draft.NoChangeOption : draft.OnOption, draft.BmtOutputOption);
                         bool saved = bulkOutcome is "success" or "output_failure" or "notification_failure";
                         Assert.AreEqual(saved, fixture.Table.is_bmt_output);
-                        using (var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "song.db")))
+                        using (var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "data", "song.db")))
                         {
                             Assert.AreEqual(saved ? 1L : 0L, database.ExecuteScalar<long>(
                                 "SELECT COUNT(1) FROM playlist WHERE playlist_id = ? AND is_bmt_output = 1;", fixture.Table.playlist_id));
@@ -446,7 +446,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-same-draft-after-db-failure");
                             Assert.AreSame(draft.NoChangeOption, draft.BmtOutputOption);
                             Assert.IsTrue(fixture.Table.is_bmt_output);
-                            using var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "song.db"));
+                            using var database = new LR2SongDBExtended(Path.Combine(fixture.Root, "data", "song.db"));
                             Assert.AreEqual(1L, database.ExecuteScalar<long>(
                                 "SELECT COUNT(1) FROM playlist WHERE playlist_id = ? AND is_bmt_output = 1;", fixture.Table.playlist_id));
                         }
@@ -706,7 +706,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 BMSTable localTable = CreateAdmissionFixtureTable();
                 fixture.Playlist.BMSTables.Add(localTable);
-                PersistFixtureTable(fixture.Root, localTable);
+                PersistFixtureTable(Path.Combine(fixture.Root, "data", "song.db"), localTable);
 
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 workspace.MutationRejected += (_, request) =>
@@ -2250,9 +2250,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         };
     }
 
-    private static void PersistFixtureTable(string root, BMSTable table)
+    private static void PersistFixtureTable(string songDbPath, BMSTable table)
     {
-        string songDbPath = Path.Combine(root, "song.db");
         using var database = new LR2SongDBExtended(songDbPath);
         database.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
         foreach (BMSTableEntry entry in table.entries ?? [])
@@ -2575,7 +2574,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             nameof(MainWindowPlaylistWorkspaceWpfTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        string songDbPath = Path.Combine(root, "song.db");
+        // 実起動の事前読取と固定factoryが同じ専用の単独動作DBを使う。
+        var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"));
+        Directory.CreateDirectory(applicationPath.DataDirectoryPath);
+        string songDbPath = applicationPath.StandaloneSongDbPath;
         StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
 
@@ -2609,6 +2611,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: lifetime,
+            applicationPathSnapshot: applicationPath,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var library = new TestBmsLibrary(
             songDbPath,

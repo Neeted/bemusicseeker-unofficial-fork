@@ -1430,8 +1430,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 .Where(snapshot => snapshot.IsActive)
                 .ToArray();
             Assert.IsTrue(activeProgress.Length > 0);
-            Assert.IsTrue(repairProgress.Where(snapshot => snapshot.IsActive)
-                .All(snapshot => snapshot.Request == receipt.ProgressRequest));
+            OperationProgressRequest repairRequest = receipt.ProgressRequest with { Source = "playlist_custom_folder_output_repair" };
+            Assert.IsTrue(repairProgress.All(snapshot => snapshot.Source == "custom_folder_repair" && snapshot.Request == repairRequest));
+            Assert.AreEqual(7L, repairRequest.Generation);
+            Assert.AreEqual(22L, repairRequest.OperationToken);
             Assert.AreEqual(1, activeProgress.Select(snapshot => snapshot.TotalTableCount).Distinct().Count());
             Assert.IsTrue(activeProgress.All(snapshot => snapshot.TotalTableCount > 0));
             Assert.IsTrue(activeProgress.All(snapshot => snapshot.CompletedTableCount > 0));
@@ -1459,6 +1461,14 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.AreSame(expectedRepairFailure, actualRepairFailure);
             Assert.IsTrue(repairProgress.Any(snapshot => snapshot.IsActive));
+            OperationProgressRequest failedRepairRequest = repairProgress[0].Request;
+            Assert.IsNotNull(failedRepairRequest);
+            Assert.AreNotEqual(repairRequest, failedRepairRequest);
+            Assert.AreEqual("playlist_custom_folder_output_repair", failedRepairRequest.Source);
+            Assert.AreEqual(7L, failedRepairRequest.Generation);
+            Assert.AreEqual(22L, failedRepairRequest.OperationToken);
+            Assert.AreEqual(playlist.PlaylistEntriesHydrationRequestedVersion, failedRepairRequest.Version);
+            Assert.IsTrue(repairProgress.All(snapshot => snapshot.Source == "custom_folder_repair" && snapshot.Request == failedRepairRequest));
             Assert.IsTrue(repairProgress.Take(repairProgress.Count - 1).All(snapshot => snapshot.IsActive));
             Assert.IsFalse(repairProgress[^1].IsActive);
         }
@@ -1525,7 +1535,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
 
-            Assert.IsTrue(repairProgress.Count > 0);
+            Assert.AreEqual(1, repairProgress.Count);
+            Assert.AreEqual("custom_folder_repair", repairProgress[0].Source);
+            Assert.IsNotNull(repairProgress[0].Request);
+            Assert.AreEqual("playlist_custom_folder_output_repair", repairProgress[0].Request.Source);
+            Assert.AreEqual(playlist.PlaylistEntriesHydrationRequestedVersion, repairProgress[0].Request.Version);
             Assert.IsFalse(repairProgress.Any(snapshot => snapshot.IsActive));
             Assert.IsFalse(repairProgress[^1].IsActive);
         }

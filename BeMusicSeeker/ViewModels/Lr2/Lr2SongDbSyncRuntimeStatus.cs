@@ -21,7 +21,9 @@ internal sealed class Lr2SongDbSyncRuntimeStatus
 
     internal bool HasWarningStatus { get; set; }
 
-    internal bool CanRetry { get; set; }
+
+    /// <summary>実行中LR2の発生元と親操作の表示識別です。</summary>
+    internal OperationProgressRequest Request { get; init; }
 
     internal DateTime CheckedAt { get; set; }
 }

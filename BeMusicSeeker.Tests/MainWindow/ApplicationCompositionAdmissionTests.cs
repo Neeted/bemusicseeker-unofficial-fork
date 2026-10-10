@@ -14,28 +14,73 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class ApplicationCompositionTests
 {
+    /// <summary>実初期化と必須表示を終えた標準構成で、Busyは新規受付の副作用を起こさずdraftと選択を保持します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_RejectsCatalogPlaybackAndSettingsBeforeSideEffectsWhileKeepingDraftAndSelection()
     {
 
-        string path = Path.GetTempFileName();
-        var session = new FakeSettingsEditSession();
+        string root = StartupLibraryConstructionTestSupport.CreateTemporaryRoot();
+        string path = Path.Combine(root, "admission.bms");
+        File.WriteAllText(path, "#PLAYER 1\n#TITLE Admission\n#BPM 120\n#00111:01\n");
+        BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        values.OperationModeLR2DB = false;
+        values.BMSRootPath = root;
+        values.StandaloneBmsRootPaths = root;
+        values.BMSInstallDir = root;
+        values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        values.EnablePlaylistUrlCompletion = false;
+        values.ScanBmsFilesOnStartup = true;
+        values.StartupSelectInstallPending = false;
+        values.SkipInitPlaylistLoad = true;
+        values.UseBeatorajaScoreDb = false;
+        values.EnableBeatorajaBmtOutput = false;
+        values.UseExternalPanelImage = false;
+        values.UsePlayeruBMplay = false;
+        values.UsePlayerLR2body = false;
+        values.UsePlayerBMIIDXView = false;
+        values.IsLR2BackupEnabled = false;
+        var session = new FakeSettingsEditSession { Values = values };
         var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
         var dialogs = new FileDbReportRecordingDialogs();
         var composition = new ApplicationComposition(settingsEditSession: session,
             defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+            chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
+            rootFileEnumerator: new FastRootFileEnumerator(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
-        MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(composition.CreateMainWindowViewModel);
-        ChartFile chart = ChartTestValues.Empty() with { Path = path };
-        var rows = new List<object> { chart };
-        viewModel.MainChartList.Rows = rows;
-        viewModel.MainChartList.SelectedIndex = 0;
-        bool before = viewModel.SettingDialog.KeepInstallablePackagesPending;
-        Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable lease));
+        var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
+        MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
+        IDisposable? lease = null;
         try
         {
+            Task<bool> initialize = TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.InitializeAsync());
+            Assert.IsTrue(await initialize);
+            Assert.IsTrue(viewModel.IsInitializationCompleted);
+            Assert.IsTrue(viewModel.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Admission"), "予約だけでなく今回の必須表示が反映されています。");
+
+            // 独立後続の終了はBusy検証の準備だけに使い、必須成功の条件にはしません。
+            StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
+                .GetField("startupBackgroundTaskScheduler", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(viewModel)
+                as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
+            var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void BackgroundChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { backgroundTerminal.TrySetResult(); }
+            }
+            viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
+            try
+            {
+                if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle) { await backgroundTerminal.Task; }
+            }
+            finally { viewModel.ProgressHub.PropertyChanged -= BackgroundChanged; }
+            ChartFile chart = (factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.")).BmsCharts.Single();
+            System.Collections.IList rows = viewModel.MainChartList.Rows;
+            viewModel.MainChartList.SelectedIndex = 0;
+            bool before = viewModel.SettingDialog.KeepInstallablePackagesPending;
+            int stopsBeforeBusy = player.CloseProcessCount;
+            Assert.IsTrue(composition.OperationAdmission.TryEnter(out lease));
             Assert.IsFalse((await viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded);
             int messagesBeforeReload = dialogs.Messages.Count;
             await viewModel.ReloadFileDiffAsync();
@@ -47,7 +92,7 @@ public sealed partial class ApplicationCompositionTests
             await viewModel.PlaybackPanel.Previous();
             await viewModel.PlaybackPanel.ExecuteTableRowActivation(0, chart);
             Assert.IsFalse(player.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
-            Assert.AreEqual(0, player.CloseProcessCount);
+            Assert.AreEqual(stopsBeforeBusy, player.CloseProcessCount);
             Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
             viewModel.SettingDialog.KeepInstallablePackagesPending = !before;
             await viewModel.SettingDialog.SaveSettings();
@@ -63,7 +108,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
             viewModel.SettingDialog.CancelCommand.Execute();
             Assert.AreEqual(before, viewModel.SettingDialog.KeepInstallablePackagesPending);
-            lease.Dispose();
+            lease?.Dispose();
             await viewModel.PlaybackPanel.StartAtIndex(0);
             Assert.IsTrue(player.Commands.Any(command => command == "PlayStart:" + path));
             viewModel.SettingDialog.SaveOperationModeForRestart(false);
@@ -71,12 +116,9 @@ public sealed partial class ApplicationCompositionTests
         }
         finally
         {
-            lease.Dispose();
-            viewModel.PlaybackPanel.BeginShutdown();
-            await viewModel.PlaybackPanel.CloseForShutdown();
-            viewModel.SettingDialog.Dispose();
-            viewModel.RegularChartList.Dispose();
-            File.Delete(path);
+            lease?.Dispose();
+            try { await TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync()); }
+            finally { viewModel.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
         }
     }
     /// <summary>設定編集のValues共有を維持し、編集後のBusy保存・適用で追加変更と永続化を始めず、draftを保持します。</summary>
@@ -399,7 +441,7 @@ public sealed partial class ApplicationCompositionTests
         var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => lr2Mode);
         int references = 0;
         var reloadOwner = new FileDiffReloadWorkflowOwner(request => Task.Run(() => library.ReloadFileDiff(request.Capability)),
-            new Lr2SongDbSyncWorkflowOwner(runtime), _ => references++);
+            new Lr2SongDbSyncWorkflowOwner(runtime), _ => { references++; return playlist.ApplyRequiredLibraryReferencesAsync(); });
         Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable lease));
         using LibraryFileMutationCapability capability = composition.OperationAdmission.CreateMutationCapability(lease);
         Task<FileDiffReloadWorkflowResult>? reload = null;

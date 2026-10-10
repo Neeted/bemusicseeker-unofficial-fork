@@ -5,10 +5,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
 namespace BeMusicSeeker.Tests;
@@ -117,10 +119,13 @@ public sealed class BmsLibraryInitializationFileScanTests
                 throw new InvalidOperationException("forced initialize catalog subscriber failure");
             }
         };
+        LibraryFileInitializationResult initializationInput;
+        var parent = new StartupLibraryInitializationWorkflowOwner(new SemaphoreSlim(1, 1));
+        using StartupRequiredOperationLease accepted = parent.AcquireRequiredOperation(library.OperationAdmission, library.Lr2Synchronization.PlaylistOperationAdmission);
         library.PropertyChanged += scanNotificationSubscriber;
         try
         {
-            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            initializationInput = library.InitializeStartup([], null, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(songDbPath), repairNotificationObserver: _ => { });
         }
         finally
         {
@@ -129,19 +134,15 @@ public sealed class BmsLibraryInitializationFileScanTests
 
         Assert.IsTrue(Volatile.Read(ref scanNotificationObserved) != 0);
         Assert.IsFalse(initializationWriterHeldAtNotification);
-        Assert.IsTrue(mutationAdmissionAvailable);
+        Assert.IsFalse(mutationAdmissionAvailable);
         Assert.IsTrue(Volatile.Read(ref subscriberFailureObserved) != 0);
         Assert.IsTrue(library.BmsCharts.Any(file =>
             string.Equals(file?.Path, chartPath, StringComparison.OrdinalIgnoreCase)));
 
         var synchronizationOwner =
             (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
-        Lr2SongDbSyncInput scanInput = synchronizationOwner.CreateLr2SongDbSyncInput();
-        Assert.IsTrue(scanInput.ScanSurfaceGeneration > 0);
-        Assert.AreEqual(library.OwnedCollectionVersion, scanInput.OwnedCollectionVersion);
-        Assert.IsNotNull(synchronizationOwner.CommittedPathReceipt);
-        Assert.IsTrue(synchronizationOwner.CommittedPathReceipt.MatchesTargets(
-            synchronizationOwner.CommittedPathReceipt.CommittedCharts.Select(chart => library.BmsCharts.Single(current => current.Token == chart.Token)).ToArray()));
+        Assert.IsNotNull(initializationInput.ScanSurface);
+        Assert.IsTrue(initializationInput.CommittedBmsPaths.Contains(chartPath));
 
         using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         Assert.IsTrue(verify.Table<LR2SongDB.song>().Any(row =>

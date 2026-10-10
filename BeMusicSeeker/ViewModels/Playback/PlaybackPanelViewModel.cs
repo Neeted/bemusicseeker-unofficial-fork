@@ -718,7 +718,11 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         RaisePropertyChanged(nameof(CurrentlyPlayingTime));
     }
 
-    internal async Task ReplacePlayerAsync(IBMSPlayer player, bool clearPlaybackStatus = false)
+    /// <summary>既存playerの停止と置換を実終端まで待ちます。必須起動はhost接続を親受付解放後の画面境界へ委ねます。</summary>
+    /// <param name="player">新しいplayer。</param>
+    /// <param name="clearPlaybackStatus">置換後に既存の再生状態を消去する場合は真。</param>
+    /// <param name="deferWindowHostAttachment">必須起動の実host接続を受付外で行う場合は真。</param>
+    internal async Task ReplacePlayerAsync(IBMSPlayer player, bool clearPlaybackStatus = false, bool deferWindowHostAttachment = false)
     {
         if (player == null)
         {
@@ -744,7 +748,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             }
 
             var preparedState = PlayerStateSnapshot.Capture(player);
-            if (currentWindowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
+            if (!deferWindowHostAttachment && currentWindowHost != null && player is IExternalWindowPlayer externalWindowPlayer)
             {
                 externalWindowPlayer.AttachWindowHost(currentWindowHost);
             }

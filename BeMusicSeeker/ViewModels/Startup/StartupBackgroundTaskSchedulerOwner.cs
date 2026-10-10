@@ -235,7 +235,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private static bool UsesExecutionProgressReporter(string name) =>
         name is "score_hydration_deferred" or "ranking_refresh_deferred"
             or "chart_info_hydration" or "chart_info_backfill" or "chart_info_backfill_after_hydration"
-            or "maintenance_hydration" or "installable_maintenance" or "playlist_entries_hydration"
+            or "maintenance_hydration" or "installable_maintenance"
             or "external_playlist_sync" or "playlist_ref_apply"
             or "playlist_custom_folder_output_repair" or "beatoraja_bmt_export_all";
 
@@ -741,7 +741,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
-    /// <summary>既存のスケジュールを再設定し、以後の子Taskへ表示世代を捕捉します。</summary>
+    /// <summary>新規dispatchを選択し、以後の要求へ表示識別を捕捉します。旧仕事の要求と進捗識別は終端まで維持します。</summary>
     internal void Reset(bool startImmediately, long operationToken = 0L)
     {
         bool shouldStartWorker;
@@ -758,13 +758,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     new(generation, operationToken, string.Empty, 0));
                 latestReservationSequenceByName.Clear();
                 idleRevision++;
-                for (int i = 0; i < queue.Count; i++)
-                {
-                    Request request = queue[i];
-                    request.Generation = generation;
-                    request.Version = ++version;
-                    latestRequestVersionByName[request.Name] = request.Version;
-                }
                 foreach (string staleReservationName in currentReservationByName
                     .Where(pair => !queue.Any(request => ReferenceEquals(request.Reservation, pair.Value)))
                     .Select(pair => pair.Key)
@@ -1427,7 +1420,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private static bool IsRequiredForShutdown(string name)
     {
         return string.Equals(name, "score_hydration_deferred", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
@@ -1436,9 +1428,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     /// <summary>既存の後続処理分類を、表示の所属判定でも共用します。</summary>
     internal static bool IsPostInitializationTask(string name)
     {
-        return string.Equals(name, "lr2_song_db_sync_enrollment", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
@@ -1446,6 +1436,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "chart_info_backfill", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase)
@@ -1466,11 +1457,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetPriority(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 10;
-        }
-
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
         {
             return 15;
@@ -1521,11 +1507,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             return 70;
         }
 
-        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            return 90;
-        }
-
         return 100;
     }
 
@@ -1539,8 +1520,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static string GetBaseLane(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
         {
             return "read_hydration";
         }

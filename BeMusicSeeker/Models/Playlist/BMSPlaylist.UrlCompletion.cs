@@ -77,7 +77,7 @@ public partial class BMSPlaylist
         }
         if (StartupBackgroundTaskScheduler != null)
         {
-            if (StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
+            if (StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, null, work))
             {
                 return;
             }
@@ -157,6 +157,7 @@ public partial class BMSPlaylist
 
     private async Task RefreshPlaylistUrlCompletionCoreAsync(long version, string reason)
     {
+        startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
         NLogWrapper.FileLogger?.Info("playlist_url_completion start version=" + version + " reason=" + reason);
         await EnsureAllPlaylistEntriesLoadedAsync("playlist_url_completion").ConfigureAwait(false);
         PlaylistUrlCompletionOptionsSnapshot options = GetPlaylistUrlCompletionOptions();
@@ -177,6 +178,7 @@ public partial class BMSPlaylist
         Task<PlaylistUrlCompletionRefreshSourceResult> tsvTask = FetchPlaylistUrlCompletionTsvSnapshotAsync(tsvSourceUri, hasConfiguredTsvSource, hasValidConfiguredTsvSource);
         Task<PlaylistUrlCompletionRefreshSourceResult> stellaTask = FetchPlaylistUrlCompletionStellaSnapshotAsync(options);
         PlaylistUrlCompletionRefreshSourceResult[] refreshResults = await Task.WhenAll(tsvTask, stellaTask).ConfigureAwait(false);
+        startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
         PlaylistUrlCompletionRefreshSourceResult tsvResult = refreshResults[0];
         PlaylistUrlCompletionRefreshSourceResult stellaResult = refreshResults[1];
         PlaylistUrlCompletionApplyStats applyStats = ApplyPlaylistUrlCompletionToLoadedTablesCore(
@@ -211,7 +213,8 @@ public partial class BMSPlaylist
         }
         try
         {
-            string content = await FetchPlaylistUrlCompletionTsvContentAsync(sourceUri, CancellationToken.None).ConfigureAwait(false);
+            string content = await FetchPlaylistUrlCompletionTsvContentAsync(sourceUri, startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
             PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseMd5UrlMappingTsv(content);
             lock (playlistUrlCompletionSnapshotLock)
             {
@@ -221,6 +224,7 @@ public partial class BMSPlaylist
             }
             return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
+        catch (OperationCanceledException) when (startupReadinessCoordinator.IsShutdownRequested) { throw; }
         catch (TaskCanceledException ex)
         {
             NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_tsv_timeout source=" + sourceUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs);
@@ -249,7 +253,8 @@ public partial class BMSPlaylist
         }
         try
         {
-            string content = await FetchPlaylistUrlCompletionStellaContentAsync(stellaUri, CancellationToken.None).ConfigureAwait(false);
+            string content = await FetchPlaylistUrlCompletionStellaContentAsync(stellaUri, startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
             PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadFullJson(content);
             lock (playlistUrlCompletionSnapshotLock)
             {
@@ -258,6 +263,7 @@ public partial class BMSPlaylist
             }
             return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
+        catch (OperationCanceledException) when (startupReadinessCoordinator.IsShutdownRequested) { throw; }
         catch (TaskCanceledException ex)
         {
             NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_stella_timeout source=" + stellaUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs);

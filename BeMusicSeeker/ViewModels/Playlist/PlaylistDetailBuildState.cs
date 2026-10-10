@@ -107,6 +107,7 @@ internal sealed class PlaylistDetailBuildState
         lock (SyncRoot)
         {
             RequestVersion++;
+            PendingRequest?.Complete();
             PendingRequest = null;
             CurrentBuildRequest = null;
             completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);
@@ -153,6 +154,7 @@ internal sealed class PlaylistDetailBuildState
         lock (SyncRoot)
         {
             RequestVersion++;
+            PendingRequest?.Complete();
             PendingRequest = null;
             CurrentBuildRequest = null;
             completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);

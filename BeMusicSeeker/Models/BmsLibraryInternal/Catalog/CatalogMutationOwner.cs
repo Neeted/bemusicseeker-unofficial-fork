@@ -531,7 +531,7 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// 所持集合から保守情報の順に既存の排他を取り、LR2入力の共通値と最新性の版を捕捉します。
+    /// 所持集合から保守情報の順に既存の排他を取り、親操作のLR2入力行とパスを捕捉します。
     /// 戻り値は不変で、管理主体や排他を保持せず使用できます。
     /// </summary>
     internal Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot()
@@ -556,22 +556,12 @@ internal sealed class CatalogMutationOwner
                 }
             }
 
-            return new Lr2SongDbSyncInputRowSnapshot(chartPaths, songRows, ownedCollectionOwner.OwnedCollectionVersion,
-                ownedCollectionOwner.Collection.CapturePathMembershipIndex());
+            return new Lr2SongDbSyncInputRowSnapshot(chartPaths, songRows);
         }
     }
 
     internal IReadOnlyList<ChartFile> CaptureLr2SynchronizationBmsFilesSnapshot() =>
         CaptureLr2SynchronizationInputRowSnapshot().SongRows;
-
-    internal OwnedChartCollectionVersionSnapshot CaptureLr2SynchronizationOwnedChartCollectionVersionSnapshot()
-    {
-        // CaptureVersionSnapshot is serialized by the storage owner's version
-        // gate.  Do not acquire either owner lock here: LR2 sync invokes this
-        // freshness probe while holding the maintenance writer, and another
-        // maintenance route acquires storage before maintenance.
-        return ownedCollectionOwner.CaptureVersionSnapshot();
-    }
 
     /// <summary>
     /// 保存トランザクション前に移転事実を検証して捕捉します。

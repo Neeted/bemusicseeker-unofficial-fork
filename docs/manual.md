@@ -1272,7 +1272,7 @@ If the external site is temporarily failing, wait and reload later. If the URL h
 
 Check whether the chart appears in `LR2 compatibility warnings`. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.
 
-In LR2 linked mode, also check the `Syncing LR2 song.db` state in the status bar. If incomplete or failed work remains, LR2 may be reading an old `song.db`. Press `Retry` and let synchronization finish before starting LR2.
+In LR2 linked mode, also check the `Syncing LR2 song.db` state in the status bar. If incomplete or failed work remains, LR2 may be reading an old `song.db`. Use `Resync LR2 song.db data` in the settings dialog and let synchronization finish before starting LR2.
 
 Even after synchronization is complete, you can use `Resync LR2 song.db data` in the settings dialog if another tool has changed the `song` / `folder` information in `song.db` and you suspect inconsistencies in the data generated for LR2.
 

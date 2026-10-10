@@ -32,53 +32,6 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
     }
 
     [TestMethod]
-    public async Task InitializeAsync_SuccessInvokesInitializationExactlyOnce()
-    {
-        using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
-        int initializeCalls = 0;
-
-        using (await owner.AcquireGateAsync())
-        {
-            await owner.InitializeAsync(() => Interlocked.Increment(ref initializeCalls));
-            Assert.AreEqual(1, initializeCalls);
-            Assert.AreEqual(0, gate.CurrentCount);
-        }
-
-        Assert.AreEqual(1, gate.CurrentCount);
-    }
-
-    [TestMethod]
-    public async Task InitializeAsync_FailurePreservesExceptionAndLeaseStillReleases()
-    {
-        using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
-        var failure = new InvalidOperationException("startup library initialization failed");
-
-        InvalidOperationException exception;
-        using (await owner.AcquireGateAsync())
-        {
-            exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.InitializeAsync(() => throw failure));
-            Assert.AreEqual(0, gate.CurrentCount);
-        }
-
-        Assert.AreSame(failure, exception);
-        Assert.AreEqual(1, gate.CurrentCount);
-        using StartupLibraryInitializationGateLease next =
-            await owner.AcquireGateAsync();
-    }
-
-    [TestMethod]
-    public async Task InitializeAsync_RejectsNullOperationWithoutInvokingWork()
-    {
-        using var gate = new SemaphoreSlim(1, 1);
-        var owner = new StartupLibraryInitializationWorkflowOwner(gate);
-
-        await Assert.ThrowsExceptionAsync<ArgumentNullException>(() => owner.InitializeAsync(null));
-    }
-
-    [TestMethod]
     public async Task StartupReadiness_TracksRequiredCompletionIndependentlyFromInstallEstimation()
     {
         var coordinator = new StartupReadinessCoordinator();
@@ -125,14 +78,14 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
     }
 
     [TestMethod]
-    public void InitializationService_RunInitialize_PropagatesContinuationFailure()
+    public void InitializationService_RunInitialization_PropagatesContinuationFailure()
     {
         var service = new BmsLibraryInitializationService();
         using var semaphore = new SemaphoreSlim(1, 1);
         var failure = new InvalidOperationException("initialization continuation failed");
 
         AggregateException exception = Assert.ThrowsException<AggregateException>(() =>
-            service.RunInitialize(
+            service.RunInitialization(
                 [
                     () =>
                     {
@@ -147,9 +100,8 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
                     }
                 ],
                 semaphore,
-                phase1: null,
-                phase2: null,
-                phase3: null));
+                loadSavedData: null,
+                applyFilesAndProjection: null));
 
         Assert.AreSame(failure, exception.InnerException);
     }

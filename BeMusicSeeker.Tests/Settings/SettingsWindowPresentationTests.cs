@@ -3979,7 +3979,7 @@ public sealed class SettingsWindowPresentationTests
                         Assert.IsFalse(windows[0].IsVisible);
                         initializeStarted.TrySetResult();
                         // 初期化の内部ではなく、返された結果に対する設定画面の方針を検証する。
-                        return await initializeReleased.Task;
+                        return new StartupInitializationResult(await initializeReleased.Task);
                     }),
                     viewModel.PlaylistWorkspace,
                     viewModel.PlaylistWorkspace,
@@ -4128,6 +4128,102 @@ public sealed class SettingsWindowPresentationTests
                 }
             }
             bodyFailure?.Throw();
+        });
+    }
+
+    /// <summary>通常保存の実Close、DataContext解除、modal復帰後も実Folder Taskと親L/Pが生存し、main上で終端します。</summary>
+    [TestMethod]
+    public void MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "BmsSavedSettings-" + Guid.NewGuid().ToString("N"));
+            string added = Path.Combine(root, "added");
+            Directory.CreateDirectory(added);
+            using var release = new ManualResetEventSlim();
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var events = new List<string>();
+            var failures = new List<Exception>();
+            var lifetime = new DangerApplicationLifetime(events, firstStartup: false);
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(value =>
+            {
+                value.OperationModeLR2DB = false;
+                value.BMSRootPath = root; value.StandaloneBmsRootPaths = root; value.BMSInstallDir = root;
+                value.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                value.EnablePlaylistUrlCompletion = false; value.ScanBmsFilesOnStartup = false; value.SkipInitPlaylistLoad = true;
+                value.UseBeatorajaScoreDb = false; value.EnableBeatorajaBmtOutput = false; value.UseExternalPanelImage = false;
+                value.UsePlayeruBMplay = false; value.UsePlayerLR2body = false; value.UsePlayerBMIIDXView = false;
+                value.IsLR2BackupEnabled = false;
+            });
+            var scanner = new SettingDialogEditCompletionTests.SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []));
+            var composition = new ApplicationComposition(settingsEditSession: new DangerSettingsEditSession(values, events),
+                reportSettingsApplyFailure: failures.Add, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator());
+            MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+            owner.StartupUpdateWorkflow.NotifyClosing();
+            var ownership = new MainWindowTestLifetime(owner, lifetime.ShutdownRequested.Task);
+            Window? previousMain = Application.Current.MainWindow;
+            MainWindow? main = null;
+            SettingsWindow? settings = null;
+            Task? apply = null;
+            bool closed = false;
+            ExceptionDispatchInfo? failure = null;
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false), "normal-settings-shell-initialization");
+                Assert.IsTrue(owner.IsInitializationCompleted);
+                string chart = Path.Combine(added, "normal.bms");
+                File.WriteAllText(chart, "#PLAYER 1\n#TITLE Modal Folder\n#BPM 120\n#00111:01\n");
+                var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [root]);
+                next.ScanObserved = () => { entered.TrySetResult(); release.Wait(); };
+                scanner.Current = next;
+                owner.SettingDialog.StandaloneBmsRootPathList.Add(added);
+                main = ownership.CreateWindow(() => new MainWindow(owner, window =>
+                {
+                    settings = window;
+                    windowTest.PrepareForOwnedPresentation(window);
+                    window.Closed += (_, _) => closed = true;
+                    window.ContentRendered += (_, _) => apply = window.RunApplyOperationAsync(owner.SettingDialog.ApplySettingsAsync);
+                }));
+                Application.Current.MainWindow = main;
+                windowTest.PrepareForOwnedPresentation(main);
+                main.Show(); main.UpdateLayout();
+                Visibility previousOverlay = main.PlaybackOverlayVisibility;
+                owner.SettingDialog.OpenCommand.Execute();
+                Assert.IsNotNull(apply);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply!, "normal-settings-post-close-scan"), "normal-settings-post-close-scan");
+                Assert.IsTrue(closed);
+                Assert.IsNotNull(settings);
+                Assert.IsNull(settings!.DataContext);
+                Assert.IsFalse(settings.IsVisible);
+                Assert.AreEqual(SettingsWindowCloseReason.Apply, settings.CloseReason);
+                Assert.AreEqual(previousOverlay, main.PlaybackOverlayVisibility, "modal cleanup済みのmainから後続を追います。");
+                Assert.IsFalse(apply!.IsCompleted);
+                Assert.IsTrue(owner.SettingDialog.IsEditCompletionInProgress);
+                Assert.IsTrue(composition.OperationAdmission.IsActive);
+                Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                Assert.IsTrue(values.StandaloneBmsRootPaths.Contains(added, StringComparison.Ordinal));
+                release.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "normal-settings-post-close-terminal");
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+            }
+            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+            finally
+            {
+                release.Set();
+                try
+                {
+                    if (settings?.IsVisible == true) { settings.CloseForOwnerShutdown(); }
+                    try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "normal-settings-accepted-cleanup"); } }
+                    finally { ownership.DisposeAfterBodyFailure(failure?.SourceException); }
+                }
+                finally { Application.Current.MainWindow = previousMain; Directory.Delete(root, recursive: true); }
+            }
+            failure?.Throw();
         });
     }
 
@@ -4836,14 +4932,7 @@ public sealed class SettingsWindowPresentationTests
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        var workflow = new Lr2SongDbSyncWorkflowOwner(
-            runtime,
-            action =>
-            {
-                action();
-                return Task.CompletedTask;
-            },
-            (_, _) => { });
+        var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
         return new SettingsDialogViewModel(
             new ManualResyncStatePort(),
             owner.PlaylistWorkspace,
@@ -4869,13 +4958,24 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(StartupInitializationOutcome.Succeeded);
+        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
-        public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.CompletedTask;
+        public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+            => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
+
+
+        public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync() => Task.FromResult<LeapYearFolderRepairApproval?>(null);
+
+        public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
+
+        public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+        public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
 
-        public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.CompletedTask;
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {
@@ -4929,10 +5029,6 @@ public sealed class SettingsWindowPresentationTests
 
         bool ILr2SongDbSyncWorkflowRuntime.IsLibraryAvailable => true;
 
-        public void DiscardCommittedPathReceipt(string reason)
-        {
-        }
-
         internal int QueueCount
         {
             get
@@ -4949,7 +5045,7 @@ public sealed class SettingsWindowPresentationTests
             bool force,
             bool prepareGeneratedData = false,
             bool allowIncompleteToQueue = true,
-            bool allowCommittedPathReceipt = false, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null)
+            LibraryFileInitializationResult? initializationResult = null, LibraryFileMutationCapability? capability = null, bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability? playlistCapability = null, Lr2SongDbSyncPreparedDataSurface? preparedSurface = null, OperationProgressRequest? originatingRequest = null, BmsLibraryOptionsSnapshot? optionsSnapshot = null)
         {
             QueueCall call = new(reason, force, allowIncompleteToQueue);
             lock (gate)
@@ -5041,13 +5137,24 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(StartupInitializationOutcome.Succeeded);
+        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
-        public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.CompletedTask;
+        public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+            => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
+
+
+        public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync() => Task.FromResult<LeapYearFolderRepairApproval?>(null);
+
+        public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
+
+        public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+        public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
 
-        public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.CompletedTask;
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {
@@ -5074,13 +5181,29 @@ public sealed class SettingsWindowPresentationTests
 
         public bool IsLibraryOperationInProgress => false;
 
-        public Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(StartupInitializationOutcome.Succeeded);
+        public bool IsInitializationCompletionCurrent(long operationToken) => operationToken == 0L;
 
-        public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => reloadScoresOnly();
+        public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+            => Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded });
+
+
+        public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync() => Task.FromResult<LeapYearFolderRepairApproval?>(null);
+
+        public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
+
+        public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+
+        public async Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+        {
+            Task operation = reloadScoresOnly();
+            await operation;
+            return operation is Task<StartupInitializationResult> result ? await result : new(StartupInitializationOutcome.Succeeded);
+        }
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
 
-        public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.CompletedTask;
+        public Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public event EventHandler LibraryOperationAvailabilityChanged
         {

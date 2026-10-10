@@ -236,53 +236,6 @@ public sealed class BmsLibraryInitializationInstallTests
     }
 
     [TestMethod]
-    public void RunInitialize_InvokesAllPhasesAndWaitsForContinuations()
-    {
-        var service = new BmsLibraryInitializationService();
-        int phase1Count = 0;
-        int phase2Count = 0;
-        int phase3Count = 0;
-        int continuationCount = 0;
-
-        InitializationExecutionResult result = service.RunInitialize(
-            [
-                delegate
-                {
-                    Interlocked.Increment(ref continuationCount);
-                }
-            ],
-            new SemaphoreSlim(2, 2),
-            delegate
-            {
-                Interlocked.Increment(ref phase1Count);
-            },
-            delegate
-            {
-                Interlocked.Increment(ref phase2Count);
-            },
-            delegate
-            {
-                Interlocked.Increment(ref phase3Count);
-            });
-
-        Assert.AreEqual(1, phase1Count);
-        Assert.AreEqual(1, phase2Count);
-        Assert.AreEqual(1, phase3Count);
-        Assert.AreEqual(1, continuationCount);
-        Assert.IsTrue(result.Phase1MinLoadMs >= 0);
-        Assert.IsTrue(result.Phase2ScanMaintMs >= 0);
-        Assert.IsTrue(result.Phase3InstallMaintenanceMs >= 0);
-        Assert.IsTrue(result.WaitContinuationMs >= 0);
-        Assert.IsTrue(result.WaitBeforeContinuationStartMs >= 0);
-        Assert.IsTrue(result.WaitForContinuationSignalMs >= 0);
-        Assert.IsTrue(result.WaitForContinuationTasksMs >= 0);
-        Assert.AreEqual(
-            result.WaitBeforeContinuationStartMs + result.WaitForContinuationSignalMs + result.WaitForContinuationTasksMs,
-            result.WaitContinuationMs);
-        Assert.IsTrue(result.TotalMs >= 0);
-    }
-
-    [TestMethod]
     public void LoadInstallTable_InitializesPendingWarningsAndCounts()
     {
 
@@ -764,8 +717,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>通常カタログloadから限定読取へ検出保証を移し、過去の閏年も候補の保存行・mtimeとして捕捉します。</summary>
     [TestMethod]
-    public void LoadSongTable_DetectsLeapYearFolderTimestampInAnyLeapYear()
+    public void LeapYearCandidateCapture_DetectsFolderTimestampInAnyLeapYear()
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -793,20 +747,12 @@ public sealed class BmsLibraryInitializationInstallTests
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
-            SongTableLoadResult result = service.LoadSongTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
-                null,
-                fileMutationService,
-                null,
-                ex => ex.Message);
-
-            Assert.IsTrue(result.LeapYearDetected);
-            Assert.AreEqual(1, result.LeapYearRepairCandidates.Count);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
+            Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
-            Assert.IsFalse(result.UpdatedFolders.Any(folder => string.Equals(folder.path, folderPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
-            Assert.AreEqual(folderPath + Path.DirectorySeparatorChar, result.LeapYearRepairCandidates[0].OriginalFolderPath);
-            Assert.AreEqual(folderPath, result.LeapYearRepairCandidates[0].Path);
+            Assert.AreEqual(folderPath + Path.DirectorySeparatorChar, candidates[0].OriginalFolderPath);
+            Assert.AreEqual(folderPath, candidates[0].Path);
+
         });
     }
 
@@ -836,18 +782,14 @@ public sealed class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            SongTableLoadResult loadResult = service.LoadSongTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
-                null,
-                null,
-                null,
-                exception => exception.Message);
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
             Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(folderPath, candidates[0].Path);
 
-            var fileMutationService = new RecordingFileMutationService();
+            var fileMutationService = new RecordingFileMutationService
+            {
+                OnSetTimestamps = call => Directory.SetLastWriteTime(call.Path, call.LastWriteTime.GetValueOrDefault())
+            };
             LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
                 new BmsLibraryDbGateway(songDbPath),
                 candidates,
@@ -860,6 +802,7 @@ public sealed class BmsLibraryInitializationInstallTests
             Assert.AreEqual(0, repair.Failures.Count);
             Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
             Assert.AreEqual(folderPath, fileMutationService.TimestampCalls[0].Path);
+            Assert.AreEqual(fileMutationService.TimestampCalls[0].LastWriteTime, Directory.GetLastWriteTime(folderPath));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.IsNull(persistedFolder.adddate);
@@ -893,14 +836,7 @@ public sealed class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            SongTableLoadResult loadResult = service.LoadSongTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
-                null,
-                null,
-                null,
-                exception => exception.Message);
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
             Assert.AreEqual(1, candidates.Count);
 
             // March 1 is still inside the legacy leap-year sentinel window,
@@ -951,14 +887,7 @@ public sealed class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            SongTableLoadResult loadResult = service.LoadSongTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
-                null,
-                null,
-                null,
-                exception => exception.Message);
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = loadResult.LeapYearRepairCandidates;
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
             LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
                 new BmsLibraryDbGateway(songDbPath),
                 candidates,
@@ -1037,8 +966,13 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    [TestMethod]
-    public void Initialize_RepairsStableLeapYearFolderBeforeDeferredDialogAndAllowsReentry()
+    [DataTestMethod]
+    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, false)]
+    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, false)]
+    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, true)]
+    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, true)]
+    /// <summary>公開起動・全再初期化の修復と通知再入を保ち、確認内の終了では日時・保存行を変えずBusy通知も追加しません。</summary>
+    public void Initialize_RepairsStableLeapYearFolderBeforeDeferredDialogAndAllowsReentry(BMSLibrary.LibraryInitializeMode mode, bool shutdownDuringConfirmation)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -1078,14 +1012,24 @@ public sealed class BmsLibraryInitializationInstallTests
             library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
             bool timestampObservedWithoutModelGuards = false;
             bool callbackAfterReleaseObserved = false;
-            fileMutationService.OnSetTimestamps = _ =>
+            fileMutationService.OnSetTimestamps = timestampCall =>
             {
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                Directory.SetLastWriteTime(timestampCall.Path, timestampCall.LastWriteTime.GetValueOrDefault());
                 timestampObservedWithoutModelGuards = !library.IsWriteLockHeldInitializeAll
                     && !library.IsWriteLockHeldInitializeMin
                     && !library.IsWriteLockHeldInitializeBMSFiles;
             };
             dialogService.OnShow = dialogCall =>
             {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                if (dialogCall.Button == MessageBoxButton.YesNo)
+                {
+                    Assert.AreEqual(MessageBoxResult.No, dialogCall.DefaultResult);
+                    if (shutdownDuringConfirmation) { library.RequestShutdown("public_confirmation_shutdown"); }
+                }
                 if (dialogCall.Button == MessageBoxButton.OK && dialogService.Calls.Count > 1)
                 {
                     callbackAfterReleaseObserved = true;
@@ -1096,11 +1040,26 @@ public sealed class BmsLibraryInitializationInstallTests
                 }
             };
 
-            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            library.Initialize(null, null, mode);
 
+            if (shutdownDuringConfirmation)
+            {
+                Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
+                Assert.AreEqual(1, dialogService.Calls.Count);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                Assert.IsFalse(callbackAfterReleaseObserved);
+                Assert.AreEqual(new DateTime(2024, 2, 29, 12, 0, 0), Directory.GetLastWriteTime(folderPath));
+                using LR2SongDBExtended unchanged = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                LR2SongDB.folder saved = unchanged.Table<LR2SongDB.folder>().Single();
+                Assert.AreEqual(0, saved.adddate);
+                Assert.IsNull(saved.date);
+                return;
+            }
             Assert.AreEqual(1, fileMutationService.TimestampCalls.Count);
             Assert.IsTrue(timestampObservedWithoutModelGuards);
             Assert.IsTrue(callbackAfterReleaseObserved);
+            Assert.AreEqual(fileMutationService.TimestampCalls[0].LastWriteTime, Directory.GetLastWriteTime(folderPath));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder persistedFolder = verify.Table<LR2SongDB.folder>().Single();
             Assert.IsNull(persistedFolder.adddate);
@@ -1141,6 +1100,179 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>song表もschemaもないDBを使い、folder限定の読取りとDB/物理日時の非変更を区別します。</summary>
+    [TestMethod]
+    public void LeapYearCandidateCapture_ReadsOnlyEligibleFoldersAndDoesNotCreateDatabaseOrSchema()
+    {
+        WithTemporaryLr2SongDb((lr2Root, dbPath) =>
+        {
+            string folder = Path.Combine(lr2Root, "Songs", "Candidate");
+            Directory.CreateDirectory(folder);
+            DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(folder, sentinel);
+            using (var db = new LR2SongDBExtended(dbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = -1, adddate = 0, title = "eligible" });
+                db.Insert(new LR2SongDB.folder { path = folder, type = 1, date = null, adddate = -1, title = "abnormal adddate" });
+                db.Insert(new LR2SongDB.folder { path = "Songs\\Candidate", type = 1, date = null, adddate = 0, title = "relative" });
+                db.Insert(new LR2SongDB.folder { path = folder + "\\.", type = 2, date = null, adddate = 0, title = "other type" });
+                db.Insert(new LR2SongDB.folder { path = Path.Combine(lr2Root, "missing"), type = 1, date = null, adddate = 0, title = "missing" });
+                db.Insert(new LR2SongDB.folder { path = folder + "\\..\\Candidate", type = 1, date = 123, adddate = 0, title = "ordinary date" });
+            }
+            byte[] saved = File.ReadAllBytes(dbPath);
+            var service = new BmsLibraryInitializationService();
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(dbPath), out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+            Assert.AreEqual(1, candidates.Count);
+            Assert.AreEqual(folder, candidates[0].Path);
+            Assert.AreEqual(0, unreadable.Count);
+            CollectionAssert.AreEqual(saved, File.ReadAllBytes(dbPath));
+            Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE name IN ('song','chart_info','app_schema');"));
+                Assert.AreEqual(6L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
+            }
+            string absent = Path.Combine(lr2Root, "absent", "song.db");
+            Assert.AreEqual(0, service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(absent), out _).Count);
+            Assert.IsFalse(File.Exists(absent));
+            Assert.IsFalse(Directory.Exists(Path.GetDirectoryName(absent)));
+        });
+    }
+
+    /// <summary>Noと閉じた確認は非承認として初期化を継続し、元の日時・保存列と検出警告を保持します。</summary>
+    [DataTestMethod]
+    [DataRow((int)MessageBoxResult.No)]
+    [DataRow((int)MessageBoxResult.Cancel)]
+    [DataRow((int)MessageBoxResult.None)]
+    public void Initialize_LeapYearDeclineKeepsTimestampAndWarnsAfterBothAdmissions(int choice)
+    {
+        WithTemporaryLr2SongDb((lr2Root, dbPath) =>
+        {
+            string folder = Path.Combine(lr2Root, "Songs", "Declined");
+            Directory.CreateDirectory(folder);
+            DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(folder, sentinel);
+            using (var db = new LR2SongDBExtended(dbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = "declined" });
+            }
+            var dialogs = new RecordingDialogService { ResultToReturn = (MessageBoxResult)choice };
+            var mutation = new RecordingFileMutationService();
+            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            dialogs.OnShow = _ =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+            };
+            library.InitializeStartup(null);
+            Assert.AreEqual(0, mutation.TimestampCalls.Count);
+            Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder));
+            Assert.AreEqual(1, dialogs.Calls.Count(call => call.Button == MessageBoxButton.YesNo));
+            Assert.AreEqual(1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Single().adddate);
+        });
+    }
+
+    /// <summary>一部失敗では兄弟成功を保持し、全失敗では検出だけを成功警告へ変えず、受付外で元対象・原因を通知します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Initialize_LeapYearPartialRepairPreservesSuccessAndNotifiesOriginalFailureAfterBothAdmissions(bool allFail)
+    {
+        WithTemporaryLr2SongDb((lr2Root, dbPath) =>
+        {
+            string first = Path.Combine(lr2Root, "Songs", "First");
+            string second = Path.Combine(lr2Root, "Songs", "Second");
+            DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
+            foreach (string folder in new[] { first, second }) { Directory.CreateDirectory(folder); Directory.SetLastWriteTime(folder, sentinel); }
+            using (var db = new LR2SongDBExtended(dbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                foreach (string folder in new[] { first, second }) { db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = folder }); }
+            }
+            var original = new IOException("partial repair failure");
+            var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
+            var mutation = new RecordingFileMutationService();
+            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            mutation.OnSetTimestamps = call =>
+            {
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                if (allFail || call.Path == first) { throw original; }
+                Directory.SetLastWriteTime(call.Path, call.LastWriteTime.GetValueOrDefault());
+            };
+            dialogs.OnShow = _ =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+            };
+            library.InitializeStartup(null);
+            Assert.AreEqual(2, mutation.TimestampCalls.Count);
+            Assert.AreEqual(sentinel, Directory.GetLastWriteTime(first));
+            if (allFail) { Assert.AreEqual(sentinel, Directory.GetLastWriteTime(second)); }
+            else { Assert.AreNotEqual(sentinel, Directory.GetLastWriteTime(second)); }
+            Assert.IsTrue(dialogs.Calls.Any(call => call.Message.Contains(first, StringComparison.Ordinal) && call.Message.Contains(original.Message, StringComparison.Ordinal)));
+            Assert.AreEqual(allFail ? 0 : 1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Single(row => row.title == first).adddate);
+            LR2SongDB.folder secondRow = verify.Table<LR2SongDB.folder>().Single(row => row.title == second);
+            if (allFail) { Assert.AreEqual(0, secondRow.adddate); }
+            else { Assert.IsNull(secondRow.adddate); }
+        });
+    }
+
+    /// <summary>実修復後の通常DB読込みが失敗しても、保存済み補正と受付外警告を保持し、元の失敗を伝播します。</summary>
+    [TestMethod]
+    public void Initialize_LeapYearRepairFollowedByCatalogFailureRetainsRepairAndDoesNotBecomeSuccess()
+    {
+        WithTemporaryLr2SongDb((lr2Root, dbPath) =>
+        {
+            string folder = Path.Combine(lr2Root, "Songs", "BeforeLoadFailure");
+            Directory.CreateDirectory(folder);
+            DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(folder, sentinel);
+            using (var db = new LR2SongDBExtended(dbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0 });
+            }
+            var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
+            var mutation = new RecordingFileMutationService();
+            var library = new TestBmsLibrary(dbPath, null, null, mutation, dialogs, new TestUiScheduler(() => null), () => CreateInitializationOptions(lr2Root));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+            mutation.OnSetTimestamps = call =>
+            {
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                Directory.SetLastWriteTime(call.Path, call.LastWriteTime.GetValueOrDefault());
+                // 次の通常loadで実DBエラーを起こし、修復の部分確定を成功初期化と取り違えない。
+                using var db = new LR2SongDBExtended(dbPath);
+                db.DropTable<LR2SongDB.song>();
+            };
+            dialogs.OnShow = call =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
+            };
+            SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => library.InitializeStartup(null));
+            StringAssert.Contains(failure.Message, "song");
+            Assert.AreEqual(1, mutation.TimestampCalls.Count);
+            Assert.AreNotEqual(sentinel, Directory.GetLastWriteTime(folder));
+            Assert.AreEqual(1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+            Assert.IsNull(verify.Table<LR2SongDB.folder>().Single().adddate);
+        });
+    }
     private static BmsLibraryOptionsSnapshot CreateInitializationOptions(string lr2RootPath)
     {
         return new BmsLibraryOptionsSnapshot

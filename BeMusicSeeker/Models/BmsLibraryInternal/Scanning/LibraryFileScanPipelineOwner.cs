@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -31,6 +32,8 @@ internal sealed class LibraryFileScanPipelineOwner
         internal LibraryDirectoryPreflightRequest DirectoryPreflightRequest { get; init; }
 
         internal string Reason { get; init; }
+
+        internal Action<LibraryScanWarning> WarningObserver { get; init; }
 
         internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
 
@@ -92,6 +95,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly IChartFileScanner chartFileScanner;
 
+    private readonly IRootFileEnumerator rootFileEnumerator;
+
     private readonly LibraryDirectoryPreflightService directoryPreflightService;
 
     private readonly object fileScanGate = new();
@@ -101,14 +106,13 @@ internal sealed class LibraryFileScanPipelineOwner
     private long fileScanGeneration;
 
     /// <summary>
-    /// Creates the shared file-scan pipeline.  The optional chart scanner is a
-    /// captured composition surface for deterministic owner fixtures; normal
-    /// application construction leaves it null and uses the Everything scanner.
+    /// 一つの走査要求から保存・投影・直接LR2入力までを接続し、開始した読取りを全終端で回収します。
+    /// 列挙依存は構成時に捕捉し、通常構成ではEverythingと既存の限定fallbackを使います。
     /// </summary>
-    /// <param name="chartFileScanner">Optional captured chart scanner; null selects the normal Everything scanner.</param>
-    /// <param name="rootFileEnumerator">Optional captured grouped enumerator; null selects the normal LR2 file enumeration path.</param>
+    /// <param name="chartFileScanner">構成時に捕捉した譜面列挙窓口。nullは通常のEverything走査です。</param>
+    /// <param name="rootFileEnumerator">構成時に捕捉したroot列挙窓口。nullは通常のLR2列挙です。</param>
     /// <param name="directoryPreflightService">更新前検査を共有する service。null の場合は通常構成を作成します。</param>
-    /// <param name="markCatalogPathConvergenceCompleted">Publishes the process-local readiness fact after authoritative path diff and canonical replacement complete.</param>
+    /// <param name="markCatalogPathConvergenceCompleted">正本の差分と目録差替え完了後に、このモデルのpath収束を公開します。</param>
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
@@ -171,6 +175,7 @@ internal sealed class LibraryFileScanPipelineOwner
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
         this.chartFileScanner = chartFileScanner;
+        this.rootFileEnumerator = rootFileEnumerator;
         this.directoryPreflightService = directoryPreflightService ?? new LibraryDirectoryPreflightService();
     }
 
@@ -183,7 +188,7 @@ internal sealed class LibraryFileScanPipelineOwner
         List<string> rootDirectories,
         string reason,
         Action<string> reportScanner = null,
-        LibraryDirectoryPreflightRequest directoryPreflightRequest = null)
+        LibraryDirectoryPreflightRequest directoryPreflightRequest = null, Action<LibraryScanWarning> warningObserver = null)
     {
         ActiveFileScan scan;
         lock (fileScanGate)
@@ -200,7 +205,8 @@ internal sealed class LibraryFileScanPipelineOwner
                 Options = options,
                 RootDirectories = [.. rootDirectories ?? []],
                 Reason = reason ?? string.Empty,
-                DirectoryPreflightRequest = directoryPreflightRequest
+                DirectoryPreflightRequest = directoryPreflightRequest,
+                WarningObserver = warningObserver
             };
             activeFileScan = scan;
         }
@@ -244,7 +250,8 @@ internal sealed class LibraryFileScanPipelineOwner
         }
     }
 
-    internal void StartActiveNormalFolderMtimeSnapshot(long generation)
+    /// <summary>先行mtime読取りを開始し、呼出元にも同じ実Taskを返します。不要なら完了Taskを返します。</summary>
+    internal Task StartActiveNormalFolderMtimeSnapshot(long generation)
     {
         ActiveFileScan scan = GetActiveFileScan(generation);
         lock (fileScanGate)
@@ -258,7 +265,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 || scan.RootDirectories.Count == 0
                 || scan.NormalFolderMtimeSnapshotTask != null)
             {
-                return;
+                return scan.NormalFolderMtimeSnapshotTask ?? Task.CompletedTask;
             }
 
             scan.NormalFolderMtimeSnapshotTask = Task.Run(() =>
@@ -273,12 +280,13 @@ internal sealed class LibraryFileScanPipelineOwner
                             logInstallPerformance(message);
                         }
                     })).LoggingAndPropagate("Lr2NormalFolderMtimeSnapshotPrefetch");
+            return scan.NormalFolderMtimeSnapshotTask;
         }
     }
 
     /// <summary>
-    /// Applies the prepared scan and returns its immutable LR2 bridge input to
-    /// the caller-owned mutation lease.
+    /// 準備済み走査を適用し、全開始子Taskとcleanupを回収して今回の変更不能LR2入力を返します。
+    /// 呼出元の生存する共通権限を借用し、元失敗をcleanupの副次障害で隠しません。
     /// </summary>
     internal Lr2FolderFileDiffPreparationResult ApplyActiveFileScan(
         long generation,
@@ -290,7 +298,6 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             throw new ArgumentNullException(nameof(installDestinationCleanupSnapshot));
         }
-        lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt("file_diff_started");
         ActiveFileScan scan = GetActiveFileScan(generation);
         lock (fileScanGate)
         {
@@ -322,14 +329,17 @@ internal sealed class LibraryFileScanPipelineOwner
                 trackLibraryFileCheckProgress,
                 scan.Reason,
                 installDestinationCleanupSnapshot,
-                postLeaseEffectObserver, capability);
-            CompleteFileScan(scan);
+                postLeaseEffectObserver, capability, scan.WarningObserver);
             return result;
         }
         catch
         {
-            CompleteFileScan(scan);
             throw;
+        }
+        finally
+        {
+            JoinScanChildren(scan);
+            CompleteFileScan(scan);
         }
     }
 
@@ -345,16 +355,14 @@ internal sealed class LibraryFileScanPipelineOwner
             }
             activeFileScan = null;
         }
-        ObserveTaskFailure(scan.ChartScanPrefetchTask);
-        ObserveTaskFailure(scan.NormalFolderMtimeSnapshotTask);
+        JoinScanChildren(scan);
     }
 
     /// <summary>
-    /// Applies one prepared LR2 folder-file request through the caller-owned
-    /// mutation lease.  The scan pipeline itself never stores or accepts the
-    /// capability while it performs ordinary scan and catalog work.
+    /// 準備済みLR2 folder/file要求を、呼出元の同じ生存権限で確定します。
+    /// 通常走査と目録処理のために権限を保存したり別受付を取得したりしません。
     /// </summary>
-    /// <param name="progressReporter">Optional best-effort progress reporter for the prepared LR2 folder-file apply.</param>
+    /// <param name="progressReporter">確定処理の任意の進捗通知先。</param>
     internal void ApplyPreparedLr2FolderFileDiffForFileMutation(
         BmsLibraryOptionsSnapshot options,
         string reason,
@@ -370,16 +378,13 @@ internal sealed class LibraryFileScanPipelineOwner
             progressReporter);
     }
 
-    private static void ObserveTaskFailure(Task task)
+    /// <summary>不成立・中断でも開始済み読取りを回収します。先行走査の既存非致命的扱いと元失敗を保持します。</summary>
+    private static void JoinScanChildren(ActiveFileScan scan)
     {
-        if (task == null)
-        {
-            return;
-        }
-
-        _ = task.ContinueWith(
-            completed => _ = completed.Exception,
-            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+        Task[] children = [scan.ChartScanPrefetchTask, scan.NormalFolderMtimeSnapshotTask];
+        children = children.Where(task => task != null).ToArray();
+        try { Task.WhenAll(children).GetAwaiter().GetResult(); }
+        catch (Exception failure) { NLogWrapper.FileLogger?.Warn(failure, "library_scan_child_cleanup_failed"); }
     }
 
     private void CompleteFileScan(ActiveFileScan scan)
@@ -419,13 +424,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private void QueueFallbackWarningForGeneration(long generation, string reason)
     {
+        Action<LibraryScanWarning> observer;
         lock (fileScanGate)
         {
-            if (activeFileScan?.Generation == generation)
-            {
-                queueEverythingFallbackWarning(reason);
-            }
+            if (activeFileScan?.Generation != generation) { return; }
+            observer = activeFileScan.WarningObserver;
         }
+        if (observer == null) { queueEverythingFallbackWarning(reason); }
+        else { observer(new(LibraryScanWarningKind.EverythingFallback, reason)); }
     }
 
     private ChartScanPrefetchInfo ResolveChartScanPrefetch(ActiveFileScan scan)
@@ -554,7 +560,7 @@ internal sealed class LibraryFileScanPipelineOwner
         bool trackLibraryFileCheckProgress,
         string reason,
         InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot,
-        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null)
+        Action<Action> postLeaseEffectObserver = null, LibraryFileMutationCapability capability = null, Action<LibraryScanWarning> warningObserver = null)
     {
         if (installDestinationCleanupSnapshot == null)
         {
@@ -653,6 +659,10 @@ internal sealed class LibraryFileScanPipelineOwner
                             null,
                             true);
                     }
+                }, () => true, fallbackReason =>
+                {
+                    if (warningObserver == null) { queueEverythingFallbackWarning(fallbackReason); }
+                    else { warningObserver(new(LibraryScanWarningKind.EverythingFallback, fallbackReason)); }
                 });
             stopwatchResolveScan.Stop();
             resolvedChartScanPrefetchInfo = new ChartScanPrefetchInfo
@@ -665,7 +675,8 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             string failureReason = GetChartScanFailureReason(resolvedChartScanPrefetchInfo?.ScanResult);
             logEverythingScan("song_tbl_file_check skipped reason=incomplete_file_scan operation=" + (reason ?? string.Empty) + " detail=" + failureReason);
-            queueFileScanSkippedIncompleteWarning(failureReason);
+            if (warningObserver == null) { queueFileScanSkippedIncompleteWarning(failureReason); }
+            else { warningObserver(new(LibraryScanWarningKind.Incomplete, failureReason)); }
             completeFileEnumerationOnce();
             if (trackLibraryFileCheckProgress)
             {
@@ -783,14 +794,16 @@ internal sealed class LibraryFileScanPipelineOwner
                     recursivePaths: scope.PruneScopeDirectories))
                 { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
                 return playlistLease;
-            });
+            },
+            rootFileEnumerator: rootFileEnumerator);
         if (fileCheckResult.EmptyScanWithExistingDbSkipped)
         {
             string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
                 ? "empty_scan_with_existing_db"
                 : fileCheckResult.EmptyScanWithExistingDbSkipReason;
             logEverythingScan("song_tbl_file_check skipped reason=empty_scan_with_existing_db operation=" + (reason ?? string.Empty) + " detail=" + skipReason);
-            queueEmptyScanWithExistingDbWarning(skipReason);
+            if (warningObserver == null) { queueEmptyScanWithExistingDbWarning(skipReason); }
+            else { warningObserver(new(LibraryScanWarningKind.EmptyWithExistingData, skipReason)); }
             completeFileEnumerationOnce();
             if (trackLibraryFileCheckProgress)
             {
@@ -859,13 +872,9 @@ internal sealed class LibraryFileScanPipelineOwner
                     fileCheckResult.ClearedInstallDestinationCharts,
                     reason)),
             "catalog_residual");
-        lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface = lr2Synchronization.CreateLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
+        var synchronizationInput = new LibraryFileInitializationResult(scanSurface, fileCheckResult.CommittedLr2SongDbSyncBmsPaths, options);
         lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
-        // Publish only after the file-diff commit, catalog projection, and
-        // folder preparation have all completed.  The result is copied before
-        // its post-apply buffers are released and is then consumed by the
-        // immediate follow-up queue at most once.
-        lr2Synchronization.PublishLr2SongDbSyncCommittedPathReceipt(fileCheckResult, reason);
         if (trackLibraryFileCheckProgress && lr2FolderFileDiffPreparation?.Request == null)
         {
             completeLibraryFileDiffProgress();
@@ -873,25 +882,11 @@ internal sealed class LibraryFileScanPipelineOwner
         fileCheckResult.ReleasePostApplyTransientBuffers();
         logStartupMemoryCheckpoint("file_diff", "after_release");
         logInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
-        try
-        {
-            PublishPostLeaseEffects();
-            // Individual chart read/parse failures do not make the path surface
-            // non-authoritative. Once the authoritative scan diff, canonical
-            // storage replacement, and required publication complete,
-            // file-mutation admission may open for this catalog generation.
-            markCatalogPathConvergenceCompleted();
-        }
-        catch
-        {
-            // A receipt is useful only if the entire caller-visible file-diff
-            // pipeline completed.  The observer owns the deferred publication
-            // boundary and may reject it after the DB commit has succeeded.
-            lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt("post_lease_effect_publication_failed");
-            throw;
-        }
+        PublishPostLeaseEffects();
+        // 譜面単体の解析失敗は全体必須失敗へ格上げせず、正本確定と必要公開の完了を返す。
+        markCatalogPathConvergenceCompleted();
         return (lr2FolderFileDiffPreparation ?? Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult))
-            .WithFileCheckResult(fileCheckResult);
+            .WithFileCheckResult(fileCheckResult, synchronizationInput);
     }
 
     internal Action ApplyCatalogStorageReplacement(

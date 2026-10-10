@@ -1,9 +1,7 @@
 using System;
-using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -72,7 +70,6 @@ internal interface ILr2SongDbSyncWorkflowRuntime
 
     bool IsLibraryAvailable { get; }
 
-    void DiscardCommittedPathReceipt(string reason);
 
     /// <summary>全体同期はLとPを準備前に非待機取得し、実worker・状態保存・cleanupの終端まで保持します。</summary>
     /// <param name="capability">受理済み必須継続の生存権限。nullは新しい要求です。</param>
@@ -83,8 +80,8 @@ internal interface ILr2SongDbSyncWorkflowRuntime
         bool force,
         bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true,
-        bool allowCommittedPathReceipt = false, LibraryFileMutationCapability capability = null,
-        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null);
+        LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
+        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null);
 
     /// <summary>受理済み設定後更新の実処理とcleanupを非同期で追跡します。</summary>
     Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null);
@@ -113,19 +110,14 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
 
     public bool IsLibraryAvailable => libraryProvider() != null;
 
-    public void DiscardCommittedPathReceipt(string reason)
-    {
-        libraryProvider()?.Lr2Synchronization.DiscardLr2SongDbSyncCommittedPathReceipt(reason);
-    }
-
     /// <inheritdoc/>
     public async Task<bool> QueueAsync(
         string reason,
         bool force,
         bool prepareGeneratedData = false,
         bool allowIncompleteToQueue = true,
-        bool allowCommittedPathReceipt = false, LibraryFileMutationCapability capability = null,
-        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null)
+        LibraryFileInitializationResult initializationResult = null, LibraryFileMutationCapability capability = null,
+        bool acceptedBackground = false, bool includeBuiltinGeneratedData = false, LibraryFileMutationCapability playlistCapability = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
         BMSLibrary library = libraryProvider();
         if (library == null)
@@ -157,7 +149,7 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
             force,
             prepareWithLease,
             allowIncompleteToQueue,
-            allowCommittedPathReceipt, capability, acceptedBackground, capturePreparationInputs: capturePreparationInputs, playlistCapability: playlistCapability, admissionResult: result => admitted = result).ConfigureAwait(false);
+            initializationResult, capability, acceptedBackground, capturePreparationInputs: capturePreparationInputs, playlistCapability: playlistCapability, optionsSnapshot: optionsSnapshot, admissionResult: result => admitted = result, preparedSurface: preparedSurface, originatingRequest: originatingRequest).ConfigureAwait(false);
         return admitted;
     }
 
@@ -209,76 +201,41 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
 {
     private readonly ILr2SongDbSyncWorkflowRuntime runtime;
 
-    private readonly Func<Action, Task> backgroundScheduler;
-
-    private readonly Action<Task, string> taskLogger;
-
-    /// <summary>
-    /// Reports that the LR2 sync owner received a status-bar retry request.
-    /// </summary>
-    internal event Action StatusBarRetryRequested;
-
-    internal Lr2SongDbSyncWorkflowOwner(
-        ILr2SongDbSyncWorkflowRuntime runtime,
-        Func<Action, Task> backgroundScheduler = null,
-        Action<Task, string> taskLogger = null)
+    internal Lr2SongDbSyncWorkflowOwner(ILr2SongDbSyncWorkflowRuntime runtime)
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
-        this.backgroundScheduler = backgroundScheduler ?? (action => Task.Run(action));
-        this.taskLogger = taskLogger ?? new Action<Task, string>((task, routeName) => task.ObserveFault(routeName));
-    }
-
-    internal void RequestStatusBarRetry()
-    {
-        NotifyStatusBarActionReceived(StatusBarRetryRequested, "Lr2StatusBarRetryRequestNotification");
-        if (!CanRun())
-        {
-            runtime.DiscardCommittedPathReceipt("workflow_unavailable");
-            return;
-        }
-
-        taskLogger(QueueCoreAsync("status_bar_retry", force: false), "RequestLr2SongDbSync");
     }
 
     /// <summary>新しい明示同期を非待機で受付し、準備・保存・cleanupの実終端を待ちます。</summary>
     internal async Task RequestManualResyncAsync()
     {
-        if (!CanRun()) { runtime.DiscardCommittedPathReceipt("workflow_unavailable"); return; }
+        if (!CanRun()) { return; }
         await QueueCoreAsync("setting_dialog_manual_resync", force: true).ConfigureAwait(false);
     }
 
     /// <summary>受理済み差分の共通権限でLR2の実終端を待ち、失敗時は後段へ進みません。</summary>
     internal async Task<Lr2SongDbSyncQueueResult> QueueAfterReloadFileDiffAsync(FileDiffReloadRequest request,
-        LibraryFileMutationCapability capability = null)
+        LibraryFileMutationCapability capability = null, LibraryFileInitializationResult initializationResult = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!CanRun())
         {
-            runtime.DiscardCommittedPathReceipt("reload_queue_unavailable");
             return new Lr2SongDbSyncQueueResult(request, Lr2SongDbSyncQueueStatus.SkippedUnavailable);
         }
-        bool admitted = await QueueCoreAsync(request.Reason, force: false, allowCommittedPathReceipt: true, capability: capability).ConfigureAwait(false);
+        bool admitted = await QueueCoreAsync(request.Reason, force: false, initializationResult: initializationResult, capability: capability, originatingRequest: request.ProgressRequest).ConfigureAwait(false);
         return new Lr2SongDbSyncQueueResult(request, admitted ? Lr2SongDbSyncQueueStatus.Queued : Lr2SongDbSyncQueueStatus.SkippedCompeting);
     }
 
-    /// <summary>独立した受理済み起動継続を既存依存先へ投入し、LR2実終端後に後段を呼びます。</summary>
-    internal void SchedulePostStartupSync(string reason, Action queued = null, Func<Func<Task>, Task> scheduler = null)
-    {
-        if (!CanRun()) { runtime.DiscardCommittedPathReceipt("startup_queue_unavailable"); queued?.Invoke(); return; }
-        ScheduleBackgroundAsync("PostStartupLr2SongDbSync", async () =>
-        {
-            ExceptionDispatchInfo failure = null;
-            try { await QueueCoreAsync("post_startup_" + (reason ?? string.Empty), false, true, acceptedBackground: true).ConfigureAwait(false); }
-            catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
-            try { queued?.Invoke(); }
-            finally { failure?.Throw(); }
-        }, scheduler);
-    }
+    /// <summary>ローカル確定後の必要同期を同じL/Pで直接待ちます。準備済みの完全な生成面を再出力しません。</summary>
+    internal Task<bool> SynchronizeRequiredAsync(string reason, LibraryFileInitializationResult initializationResult,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, BmsLibraryOptionsSnapshot optionsSnapshot = null)
+        => CanRun() ? runtime.QueueAsync(reason, false, initializationResult: initializationResult,
+            capability: capability, preparedSurface: preparedSurface, originatingRequest: originatingRequest, optionsSnapshot: optionsSnapshot) : Task.FromResult(false);
 
     /// <summary>受理済み設定の権限で生成データ準備とDB同期の実終端まで待ちます。</summary>
     internal Task SyncFolderDataAfterSettingsChangeAsync(string reason, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)
     {
-        if (!CanRun()) { runtime.DiscardCommittedPathReceipt("settings_queue_unavailable"); return Task.CompletedTask; }
+        if (!CanRun()) { return Task.CompletedTask; }
         return runtime.QueueAsync(reason, false, prepareGeneratedData: true, allowIncompleteToQueue: false,
             capability: capability, includeBuiltinGeneratedData: true, playlistCapability: playlistCapability);
     }
@@ -286,49 +243,18 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
     /// <summary>受理済み設定の権限で外部folder更新の実終端まで待ちます。</summary>
     internal Task SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync(string reason, LibraryFileMutationCapability capability, LibraryFileMutationCapability playlistCapability = null)
     {
-        if (!CanRun()) { runtime.DiscardCommittedPathReceipt("external_queue_unavailable"); return Task.CompletedTask; }
+        if (!CanRun()) { return Task.CompletedTask; }
         return runtime.SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(reason, capability, playlistCapability);
     }
 
-    private Task<bool> QueueCoreAsync(string reason, bool force, bool allowCommittedPathReceipt = false,
-        LibraryFileMutationCapability capability = null, bool acceptedBackground = false)
+    private Task<bool> QueueCoreAsync(string reason, bool force, LibraryFileInitializationResult initializationResult = null,
+        LibraryFileMutationCapability capability = null, bool acceptedBackground = false, OperationProgressRequest originatingRequest = null)
         => runtime.QueueAsync(reason, force, prepareGeneratedData: true,
-            allowCommittedPathReceipt: allowCommittedPathReceipt, capability: capability, acceptedBackground: acceptedBackground);
+            initializationResult: initializationResult, capability: capability, acceptedBackground: acceptedBackground, originatingRequest: originatingRequest);
 
     private bool CanRun()
     {
         return runtime.IsLr2ModeEnabled && runtime.IsLibraryAvailable;
-    }
-
-    /// <summary>既存の背景投入先で非同期処理の実終端を追跡します。起動先は登録と実処理を一つのTaskで返します。</summary>
-    private void ScheduleBackgroundAsync(string routeName, Func<Task> work, Func<Func<Task>, Task> scheduler = null)
-    {
-        async Task RunAsync()
-        {
-            Task operation = null;
-            await backgroundScheduler(() => operation = work()).ConfigureAwait(false);
-            if (operation == null) { throw new InvalidOperationException("Background scheduler completed without starting its operation."); }
-            await operation.ConfigureAwait(false);
-        }
-        taskLogger(scheduler == null ? RunAsync() : scheduler(work), routeName);
-    }
-
-    private void NotifyStatusBarActionReceived(Action notification, string routeName)
-    {
-        try
-        {
-            notification?.Invoke();
-        }
-        catch (Exception exception)
-        {
-            try
-            {
-                taskLogger(Task.FromException(exception), routeName);
-            }
-            catch
-            {
-            }
-        }
     }
 
 }

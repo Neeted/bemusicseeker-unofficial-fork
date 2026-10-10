@@ -415,7 +415,7 @@ public sealed class OperationProgressHubViewModelTests
                 DateTime.UtcNow));
 
             Assert.IsTrue((GetRow(hub, "lr2") != null));
-            Assert.IsTrue((GetRow(hub, "lr2")?.CanRetry == true));
+            Assert.AreEqual(OperationProgressAction.None, GetRow(hub, "lr2")?.Action);
             Assert.IsTrue(hub.IsStartupBackgroundInitializationActive);
 
             hub.UpdateLr2SongDbSyncStatus(null);
@@ -530,7 +530,7 @@ public sealed class OperationProgressHubViewModelTests
     }
 
     [TestMethod]
-    public void Lr2SongDbSyncPresentation_UsesRetryForIncompleteAndClearsNotNeeded()
+    public void Lr2SongDbSyncPresentation_KeepsIncompleteWarningAndClearsNotNeeded()
     {
 
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
@@ -546,7 +546,7 @@ public sealed class OperationProgressHubViewModelTests
         hub.UpdateLr2SongDbSyncStatus(incomplete);
 
         Assert.IsTrue((GetRow(hub, "lr2") != null));
-        Assert.IsTrue((GetRow(hub, "lr2")?.CanRetry == true));
+        Assert.AreEqual(OperationProgressAction.None, GetRow(hub, "lr2")?.Action);
         Assert.IsFalse(hub.Rows.Single(row => row.Key == "lr2").HasGauge);
         Assert.IsFalse(hub.Rows.Single(row => row.Key == "lr2").IsIndeterminate);
 
@@ -559,11 +559,11 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(0.0, (GetRow(hub, "lr2")?.Value ?? 0d));
         Assert.AreEqual(1.0, (GetRow(hub, "lr2")?.Maximum ?? 1d));
         Assert.IsFalse((GetRow(hub, "lr2")?.HasGauge == true));
-        Assert.IsFalse((GetRow(hub, "lr2")?.CanRetry == true));
+        Assert.IsNull(GetRow(hub, "lr2"));
     }
 
     [TestMethod]
-    public async Task Lr2SongDbSyncIncompleteStatus_RemainsDedicatedAndRetryableWithoutStartupAccounting()
+    public async Task Lr2SongDbSyncIncompleteStatus_RemainsDedicatedWithoutStartupAccounting()
     {
 
         var delayEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -624,7 +624,7 @@ public sealed class OperationProgressHubViewModelTests
             await presentationCompleted.Task;
 
             Assert.IsTrue((GetRow(hub, "lr2") != null));
-            Assert.IsTrue((GetRow(hub, "lr2")?.CanRetry == true));
+            Assert.AreEqual(OperationProgressAction.None, GetRow(hub, "lr2")?.Action);
         }
         finally
         {
@@ -636,38 +636,37 @@ public sealed class OperationProgressHubViewModelTests
         }
     }
 
-    [TestMethod]
-    public void Lr2Rows_AttachOnlyAssociatedStartupExecutionAndLeaveTerminalWarningIndependent()
+    [DataTestMethod]
+    [DataRow((int)StartupProgressOperationKind.Startup)]
+    [DataRow((int)StartupProgressOperationKind.FullReinitialize)]
+    [DataRow((int)StartupProgressOperationKind.ReloadFileDiff)]
+    public void Lr2Rows_AttachOnlyAssociatedRequiredExecutionAndLeaveTerminalWarningIndependent(int operationKind)
     {
 
-        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
+        long token = owner.StartStartupProgressOperation((StartupProgressOperationKind)operationKind);
+        var hub = new OperationProgressHubViewModel(owner);
         hub.BeginBackgroundProgressGeneration(1);
-        hub.BeginStartupBackgroundInitializationPresentation(11, 1);
-        var request = new OperationProgressRequest(1, 11, "scheduler:lr2_song_db_sync", 3);
-        hub.UpdateBackgroundTaskProgress(new("lr2_song_db_sync", 1, 3, true, true, request));
-        OperationProgressRow generic = hub.Rows.Single(row => row.Key.StartsWith("background:"));
-        Assert.AreEqual("startup_background", generic.ParentKey);
+        var request = new OperationProgressRequest(1, token, "lr2_song_db_sync", 3);
         hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
             Status = Lr2SongDbSyncStatusKind.Running,
             Stage = "song_rows",
             StageTotalCount = 5,
             StageProcessedCount = 2
-        }, DateTime.UtcNow));
+        }, DateTime.UtcNow, request));
         OperationProgressRow dedicated = hub.Rows.Single(row => row.Key == "lr2");
-        Assert.AreEqual(generic.Label, dedicated.Label);
-        Assert.AreEqual(generic.ParentKey, dedicated.ParentKey);
+        Assert.AreEqual("startup", dedicated.ParentKey);
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("background:")));
-        hub.UpdateBackgroundTaskProgress(new("lr2_song_db_sync", 1, 3, true, false, request));
         hub.UpdateLr2SongDbSyncStatus(Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
             Status = Lr2SongDbSyncStatusKind.Incomplete
         }, DateTime.UtcNow));
         OperationProgressRow warning = hub.Rows.Single(row => row.Key == "lr2");
         Assert.IsFalse(warning.IsChild);
-        Assert.IsTrue(warning.CanRetry);
+        Assert.AreEqual(OperationProgressAction.None, warning.Action);
         hub.CompleteStartupBackgroundInitializationPresentation();
-        Assert.AreEqual("lr2", hub.Rows.Single().Key);
+        Assert.IsTrue(hub.Rows.Any(row => row.Key == "lr2"));
     }
 
     [TestMethod]
@@ -868,7 +867,7 @@ public sealed class OperationProgressHubViewModelTests
 
     [DataTestMethod]
     [DataRow(false, "score_hydration_deferred", 2, true)]
-    [DataRow(true, "ranking_refresh_deferred", 2, true)]
+    [DataRow(true, "ranking_refresh_deferred", 2, false)]
     [DataRow(true, "ranking_refresh_deferred", 1, false)]
     [DataRow(false, "ranking_refresh_deferred", 2, false)]
     public void ExecutionRows_BelongToParentOnlyForExpectedMatchingRequest(
@@ -878,7 +877,6 @@ public sealed class OperationProgressHubViewModelTests
         hub.StartupProgress.StartStartupProgressOperation(fullReinitialize
             ? StartupProgressOperationKind.FullReinitialize : StartupProgressOperationKind.Startup);
         hub.StartupProgress.TrackStartupProgressScoreHydrationRequested(2, new(1, 1, "score_hydration_deferred", 2));
-        hub.StartupProgress.TrackStartupProgressRankingRefreshRequested(2, new(1, 1, "ranking_refresh_deferred", 2));
         double parentValue = hub.StartupProgress.Value;
         double parentMaximum = hub.StartupProgress.Maximum;
         hub.BeginBackgroundProgressGeneration(1);
@@ -919,11 +917,10 @@ public sealed class OperationProgressHubViewModelTests
         owner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         var request = new OperationProgressRequest(1, owner.GetActiveStartupProgressOperationToken(), name, 3);
         if (name == "score_hydration_deferred") { owner.TrackStartupProgressScoreHydrationRequested(3, request); }
-        else { owner.TrackStartupProgressRankingRefreshRequested(3, request); }
         var hub = new OperationProgressHubViewModel(owner);
         hub.BeginBackgroundProgressGeneration(1);
         hub.UpdateBackgroundTaskProgress(new(name, 1, 3, false, true, request));
-        Assert.AreEqual("startup", hub.Rows.Single(row => row.Key.StartsWith("background:")).ParentKey);
+        Assert.AreEqual(name == "score_hydration_deferred", hub.Rows.Single(row => row.Key.StartsWith("background:")).IsChild);
         hub.UpdateBackgroundTaskProgress(new(name, 1, 4, false, true, request with { Version = 4 }));
         Assert.AreEqual(2, hub.Rows.Count(row => row.Key.StartsWith("background:")));
         Assert.IsFalse(hub.Rows.Single(row => row.Key.StartsWith("background:") && row.Key.Contains(":4:")).IsChild);
@@ -953,8 +950,6 @@ public sealed class OperationProgressHubViewModelTests
         {
             StartupProgressPhase.PlaylistEntriesHydrationDone,
             StartupProgressPhase.ChartInfoHydrationDone,
-            StartupProgressPhase.ChartInfoBackfillDone,
-            StartupProgressPhase.ChartDigestBackfillDone,
             StartupProgressPhase.ScoreHydrationDone
         })
         {
@@ -963,9 +958,7 @@ public sealed class OperationProgressHubViewModelTests
                 "test",
                 owner.GetActiveStartupProgressOperationToken());
         }
-        owner.MarkStartupProgressPhaseCompleted(
-            StartupProgressPhase.StartupBackgroundTasksDone,
-            owner.GetActiveStartupProgressOperationToken());
+        owner.CompleteRequiredInitialization(owner.GetActiveStartupProgressOperationToken());
     }
 
     private static PlaylistWorkspaceViewModel AttachPlaylistProgressSources(

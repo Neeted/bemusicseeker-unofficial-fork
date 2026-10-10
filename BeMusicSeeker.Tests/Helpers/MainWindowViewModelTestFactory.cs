@@ -133,8 +133,8 @@ internal sealed class NoOpSettingsEditSession : ISettingsEditSession
 internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
-    private readonly Func<Task<StartupInitializationOutcome>> initializeLibrary;
-    private readonly Func<LibraryFileMutationCapability?, Task<StartupInitializationOutcome>>? initializeAcceptedLibrary;
+    private readonly Func<Task<StartupInitializationResult>> initializeLibrary;
+    private readonly Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, Task<StartupInitializationResult>>? initializeAcceptedLibrary;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadScoresOnly;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadFileDiff;
     private readonly Action? initializationFailed;
@@ -143,11 +143,11 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
     /// <param name="reloadFileDiff">実差分継続には生存権限を転送し、純fake継続は局所境界で終端を返します。</param>
     internal TestSettingsDialogStatePort(
         MainWindowViewModel owner,
-        Func<Task<StartupInitializationOutcome>> initializeLibrary,
+        Func<Task<StartupInitializationResult>> initializeLibrary,
         Action? initializationFailed = null,
         Func<LibraryFileMutationCapability?, Task>? reloadScoresOnly = null,
         Func<LibraryFileMutationCapability?, Task>? reloadFileDiff = null,
-        Func<LibraryFileMutationCapability?, Task<StartupInitializationOutcome>>? initializeAcceptedLibrary = null)
+        Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, Task<StartupInitializationResult>>? initializeAcceptedLibrary = null)
     {
         this.initializeAcceptedLibrary = initializeAcceptedLibrary;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -162,25 +162,48 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public bool IsLibraryOperationInProgress => owner.IsLibraryOperationInProgress;
 
-    public async Task<StartupInitializationOutcome> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null)
+    public bool IsInitializationCompletionCurrent(long operationToken) => ((ISettingsDialogStatePort)owner).IsInitializationCompletionCurrent(operationToken);
+
+    public Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result)
+        => result.Settings == null ? Task.FromResult(result with { CompletionPublished = result.Outcome == StartupInitializationOutcome.Succeeded })
+            : ((ISettingsDialogStatePort)owner).CompleteRequiredInitializationAfterAdmissionAsync(result);
+
+
+    public Task<LeapYearFolderRepairApproval?> PrepareLibraryInitializationAsync()
+        => ((ISettingsDialogStatePort)owner).PrepareLibraryInitializationAsync();
+
+    public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification)
+        => ((ISettingsDialogStatePort)owner).PresentLeapYearFolderRepairAsync(notification);
+
+    public async Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
+        LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null)
     {
-        StartupInitializationOutcome outcome = await (initializeAcceptedLibrary == null
-            ? initializeLibrary() : initializeAcceptedLibrary(capability));
-        if (outcome == StartupInitializationOutcome.SettingsRequired)
+        StartupInitializationResult result = await (initializeAcceptedLibrary == null
+            ? initializeLibrary() : initializeAcceptedLibrary(capability, leapYearRepairApproval, repairNotificationObserver));
+        if (result.Outcome == StartupInitializationOutcome.SettingsRequired)
         {
             initializationFailed?.Invoke();
         }
-        return outcome;
+        return result;
     }
 
-    public Task ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => reloadScoresOnly(capability);
+    public async Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
+    {
+        Task operation = reloadScoresOnly(capability);
+        await operation;
+        return operation is Task<StartupInitializationResult> result ? await result : new(StartupInitializationOutcome.Succeeded);
+    }
 
     public Task PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
         => ((ISettingsDialogStatePort)owner).PresentLibraryDirectoryWarningAsync(failure);
 
     /// <summary>受理済みの実差分継続だけ同じ生存権限を渡し、純fakeは局所依存のまま実終端を返します。</summary>
-    public Task ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
-        => reloadFileDiff(capability);
+    public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
+    {
+        Task operation = reloadFileDiff(capability);
+        await operation;
+        return operation is Task<StartupInitializationResult> result ? await result : new(StartupInitializationOutcome.Succeeded);
+    }
 
     public event EventHandler? LibraryOperationAvailabilityChanged;
 

@@ -24,6 +24,9 @@ internal sealed class ChartFileOperationSynchronizer
     /// <summary>このownerの受理済み要求が実終端まで受付を所有しているかを返します。</summary>
     internal bool IsActive => Volatile.Read(ref activeLease) != null;
 
+    /// <summary>予約・取得せず、限定的な事前確認を開始できるか読み取ります。確認後の実受付はTryEnterで再判定します。</summary>
+    internal bool CanEnter { get { lock (syncRoot) { return !admissionClosed && activeLease == null; } } }
+
     /// <summary>
     /// 共通の論理受付を待たずに取得します。Close後の新規要求は拒否し、受理済みリースは任意のスレッドから一回解放できます。
     /// </summary>
@@ -48,6 +51,9 @@ internal sealed class ChartFileOperationSynchronizer
     {
         lock (syncRoot) { admissionClosed = true; }
     }
+
+    /// <summary>終了による受付閉鎖を、他操作による一時的なBusyと区別します。新しい状態や予約は作りません。</summary>
+    internal bool IsAdmissionClosed { get { lock (syncRoot) { return admissionClosed; } } }
 
     private LibraryFileMutationLease CreateLeaseUnsafe()
     {

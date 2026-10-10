@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -180,7 +179,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     [TestMethod]
-    public async Task Reset_QueuedExecutionKeepsAcceptanceOriginWhileReservationGenerationChanges()
+    public async Task Reset_QueuedExecutionPreservesAcceptedRequestIdentity()
     {
         var notifications = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
@@ -250,7 +249,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             long currentGeneration = owner.CurrentGeneration;
             hub.BeginBackgroundProgressGeneration(currentGeneration);
             hub.BeginStartupBackgroundInitializationPresentation(22, currentGeneration);
-            owner.Queue("playlist_entries_hydration", "startup_completed", null, () => Task.CompletedTask);
+            owner.Queue("chart_info_hydration", "startup_completed", null, () => Task.CompletedTask);
             owner.Start();
             await WaitForFullyIdleAsync(owner);
             release.TrySetResult(true);
@@ -745,15 +744,18 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
-    [TestMethod]
-    public async Task LibraryFolderTreeRefreshUsesPostInitializationOwnerLane()
+    /// <summary>実後続を保持しても必須idleは成立し、全終端は未成立のままです。既存補完名も同じ後続分類へ接続します。</summary>
+    [DataTestMethod]
+    [DataRow("library_folder_tree_refresh", "post_initialization_folder_tree_refresh")]
+    [DataRow("chart_info_backfill", "post_initialization_default")]
+    public async Task PostInitializationOwnerWorkUsesItsLaneWithoutBlockingRequiredIdle(string name, string lane)
     {
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
         try
         {
-            Assert.IsTrue(owner.Queue("library_folder_tree_refresh", "deferred", null, async () =>
+            Assert.IsTrue(owner.Queue(name, "deferred", null, async () =>
             {
                 entered.TrySetResult(true);
                 await release.Task.ConfigureAwait(false);
@@ -768,10 +770,10 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
             StringAssert.Contains(
                 owner.BuildSummaryLog(0L),
-                "library_folder_tree_refresh{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
+                name + "{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
             StringAssert.Contains(
                 owner.BuildSummaryLog(0L),
-                "lane=post_initialization_folder_tree_refresh");
+                "lane=" + lane);
         }
         finally
         {
@@ -779,148 +781,6 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             if (!owner.IsStarted) { owner.RequestShutdown("test_cleanup"); }
             await WaitForFullyIdleAsync(owner);
         }
-    }
-
-    [TestMethod]
-    public async Task Lr2SongDbSyncRequestsUsePostLaneWithoutChangingRequiredIdle()
-    {
-        var enrollmentEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var enrollmentRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var syncEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var syncRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-        try
-        {
-            owner.Queue("lr2_song_db_sync_enrollment", "post", null, async () =>
-            {
-                enrollmentEntered.TrySetResult(true);
-                await enrollmentRelease.Task.ConfigureAwait(false);
-            });
-            owner.Start();
-
-            await TestUiDispatcherHost.AwaitNotificationAsync(enrollmentEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-            Assert.IsTrue(owner.IsIdle);
-            Assert.IsFalse(owner.IsFullyIdle);
-
-            owner.Queue("chart_info_hydration", "required", null, () =>
-            {
-                requiredEntered.TrySetResult(true);
-                return Task.CompletedTask;
-            });
-            await TestUiDispatcherHost.AwaitNotificationAsync(requiredEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-            await WaitUntilAsync(owner, () => owner.IsIdle);
-            Assert.IsFalse(owner.IsFullyIdle);
-
-            owner.Queue("lr2_song_db_sync", "post", null, async () =>
-            {
-                syncEntered.TrySetResult(true);
-                await syncRelease.Task.ConfigureAwait(false);
-            });
-            Assert.IsFalse(syncEntered.Task.IsCompleted);
-
-            enrollmentRelease.SetResult(true);
-            await TestUiDispatcherHost.AwaitNotificationAsync(syncEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-            Assert.IsTrue(owner.IsIdle);
-
-            syncRelease.SetResult(true);
-            await WaitForFullyIdleAsync(owner);
-
-            string summary = owner.BuildSummaryLog(0L);
-            StringAssert.Contains(summary, "lr2_song_db_sync_enrollment{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
-            StringAssert.Contains(summary, "lr2_song_db_sync{queued=1,started=1,completed=1,failed=0,lastStatus=done,lastMs=");
-            StringAssert.Contains(summary, "lane=post_initialization_default");
-        }
-        finally
-        {
-            enrollmentRelease.TrySetResult(true);
-            syncRelease.TrySetResult(true);
-            if (!owner.IsStarted) { owner.RequestShutdown("test_cleanup"); }
-            await WaitForFullyIdleAsync(owner);
-        }
-    }
-
-    [TestMethod]
-    public async Task VirtualOrderPrewarmStartsAfterDynamicallyEnrolledLr2Work()
-    {
-        var order = new ConcurrentQueue<string>();
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-
-        owner.Queue("playlist_virtual_order_prewarm", "post", null, () =>
-        {
-            order.Enqueue("prewarm");
-            return Task.CompletedTask;
-        });
-        owner.Queue("lr2_song_db_sync_enrollment", "post", null, () =>
-        {
-            order.Enqueue("enrollment");
-            owner.Queue("lr2_song_db_sync", "post", null, () =>
-            {
-                order.Enqueue("lr2");
-                return Task.CompletedTask;
-            });
-            return Task.CompletedTask;
-        });
-
-        owner.Start();
-        await WaitForFullyIdleAsync(owner);
-
-        CollectionAssert.AreEqual(new[] { "enrollment", "lr2", "prewarm" }, order.ToArray());
-    }
-
-    [TestMethod]
-    public async Task VirtualOrderPrewarmStartsAfterNoOpLr2EnrollmentWithoutDependencyWait()
-    {
-        var order = new ConcurrentQueue<string>();
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-
-        owner.Queue("playlist_virtual_order_prewarm", "post", null, () =>
-        {
-            order.Enqueue("prewarm");
-            return Task.CompletedTask;
-        });
-        owner.Queue("lr2_song_db_sync_enrollment", "post", null, () =>
-        {
-            order.Enqueue("enrollment");
-            return Task.CompletedTask;
-        });
-
-        owner.Start();
-        await WaitForFullyIdleAsync(owner);
-
-        CollectionAssert.AreEqual(new[] { "enrollment", "prewarm" }, order.ToArray());
-    }
-
-    [TestMethod]
-    public async Task Lr2SongDbSyncPostClassificationPreservesShutdownDrain()
-    {
-        var syncEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var enrollmentDiscarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        int enrollmentRuns = 0;
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-
-        owner.Queue("lr2_song_db_sync", "sync", null, () =>
-        {
-            syncEntered.TrySetResult(true);
-            return Task.CompletedTask;
-        });
-        owner.Queue(
-            "lr2_song_db_sync_enrollment",
-            "enrollment",
-            null,
-            () =>
-            {
-                Interlocked.Increment(ref enrollmentRuns);
-                return Task.CompletedTask;
-            },
-            _ => enrollmentDiscarded.TrySetResult(true));
-
-        owner.RequestShutdown("window_close");
-        await TestUiDispatcherHost.AwaitNotificationAsync(enrollmentDiscarded.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-        await TestUiDispatcherHost.AwaitNotificationAsync(syncEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-        await WaitForFullyIdleAsync(owner);
-
-        Assert.AreEqual(0, Volatile.Read(ref enrollmentRuns));
     }
 
     [TestMethod]
@@ -1547,21 +1407,21 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         try
         {
-            owner.Queue("playlist_entries_hydration", "first", null, async () =>
+            owner.Queue("chart_info_hydration", "first", null, async () =>
             {
                 firstEntered.TrySetResult(true);
                 await firstRelease.Task.ConfigureAwait(false);
             });
             owner.Start();
             await TestUiDispatcherHost.AwaitNotificationAsync(firstEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-            owner.Queue("playlist_entries_hydration", "latest", null, async () =>
+            owner.Queue("chart_info_hydration", "latest", null, async () =>
             {
                 latestEntered.TrySetResult(true);
                 await latestRelease.Task.ConfigureAwait(false);
             });
             await TestUiDispatcherHost.AwaitNotificationAsync(latestEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
 
-            owner.Queue("default_after_latest", "dependent", "playlist_entries_hydration", () =>
+            owner.Queue("default_after_latest", "dependent", "chart_info_hydration", () =>
             {
                 dependentAfterLatestEntered.TrySetResult(true);
                 return Task.CompletedTask;
@@ -1573,7 +1433,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             firstRelease.SetResult(true);
             await WaitForFullyIdleAsync(owner);
 
-            owner.Queue("default_after_older", "dependent", "playlist_entries_hydration", () =>
+            owner.Queue("default_after_older", "dependent", "chart_info_hydration", () =>
             {
                 dependentAfterOlderEntered.TrySetResult(true);
                 return Task.CompletedTask;
@@ -1622,6 +1482,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         int readHydrationActive = 0;
         int maximumReadHydrationActive = 0;
         int started = 0;
+        var twoStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var threeStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var fourStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var twoReadHydrationsStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1641,6 +1502,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
                 }
             }
             int currentStarted = Interlocked.Increment(ref started);
+            if (currentStarted == 2) { twoStarted.TrySetResult(true); }
             if (currentStarted == 3)
             {
                 threeStarted.TrySetResult(true);
@@ -1668,9 +1530,10 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         try
         {
             QueueGatedWork("chart_info_hydration", isReadHydration: true);
-            QueueGatedWork("playlist_entries_hydration", isReadHydration: true);
             QueueGatedWork("default_a", isReadHydration: false);
             owner.Start();
+            await TestUiDispatcherHost.AwaitNotificationAsync(twoStarted.Task, WaitForFullyIdleAsync(owner), nameof(owner));
+            QueueGatedWork("chart_info_hydration", isReadHydration: true);
 
             await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(threeStarted.Task, twoReadHydrationsStarted.Task), WaitForFullyIdleAsync(owner), nameof(owner));
             Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 3), owner.CaptureWorkSnapshot());
@@ -1732,7 +1595,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             });
             owner.Reset(startImmediately: true);
 
-            QueueGatedWork(owner, "playlist_entries_hydration", newRelease, counters);
+            QueueGatedWork(owner, "chart_info_hydration", newRelease, counters);
+            await TestUiDispatcherHost.AwaitNotificationAsync(counters.OneNewStarted.Task, WaitForFullyIdleAsync(owner), nameof(owner));
             QueueGatedWork(owner, "chart_info_hydration", newRelease, counters);
             QueueGatedWork(owner, "maintenance_hydration", newRelease, counters);
             QueueGatedWork(owner, "default_c", newRelease, counters);
@@ -1770,12 +1634,12 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             {
                 await followupRelease.Task.ConfigureAwait(false);
             });
-            owner.Queue("playlist_entries_hydration", "dependency", null, () =>
+            owner.Queue("chart_info_hydration", "dependency", null, () =>
             {
                 dependencyCompleted.TrySetResult(true);
                 return Task.CompletedTask;
             });
-            owner.Queue("external_playlist_sync", "retained", "playlist_entries_hydration", async () =>
+            owner.Queue("external_playlist_sync", "retained", "chart_info_hydration", async () =>
             {
                 followupEntered.TrySetResult(true);
                 await Task.CompletedTask.ConfigureAwait(false);
@@ -1786,7 +1650,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             await WaitUntilAsync(owner, () =>
             {
                 string summary = owner.BuildSummaryLog(0L);
-                return summary.Contains("playlist_entries_hydration{") && summary.Contains("completed=1");
+                return summary.Contains("chart_info_hydration{") && summary.Contains("completed=1");
             });
             Assert.IsFalse(followupEntered.Task.IsCompleted);
 
@@ -1829,8 +1693,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         StringAssert.Contains(summary, "installable_maintenance");
     }
 
-    [TestMethod]
-    public async Task ShutdownDrainsRequiredWorkAndDiscardsOtherWorkOutsideLock()
+    /// <summary>未開始の通信・任意補完は終了で破棄し、受理済み必須読込みだけを実終端まで回収します。</summary>
+    [DataTestMethod]
+    [DataRow("external_playlist_sync")]
+    [DataRow("chart_info_backfill")]
+    public async Task ShutdownDrainsRequiredWorkAndDiscardsOtherWorkOutsideLock(string deferredName)
     {
         bool shutdownRequested = false;
         var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1845,7 +1712,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
                 requiredEntered.TrySetResult(true);
                 await requiredRelease.Task.ConfigureAwait(false);
             });
-            owner.Queue("external_playlist_sync", "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
+            owner.Queue(deferredName, "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
             {
                 // The discard callback is synchronous, so keep it active until the probe acquires the owner locks.
                 discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
@@ -1862,7 +1729,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
             requiredRelease.SetResult(true);
             await WaitForFullyIdleAsync(owner);
-            StringAssert.Contains(owner.BuildSummaryLog(1L), "external_playlist_sync");
+            StringAssert.Contains(owner.BuildSummaryLog(1L), deferredName);
         }
         finally
         {
@@ -1950,6 +1817,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
 
         internal int NewStarted;
 
+        internal TaskCompletionSource<bool> OneNewStarted { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal TaskCompletionSource<bool> ThreeNewStarted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -1964,7 +1834,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         {
             int currentActive = Interlocked.Increment(ref counters.Active);
             UpdateMaximum(ref counters.MaximumActive, currentActive);
-            if (Interlocked.Increment(ref counters.NewStarted) == 3)
+            int newStarted = Interlocked.Increment(ref counters.NewStarted);
+            if (newStarted == 1) { counters.OneNewStarted.TrySetResult(true); }
+            if (newStarted == 3)
             {
                 counters.ThreeNewStarted.TrySetResult(true);
             }
@@ -1985,68 +1857,6 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         catch (TimeoutException)
         {
             return false;
-        }
-    }
-
-    /// <summary>登録済み起動wholeも開始競合ならskipし、idleで開始したwholeは同じ起動枠へ再登録せず実worker終端を待ちます。</summary>
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task PostStartupLr2Enrollment_SkipsCompetingStartAndAwaitsStartedActualWorker()
-    {
-
-        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
-        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
-        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, () => options,
-            TestBmsFactory.MissingEverythingBridge, uiScheduler: new TestUiScheduler(() => null), rootFileEnumerator: new FastRootFileEnumerator());
-        var profile = new LibraryProfile(true, scope.SongDbPath, [], () => null!, null, false, false, false, false, "startup-lr2-await-test");
-        var prepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var release = new ManualResetEventSlim();
-        var composition = new ApplicationComposition(() => options,
-            customFolderOutputSettingsProvider: () => { prepared.TrySetResult(); release.Wait(); return new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = true }; },
-            uiScheduler: new TestUiScheduler(() => null),
-            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
-        var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-        library.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => owner.Queue(name, reason, dependency, work);
-        Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable prior));
-        Task<bool>? operation = null;
-        bool? initialAccepted = null;
-        try
-        {
-            Assert.IsTrue(owner.Queue("lr2_song_db_sync_enrollment", "startup", null, async () =>
-            { initialAccepted = await runtime.QueueAsync("startup-competing-lr2", force: true, prepareGeneratedData: true, acceptedBackground: true).ConfigureAwait(false); }));
-            owner.MarkRequiredInitializationSchedulingComplete();
-            owner.MarkPostInitializationSchedulingComplete();
-            owner.Start();
-            await WaitForFullyIdleAsync(owner);
-            Assert.AreEqual(false, initialAccepted);
-            Assert.IsFalse(prepared.Task.IsCompleted);
-            Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
-            Assert.IsFalse(library.Lr2SongDbSyncRunning);
-            prior.Dispose();
-            Assert.IsFalse(prepared.Task.IsCompleted, "先行L解放だけでwholeを再実行しません。");
-            operation = Task.Run(() => runtime.QueueAsync("startup-explicit-idle-lr2", force: true, prepareGeneratedData: true, acceptedBackground: true));
-            await Task.WhenAny(prepared.Task, operation);
-            if (!prepared.Task.IsCompleted) { await operation; Assert.Fail("受理後の実入力捕捉へ到達しませんでした。"); }
-            Assert.IsFalse(operation.IsCompleted);
-            Assert.IsTrue(library.OperationAdmission.IsActive);
-            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
-            release.Set();
-            Assert.IsTrue(await operation);
-            await WaitForFullyIdleAsync(owner);
-            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
-            Assert.AreEqual(library.Lr2SongDbSyncRequestedVersion, library.Lr2SongDbSyncCompletedVersion);
-            Assert.IsFalse(library.OperationAdmission.IsActive);
-            Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual("Completed", verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
-        }
-        finally
-        {
-            prior.Dispose(); release.Set();
-            try { if (operation != null) { await operation; } }
-            finally { try { await WaitForFullyIdleAsync(owner); } finally { library.RequestShutdown("startup-actual-lr2-cleanup"); } }
         }
     }
 

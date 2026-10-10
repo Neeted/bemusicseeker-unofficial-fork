@@ -109,7 +109,6 @@ public partial class BMSLibrary
 
         internal object ScanSurfaceGate { get; } = new();
 
-        internal object CommittedPathReceiptGate { get; } = new();
 
         internal int RequestedVersion { get; set; }
 
@@ -130,20 +129,14 @@ public partial class BMSLibrary
             Status = Lr2SongDbSyncStatusKind.NotNeeded
         };
 
-        internal Lr2SongDbSyncScanSurfaceSnapshot ScanSurfaceSnapshot { get; set; }
 
         internal CustomFolderOutputPhysicalSurface AppManagedCustomFolderOutputPhysicalSurface { get; set; } = new(
             new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
             discoveryComplete: false);
 
-        internal int ScanSurfaceGeneration { get; set; }
 
-        internal Lr2SongDbSyncCommittedPathReceipt CommittedPathReceipt { get; set; }
 
-        internal Lr2SongDbSyncPreparedDataSurface PreparedDataSurface { get; set; } =
-            Lr2SongDbSyncPreparedDataSurface.Empty;
 
-        internal int PreparedDataSurfaceAppliedScanGeneration { get; set; }
 
         internal bool ObservableRunning { get; set; }
 
@@ -251,11 +244,11 @@ public partial class BMSLibrary
         /// <param name="capability">設定側が保持する共通権限。nullは新しい非待機受付です。</param>
         /// <param name="playlistCapability">同じ設定保存の局所権限。管理外探索も両受付を保持し、開始競合を元Busy失敗として返します。</param>
         /// <returns>実行した外部LR2行更新・cleanupの終端Task。元失敗・取消を伝播します。</returns>
-        internal async Task SyncExternalLr2FolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null)
+        internal Task SyncExternalLr2FolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null)
         {
             if (CurrentOptionsSnapshot?.OperationModeLR2DB != true)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             using LibraryFileMutationLease mutationLease = capability == null
@@ -271,106 +264,91 @@ public partial class BMSLibrary
             using LibraryFileMutationCapability playlistAuthority = playlistLease.CreateMutationCapability();
             playlistCapability = playlistAuthority;
             BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-            bool queuePreparedSync;
             using (LibraryFileMutationCapability mutationCapability = mutationLease.CreateMutationCapability())
             {
                 if (options?.OperationModeLR2DB != true)
                 {
-                    return;
+                    return Task.CompletedTask;
                 }
 
-                queuePreparedSync = HasLr2SongDbSyncPreparedDataSurface();
-                if (!queuePreparedSync)
+                var stopwatch = Stopwatch.StartNew();
+                Lr2SearchRootSnapshot rootSnapshot = data.CaptureBmsDirectories();
+                List<string> roots = [.. rootSnapshot.Roots];
+                List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
+                List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
+                Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope(options);
+                if (!appManagedOutputScope.IsComplete)
                 {
-                    var stopwatch = Stopwatch.StartNew();
-                    Lr2SearchRootSnapshot rootSnapshot = data.CaptureBmsDirectories();
-                    List<string> roots = [.. rootSnapshot.Roots];
-                    List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
-                    List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
-                    Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope(options);
-                    if (!appManagedOutputScope.IsComplete)
-                    {
-                        BMSLibrary.LogInstallPerformance("lr2folder_settings_output_base_sync skipped"
-                            + " reason=" + (reason ?? "unknown")
-                            + " detail=app_managed_scope_incomplete"
-                            + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                        return;
-                    }
-
-                    Lr2FolderFileCandidateSnapshot candidates = discoveryDirectories.Count > 0
-                        ? CreateLr2SongDbSyncLr2FolderFileCandidates(
-                            discoveryDirectories,
-                            options.LR2RootPath,
-                            CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-                            appManagedOutputScope.Directories)
-                        : new Lr2FolderFileCandidateSnapshot(
-                            [],
-                            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                            discoveryComplete: true);
-                    candidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
-                        candidates.Paths,
-                        candidates.EntriesByPath,
-                        appManagedOutputScope.FilePaths,
-                        candidates.DiscoveryComplete,
-                        out int appManagedCandidateCount,
-                        appManagedOutputScope.Directories);
-
-                    List<string> pruneDirectories = NormalizeDistinctDirectories(
-                        CreateLr2SongDbSyncLr2FolderPruneDirectories(roots, builtinSourceDirectories, options: options));
-                    var request = new Lr2SongDbSyncRequest
-                    {
-                        RootDirectories = roots,
-                        Lr2FolderDiscoveryDirectories = discoveryDirectories,
-                        Lr2FolderPruneDirectories = pruneDirectories,
-                        Lr2FolderFilePaths = candidates.Paths,
-                        Lr2FolderFileEntries = candidates.EntriesByPath,
-                        Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
-                        Lr2RootPath = options.LR2RootPath,
-                        Lr2NormalCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDir,
-                        Lr2AdditionalNormalCustomFolderOutputBaseDirs = options.LR2CustomFolderAdditionalOutputBaseDirs,
-                        Lr2RootCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDirRootType,
-                        Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
-                    };
-                    PrepareLr2FolderParentDirectoryEntrySurface(request);
-                    Lr2TextMetadataCandidateSnapshot textMetadataSnapshot = CreateLr2PreparedTextMetadataCandidates(
-                        request.Lr2FolderDiscoveryDirectories,
-                        request.DirectoryEntries.Keys);
-                    ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, request.Lr2FolderDiscoveryDirectories);
-                    Lr2FolderFileDbSyncResult syncResult = SyncLr2FolderFileRows(
-                        options,
-                        request,
-                        reason,
-                        "lr2folder_settings_output_base_sync",
-                        allowPrune: true,
-                        pruneExcludedDirectories: appManagedOutputScope.Directories,
-                        pruneExcludedPaths: appManagedOutputScope.PruneExcludedPaths,
-                        scopeReadLr2FolderRowsOnly: true,
-                        mutationCapability: mutationCapability);
-                    BMSLibrary.LogInstallPerformance("lr2folder_settings_output_base_sync summary"
+                    BMSLibrary.LogInstallPerformance("lr2folder_settings_output_base_sync skipped"
                         + " reason=" + (reason ?? "unknown")
-                        + " roots=" + roots.Count
-                        + " discoveryDirs=" + discoveryDirectories.Count
-                        + " candidates=" + candidates.Paths.Count
-                        + " appManagedFiltered=" + appManagedCandidateCount
-                        + " pruneDirs=" + pruneDirectories.Count
-                        + " existingRows=" + (syncResult?.ExistingReadCount ?? 0)
-                        + " upserted=" + (syncResult?.UpsertedCount ?? 0)
-                        + " deleted=" + (syncResult?.DeletedCount ?? 0)
+                        + " detail=app_managed_scope_incomplete"
                         + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                    return Task.CompletedTask;
                 }
+
+                Lr2FolderFileCandidateSnapshot candidates = discoveryDirectories.Count > 0
+                    ? CreateLr2SongDbSyncLr2FolderFileCandidates(
+                        discoveryDirectories,
+                        options.LR2RootPath,
+                        CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+                        appManagedOutputScope.Directories)
+                    : new Lr2FolderFileCandidateSnapshot(
+                        [],
+                        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                        discoveryComplete: true);
+                candidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                    candidates.Paths,
+                    candidates.EntriesByPath,
+                    appManagedOutputScope.FilePaths,
+                    candidates.DiscoveryComplete,
+                    out int appManagedCandidateCount,
+                    appManagedOutputScope.Directories);
+
+                List<string> pruneDirectories = NormalizeDistinctDirectories(
+                    CreateLr2SongDbSyncLr2FolderPruneDirectories(roots, builtinSourceDirectories, options: options));
+                var request = new Lr2SongDbSyncRequest
+                {
+                    RootDirectories = roots,
+                    Lr2FolderDiscoveryDirectories = discoveryDirectories,
+                    Lr2FolderPruneDirectories = pruneDirectories,
+                    Lr2FolderFilePaths = candidates.Paths,
+                    Lr2FolderFileEntries = candidates.EntriesByPath,
+                    Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
+                    Lr2RootPath = options.LR2RootPath,
+                    Lr2NormalCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDir,
+                    Lr2AdditionalNormalCustomFolderOutputBaseDirs = options.LR2CustomFolderAdditionalOutputBaseDirs,
+                    Lr2RootCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDirRootType,
+                    Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
+                };
+                PrepareLr2FolderParentDirectoryEntrySurface(request);
+                Lr2TextMetadataCandidateSnapshot textMetadataSnapshot = CreateLr2PreparedTextMetadataCandidates(
+                    request.Lr2FolderDiscoveryDirectories,
+                    request.DirectoryEntries.Keys);
+                ApplyLr2TextMetadataCandidatesToRequest(request, textMetadataSnapshot, request.Lr2FolderDiscoveryDirectories);
+                Lr2FolderFileDbSyncResult syncResult = SyncLr2FolderFileRows(
+                    options,
+                    request,
+                    reason,
+                    "lr2folder_settings_output_base_sync",
+                    allowPrune: true,
+                    pruneExcludedDirectories: appManagedOutputScope.Directories,
+                    pruneExcludedPaths: appManagedOutputScope.PruneExcludedPaths,
+                    scopeReadLr2FolderRowsOnly: true,
+                    mutationCapability: mutationCapability);
+                BMSLibrary.LogInstallPerformance("lr2folder_settings_output_base_sync summary"
+                    + " reason=" + (reason ?? "unknown")
+                    + " roots=" + roots.Count
+                    + " discoveryDirs=" + discoveryDirectories.Count
+                    + " candidates=" + candidates.Paths.Count
+                    + " appManagedFiltered=" + appManagedCandidateCount
+                    + " pruneDirs=" + pruneDirectories.Count
+                    + " existingRows=" + (syncResult?.ExistingReadCount ?? 0)
+                    + " upserted=" + (syncResult?.UpsertedCount ?? 0)
+                    + " deleted=" + (syncResult?.DeletedCount ?? 0)
+                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
             }
 
-            if (queuePreparedSync)
-            {
-                using LibraryFileMutationCapability continuation = mutationLease.CreateMutationCapability();
-                await Lr2SongDbSyncRequestCoordinator.QueueAsync(
-                    this,
-                    reason,
-                    force: true,
-                    prepareGeneratedData: null,
-                    allowIncompleteToQueue: true,
-                    allowCommittedPathReceipt: false, capability: continuation, optionsSnapshot: options, playlistCapability: playlistCapability).ConfigureAwait(false);
-            }
+            return Task.CompletedTask;
         }
 
         internal Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
@@ -1085,139 +1063,35 @@ public partial class BMSLibrary
             };
         }
 
-        internal void CaptureLr2SongDbSyncScanSurface(
-            BmsLibraryOptionsSnapshot options,
-            IEnumerable<string> rootDirectories,
-            SongTableFileCheckResult fileCheckResult)
+        /// <summary>今回の走査面を型付き結果として返します。管理出力の読取りキャッシュだけを更新します。</summary>
+        internal Lr2SongDbSyncScanSurfaceSnapshot CreateLr2SongDbSyncScanSurface(
+            BmsLibraryOptionsSnapshot options, IEnumerable<string> rootDirectories, SongTableFileCheckResult result)
         {
-            if (options?.OperationModeLR2DB != true
-                || fileCheckResult?.Lr2ScanSurfaceAvailable != true)
+            if (options?.OperationModeLR2DB != true || result?.Lr2ScanSurfaceAvailable != true) { return null; }
+            IReadOnlyList<string> roots = [.. (rootDirectories ?? []).Where(path => !string.IsNullOrWhiteSpace(path))
+                .Select(BMSLibrary.SafeFullPathOrOriginal).Distinct(StringComparer.OrdinalIgnoreCase)];
+            Lr2FolderFileCandidateSnapshot candidates;
+            if (result.Lr2ScanLr2FolderCandidatesAlreadyFiltered)
             {
-                return;
-            }
-
-            List<string> roots = [.. (rootDirectories ?? [])
-                .Where(path => !string.IsNullOrWhiteSpace(path))
-                .Select(BMSLibrary.SafeFullPathOrOriginal)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-            if (roots.Count == 0)
-            {
-                return;
-            }
-            if (fileCheckResult.Lr2NormalFolderSyncFailed
-                || fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount > 0
-                || fileCheckResult.Lr2NormalFolderInfoReadFailureCount > 0)
-            {
-                int preservedGeneration;
-                lock (ScanSurfaceGate)
-                {
-                    preservedGeneration = ScanSurfaceSnapshot?.Generation ?? 0;
-                    AppManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
-                        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                        discoveryComplete: false);
-                }
-                BMSLibrary.LogInstallPerformance("lr2_song_db_sync_scan_surface skipped"
-                    + " reason=normal_folder_sync_unapplied"
-                    + " failed=" + fileCheckResult.Lr2NormalFolderSyncFailed.ToString().ToLowerInvariant()
-                    + " skippedMissingMetadata=" + fileCheckResult.Lr2NormalFolderSkippedMissingMetadataCount
-                    + " folderInfoReadFailures=" + fileCheckResult.Lr2NormalFolderInfoReadFailureCount
-                    + " preservedGeneration=" + preservedGeneration);
-                return;
-            }
-
-            IReadOnlyList<string> lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories ?? [];
-            IReadOnlyList<string> appManagedOutputDirectories = [];
-            IReadOnlyList<string> appManagedOutputFilePaths = [];
-            int appManagedCandidateCount = 0;
-            Lr2FolderFileCandidateSnapshot lr2FolderCandidates;
-            bool reusedFilteredLr2FolderCandidates = fileCheckResult.Lr2ScanLr2FolderCandidatesAlreadyFiltered;
-            if (reusedFilteredLr2FolderCandidates)
-            {
-                lr2FolderCandidates = new Lr2FolderFileCandidateSnapshot(
-                    fileCheckResult.Lr2ScanLr2FolderFilePaths,
-                    fileCheckResult.Lr2ScanLr2FolderFileEntries,
-                    fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete);
-                appManagedCandidateCount = fileCheckResult.Lr2ScanLr2FolderAppManagedFilteredCount;
+                candidates = new(result.Lr2ScanLr2FolderFilePaths, result.Lr2ScanLr2FolderFileEntries, result.Lr2ScanLr2FolderFileDiscoveryComplete);
             }
             else
             {
-                Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
-                appManagedOutputDirectories = appManagedOutputScope.Directories;
-                appManagedOutputFilePaths = appManagedOutputScope.FilePaths;
-                if (!appManagedOutputScope.IsComplete)
-                {
-                    lr2FolderCandidates = BMSLibrary.CreateIncompleteLr2FolderCandidateSnapshot();
-                }
-                else
-                {
-                    lr2FolderCandidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
-                        fileCheckResult.Lr2ScanLr2FolderFilePaths,
-                        fileCheckResult.Lr2ScanLr2FolderFileEntries,
-                        appManagedOutputFilePaths,
-                        fileCheckResult.Lr2ScanLr2FolderFileDiscoveryComplete,
-                        out appManagedCandidateCount,
-                        appManagedOutputScope.Directories);
-                }
+                Lr2SongDbSyncAppManagedOutputScope scope = CreateLr2SongDbSyncAppManagedOutputScope(options);
+                candidates = scope.IsComplete ? Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                    result.Lr2ScanLr2FolderFilePaths, result.Lr2ScanLr2FolderFileEntries, scope.FilePaths,
+                    result.Lr2ScanLr2FolderFileDiscoveryComplete, out _, scope.Directories)
+                    : BMSLibrary.CreateIncompleteLr2FolderCandidateSnapshot();
             }
-            IReadOnlyList<string> lr2FolderFilePaths = lr2FolderCandidates.Paths;
-            IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries = lr2FolderCandidates.EntriesByPath;
-            bool lr2FolderFileDiscoveryComplete = lr2FolderCandidates.DiscoveryComplete;
-            if (lr2FolderDiscoveryDirectories.Count == 0)
-            {
-                int previousGeneration = 0;
-                lock (ScanSurfaceGate)
-                {
-                    previousGeneration = ScanSurfaceSnapshot?.Generation ?? 0;
-                    ScanSurfaceSnapshot = null;
-                    AppManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
-                        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-                        discoveryComplete: false);
-                    PreparedDataSurfaceAppliedScanGeneration = 0;
-                }
-                BMSLibrary.LogInstallPerformance("lr2_song_db_sync_scan_surface skipped"
-                    + " reason=missing_lr2folder_surface"
-                    + " roots=" + roots.Count
-                    + " invalidatedGeneration=" + previousGeneration);
-                return;
-            }
-
-            Lr2SongDbSyncScanSurfaceSnapshot snapshot;
-            IReadOnlyDictionary<string, OwnedChartToken> pathMembershipIndex = data.CapturePathMembershipIndex();
             lock (ScanSurfaceGate)
             {
-                int generation = ScanSurfaceGeneration == int.MaxValue
-                    ? 1
-                    : ScanSurfaceGeneration + 1;
-                ScanSurfaceGeneration = generation;
-                snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(generation, roots, fileCheckResult.Lr2ScanNormalFolderDirectoryPaths, fileCheckResult.Lr2ScanDirectoryEntries, fileCheckResult.Lr2ScanNormalFolderDirectoryEntries, fileCheckResult.Lr2ScanFolderInfoFilePaths, fileCheckResult.Lr2ScanFolderInfoFileEntries, fileCheckResult.Lr2ScanTextFileDirectories, lr2FolderDiscoveryDirectories, lr2FolderFilePaths, lr2FolderFileEntries, lr2FolderFileDiscoveryComplete, pathMembershipIndex);
-                ScanSurfaceSnapshot = snapshot;
-                AppManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
-                    fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFileEntries,
-                    fileCheckResult.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete);
-                PreparedDataSurfaceAppliedScanGeneration = 0;
+                AppManagedCustomFolderOutputPhysicalSurface = new(result.Lr2ScanAppManagedCustomFolderOutputFileEntries,
+                    result.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete);
             }
-            BMSLibrary.LogInstallPerformance("lr2_song_db_sync_scan_surface captured"
-                + " generation=" + snapshot.Generation
-                + " roots=" + snapshot.RootDirectories.Count
-                + " normalFolderDirs=" + snapshot.NormalFolderDirectoryPaths.Count
-                + " directorySurfaceEntries=" + snapshot.DirectoryEntries.Count
-                + " folderInfoCandidates=" + snapshot.FolderInfoFilePaths.Count
-                + " lr2FolderDiscoveryRoots=" + snapshot.Lr2FolderDiscoveryDirectories.Count
-                + " lr2FolderCandidates=" + snapshot.Lr2FolderFilePaths.Count
-                + " reusedFilteredLr2FolderCandidates=" + reusedFilteredLr2FolderCandidates.ToString().ToLowerInvariant()
-                + " appManagedFiltered=" + appManagedCandidateCount
-                + " appManagedScopeDirs=" + (reusedFilteredLr2FolderCandidates
-                    ? fileCheckResult.Lr2ScanLr2FolderAppManagedScopeDirectoryCount
-                    : appManagedOutputDirectories.Count)
-                + " appManagedExactFiles=" + (reusedFilteredLr2FolderCandidates
-                    ? fileCheckResult.Lr2ScanLr2FolderAppManagedExactFileCount
-                    : appManagedOutputFilePaths.Count)
-                + " appManagedPhysicalCandidates=" + (fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFilePaths?.Count ?? 0)
-                + " appManagedPhysicalDiscoveryComplete=" + fileCheckResult.Lr2ScanAppManagedCustomFolderOutputDiscoveryComplete.ToString().ToLowerInvariant()
-                + " lr2FolderDiscoveryComplete=" + snapshot.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
-                + " textFileDirs=" + snapshot.TextFileDirectories.Count
-                + " ownedPathCount=" + snapshot.PathMembershipIndex.Count);
+            return new(roots, result.Lr2ScanNormalFolderDirectoryPaths, result.Lr2ScanDirectoryEntries,
+                result.Lr2ScanNormalFolderDirectoryEntries, result.Lr2ScanFolderInfoFilePaths, result.Lr2ScanFolderInfoFileEntries,
+                result.Lr2ScanTextFileDirectories, result.Lr2ScanLr2FolderDiscoveryDirectories, candidates.Paths,
+                candidates.EntriesByPath, candidates.DiscoveryComplete);
         }
 
         internal bool IsShutdownRequested => runtime.IsShutdownRequested;
@@ -1250,71 +1124,11 @@ public partial class BMSLibrary
         internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request) =>
             data.ApplyLr2SongDbSync(request);
 
-        internal void PublishLr2SongDbSyncCommittedPathReceipt(
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            if (CurrentOptionsSnapshot?.OperationModeLR2DB != true
-                || fileCheckResult == null
-                || fileCheckResult.CommittedLr2SongDbSyncBmsPaths.Count == 0)
-            {
-                DiscardLr2SongDbSyncCommittedPathReceipt("file_diff_not_eligible_" + (reason ?? "unknown"));
-                return;
-            }
 
-            var receipt = new Lr2SongDbSyncCommittedPathReceipt(data.CaptureCurrentCharts(
-                fileCheckResult.CommittedLr2SongDbSyncBmsPaths.Select(path => LibraryChartRef.FromPath(ChartFileKind.Bms, path, null, null))));
-            lock (CommittedPathReceiptGate)
-            {
-                CommittedPathReceipt = receipt;
-            }
-            LogInstallPerformance("lr2_song_db_sync committed_path_receipt published"
-                + " reason=" + (reason ?? "unknown")
-                + " paths=" + receipt.CommittedBmsPaths.Count);
-        }
 
-        internal Lr2SongDbSyncCommittedPathReceipt TakeLr2SongDbSyncCommittedPathReceipt(
-            Lr2SongDbSyncInput input,
-            string reason)
-        {
-            Lr2SongDbSyncCommittedPathReceipt receipt;
-            lock (CommittedPathReceiptGate)
-            {
-                receipt = CommittedPathReceipt;
-                CommittedPathReceipt = null;
-            }
-            if (receipt == null)
-            {
-                return null;
-            }
-            IReadOnlyList<ChartFile> currentCharts = data.CaptureCurrentCharts(receipt.CommittedCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
-            // 実行する入力全体の最新性は既存の受付検査で別に確認する。証票は確定対象だけを検査する。
-            if (input == null || !receipt.MatchesTargets(currentCharts))
-            {
-                LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
-                    + " reason=target_mismatch_" + (reason ?? "unknown"));
-                return null;
-            }
-            LogInstallPerformance("lr2_song_db_sync committed_path_receipt taken"
-                + " reason=" + (reason ?? "unknown")
-                + " paths=" + receipt.CommittedBmsPaths.Count);
-            return receipt;
-        }
 
-        internal void DiscardLr2SongDbSyncCommittedPathReceipt(string reason)
-        {
-            bool discarded;
-            lock (CommittedPathReceiptGate)
-            {
-                discarded = CommittedPathReceipt != null;
-                CommittedPathReceipt = null;
-            }
-            if (discarded)
-            {
-                LogInstallPerformance("lr2_song_db_sync committed_path_receipt discarded"
-                    + " reason=" + (reason ?? "unknown"));
-            }
-        }
+
+
 
         internal void PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
         {
@@ -1324,14 +1138,22 @@ public partial class BMSLibrary
         internal bool TrySkipForShutdown(string operation, string reason) =>
             runtime.TrySkipForShutdown(operation, reason);
 
-        internal void ClearLr2SongDbSyncPreparedDataSurface(string reason) =>
-            ClearPreparedDataSurface(reason);
 
-        /// <summary>取得済み共通権限の内部継続として実行表示と取消を開始します。受付は追加しません。</summary>
-        internal int BeginRequest(LibraryFileMutationCapability capability)
+        /// <summary>専用進捗へ渡す同一実行の識別。因果判定や結果再利用には使用しません。</summary>
+        internal OperationProgressRequest ProgressRequest { get; private set; }
+
+        /// <summary>取得済み共通権限で開始します。同じ要求識別とRunning状態を要求版通知より先に公開し、準備中の競合要求にも実状態を返します。</summary>
+        internal int BeginRequest(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, Lr2SongDbSyncStatusSnapshot initialStatus = null)
         {
             capability.Validate(operationAdmission);
-            lock (RequestGate) { return BeginLr2SongDbSyncRequestUnsafe(); }
+            lock (RequestGate)
+            {
+                int version = RequestedVersion + 1;
+                ProgressRequest = originatingRequest == null ? new(0, 0, "lr2_song_db_sync", version)
+                    : new(originatingRequest.Generation, originatingRequest.OperationToken, "lr2_song_db_sync", version);
+                if (initialStatus != null) { PublishStatus(initialStatus); }
+                return BeginLr2SongDbSyncRequestUnsafe();
+            }
         }
 
         internal void CompleteLr2SongDbSyncRequest(int requestVersion, string stage)
@@ -1353,10 +1175,10 @@ public partial class BMSLibrary
         /// <param name="options">署名と生成準備から継続して渡す受理済み操作の変更不能設定。</param>
         /// <returns>実処理と後片付けの終端。失敗と取消は呼出し元へ伝播します。</returns>
         internal Task RunLr2SongDbSyncAsync(string reason, string signature, int requestVersion,
-            bool allowCommittedPathReceipt, LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
+            LibraryFileInitializationResult initializationResult, Lr2SongDbSyncPreparedDataSurface preparedSurface, LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
         {
             capability.Validate(operationAdmission);
-            Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion, allowCommittedPathReceipt, options);
+            Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion, initializationResult, preparedSurface, options);
             return Task.CompletedTask;
         }
 
@@ -1368,10 +1190,11 @@ public partial class BMSLibrary
             }
         }
 
-        /// <summary>受理済み操作のoptionsから署名とworkerへ渡す同期入力を構成します。独立した最新性照合は維持します。</summary>
+        /// <summary>親受付内で捕捉した設定・走査・生成結果から最終入力を構成します。過去の共有結果や全体版で因果を推測しません。</summary>
         /// <param name="options">受付後に捕捉した変更不能設定。省略時は呼出し時の設定を捕捉します。</param>
         /// <returns>所持集合、探索面、生成準備と設定が一致した同期入力。</returns>
-        internal Lr2SongDbSyncInput CreateLr2SongDbSyncInput(BmsLibraryOptionsSnapshot options = null)
+        internal Lr2SongDbSyncInput CreateLr2SongDbSyncInput(BmsLibraryOptionsSnapshot options = null,
+            LibraryFileInitializationResult initializationResult = null, Lr2SongDbSyncPreparedDataSurface preparedSurface = null)
         {
             options ??= CurrentOptionsSnapshot;
             var inputStopwatch = Stopwatch.StartNew();
@@ -1392,11 +1215,11 @@ public partial class BMSLibrary
 
             var scanSurfaceStopwatch = Stopwatch.StartNew();
             Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection =
-                CreateLr2SongDbSyncScanSurfaceSelection(rootSnapshot, rowSnapshot);
+                new(initializationResult?.ScanSurface, initializationResult?.ScanSurface == null ? "new_request" : string.Empty);
             scanSurfaceStopwatch.Stop();
 
             Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
-                CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurfaceSelection.Surface);
+                new(preparedSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty);
             var inputBuilder = new Lr2SongDbSyncInputBuilder(
                 BMSLibrary.LogEverythingScan,
                 BMSLibrary.LogInstallPerformance,
@@ -1421,18 +1244,7 @@ public partial class BMSLibrary
                 lr2FolderCandidatesStopwatch);
         }
 
-        private Lr2SongDbSyncScanSurfaceSelection CreateLr2SongDbSyncScanSurfaceSelection(
-            Lr2SongDbSyncInputRootSnapshot rootSnapshot,
-            Lr2SongDbSyncInputRowSnapshot rowSnapshot)
-        {
-            Lr2SongDbSyncScanSurfaceSnapshot scanSurface = GetCurrentLr2SongDbSyncScanSurface(
-                rootSnapshot.RootDirectories,
-                rootSnapshot.Lr2FolderDiscoveryDirectories,
-                rowSnapshot,
-                out string scanSurfaceMissReason);
 
-            return new Lr2SongDbSyncScanSurfaceSelection(scanSurface, scanSurfaceMissReason);
-        }
 
         private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
         {
@@ -1471,20 +1283,7 @@ public partial class BMSLibrary
                     options: options));
         }
 
-        private Lr2SongDbSyncPreparedSurfaceSelection CreateLr2SongDbSyncPreparedSurfaceSelection(
-            Lr2SongDbSyncScanSurfaceSnapshot scanSurface)
-        {
-            Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface =
-                TakeLr2SongDbSyncPreparedDataSurface(out int appliedScanGeneration);
-            bool alreadyAppliedToScanSurface = scanSurface != null
-                && pendingPreparedSurface?.HasPreparedDataSurface == true
-                && appliedScanGeneration == scanSurface.Generation;
-            return new Lr2SongDbSyncPreparedSurfaceSelection(
-                pendingPreparedSurface,
-                alreadyAppliedToScanSurface ? Lr2SongDbSyncPreparedDataSurface.Empty : pendingPreparedSurface,
-                appliedScanGeneration,
-                alreadyAppliedToScanSurface);
-        }
+
 
         internal TimeSpan CurrentChartInfoParseTimeout =>
             data.CurrentChartInfoParseTimeout;
@@ -1562,6 +1361,32 @@ public partial class BMSLibrary
                     stage: "failed",
                     detail: ex?.Message,
                     DateTime.UtcNow));
+        }
+
+        /// <summary>LR2失敗の保存と公開を一箇所で終結します。同じ要求で既に確定したFailed/Incompleteを再通知・上書きしません。</summary>
+        /// <param name="signature">今回の要求が捕捉した設定署名。</param>
+        /// <param name="runId">下位実行の識別。実行開始前の失敗では空です。</param>
+        /// <param name="requestVersion">今回の実要求版。開始前なら現在の要求版です。</param>
+        /// <param name="failure">元の同期失敗または終了取消。</param>
+        /// <param name="stage">失敗を観測した実段階。</param>
+        /// <param name="interruptedByShutdown">終了による中断は既存Incompleteとして保存します。</param>
+        internal void RecordLr2SongDbSyncFailure(string signature, string runId, int requestVersion,
+            Exception failure, string stage, bool interruptedByShutdown = false)
+        {
+            Lr2SongDbSyncStatusSnapshot current = GetStatusSnapshot();
+            if (current.Status is Lr2SongDbSyncStatusKind.Failed or Lr2SongDbSyncStatusKind.Incomplete) { return; }
+            if (interruptedByShutdown)
+            {
+                MarkLr2SongDbSyncInterruptedStatus(signature, runId, ObservableProcessedCount, ObservableTotalCount, stage);
+                FailRequest(requestVersion, Lr2SongDbSyncStatusKind.Incomplete, stage, "shutdown_interrupted");
+                return;
+            }
+            try { MarkLr2SongDbSyncFailedStatus(signature, runId, failure); }
+            catch
+            {
+                // 状態保存自体が失敗しても、元の同期失敗と実行中でない公開状態を保持する。
+            }
+            FailRequest(requestVersion, Lr2SongDbSyncStatusKind.Failed, stage, failure.Message);
         }
 
         internal void LogInstallPerformance(string message) =>
@@ -1737,155 +1562,15 @@ public partial class BMSLibrary
             }
         }
 
-        internal void ClearPreparedDataSurface(string reason)
-        {
-            bool hadSurface;
-            lock (ScanSurfaceGate)
-            {
-                hadSurface = PreparedDataSurface?.HasPreparedDataSurface == true;
-                PreparedDataSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
-                PreparedDataSurfaceAppliedScanGeneration = 0;
-            }
-            if (hadSurface)
-            {
-                LogInstallPerformance("lr2_song_db_sync_prepared_surface cleared reason=" + (reason ?? "unknown"));
-            }
-        }
+
 
         /// <summary>同じ受付中に生成準備結果を探索面へ反映し、受理済み設定と対応させます。</summary>
         /// <param name="options">生成準備とworkerへ共通に渡す変更不能設定。省略時は現設定を捕捉します。</param>
-        internal void ApplyLr2SongDbSyncPreparedDataSurface(
-            string reason,
-            Lr2SongDbSyncPreparedDataSurface preparedSurface, BmsLibraryOptionsSnapshot options = null)
-        {
-            var applyStopwatch = Stopwatch.StartNew();
-            var lockWaitStopwatch = Stopwatch.StartNew();
-            long lockWaitMs = 0;
-            long discoveryRootsMs = 0;
-            long lr2FolderCandidatesMs = 0;
-            long folderInfoCandidatesMs = 0;
-            long directoryOverlayMs = 0;
-            long textFileDirsMs = 0;
-            string mergeResult = "unknown";
-            preparedSurface ??= Lr2SongDbSyncPreparedDataSurface.Empty;
-            BmsLibraryOptionsSnapshot currentSettings = options ?? data.CurrentOptionsSnapshot;
-            Lr2SongDbSyncScanSurfaceSnapshot snapshot = null;
-            lock (ScanSurfaceGate)
-            {
-                lockWaitStopwatch.Stop();
-                lockWaitMs = lockWaitStopwatch.ElapsedMilliseconds;
-                PreparedDataSurface = preparedSurface;
-                PreparedDataSurfaceAppliedScanGeneration = 0;
-                snapshot = ScanSurfaceSnapshot;
-                if (snapshot == null)
-                {
-                    mergeResult = "no_scan_surface";
-                    snapshot = null;
-                }
-                else if (!preparedSurface.HasPreparedDataSurface)
-                {
-                    mergeResult = "no_prepared_surface";
-                    snapshot = null;
-                }
-                else
-                {
-                    var discoveryRootsStopwatch = Stopwatch.StartNew();
-                    bool discoveryRootsCurrent = BMSLibrary.ArePathSetsEqual(
-                        snapshot.Lr2FolderDiscoveryDirectories,
-                        CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(snapshot.RootDirectories, currentSettings));
-                    discoveryRootsStopwatch.Stop();
-                    discoveryRootsMs = discoveryRootsStopwatch.ElapsedMilliseconds;
-                    if (!discoveryRootsCurrent)
-                    {
-                        mergeResult = "lr2folder_roots_changed";
-                        snapshot = null;
-                    }
-                    else
-                    {
-                        mergeResult = "merged";
-                        int generation = ScanSurfaceGeneration == int.MaxValue
-                            ? 1
-                            : ScanSurfaceGeneration + 1;
-                        ScanSurfaceGeneration = generation;
-                        var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
-                        Lr2FolderFileCandidateSnapshot candidates = Lr2FolderFileDiscoveryService.MergeCandidateSurface(
-                            new Lr2FolderFileCandidateSnapshot(
-                                snapshot.Lr2FolderFilePaths,
-                                snapshot.Lr2FolderFileEntries,
-                                snapshot.Lr2FolderFileDiscoveryComplete),
-                            preparedSurface);
-                        lr2FolderCandidatesStopwatch.Stop();
-                        lr2FolderCandidatesMs = lr2FolderCandidatesStopwatch.ElapsedMilliseconds;
-                        var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
-                        IReadOnlyList<string> mergedFolderInfoPaths = MergePreparedFileSurface(
-                            snapshot.FolderInfoFilePaths,
-                            snapshot.FolderInfoFileEntries,
-                            preparedSurface.FolderInfoFilePaths,
-                            preparedSurface.FolderInfoFileEntries,
-                            preparedSurface.Lr2FolderScopeDirectories,
-                            out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedFolderInfoEntries);
-                        folderInfoCandidatesStopwatch.Stop();
-                        folderInfoCandidatesMs = folderInfoCandidatesStopwatch.ElapsedMilliseconds;
-                        var textFileDirsStopwatch = Stopwatch.StartNew();
-                        IReadOnlyList<string> mergedTextFileDirectories = MergePreparedDirectoryList(
-                            snapshot.TextFileDirectories,
-                            preparedSurface.TextFileDirectories,
-                            preparedSurface.Lr2FolderScopeDirectories);
-                        textFileDirsStopwatch.Stop();
-                        textFileDirsMs = textFileDirsStopwatch.ElapsedMilliseconds;
-                        var directoryOverlayStopwatch = Stopwatch.StartNew();
-                        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries =
-                            OverlayLr2DirectoryEntrySurface(snapshot.DirectoryEntries, preparedSurface.DirectoryEntries);
-                        directoryOverlayStopwatch.Stop();
-                        directoryOverlayMs = directoryOverlayStopwatch.ElapsedMilliseconds;
-                        snapshot = new Lr2SongDbSyncScanSurfaceSnapshot(generation, snapshot.RootDirectories, snapshot.NormalFolderDirectoryPaths, directoryEntries, snapshot.NormalFolderDirectoryEntries, mergedFolderInfoPaths, mergedFolderInfoEntries, mergedTextFileDirectories, snapshot.Lr2FolderDiscoveryDirectories, candidates.Paths, candidates.EntriesByPath, candidates.DiscoveryComplete, snapshot.PathMembershipIndex);
-                        ScanSurfaceSnapshot = snapshot;
-                        PreparedDataSurfaceAppliedScanGeneration = generation;
-                    }
-                }
-            }
-            applyStopwatch.Stop();
 
-            BMSLibrary.LogInstallPerformance("lr2_song_db_sync_prepared_surface applied"
-                + " reason=" + (reason ?? "unknown")
-                + " mergeResult=" + mergeResult
-                + " scopeDirs=" + preparedSurface.Lr2FolderScopeDirectories.Count
-                + " lr2FolderCandidates=" + preparedSurface.Lr2FolderFilePaths.Count
-                + " directoryEntries=" + preparedSurface.DirectoryEntries.Count
-                + " folderInfoCandidates=" + preparedSurface.FolderInfoFilePaths.Count
-                + " textFileDirs=" + preparedSurface.TextFileDirectories.Count
-                + " discoveryComplete=" + preparedSurface.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
-                + " mergedScanSurfaceGeneration=" + (snapshot?.Generation ?? 0)
-                + " lockWaitMs=" + lockWaitMs
-                + " discoveryRootsMs=" + discoveryRootsMs
-                + " lr2FolderCandidatesMs=" + lr2FolderCandidatesMs
-                + " folderInfoCandidatesMs=" + folderInfoCandidatesMs
-                + " textFileDirsMs=" + textFileDirsMs
-                + " directoryOverlayMs=" + directoryOverlayMs
-                + " elapsedMs=" + applyStopwatch.ElapsedMilliseconds);
-        }
 
-        internal bool HasLr2SongDbSyncPreparedDataSurface()
-        {
-            lock (ScanSurfaceGate)
-            {
-                return PreparedDataSurface?.HasPreparedDataSurface == true;
-            }
-        }
 
-        internal Lr2SongDbSyncPreparedDataSurface TakeLr2SongDbSyncPreparedDataSurface(
-            out int appliedScanSurfaceGeneration)
-        {
-            lock (ScanSurfaceGate)
-            {
-                Lr2SongDbSyncPreparedDataSurface surface = PreparedDataSurface
-                    ?? Lr2SongDbSyncPreparedDataSurface.Empty;
-                appliedScanSurfaceGeneration = PreparedDataSurfaceAppliedScanGeneration;
-                PreparedDataSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
-                PreparedDataSurfaceAppliedScanGeneration = 0;
-                return surface;
-            }
-        }
+
+
 
         internal CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
         {
@@ -1895,63 +1580,9 @@ public partial class BMSLibrary
             }
         }
 
-        internal Lr2SongDbSyncScanSurfaceSnapshot GetCurrentLr2SongDbSyncScanSurface(
-            IEnumerable<string> rootDirectories,
-            IEnumerable<string> lr2FolderDiscoveryDirectories,
-            Lr2SongDbSyncInputRowSnapshot rowSnapshot,
-            out string missReason)
-        {
-            missReason = string.Empty;
-            Lr2SongDbSyncScanSurfaceSnapshot snapshot;
-            lock (ScanSurfaceGate)
-            {
-                snapshot = ScanSurfaceSnapshot;
-            }
-            if (snapshot == null)
-            {
-                missReason = "none";
-                return null;
-            }
-            if (rowSnapshot == null)
-            {
-                missReason = "row_snapshot";
-                return null;
-            }
-            if (!ReferenceEquals(snapshot.PathMembershipIndex, rowSnapshot.PathMembershipIndex))
-            {
-                missReason = "owned_paths";
-                return null;
-            }
-            if (!BMSLibrary.ArePathSetsEqual(snapshot.RootDirectories, rootDirectories))
-            {
-                missReason = "roots";
-                return null;
-            }
-            if (!BMSLibrary.ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
-            {
-                missReason = "lr2folder_roots";
-                return null;
-            }
-            return snapshot;
-        }
 
-        internal bool IsCurrentLr2SongDbSyncScanSurface(Lr2SongDbSyncInput input)
-        {
-            if (input == null || input.ScanSurfaceGeneration <= 0)
-            {
-                return true;
-            }
 
-            Lr2SongDbSyncScanSurfaceSnapshot snapshot;
-            lock (ScanSurfaceGate)
-            {
-                snapshot = ScanSurfaceSnapshot;
-            }
-            return snapshot != null
-                && snapshot.Generation == input.ScanSurfaceGeneration
-                && BMSLibrary.ArePathSetsEqual(snapshot.RootDirectories, input.RootDirectories)
-                && BMSLibrary.ArePathSetsEqual(snapshot.Lr2FolderDiscoveryDirectories, input.Lr2FolderDiscoveryDirectories);
-        }
+
 
         private List<string> CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(
             IEnumerable<string> rootDirectories,
@@ -1965,55 +1596,7 @@ public partial class BMSLibrary
                 CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options));
         }
 
-        internal bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
-        {
-            OwnedChartCollectionVersionSnapshot currentStorageRowsVersion = data.CaptureOwnedChartCollectionVersionSnapshot();
-            if (input == null
-                || currentStorageRowsVersion.OwnedCollectionVersion != input.OwnedCollectionVersion)
-            {
-                return false;
-            }
 
-            List<string> roots = [.. data.CaptureBmsDirectories().Roots];
-            if (!BMSLibrary.ArePathSetsEqual(input.RootDirectories, roots))
-            {
-                return false;
-            }
-            if (!IsCurrentLr2SongDbSyncScanSurface(input))
-            {
-                return false;
-            }
-
-            BmsLibraryOptionsSnapshot options = data.CurrentOptionsSnapshot;
-            List<string> lr2FolderDiscoveryDirectories = CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options);
-            if (!BMSLibrary.ArePathSetsEqual(input.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
-            {
-                return false;
-            }
-            Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
-            if (!appManagedOutputScope.IsComplete)
-            {
-                return false;
-            }
-            var builtinCustomFolderSettings = Lr2BuiltinCustomFolderSettings.Create(
-                data.CreateCurrentLr2ConfigOrNull(),
-                [],
-                DateTime.UtcNow);
-            if (!BMSLibrary.AreLr2BuiltinCustomFolderConfigurationEqual(input.Lr2BuiltinCustomFolderSettings, builtinCustomFolderSettings))
-            {
-                return false;
-            }
-            if (!string.Equals(BMSLibrary.SafeFullPathOrOriginal(input.Lr2RootPath), BMSLibrary.SafeFullPathOrOriginal(options.LR2RootPath), StringComparison.OrdinalIgnoreCase)
-                || !string.Equals(BMSLibrary.SafeFullPathOrOriginal(input.Lr2NormalCustomFolderOutputBaseDir), BMSLibrary.SafeFullPathOrOriginal(options.LR2CustomFolderOutputBaseDir), StringComparison.OrdinalIgnoreCase)
-                || !BMSLibrary.ArePathSetsEqual(input.Lr2AdditionalNormalCustomFolderOutputBaseDirs, options.LR2CustomFolderAdditionalOutputBaseDirs)
-                || !string.Equals(BMSLibrary.SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), BMSLibrary.SafeFullPathOrOriginal(options.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
-                || !BMSLibrary.ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options)))
-            {
-                return false;
-            }
-
-            return true;
-        }
 
         internal void CompleteRequest(int requestVersion, string stage)
         {
@@ -2109,7 +1692,6 @@ public partial class BMSLibrary
         {
             Cancellation?.Dispose();
             Cancellation = null;
-            DiscardLr2SongDbSyncCommittedPathReceipt("request_disposed");
         }
 
         internal bool RequestShutdownCancellation(string reason)

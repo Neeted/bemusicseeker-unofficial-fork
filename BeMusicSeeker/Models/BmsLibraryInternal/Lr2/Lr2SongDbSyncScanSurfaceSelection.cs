@@ -10,7 +10,6 @@ internal sealed class Lr2SongDbSyncScanSurfaceSelection(
 
     public bool ReusedScanSurface => Surface != null;
 
-    public int Generation => Surface?.Generation ?? 0;
 
     public bool ReusedLr2FolderSurface => Surface?.Lr2FolderFileDiscoveryComplete == true;
 }

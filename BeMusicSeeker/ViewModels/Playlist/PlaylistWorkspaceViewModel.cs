@@ -89,6 +89,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 return;
             }
             DetailBuildState.RequestVersion++;
+            DetailBuildState.PendingRequest?.Complete();
             DetailBuildState.PendingRequest = null;
             activeBuildCancellation = DetailBuildState.CurrentBuildCancellation;
             DetailBuildState.CurrentBuildRequest = null;
@@ -355,6 +356,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private readonly Func<Task> playlistUrlInstallCompletionProvider;
 
+    bool ISettingsDialogCustomFolderOutputPort.CanBeginOutputOperation
+        => playlistOperationAdmission?.CanEnter ?? getPlaylistStore()?.CanEnterPlaylistMutation == true;
+
     LibraryFileMutationLease ISettingsDialogCustomFolderOutputPort.TryBeginOutputOperation()
     {
         if (playlistOperationAdmission != null)
@@ -406,31 +410,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             previousAdditionalOutputBaseDirectories,
             pendingRenames,
             settings, capability) ?? 0;
-
-    internal bool RepairRootCustomFolderOutputSearchRootsAfterStartup(
-        CustomFolderOutputSettingsSnapshot settings)
-    {
-        if (settings == null)
-        {
-            throw new ArgumentNullException(nameof(settings));
-        }
-        if (!settings.OperationModeLR2DB)
-        {
-            return false;
-        }
-
-        BMSPlaylist playlist = getPlaylistStore();
-        LR2Config config = getLr2Config();
-        if (playlist?.BMSTables == null || config == null)
-        {
-            return false;
-        }
-
-        return playlist.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-            settings.LR2CustomFolderOutputBaseDirRootType,
-            configOverride: config,
-            settings: settings);
-    }
 
     internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
 

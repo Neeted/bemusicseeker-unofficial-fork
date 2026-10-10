@@ -23,13 +23,6 @@ internal sealed class SongTableLoadResult
 
     public bool LeapYearDetected { get; set; }
 
-    /// <summary>
-    /// Folder timestamp observations captured during the single folder-table
-    /// normalization loop.  Consumers must revalidate only approved entries
-    /// after mutation admission.
-    /// </summary>
-    public List<LeapYearFolderRepairCandidate> LeapYearRepairCandidates { get; } = [];
-
     public int RelativePathFixedCount { get; set; }
 
     public int CrcRecalculatedCount { get; set; }
