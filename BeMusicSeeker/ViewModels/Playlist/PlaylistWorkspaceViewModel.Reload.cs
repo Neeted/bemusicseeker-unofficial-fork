@@ -126,9 +126,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = null;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = null;
             using LibraryFileMutationCapability capability = playlists.CreatePlaylistMutationCapability(admission);
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
+            List<Exception> failures = [];
             try
             {
                 BeginPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
@@ -139,43 +140,45 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    result =>
-                    {
-                        RecordPlaylistSyncResult(result);
-                        LogPlaylistSyncFailure(result);
-                    },
+                    syncResultCallback: null,
                     snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
-                    publishReferenceReceipts: true, capability: capability);
+                    publishReferenceReceipts: false, capability: capability);
+                Exception reloadFailure = AdoptPlaylistReloadResults(results);
+                if (reloadFailure != null) { failures.Add(reloadFailure); }
                 RequestPlaylistSummaryDataRefresh(
                     "manual_playlist_resync");
                 RequestPlaylistDetailReloadRefresh();
-                bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
-                WritePlaylistReloadLog(
-                    "playlist_reload_operation completed operationKind="
-                    + GetPlaylistReloadOperationKindText(isFullReload)
-                    + " reason=manual_resync tableCount="
-                    + activeTables.Count
-                    + " processedCount="
-                    + (results?.Count ?? 0)
-                    + " summaryRebuildMs="
-                    + LastPlaylistSummaryBuildElapsedMs
-                    + " detailRefreshMs="
-                    + LastDetailBuildElapsedMs
-                    + " cleanupQueued="
-                    + cleanupQueued.ToString().ToLowerInvariant()
-                    + " elapsedMs="
-                    + stopwatch.ElapsedMilliseconds);
+                if (reloadFailure == null)
+                {
+                    bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
+                    WritePlaylistReloadLog(
+                        "playlist_reload_operation completed operationKind="
+                        + GetPlaylistReloadOperationKindText(isFullReload)
+                        + " reason=manual_resync tableCount="
+                        + activeTables.Count
+                        + " processedCount="
+                        + (results?.Count ?? 0)
+                        + " summaryRebuildMs="
+                        + LastPlaylistSummaryBuildElapsedMs
+                        + " detailRefreshMs="
+                        + LastDetailBuildElapsedMs
+                        + " cleanupQueued="
+                        + cleanupQueued.ToString().ToLowerInvariant()
+                        + " elapsedMs="
+                        + stopwatch.ElapsedMilliseconds);
+                }
             }
+            catch (Exception failure) { failures.Add(failure); }
             finally
             {
-                EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
-                PublishPlaylistOperationNotificationReceipt(
-                    notificationSession,
-                    "manual playlist resync notification");
+                CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource), failures);
+                CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
+                    notificationSession, "manual playlist resync notification"), failures);
             }
+            ThrowPlaylistWorkflowFailures(failures);
         }
     }
 
@@ -191,6 +194,41 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.SourceTable?.name ?? string.Empty)
             + " uri="
             + (result.PageUri?.ToString() ?? string.Empty));
+    }
+
+    private Exception AdoptPlaylistReloadResults(PlaylistExternalSyncOwner.PlaylistReloadOperationResult result,
+        bool propagateTargetFailures = false, bool applyReferences = true)
+    {
+        List<Exception> failures = [];
+        Exception originalFailure = propagateTargetFailures ? result.Exception : result.OperationException;
+        if (originalFailure != null) { failures.Add(originalFailure); }
+        foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
+        {
+            if (!applyReferences || target.UpdateReceipt == null) { continue; }
+            try { ApplyReferenceReplaceReceipt(target.UpdateReceipt); }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
+        {
+            PlaylistSyncAttemptResult sync = target.Exception == null
+                ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
+                : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.Uri, target.Exception);
+            CapturePlaylistWorkflowFailure(() => RecordPlaylistSyncResult(sync), failures);
+            CapturePlaylistWorkflowFailure(() => LogPlaylistSyncFailure(sync), failures);
+        }
+        return failures.Count switch { 0 => null, 1 => failures[0], _ => new AggregateException(failures).Flatten() };
+    }
+
+    private static void CapturePlaylistWorkflowFailure(Action action, ICollection<Exception> failures)
+    {
+        try { action(); }
+        catch (Exception failure) { failures.Add(failure); }
+    }
+
+    private static void ThrowPlaylistWorkflowFailures(IReadOnlyList<Exception> failures)
+    {
+        if (failures.Count == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
     }
 
     private void ApplyReferenceReplaceReceipt(

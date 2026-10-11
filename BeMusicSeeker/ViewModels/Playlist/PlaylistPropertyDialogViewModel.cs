@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -590,6 +589,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return saveService.IsValid(editSession, CreatePropertyValues());
     }
 
+    /// <summary>同じPで未完了出力を先に終え、保存結果の確定参照と最新値を採用してから元失敗を通知します。継続失敗時は未保存の編集中入力を保ちます。</summary>
     internal async Task<PlaylistPropertyDialogOperationResult> SaveAndApplyAsync()
     {
         if (Interlocked.CompareExchange(ref operationInProgress, 1, 0) != 0)
@@ -621,28 +621,13 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             PlaylistPropertyValues values = CreatePropertyValues();
             commit = await saveService.TrySaveAsync(editSession, values, capability);
             if (commit == null) { return PlaylistPropertyDialogOperationResult.ValidationFailed; }
-            await Task.Run(() => saveService.ApplyPostSaveUpdatesAsync(commit, capability));
-            bmsTable = commit.Table;
+            editSession.Adopt(commit);
+            bmsTable = editSession.Table;
+            if (commit.RequestedValuesSaved) { loadTableProperties(editSession.Values); }
+            // 継続失敗時は、まだDBへ保存していない編集中の値を保持する。
+            // Resetの基準は結果に含まれる最新保存値へ更新済み。
+            saveService.PublishSaveFailure(commit);
             return PlaylistPropertyDialogOperationResult.Completed;
-        }
-        catch (Exception saveFailure) when (commit != null)
-        {
-            try
-            {
-                PlaylistPropertyEditSession reconciledSession =
-                    await saveService.ReconcileFailedSaveAsync(editSession, commit);
-                editSession.Dispose();
-                editSession = reconciledSession;
-                bmsTable = reconciledSession.Table;
-                loadTableProperties(reconciledSession.Values);
-                commit.AppliedValues = CreatePropertyValues();
-            }
-            catch (Exception reconciliationFailure)
-            {
-                throw new AggregateException(saveFailure, reconciliationFailure).Flatten();
-            }
-            ExceptionDispatchInfo.Capture(saveFailure).Throw();
-            throw new InvalidOperationException("Playlist save failure propagation unexpectedly returned.");
         }
         finally
         {

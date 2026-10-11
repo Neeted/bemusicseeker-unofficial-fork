@@ -689,24 +689,26 @@ internal sealed class PlaylistAggregatePersistenceOwner
     /// <param name="newTable">同じ操作が取得・統合した確定入力。</param>
     /// <param name="persistenceDecision">保存と参照置換の必要範囲。</param>
     /// <param name="requireCurrentTargetForApply">既存正本への要求か。</param>
-    /// <returns>参照置換まで成功した場合はtrue。正本に対象がない場合はfalse。</returns>
-    internal async Task<bool> TryApplyReloadedTableAsync(BMSTable oldTable, BMSTable newTable,
+    /// <returns>実際の正本採用と置換後の通知失敗を区別した結果。置換前失敗は例外です。</returns>
+    internal async Task<(bool Applied, Exception PublicationFailure)> TryApplyReloadedTableAsync(BMSTable oldTable, BMSTable newTable,
         PlaylistReloadPersistenceDecision persistenceDecision, bool requireCurrentTargetForApply)
     {
-        if (requireCurrentTargetForApply && (!IsActive(oldTable) || IsRetiredOrRemoved(oldTable))) { return false; }
+        if (requireCurrentTargetForApply && (!IsActive(oldTable) || IsRetiredOrRemoved(oldTable))) { return (false, null); }
         using (oldTable.ReaderWriterLock.GetReaderGuard())
         {
             PersistReloadedTable(newTable, persistenceDecision?.NeedsEntryPersistence == true,
                 persistenceDecision?.NeedsHeaderPersistence == true);
         }
-        if (persistenceDecision?.NeedsStatePersistence != true) { return true; }
+        if (persistenceDecision?.NeedsStatePersistence != true) { return (true, null); }
         try
         {
             MarkReloadRetired(oldTable);
-            if (await ReplaceActiveTableInCollectionAsync(oldTable, newTable).ConfigureAwait(false)) { return true; }
+            if (await ReplaceActiveTableInCollectionAsync(oldTable, newTable).ConfigureAwait(false)) { return (true, null); }
         }
         catch (Exception failure)
         {
+            // ObservableCollectionは代入後に購読通知が失敗し得る。実採用済みの参照を巻き戻さない。
+            if (IsActive(newTable)) { return (true, failure); }
             if (IsActive(oldTable)) { RemoveReloadRetired(oldTable); }
             ReconcileUnappliedReload(oldTable, newTable);
             throw new PlaylistReloadApplyException("Playlist table replacement failed.", failure);

@@ -813,7 +813,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], progressCallback: snapshots.Add, reason: "test_skip_no_uri");
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], progressCallback: snapshots.Add, reason: "test_skip_no_uri");
 
             Assert.AreEqual(0, results.Count);
             Assert.IsTrue(snapshots.Count >= 2);
@@ -858,7 +858,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { goodTable, badTable });
             List<PlaylistSyncAttemptResult> syncResults = [];
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
 
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual(2, syncResults.Count);

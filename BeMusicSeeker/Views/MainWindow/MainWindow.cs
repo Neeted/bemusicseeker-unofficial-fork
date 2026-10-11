@@ -4100,7 +4100,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistPropertyDialog, object>(
                     () =>
                     {
-                        window = new PlaylistPropertyDialog(dialog);
+                        window = new PlaylistPropertyDialog(dialog, playlistWorkspaceDialogService);
                         activePlaylistPropertyDialog = window;
                         return window;
                     },

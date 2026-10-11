@@ -473,7 +473,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return false;
             }
-            await service.ApplyPostSaveUpdatesAsync(commit, authority);
+            editSession.Adopt(commit);
+            service.PublishSaveFailure(commit);
             return true;
         }
         finally

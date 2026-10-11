@@ -392,8 +392,9 @@ internal sealed class PlaylistExternalSyncOwner
     /// <param name="uriProvider">対象ごとの取得 URI override。</param>
     /// <param name="publishReferenceReceipts">reference table 更新 receipt を publish するか。</param>
     /// <param name="capability">既に受理された同じ変更の局所権限。nullの新規要求は通信前に受付を判定します。</param>
-    /// <returns>対象ごとの実反映結果と元失敗。対象が取得中に退役した場合は再生成しません。</returns>
-    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(
+    /// <param name="outputDerivedState">この入口がLR2/BMTまで所有するか。falseでは同じPの保存サービスが結果から必要出力を行います。</param>
+    /// <returns>対象ごとの確定参照・変更・失敗と、取消し・一括出力の全体失敗。取得中に退役した対象は再生成しません。</returns>
+    internal async Task<PlaylistReloadOperationResult> ReloadPlaylistTargetsAsync(
         IEnumerable<BMSTable> targets,
         Action<PlaylistSyncAttemptResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
@@ -402,12 +403,14 @@ internal sealed class PlaylistExternalSyncOwner
         bool requireCurrentTargetForApply = true,
         Func<BMSTable, Uri> uriProvider = null,
         bool publishReferenceReceipts = false,
-        LibraryFileMutationCapability capability = null)
+        LibraryFileMutationCapability capability = null, bool outputDerivedState = true)
     {
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
         cancellationToken.ThrowIfCancellationRequested();
         enterPlaylistUpdating?.Invoke();
+        List<PlaylistReloadTargetResult> results = [];
+        Exception primaryFailure = null;
         try
         {
             if (playlistAggregatePersistenceOwner == null)
@@ -434,7 +437,6 @@ internal sealed class PlaylistExternalSyncOwner
                 })];
             int completedTableCount = 0;
             Lazy<Task<WalkureScoreInput>> scoreCapture = recommendedTableOwner.CreateScoreCapture(cancellationToken);
-            List<PlaylistReloadTargetResult> results = [];
             object resultLock = new();
             InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
             {
@@ -445,7 +447,6 @@ internal sealed class PlaylistExternalSyncOwner
                 CurrentUri = null
             }, reason);
             using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-            Exception primaryFailure = null;
             try
             {
                 await Task.WhenAll([.. targetSnapshot.Select(async table =>
@@ -494,10 +495,8 @@ internal sealed class PlaylistExternalSyncOwner
                 })]).ConfigureAwait(false);
             }
             catch (Exception failure) { primaryFailure = failure; }
-            finally
             {
-                // Cancellation can be observed after another target has already committed.
-                // Converge derived LR2 output for every durable result before propagating it.
+                // 取消しや出力失敗でも確定した対象結果を呼出元へ返す。
                 List<PlaylistReloadTargetResult> resultSnapshot;
                 lock (resultLock)
                 {
@@ -505,9 +504,9 @@ internal sealed class PlaylistExternalSyncOwner
                 }
                 List<Exception> outputFailures = [];
                 if (primaryFailure != null) { outputFailures.Add(primaryFailure); }
-                try { ReOutputCustomFoldersForPersistedReloads(resultSnapshot, reason, authority); }
+                try { if (outputDerivedState) { ReOutputCustomFoldersForPersistedReloads(resultSnapshot, reason, authority); } }
                 catch (Exception failure) { outputFailures.Add(failure); }
-                if (exportBeatorajaBmts != null)
+                if (outputDerivedState && exportBeatorajaBmts != null)
                 {
                     try
                     {
@@ -516,8 +515,7 @@ internal sealed class PlaylistExternalSyncOwner
                     }
                     catch (Exception failure) { outputFailures.Add(failure); }
                 }
-                if (outputFailures.Count == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(outputFailures[0]).Throw(); }
-                if (outputFailures.Count > 1) { throw new AggregateException(outputFailures).Flatten(); }
+                primaryFailure = CombineFailures(outputFailures);
             }
             InvokeProgressCallback(progressCallback, new PlaylistSyncProgressSnapshot
             {
@@ -542,22 +540,26 @@ internal sealed class PlaylistExternalSyncOwner
                     () => schedulePlaylistUrlCompletionRefresh?.Invoke(reason),
                     reason + ":url-completion-refresh");
             }
-            return results;
         }
+        catch (Exception failure) { primaryFailure = CombineFailures([primaryFailure, failure]); }
         finally
         {
-            exitPlaylistUpdating?.Invoke();
+            try { exitPlaylistUpdating?.Invoke(); }
+            catch (Exception failure) { primaryFailure = CombineFailures([primaryFailure, failure]); }
         }
+        return new PlaylistReloadOperationResult(results, primaryFailure);
     }
 
     /// <summary>通信と対象捕捉より前に局所受付を判定し、同じ権限で一表の保存・出力・必要公開の終端まで待ちます。</summary>
     /// <param name="capability">既に受理された同じ変更の生存局所権限。nullは通信前の新規非待機受付です。</param>
-    internal async Task<BMSTable> ReloadAndApplySingleTableAsync(
+    /// <param name="callerOwnsDerivedOutputs">同じPの保存サービスが必要出力を所有する場合はtrue。通常単表入口はfalseです。</param>
+    /// <returns>確定参照と後続失敗を別々に保持する一対象の操作結果。</returns>
+    internal async Task<PlaylistReloadOperationResult> ReloadAndApplySingleTableAsync(
         BMSTable table,
         Uri pageUri,
         string reason,
         CancellationToken cancellationToken = default,
-        LibraryFileMutationCapability capability = null)
+        LibraryFileMutationCapability capability = null, bool callerOwnsDerivedOutputs = false)
     {
         if (table == null)
         {
@@ -567,27 +569,25 @@ internal sealed class PlaylistExternalSyncOwner
         {
             throw new InvalidOperationException("Playlist reload URI is not absolute.");
         }
-        List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
+        PlaylistReloadOperationResult results = await ReloadPlaylistTargetsAsync(
             [table],
             reason: reason ?? "ReloadAndApplySingleTableAsync",
             cancellationToken: cancellationToken,
             requireCurrentTargetForApply: true,
-            uriProvider: _ => pageUri, capability: capability).ConfigureAwait(false);
+            uriProvider: _ => pageUri, capability: capability, outputDerivedState: !callerOwnsDerivedOutputs).ConfigureAwait(false);
         PlaylistReloadTargetResult result = results.SingleOrDefault();
         if (result == null)
         {
+            results.ThrowIfFailed();
             throw new InvalidOperationException("Playlist reload produced no result.");
         }
-        if (result.Exception != null)
-        {
-            throw result.Exception;
-        }
-        return result.ResultTable;
+        return results;
     }
 
     /// <summary>現在表を捕捉して取得し、最初の反映から派生出力・必要通知の実終端まで一つの局所権限で更新します。</summary>
     /// <param name="capability">同じ受理済み変更の生存権限。nullは通信前に非待機で受付を判定します。</param>
-    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(
+    /// <returns>確定参照と対象失敗を保持した結果。更新中状態の終端通知失敗も全体失敗として採用後に渡します。</returns>
+    internal async Task<PlaylistReloadOperationResult> UpdateBMSTablesInternalAsync(
         bool reloadExtPlaylist = true,
         Action<PlaylistSyncAttemptResult> syncResultCallback = null,
         Action<PlaylistSyncProgressSnapshot> progressCallback = null,
@@ -599,6 +599,8 @@ internal sealed class PlaylistExternalSyncOwner
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
         cancellationToken.ThrowIfCancellationRequested();
         enterPlaylistUpdating?.Invoke();
+        PlaylistReloadOperationResult results = null;
+        Exception workflowFailure = null;
         try
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -612,7 +614,7 @@ internal sealed class PlaylistExternalSyncOwner
                     && uri != null
                     && uri.IsAbsoluteUri;
             })];
-            List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
+            results = await ReloadPlaylistTargetsAsync(
                 reloadTargets,
                 syncResultCallback,
                 progressCallback,
@@ -629,15 +631,20 @@ internal sealed class PlaylistExternalSyncOwner
                 + " target_count=" + reloadTargets.Count
                 + " updated_count=" + updatedTables.Count
                 + " total_ms=" + stopwatch.ElapsedMilliseconds);
-            Exception[] failures = [.. results.Where(result => result.Exception != null).Select(result => result.Exception)];
-            if (failures.Length == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
-            if (failures.Length > 1) { throw new AggregateException(failures).Flatten(); }
-            return updatedTables;
         }
+        catch (Exception failure) { workflowFailure = failure; }
         finally
         {
-            exitPlaylistUpdating?.Invoke();
+            try { exitPlaylistUpdating?.Invoke(); }
+            catch (Exception failure) { workflowFailure = CombineFailures([workflowFailure, failure]); }
         }
+        if (results == null)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(workflowFailure).Throw();
+            throw new InvalidOperationException("Playlist reload failure propagation unexpectedly returned.");
+        }
+        return workflowFailure == null ? results
+            : new PlaylistReloadOperationResult(results, CombineFailures([results.OperationException, workflowFailure]));
     }
 
     internal BMSTable RegistrateExternalTable(Uri pageUri)
@@ -1040,11 +1047,12 @@ internal sealed class PlaylistExternalSyncOwner
                 }
             }
             cancellationToken.ThrowIfCancellationRequested();
-            if (!await playlistAggregatePersistenceOwner.TryApplyReloadedTableAsync(
+            (bool Applied, Exception PublicationFailure) application = await playlistAggregatePersistenceOwner.TryApplyReloadedTableAsync(
                 table,
                 newTable,
                 persistenceDecision,
-                requireCurrentTargetForApply).ConfigureAwait(false))
+                requireCurrentTargetForApply).ConfigureAwait(false);
+            if (!application.Applied)
             {
                 failure = new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload result could not be applied to the active table.");
@@ -1054,13 +1062,10 @@ internal sealed class PlaylistExternalSyncOwner
                 newEntriesSnapshot = null;
                 persistenceDecision = null;
                 updated = false;
-                InvokeSyncResultCallback(
-                    syncResultCallback,
-                    PlaylistSyncAttemptResult.CreateFailure(table, uri, failure),
-                    reason);
             }
             else
             {
+                failure = application.PublicationFailure;
                 if (requireCurrentTargetForApply
                     && isActiveTable != null
                     && !isActiveTable(newTable))
@@ -1072,10 +1077,6 @@ internal sealed class PlaylistExternalSyncOwner
                     () => applyCachedPlaylistUrlCompletion?.Invoke(newTable, reason),
                     reason + ":url-completion",
                     newTable?.name);
-                InvokeSyncResultCallback(
-                    syncResultCallback,
-                    PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated),
-                    reason);
                 InvokeResidualAction(() => recommendedTableOwner.NotifyAppliedSkillChange(previousOrgName, newTable),
                     reason + ":skill-change", newTable?.name);
             }
@@ -1094,10 +1095,11 @@ internal sealed class PlaylistExternalSyncOwner
                 "playlist_reload_apply_failed reason=" + FormatTextForLog(reason)
                 + " table=" + FormatTextForLog(table?.name)
                 + " uri=" + FormatUriForLog(uri));
-            InvokeSyncResultCallback(
-                syncResultCallback,
-                PlaylistSyncAttemptResult.CreateFailure(table, uri, ex),
-                reason);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // 操作tokenの取消しは全体へ渡し、他対象の確定結果は一括待機後も保持する。
+            throw;
         }
         catch (Exception ex)
         {
@@ -1113,10 +1115,6 @@ internal sealed class PlaylistExternalSyncOwner
                 "playlist_reload_target_failed reason=" + FormatTextForLog(reason)
                 + " table=" + FormatTextForLog(table?.name)
                 + " uri=" + FormatUriForLog(uri));
-            InvokeSyncResultCallback(
-                syncResultCallback,
-                PlaylistSyncAttemptResult.CreateFailure(table, uri, ex),
-                reason);
         }
         PlaylistTableUpdateReceipt updateReceipt = null;
         if (!applySkipped)
@@ -1133,9 +1131,12 @@ internal sealed class PlaylistExternalSyncOwner
             if (publishReferenceReceipt)
             {
                 try { PublishPlaylistTableUpdateReceipt(updateReceipt, uri); }
-                catch (Exception publicationFailure) { failure = publicationFailure; }
+                catch (Exception publicationFailure) { failure = CombineFailures([failure, publicationFailure]); }
             }
         }
+        InvokeSyncResultCallback(syncResultCallback, failure == null
+            ? PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated)
+            : PlaylistSyncAttemptResult.CreateFailure(table, uri, failure), reason);
         return new PlaylistReloadTargetResult
         {
             SourceTable = table,
@@ -1332,6 +1333,53 @@ internal sealed class PlaylistExternalSyncOwner
         }
 
         internal PlaylistTableUpdateReceipt Receipt { get; }
+    }
+
+    /// <summary>確定した対象一覧と、取消し・一括出力など対象へ割当てられない失敗を返します。</summary>
+    internal sealed class PlaylistReloadOperationResult : IReadOnlyList<PlaylistReloadTargetResult>
+    {
+        private readonly IReadOnlyList<PlaylistReloadTargetResult> targets;
+
+        /// <summary>対象の確定結果を固定し、対象別に割当てない全体失敗を保持します。</summary>
+        internal PlaylistReloadOperationResult(IReadOnlyList<PlaylistReloadTargetResult> targets, Exception operationException)
+        {
+            this.targets = targets.ToArray();
+            OperationException = operationException;
+        }
+
+        /// <summary>操作全体の後続失敗。対象別失敗は各結果に保持します。</summary>
+        internal Exception OperationException { get; }
+
+        /// <summary>確定情報を採用した呼出元が既存の例外境界へ渡す全失敗です。</summary>
+        internal Exception Exception => CombineFailures(targets.Select(target => target.Exception).Append(OperationException));
+
+        /// <summary>固定された対象結果一覧の件数を取得します。</summary>
+        public int Count => targets.Count;
+
+        /// <summary>固定された対象結果一覧から指定位置の結果を取得します。</summary>
+        /// <param name="index">対象結果一覧内の位置です。</param>
+        /// <returns>指定位置の対象結果です。</returns>
+        public PlaylistReloadTargetResult this[int index] => targets[index];
+
+        /// <summary>固定された対象結果一覧を列挙します。</summary>
+        /// <returns>対象結果一覧の列挙子です。</returns>
+        public IEnumerator<PlaylistReloadTargetResult> GetEnumerator() => targets.GetEnumerator();
+
+        /// <summary>固定された対象結果一覧を非ジェネリックな列挙子で列挙します。</summary>
+        /// <returns>対象結果一覧の列挙子です。</returns>
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+
+        /// <summary>参照・変更の採用後に元の失敗を通知境界へ伝播します。</summary>
+        internal void ThrowIfFailed()
+        {
+            if (Exception is Exception failure) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw(); }
+        }
+    }
+
+    private static Exception CombineFailures(IEnumerable<Exception> failures)
+    {
+        Exception[] actual = [.. failures.Where(failure => failure != null)];
+        return actual.Length switch { 0 => null, 1 => actual[0], _ => new AggregateException(actual).Flatten() };
     }
 
     internal sealed class PlaylistReloadTargetResult

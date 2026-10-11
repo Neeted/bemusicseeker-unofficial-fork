@@ -411,6 +411,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         finally { library?.RequestShutdown("test_cleanup"); Directory.Delete(directory, true); }
     }
 
+    /// <summary>通常のローカル読取り失敗は対象失敗、操作tokenの取消しは全体失敗として返り、どちらもDB・memo・参照・通知を変更せず更新状態を終えます。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -420,7 +421,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         using var cancellation = new CancellationTokenSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<WalkureScoreInput>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? request = null;
+        Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? request = null;
         Exception? primaryFailure = null;
         try
         {
@@ -449,11 +450,27 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 release.TrySetException(new IOException("local read failure"));
             }
 
-            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = (await request).Single();
-            Assert.IsFalse(result.Succeeded);
-            Assert.IsFalse(result.StatePersisted);
-            Assert.IsNull(result.UpdateReceipt);
-            Assert.AreSame(table, result.ResultTable);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult operationResult = await request;
+            if (cancelCaller)
+            {
+                Assert.IsNotNull(operationResult.OperationException);
+                Assert.IsTrue(cancellation.IsCancellationRequested);
+                Assert.IsTrue(new AggregateException(operationResult.OperationException).Flatten().InnerExceptions
+                    .Any(failure => failure is OperationCanceledException));
+                Assert.IsTrue(operationResult.All(result => !result.StatePersisted && result.UpdateReceipt == null
+                    && ReferenceEquals(table, result.ResultTable)));
+            }
+            else
+            {
+                Assert.IsNull(operationResult.OperationException);
+                PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = operationResult.Single();
+                Assert.IsInstanceOfType<IOException>(result.Exception);
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsFalse(result.StatePersisted);
+                Assert.IsNull(result.UpdateReceipt);
+                Assert.AreSame(table, result.ResultTable);
+            }
+            Assert.IsTrue(aggregate.IsActive(table));
             Assert.AreEqual(0, updating);
             Assert.AreEqual("Original", repository.LoadPlaylistHeaders().Single().name);
             Assert.AreEqual("keep", repository.LoadPersistedPlaylistEntries(table.playlist_id, true).Single().memo);

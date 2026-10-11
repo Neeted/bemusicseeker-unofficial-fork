@@ -2044,7 +2044,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             PersistPlaylistAggregate(songDbPath, table);
 
             File.WriteAllBytes(scorePath, BmsPlaylistTestSupport.CreateUtf8BomBytes("[]"));
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> reloadResults =
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult reloadResults =
                 await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     [table],
                     reason: "test_removed_only_folder_history");

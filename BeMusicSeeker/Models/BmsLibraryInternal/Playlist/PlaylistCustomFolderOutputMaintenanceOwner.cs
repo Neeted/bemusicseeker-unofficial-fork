@@ -950,17 +950,21 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
     }
 
     /// <summary>
-    /// Publishes bounded progress, warning, and performance facts after the
-    /// caller has released its file-mutation lease.
+    /// 内部の移行・生成の保護区間を終えた後、結果の進捗・警告・性能計測を公開します。
+    /// 呼出元が保持する外側のPは、この公開時にも保持できます。
+    /// 既定では公開後に元の失敗を伝播し、呼出元が結果を採用する場合は伝播を抑止します。
     /// </summary>
+    /// <param name="result">公開する進捗・警告・性能計測と、伝播対象の元の失敗を保持する結果です。</param>
+    /// <param name="progressCallback">結果に保持された進捗の通知先です。nullの場合は進捗を通知しません。</param>
+    /// <param name="propagatePrimaryFailure">既定のtrueでは元の失敗を伝播します。保存サービスが結果を採用する場合はfalseとし、元の失敗を結果から受け取ります。</param>
     internal void PublishPostLeaseResult(
         CustomFolderBatchOutputResult result,
-        Action<int, int, string> progressCallback)
+        Action<int, int, string> progressCallback, bool propagatePrimaryFailure = true)
     {
         InvokeBestEffort(() => PublishProgressFact(result, progressCallback), "custom_folder_progress_publication_failed");
         InvokeBestEffort(() => PublishWarning(result), "custom_folder_warning_publication_failed");
         InvokeBestEffort(() => PublishPerformance(result), "custom_folder_performance_publication_failed");
-        if (result?.PrimaryException != null)
+        if (propagatePrimaryFailure && result?.PrimaryException != null)
         {
             ExceptionDispatchInfo.Capture(result.PrimaryException).Throw();
         }

@@ -24,6 +24,379 @@ public sealed class BmsPlaylistExternalReloadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>
+    /// 単表入口と二表入口で、正本置換後の実BMT失敗が確定参照を隠さず、
+    /// 二表の取得失敗とも別に返ることを確認します。解除後の変更なしと次操作まで実DBで観測します。
+    /// 置換前の拒否・中断は既存UIスケジューラ検証へ分担します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_OutputFailureReturnsConfirmedReferencesAndSeparateTargetFailures(bool singleTarget)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        TestBmsPlaylist? playlist = null;
+        FileStream? blocker = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string header = Path.Combine(directory, "header.json");
+            string data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"Reload\",\"symbol\":\"R\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            string bmt = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+            playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            BMSTable original = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            original.playlist_id = 7501;
+            original.is_bmt_output = true;
+            original.Output_dir = "Reload";
+            original.entries[0].memo = "local-memo";
+            var bad = new BMSTable { playlist_id = 7502, name = "Bad", Page_url = new Uri(Path.Combine(directory, "missing.json")), entries = [], is_bmt_output = false };
+            playlist.BMSTables = new ObservableCollection<BMSTable>(singleTarget ? [original] : [original, bad]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"After\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+            blocker = new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = singleTarget
+                ? await playlist.ExternalSyncOwner.ReloadAndApplySingleTableAsync(original, new Uri(header), "reload-output-failure")
+                : await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([original, bad]);
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult confirmed = result.Single(target => ReferenceEquals(target.SourceTable, original));
+            Assert.IsNotNull(result.OperationException);
+            Assert.IsNotNull(confirmed.UpdateReceipt);
+            Assert.IsTrue(confirmed.StatePersisted);
+            Assert.IsNull(confirmed.Exception);
+            Assert.AreNotSame(original, confirmed.ResultTable);
+            Assert.AreSame(confirmed.ResultTable, playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id));
+            Assert.AreEqual("local-memo", confirmed.ResultTable.entries.Single(entry => entry.md5 == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").memo);
+            if (!singleTarget)
+            {
+                PlaylistExternalSyncOwner.PlaylistReloadTargetResult failed = result.Single(target => ReferenceEquals(target.SourceTable, bad));
+                Assert.IsNotNull(failed.Exception);
+                Assert.IsNull(failed.UpdateReceipt);
+                Assert.AreSame(bad, failed.ResultTable);
+            }
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(singleTarget ? 1 : 2, db.Table<BMSTable>().Count());
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == original.playlist_id));
+            }
+            blocker.Dispose();
+            blocker = null;
+            DateTime updated = confirmed.ResultTable.last_update;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult unchanged = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([confirmed.ResultTable]);
+            unchanged.ThrowIfFailed();
+            Assert.IsFalse(unchanged.Single().StatePersisted);
+            Assert.AreSame(confirmed.ResultTable, unchanged.Single().ResultTable);
+            Assert.AreEqual(updated, unchanged.Single().ResultTable.last_update);
+            playlist.RemoveBMSTable(unchanged.Single().ResultTable);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual(singleTarget ? 0 : 1, verify.Table<BMSTable>().Count());
+        }
+        finally
+        {
+            blocker?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 手動単表と任意複数表の実再取得で、実BMT失敗と確定参照採用後の詳細通知失敗を重ね、両原因・DB・P/Taskと進捗終端・次要求を保ちます。
+    /// 通常取得失敗と出力単独失敗は既存ケースへ分担し、表示だけをgateで保持して実保存・BMTは置換しません。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Playlist")]
+    public async Task PlaylistWorkspaceResync_PostAdoptionPresentationFailureRetainsOutputFailureAndConfirmedState(bool optionalBatch)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task? operation = null;
+        FileStream? blocker = null;
+        bool failPresentation = true;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string bmt = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"Presentation failure\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            var library = new TestBmsLibrary(songPath, settings: testSettings);
+            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            table.playlist_id = 7511;
+            table.is_bmt_output = true;
+            Assert.IsTrue(table.EnableExternalSync());
+            var other = new BMSTable
+            {
+                playlist_id = 7512,
+                name = "Other target",
+                Page_url = new Uri(header),
+                Header_url = new Uri(header),
+                Data_url = new Uri(data),
+                entries = []
+            };
+            Assert.IsTrue(other.EnableExternalSync());
+            playlist.BMSTables = new ObservableCollection<BMSTable>(optionalBatch ? [table, other] : [table]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            workspace = CreatePlaylistWorkspace(playlist, library);
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
+            var presentationFailure = new InvalidOperationException("post-adoption detail presentation failed");
+            PlaylistWorkspaceViewModel currentWorkspace = workspace;
+            workspace.PlaylistDetailReloadRefreshRequested += (_, _) =>
+            {
+                if (!failPresentation) { return; }
+                Assert.AreNotSame(table, currentWorkspace.CapturePlaylistDetailSelection().Table);
+                Assert.AreSame(playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id), currentWorkspace.CapturePlaylistDetailSelection().Table);
+                entered.TrySetResult();
+                release.Wait();
+                throw presentationFailure;
+            };
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"level\":\"2\"}]");
+            blocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.Read);
+            operation = Task.Run(async () =>
+            {
+                if (optionalBatch) { await currentWorkspace.RunExternalPlaylistSyncAsync("post-adoption-failure", false, true, 21); }
+                else { await currentWorkspace.ResyncPlaylistTableAsync(table); }
+            });
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "resync-post-adoption-presentation");
+            Assert.IsFalse(operation.IsCompleted);
+            bool enteredP = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+            admission?.Dispose();
+            Assert.IsFalse(enteredP);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id));
+            }
+            release.Set();
+            Exception? failure = null;
+            try { await operation; } catch (Exception caught) { failure = caught; }
+            Assert.IsNotNull(failure);
+            IReadOnlyList<Exception> failures = new AggregateException(failure).Flatten().InnerExceptions;
+            Assert.IsTrue(failures.Any(cause => cause is PlaylistMutationPostCommitException), "元BMT失敗を後段通知失敗が隠しません。");
+            Assert.IsTrue(failures.Any(cause => ReferenceEquals(cause, presentationFailure)));
+            Assert.IsFalse(progress.Last().IsActive);
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            failPresentation = false;
+            blocker.Dispose();
+            blocker = null;
+            BMSTable confirmed = playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id);
+            if (optionalBatch) { await workspace.RunExternalPlaylistSyncAsync("after-presentation-failure", false, true, 22); }
+            else { await workspace.ResyncPlaylistTableAsync(confirmed); }
+            Assert.AreSame(confirmed, workspace.CapturePlaylistDetailSelection().Table);
+        }
+        finally
+        {
+            release.Set();
+            if (operation != null) { try { await operation; } catch (Exception) { } }
+            blocker?.Dispose();
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Aの実JSON・DB・正本置換を確定した後、Bの実HTTP取得を操作tokenで取り消します。
+    /// schedulerの完了だけを保持して全開始Taskの終端までPと進捗が続くこと、解放後にAのreceiptと全体取消原因が届きBのDBを変更しないことを確認します。
+    /// true行は実workspaceのreceipt購読でA採用後のsort通知失敗も重ね、全体取消原因と二次失敗を共に保持します。通常対象失敗、置換前の拒否・中断、出力失敗は既存ケースへ分担します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_PartialCancellationRetainsConfirmedReferenceUntilAllTasksEnd(bool failAdoptionNotification)
+    {
+        (string directory, TestBmsPlaylist playlist, BMSTable original, ControlledUiScheduler scheduler) =
+            await CreateUiReplacementReloadFixtureAsync(UiScheduleOutcome.AcceptedPending);
+        using var cancellation = new CancellationTokenSource();
+        SingleRequestHttpServer? server = null;
+        Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? operation = null;
+        Exception? primaryFailure = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        var sortFailure = new InvalidOperationException("adopted reference sort failed");
+        var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+        var cancelledTargetEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            string songPath = Path.Combine(directory, "song.db");
+            server = new SingleRequestHttpServer(CreateUtf8BomBytes(
+                "{\"name\":\"Cancelled\",\"symbol\":\"C\",\"data_url\":\"" + new Uri(Path.Combine(directory, "score.json")).AbsoluteUri + "\"}"), holdBody: true);
+            var cancelledTable = new BMSTable
+            {
+                playlist_id = 9052,
+                name = "Cancelled original",
+                Page_url = server.Address,
+                entries = [new BMSTableEntry { md5 = "cccccccccccccccccccccccccccccccc", title = "Unchanged", memo = "keep-cancelled" }]
+            };
+            original.entries[0].memo = "keep-confirmed";
+            playlist.BMSTables = new ObservableCollection<BMSTable>([original, cancelledTable]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            if (failAdoptionNotification)
+            {
+                var library = new TestBmsLibrary(songPath, settings: testSettings);
+                workspace = CreatePlaylistWorkspace(playlist, library);
+                workspace.RequestDetailSelection(original, PlaylistFolderNode.CreateFolder("1"));
+                PlaylistWorkspaceViewModel currentWorkspace = workspace;
+                workspace.PlaylistReferenceSortInvalidationRequested += (_, _) =>
+                {
+                    Assert.AreSame(playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id), currentWorkspace.CapturePlaylistDetailSelection().Table);
+                    throw sortFailure;
+                };
+            }
+            Uri cancelledUri = server.Address;
+            operation = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([original, cancelledTable],
+                progressCallback: snapshot =>
+                {
+                    progress.Enqueue(snapshot);
+                    if (snapshot.CompletedTableCount > 0 && snapshot.CurrentUri == cancelledUri)
+                    {
+                        cancelledTargetEnded.TrySetResult();
+                    }
+                }, cancellationToken: cancellation.Token, reason: "partial-cancellation", publishReferenceReceipts: failAdoptionNotification);
+            Assert.AreSame(server.HeadersSent.Task, await Task.WhenAny(server.HeadersSent.Task, operation));
+            await server.HeadersSent.Task;
+            Assert.AreSame(scheduler.Scheduled, await Task.WhenAny(scheduler.Scheduled, operation));
+            await scheduler.Scheduled;
+            await scheduler.ApplyPendingWithoutCompletionAsync();
+            BMSTable confirmed = playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id);
+            Assert.AreNotSame(original, confirmed);
+            Assert.AreEqual(2, confirmed.entries.Count);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == original.playlist_id));
+            }
+            cancellation.Cancel();
+            Assert.AreSame(cancelledTargetEnded.Task, await Task.WhenAny(cancelledTargetEnded.Task, operation));
+            await cancelledTargetEnded.Task;
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(playlist.IsPlaylistUpdating);
+            Assert.IsTrue(progress.Last().IsActive);
+            Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _));
+            scheduler.CompletePending();
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await operation;
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult successful = result.Single(target => ReferenceEquals(target.SourceTable, original));
+            Assert.AreSame(confirmed, successful.ResultTable);
+            Assert.IsTrue(successful.Updated);
+            Assert.IsTrue(successful.StatePersisted);
+            if (!failAdoptionNotification) { Assert.IsNull(successful.Exception); }
+            else
+            {
+                Assert.IsNotNull(result.Exception);
+                Assert.IsTrue(new AggregateException(result.Exception).Flatten().InnerExceptions.Any(failure => ReferenceEquals(failure, sortFailure)));
+                Assert.AreSame(confirmed, workspace?.CapturePlaylistDetailSelection().Table);
+            }
+            Assert.IsNotNull(successful.UpdateReceipt);
+            Assert.AreSame(confirmed, successful.UpdateReceipt.NewTable);
+            Assert.AreEqual("keep-confirmed", confirmed.entries.Single(entry => entry.md5 == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").memo);
+            Assert.IsNotNull(result.OperationException);
+            Assert.IsTrue(cancellation.IsCancellationRequested);
+            // 実HTTP本文はlinked tokenを使うため、元取消例外のtoken同一性ではなく操作の取消しと原因を確認する。
+            Assert.IsTrue(new AggregateException(result.OperationException).Flatten().InnerExceptions
+                .Any(failure => failure is OperationCanceledException));
+            Assert.AreSame(cancelledTable, playlist.BMSTables.Single(table => table.playlist_id == cancelledTable.playlist_id));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("Cancelled original", db.Table<BMSTable>().Single(table => table.playlist_id == cancelledTable.playlist_id).name);
+                LR2SongDBExtended.playlist_entry unchanged = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == cancelledTable.playlist_id);
+                Assert.AreEqual("Unchanged", unchanged.title);
+                Assert.AreEqual("keep-cancelled", unchanged.memo);
+                Assert.AreEqual("cccccccccccccccccccccccccccccccc", unchanged.md5);
+            }
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            Assert.IsFalse(progress.Last().IsActive);
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult next = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([confirmed]);
+            next.ThrowIfFailed();
+            Assert.AreSame(confirmed, next.Single().ResultTable);
+            Assert.IsFalse(next.Single().Updated);
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            cancellation.Cancel();
+            server?.ReleaseBody.TrySetResult();
+            scheduler.CompletePending();
+            if (operation != null)
+            {
+                try { await operation; }
+                catch when (primaryFailure != null) { }
+            }
+            if (server != null) { await server.DisposeAsync(); }
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>実コレクションの代入後に購読者が失敗しても、新参照と元例外を返しDB確定と次操作を保ちます。</summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_CollectionNotificationFailureRetainsActuallyAdoptedReference()
+    {
+        (string directory, TestBmsPlaylist playlist, BMSTable original, ControlledUiScheduler scheduler) =
+            await CreateUiReplacementReloadFixtureAsync(UiScheduleOutcome.AcceptedPending);
+        Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? operation = null;
+        var expected = new InvalidOperationException("replacement subscription failed");
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler fail = (_, change) =>
+        {
+            if (change.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Replace) { throw expected; }
+        };
+        playlist.BMSTables.CollectionChanged += fail;
+        try
+        {
+            operation = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([original]);
+            await TestUiDispatcherHost.AwaitNotificationAsync(scheduler.Scheduled, operation, "reload.collection-notification");
+            scheduler.ReleasePending();
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await operation;
+            Assert.AreSame(expected, result.Single().Exception);
+            Assert.IsNotNull(result.Single().UpdateReceipt);
+            Assert.AreNotSame(original, result.Single().ResultTable);
+            Assert.AreSame(result.Single().ResultTable, playlist.BMSTables.Single());
+            BMSTable persisted = new PlaylistPersistenceRepository(Path.Combine(directory, "song.db")).LoadPlaylistHeaders().Single();
+            Assert.AreEqual(result.Single().ResultTable.data_sha256, persisted.data_sha256);
+            playlist.BMSTables.CollectionChanged -= fail;
+            playlist.RemoveBMSTable(result.Single().ResultTable);
+            Assert.AreEqual(0, new PlaylistPersistenceRepository(Path.Combine(directory, "song.db")).LoadPlaylistHeaders().Count);
+        }
+        finally
+        {
+            scheduler.ReleasePending();
+            if (operation != null) { await operation; }
+            playlist.BMSTables.CollectionChanged -= fail;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>三推薦の実登録・再取得で利用者状態、日時、不要保存抑止、通知とLR2/BMT出力を保持し、保存行の所属とmemoは新主体の本番hydrationで確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -69,7 +442,7 @@ public sealed class BmsPlaylistExternalReloadTests
             int? id = original.playlist_id;
             DateTime updatedAt = original.last_update;
             string hash = original.data_sha256;
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> unchanged = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(playlist.BMSTables.ToArray());
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult unchanged = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(playlist.BMSTables.ToArray());
             Assert.AreEqual(2, reads);
             Assert.IsTrue(unchanged.All(item => item.Succeeded && !item.Updated));
             Assert.IsTrue(unchanged.Single(item => item.ResultTable.playlist_id == id).StatePersisted);
@@ -119,7 +492,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.IsTrue(session.TakeReceipt().IsEmpty);
 
             selectedInput = "standard";
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> changed = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(playlist.BMSTables.ToArray());
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult changed = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(playlist.BMSTables.ToArray());
             Assert.AreEqual(5, reads);
             Assert.IsTrue(changed.All(item => item.Succeeded && item.Updated && item.StatePersisted));
             Assert.AreEqual(3, session.TakeReceipt().Notifications.Count);
@@ -224,7 +597,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 writeFailure.Execute("CREATE TRIGGER " + triggerName + " BEFORE INSERT ON playlist WHEN NEW.playlist_id = 9071 "
                     + "BEGIN SELECT RAISE(ABORT, 'recommendation DB write failure'); END;");
             }
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results;
             try
             {
                 results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([original]);
@@ -412,11 +785,12 @@ public sealed class BmsPlaylistExternalReloadTests
                 throw receiptFailure;
             };
 
-            InvalidOperationException observed = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult operation = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
                 reloadExtPlaylist: true,
                 syncResultCallback: _ => throw new InvalidOperationException("sync result callback failure"),
-                publishReferenceReceipts: true));
-            Assert.AreSame(receiptFailure, observed);
+                publishReferenceReceipts: true);
+            Assert.AreSame(receiptFailure, operation.Exception);
+            Assert.AreSame(receipt.NewTable, operation.Single().ResultTable);
 
             Assert.IsNotNull(receipt);
             Assert.AreSame(table, receipt!.OldTable);
@@ -485,7 +859,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 receipt = eventArgs.Receipt;
             };
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                 [table],
                 reason: "test_hash_initialization",
                 publishReferenceReceipts: true);
@@ -582,7 +956,7 @@ public sealed class BmsPlaylistExternalReloadTests
             synchronization.Operations.Clear();
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Projection Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                 [table],
                 reason: "test_external_reload_custom_folder_projection");
 
@@ -613,7 +987,7 @@ public sealed class BmsPlaylistExternalReloadTests
             }
 
             synchronization.Operations.Clear();
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> unchangedResults = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult unchangedResults = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                 [reloadedTable],
                 reason: "test_external_reload_custom_folder_projection_no_change");
 
@@ -800,7 +1174,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
                 reloadExtPlaylist: true,
                 syncResultCallback: null,
                 progressCallback: snapshots.Add);
@@ -898,7 +1272,7 @@ public sealed class BmsPlaylistExternalReloadTests
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
 
             Assert.AreEqual(1, results.Count);
             Assert.IsTrue(results[0].Succeeded);
@@ -949,11 +1323,13 @@ public sealed class BmsPlaylistExternalReloadTests
             table.playlist_id = 9002;
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { table });
 
-            BMSTable result = await playlist.ExternalSyncOwner.ReloadAndApplySingleTableAsync(
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult operation = await playlist.ExternalSyncOwner.ReloadAndApplySingleTableAsync(
                 table,
                 new Uri(secondHeaderPath),
                 "test_explicit_uri");
 
+            operation.ThrowIfFailed();
+            BMSTable result = operation.Single().ResultTable;
             using (result.ReaderWriterLock.GetReaderGuard())
             {
                 Assert.AreEqual(2, result.entries.Count(entry => !entry.is_removed));
@@ -979,7 +1355,7 @@ public sealed class BmsPlaylistExternalReloadTests
             await CreateUiReplacementReloadFixtureAsync(UiScheduleOutcome.AcceptedPending, recommendation);
         bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
-        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
+        Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? reloadTask = null;
         Task? competingRestore = null;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession();
         try
@@ -1019,7 +1395,7 @@ public sealed class BmsPlaylistExternalReloadTests
                     afterRejection.Table<LR2SongDBExtended.playlist_entry>().Select(entry => entry.md5 + ":" + entry.title).OrderBy(value => value, StringComparer.Ordinal).ToArray());
             }
             scheduler.ReleasePending();
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await reloadTask;
 
             Assert.AreEqual(1, results.Count);
             Assert.IsTrue(results[0].Succeeded);
@@ -1152,7 +1528,7 @@ public sealed class BmsPlaylistExternalReloadTests
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         SingleRequestHttpServer? server = null;
-        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
+        Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? reloadTask = null;
         try
         {
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
@@ -1198,7 +1574,7 @@ public sealed class BmsPlaylistExternalReloadTests
             }
             server.ReleaseBody.TrySetResult();
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await reloadTask;
 
             Assert.AreEqual(1, results.Count);
             Assert.IsTrue(results[0].Succeeded);
@@ -1246,7 +1622,7 @@ public sealed class BmsPlaylistExternalReloadTests
         using PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession();
         try
         {
-            Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>> reloadTask =
+            Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult> reloadTask =
                 playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     [table],
                     reason: "test_ui_replacement_" + reason);
@@ -1254,7 +1630,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Task firstTerminal = await Task.WhenAny(scheduler.Scheduled, reloadTask);
             Assert.AreSame(scheduler.Scheduled, firstTerminal);
             await scheduler.Scheduled;
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = await reloadTask;
 
             Assert.AreEqual(1, results.Count);
             Assert.IsFalse(results[0].Succeeded);
@@ -1798,6 +2174,24 @@ public sealed class BmsPlaylistExternalReloadTests
             }
         }
 
+        /// <summary>実置換actionをUI上で完了し、scheduler完了Taskだけは解放せず保持します。</summary>
+        internal Task ApplyPendingWithoutCompletionAsync()
+        {
+            PendingUiScheduledOperation operation;
+            lock (synchronization)
+            {
+                operation = pendingOperation
+                    ?? throw new InvalidOperationException("No pending UI operation is available.");
+            }
+            return inner.InvokeAsync(operation.RunWithoutCompletion);
+        }
+
+        /// <summary>保持したscheduler完了Taskを解放します。未到達のcleanupでは何もしません。</summary>
+        internal void CompletePending()
+        {
+            lock (synchronization) { pendingOperation?.Complete(); }
+        }
+
         public bool IsAvailable => inner.IsAvailable;
 
         public bool CanExecuteInline => inner.CanExecuteInline;
@@ -1902,7 +2296,15 @@ public sealed class BmsPlaylistExternalReloadTests
             }
         }
 
-        internal void Run()
+        internal void Run() => Run(complete: true);
+
+        /// <summary>実actionの実行だけを完了し、完了Taskの解放を呼出元へ残します。</summary>
+        internal void RunWithoutCompletion() => Run(complete: false);
+
+        /// <summary>実action後に保持された完了Taskを解放します。</summary>
+        internal void Complete() => completion.TrySetResult(null);
+
+        private void Run(bool complete)
         {
             if (IsAborted || Interlocked.Increment(ref executionCount) != 1)
             {
@@ -1911,7 +2313,7 @@ public sealed class BmsPlaylistExternalReloadTests
             try
             {
                 action();
-                completion.TrySetResult(null);
+                if (complete) { Complete(); }
             }
             catch (Exception ex)
             {

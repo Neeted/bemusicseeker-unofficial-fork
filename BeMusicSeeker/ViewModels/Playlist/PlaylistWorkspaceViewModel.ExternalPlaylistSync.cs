@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -69,16 +70,19 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (request != null) { request = request with { OperationToken = operationToken }; }
             PlaylistExternalSyncQueued?.Invoke(this, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
             bool succeeded = false;
-            RequestProgressReporter?.Invoke(request, true);
+            List<Exception> failures = [];
             try
             {
+                RequestProgressReporter?.Invoke(request, true);
                 BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request);
-                await playlists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true,
-                    result => { RecordPlaylistSyncResult(result); LogPlaylistSyncFailure(result); },
+                PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await playlists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true,
+                    syncResultCallback: null,
                     snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request),
                     cancellationToken: playlists.StartupReadiness.ShutdownToken,
-                    publishReferenceReceipts: publishReferenceReceipt, capability: authority).ConfigureAwait(false);
+                    publishReferenceReceipts: false, capability: authority).ConfigureAwait(false);
+                Exception reloadFailure = AdoptPlaylistReloadResults(result, propagateTargetFailures: true, applyReferences: publishReferenceReceipt);
+                if (reloadFailure != null) { failures.Add(reloadFailure); }
                 if (publishReferenceReceipt)
                 {
                     PlaylistExternalSyncReferenceApplied?.Invoke(this,
@@ -86,22 +90,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 RequestPlaylistSummaryDataRefresh("external_playlist_sync");
                 RequestPlaylistDetailReloadRefresh();
-                succeeded = true;
+                succeeded = reloadFailure == null;
             }
+            catch (Exception failure) { failures.Add(failure); }
             finally
             {
-                try
-                {
-                    EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request);
-                    RequestProgressReporter?.Invoke(request, false);
-                    RaisePlaylistOperationNotificationPresentationRequested(notifications.TakeReceipt(), "external playlist sync notification");
-                }
-                finally
-                {
-                    PlaylistExternalSyncCompleted?.Invoke(this, new PlaylistExternalSyncCompletionEventArgs(
-                        reason, version, fromReloadTables, publishReferenceReceipt, operationToken, succeeded, wasSkipped: false));
-                }
+                CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request), failures);
+                CapturePlaylistWorkflowFailure(() => RequestProgressReporter?.Invoke(request, false), failures);
+                CapturePlaylistWorkflowFailure(() => RaisePlaylistOperationNotificationPresentationRequested(
+                    notifications.TakeReceipt(), "external playlist sync notification"), failures);
+                CapturePlaylistWorkflowFailure(() => PlaylistExternalSyncCompleted?.Invoke(this, new PlaylistExternalSyncCompletionEventArgs(
+                    reason, version, fromReloadTables, publishReferenceReceipt, operationToken, succeeded && failures.Count == 0, wasSkipped: false)), failures);
             }
+            ThrowPlaylistWorkflowFailures(failures);
         }
     }
 

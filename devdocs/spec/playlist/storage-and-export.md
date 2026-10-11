@@ -59,7 +59,11 @@ URL指定の複数行取込みは、取得を既存の上限内で並列化し�
 
 #### DB保存と画面反映の完了
 
-DB接続・短いモデルロックを解放してからUIスケジューラーによる実置換を待ちます。DB保存だけでは再読込み成功になりません。置換が拒否・取消・中断・例外で失敗した場合は現在の公開状態に合わせて既存のDB再整合を試み、その失敗も結果へ残します。必要なLR2/BMT出力と参照公開は保存済み事実を用いて行い、公開失敗で実施済みDBや出力を消しません。
+DB接続・短いモデルロックを解放してからUIスケジューラーによる実置換を待ちます。DB保存だけでは再読込み成功になりません。置換前の受付拒否・取消・中断・例外は現在の公開状態へ既存のDB再整合を試み、その失敗も結果へ残します。コレクション代入後の購読通知例外は、実際に採用された新参照を維持して失敗を返します。必要なLR2/BMT出力と参照公開は保存済み事実を用いて行い、公開失敗で実施済みDBや出力を消しません。
+
+外部再取得は対象ごとの確定参照・変更・失敗と、取消しや一括出力の操作全体の失敗を同じ結果で返します。呼出元は確定参照を採用してから失敗を通知し、二表の一方の失敗でも他方の確定結果を失いません。変更なしの対象は現行参照を返し、DB保存なしを参照採用の拒否に読み替えません。プロパティ保存内では保存サービスが必要出力を所有し、取得済み変更から一回実行します。
+
+呼出元は結果採用で受け取った元失敗を、後続の表示・通知処理より先に保持します。手動再同期と任意の外部同期で後段通知も失敗した場合、元の出力・取消原因と二次失敗を両方返し、確定済み参照やDBを戻しません。
 
 内蔵難度推定表・リコメンドの入力と計算は [専用仕様](local-recommendations.md)に従い、生成結果を同じ登録・再読込み統合へ渡します。
 
@@ -140,6 +144,10 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | 見出し・項目の型と不正なJSONの失敗 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) |
 | 現行詳細編集のURL材料化・非材料化、日時、hash一意性・補完、bmson、削除済対象拒否、level出力 | [`PlaylistWorkspaceViewModel.DetailEditing`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailEditing.cs)、[`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs)の実詳細保存とDB原値、[`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)の表・項目削除後拒否、[`BmsPlaylistCustomFolderOutputTests.DetailEdit_ReoutputsLr2FolderRowsForLevelProjection`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)のprovider優先・実DB/ファイル・確定後のLR2/BMT失敗・shutdown取消・通知失敗時のDB/正本/入力保持、DB未確定失敗時の旧値保持と二次通知失敗の識別 |
 | 項目の題名の永続化 | [`LR2SongDB`](../../../BeMusicSeeker/Models/LR2/LR2SongDB.cs) | [`Lr2PlaylistEntryPersistenceTests`](../../../BeMusicSeeker.Tests/Playlist/Lr2PlaylistEntryPersistenceTests.cs) |
+| 外部再取得の出力失敗・部分成功・実置換後の通知失敗と次操作 | `PlaylistExternalSyncOwner`、`PlaylistAggregatePersistenceOwner` | [`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)の`ReloadPlaylistTargetsAsync_OutputFailureReturnsConfirmedReferencesAndSeparateTargetFailures`、`ReloadPlaylistTargetsAsync_CollectionNotificationFailureRetainsActuallyAdoptedReference`。変更判定・日時・ローカル値は既存再取得・mergeテストと分担する。 |
+| 手動単表・任意複数表の元BMT失敗と参照採用後の表示失敗の保持 | `PlaylistWorkspaceViewModel.Reload`、`PlaylistWorkspaceViewModel.ExternalPlaylistSync` | [`BmsPlaylistExternalReloadTests.PlaylistWorkspaceResync_PostAdoptionPresentationFailureRetainsOutputFailureAndConfirmedState`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)の二行で、実manifest書込み失敗と後段通知失敗、通知中P/Task保持、進捗終端と次要求を確認する。 |
+| 操作tokenの全体取消し、別対象の確定参照・receipt保持と全開始Task終端 | `PlaylistExternalSyncOwner` | [`BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_PartialCancellationRetainsConfirmedReferenceUntilAllTasksEnd`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)で実JSONの置換確定と実HTTP本文待機を分け、scheduler完了までP・進捗を保持し、取消対象のDB非変更と次要求を確認する。参照採用後のsort通知失敗を重ねる行では、取消原因と二次失敗も保持する。[`PlaylistRecommendedTableOwnerTests.ReloadPlaylistTargetsAsync_LocalReadFailurePreservesDataAndExitsUpdating`](../../../BeMusicSeeker.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs)で通常対象失敗との分類とDB・memo・通知非変更を分担する。UI scheduler由来の中断は既存ケースを維持する。 |
+| 新規draftの初回登録と出力失敗後の同ID再保存、同時編集の三境界 | `PlaylistPropertySaveService`、`PlaylistPropertyEditSession` | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)の`CreatePlaylistPropertyDialog_OutputFailureResavesRegisteredDraftWithoutDuplicateId`と`PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges`。属性・参照・本番項目追加の版を観測する。 |
 | 借用した読取りの解放、参照先の確定と操作の受付 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) |
 
 ## 関連資料

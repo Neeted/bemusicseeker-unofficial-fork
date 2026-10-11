@@ -26,6 +26,8 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private Task operationTask = Task.CompletedTask;
 
+    private readonly IUiDialogService dialogService;
+
     private bool allowClose;
 
     private bool closeRequestInProgress;
@@ -38,18 +40,21 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private bool closed;
 
-    /// <summary>Initializes an unbound playlist property window for XAML tooling.</summary>
+    /// <summary>XAML用の未接続画面と既定coordinatorを構成します。</summary>
     public PlaylistPropertyDialog()
     {
+        dialogService = new UiDialogCoordinator();
         InitializeComponent();
     }
 
-    /// <summary>Initializes a playlist property window for one workspace-owned edit session.</summary>
-    /// <param name="viewModel">The edit session displayed by the window.</param>
-    internal PlaylistPropertyDialog(PlaylistPropertyDialogViewModel viewModel)
+    /// <summary>所有workspaceの編集sessionと同じcoordinatorで、保存・必要通知の終端を待つ画面を作ります。</summary>
+    /// <param name="viewModel">画面が表示する編集session。</param>
+    /// <param name="dialogService">親画面と同じ所有者解決・通知窓口。省略時は既定coordinatorを使います。</param>
+    internal PlaylistPropertyDialog(PlaylistPropertyDialogViewModel viewModel, IUiDialogService dialogService = null)
         : this()
     {
         DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
+        this.dialogService = dialogService ?? this.dialogService;
     }
 
     /// <summary>Gets whether a completed save/reset terminal operation closed this window.</summary>
@@ -58,9 +63,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
     /// <summary>Gets whether the owner forced this window closed as part of application shutdown.</summary>
     internal bool IsOwnerShutdownClose => ownerShutdownCloseRequested;
 
-    /// <summary>
-    /// Gets the operation task that must settle before the workspace disposes the session.
-    /// </summary>
+    /// <summary>実保存・必要通知・再有効化の終端までを返します。通知失敗時は元保存失敗と二次失敗も、終端後を含め次の明示操作まで同じTaskへ保持します。</summary>
     internal Task WaitForOperationCompletionAsync() => operationTask;
 
     /// <summary>
@@ -168,6 +171,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             return;
         }
 
+        IsEnabled = false;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         operationTask = completion.Task;
         _ = RunTerminalOperationAsync(viewModel, save, completion);
@@ -178,6 +182,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         bool save,
         TaskCompletionSource<bool> completion)
     {
+        Exception failure = null;
         try
         {
             PlaylistPropertyDialogOperationResult result = save
@@ -198,18 +203,26 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             }
             else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
             {
-                ShowValidationError();
+                try { await ShowValidationErrorAsync(); }
+                catch (Exception notificationFailure) { failure = notificationFailure; }
             }
         }
-        catch (Exception ex)
+        catch (Exception saveFailure)
         {
-            ShowOperationFailure(ex);
+            try { await ShowOperationFailureAsync(saveFailure); }
+            catch (Exception notificationFailure) { failure = new AggregateException(saveFailure, notificationFailure).Flatten(); }
         }
         finally
         {
-            Interlocked.Exchange(ref operationInProgress, 0);
-            operationTask = Task.CompletedTask;
-            completion.TrySetResult(true);
+            try
+            {
+                IsEnabled = true;
+                Interlocked.Exchange(ref operationInProgress, 0);
+            }
+            catch (Exception cleanupFailure) { failure = failure == null ? cleanupFailure : new AggregateException(failure, cleanupFailure).Flatten(); }
+            if (failure is OperationCanceledException cancelled) { completion.TrySetCanceled(cancelled.CancellationToken); }
+            else if (failure != null) { completion.TrySetException(failure); }
+            else { completion.TrySetResult(true); }
         }
     }
 
@@ -273,24 +286,26 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         }
     }
 
-    private void ShowValidationError()
+    private async Task ShowValidationErrorAsync()
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
+        UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
             BeMusicSeeker.Properties.Resources.Error_PlaylistPropertiesInvalid,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,
-            MessageBoxImage.Hand);
+            MessageBoxImage.Hand,
+            owner: this));
+        UiDialogRoute.ThrowIfNotShown(notification, "Playlist property validation notification");
     }
 
-    private void ShowOperationFailure(Exception exception)
+    private async Task ShowOperationFailureAsync(Exception exception)
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
+        UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
             BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception,
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxButton.OK,
-            MessageBoxImage.Hand);
+            MessageBoxImage.Hand,
+            owner: this));
+        UiDialogRoute.ThrowIfNotShown(notification, "Playlist property failure notification");
     }
 
     private void folderListUp(object sender, RoutedEventArgs e)

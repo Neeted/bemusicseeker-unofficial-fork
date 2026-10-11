@@ -277,6 +277,147 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>
+    /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
+    /// 採用後の所有通知、終端後の再取得Taskにも残る両失敗、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId(bool failNotification)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            bool enableOutput = false;
+            string output = string.Empty;
+            PlaylistPropertyDialog? shown = null;
+            int failureNotices = 0;
+            var notificationFailure = new IOException("property failure notification failed");
+            ActualMainWindowFixture? fixture = null;
+            FileStream? blocker = null;
+            try
+            {
+                fixture = CreateActualMainWindowFixture(windowTest,
+                    messagePresenter: (owner, request) =>
+                    {
+                        if (request.Icon == MessageBoxImage.Hand)
+                        {
+                            failureNotices++;
+                            PlaylistPropertyDialog visible = shown ?? throw new AssertFailedException("Failure notification preceded dialog ownership.");
+                            ActualMainWindowFixture active = fixture ?? throw new AssertFailedException("Failure notification preceded fixture initialization.");
+                            Assert.AreSame(visible, owner);
+                            Assert.AreSame(visible, request.Owner);
+                            Assert.IsTrue(visible.IsVisible);
+                            Assert.AreEqual(1, active.Playlist.BMSTables.Count);
+                            Assert.AreNotSame(active.Table, active.Playlist.BMSTables.Single());
+                            var draft = (PlaylistPropertyDialogViewModel)visible.DataContext;
+                            CollectionAssert.AreEqual(active.Playlist.BMSTables.Single().folder_list.ToArray(), draft.folder_order.ToArray());
+                            Assert.AreEqual(active.Playlist.BMSTables.Single().last_update, draft.last_update,
+                                "失敗通知より先にダイアログも確定参照を採用します。");
+                            if (failNotification) { throw notificationFailure; }
+                        }
+                        return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
+                    },
+                    bmtOptionsProvider: () => enableOutput
+                        ? new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output }
+                        : new BeatorajaBmtOptionsSnapshot());
+                output = Path.Combine(fixture.Root, "property-bmt");
+                Directory.CreateDirectory(output);
+                string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
+                File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+                blocker = new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+                string header = Path.Combine(fixture.Root, "external-header.json");
+                string data = Path.Combine(fixture.Root, "external-data.json");
+                File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"external-data.json\"}");
+                File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External song\",\"level\":\"1\"}]");
+                fixture.Table.Page_url = new Uri(Path.Combine(fixture.Root, "previous-header.json"));
+                fixture.Table.Header_url = fixture.Table.Page_url;
+                fixture.Table.Data_url = new Uri(data);
+                fixture.Table.Output_dir = "PropertyExternal";
+                fixture.Table.is_bmt_output = true;
+                Assert.IsTrue(fixture.Table.EnableExternalSync());
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                enableOutput = true;
+                string songPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(fixture.Root, "BeMusicSeeker.exe")).StandaloneSongDbPath;
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(fixture.Table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                ActualMainWindowFixture activeFixture = fixture;
+                ModalObservation<PlaylistPropertyDialog> observation = OpenPropertyDialog(fixture.Window, summary, row,
+                    "property-external-replacement-bmt-failure", (dialog, _) =>
+                    {
+                        shown = dialog;
+                        TextBox source = FindDescendants<TextBox>(dialog).Single(control =>
+                            HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.Page_url)));
+                        source.Text = new Uri(header).AbsoluteUri;
+                        source.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
+                        Assert.AreEqual(new Uri(header), ((PlaylistPropertyDialogViewModel)dialog.DataContext).Page_url);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        Task firstSave = dialog.WaitForOperationCompletionAsync();
+                        if (failNotification)
+                        {
+                            AggregateException failures = Assert.ThrowsException<AggregateException>(() =>
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-notification"));
+                            Assert.IsTrue(failures.InnerExceptions.Any(failure => failure is PlaylistMutationPostCommitException));
+                            Assert.IsTrue(failures.InnerExceptions.Any(failure => ReferenceEquals(failure.InnerException, notificationFailure)));
+                            Assert.IsTrue(firstSave.IsFaulted);
+                            Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();
+                            Assert.AreSame(firstSave, ownerWaitAfterCompletion);
+                            AggregateException retainedFailures = Assert.ThrowsException<AggregateException>(() =>
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-failure"));
+                            Assert.IsTrue(retainedFailures.InnerExceptions.Any(failure => failure is PlaylistMutationPostCommitException));
+                            Assert.IsTrue(retainedFailures.InnerExceptions.Any(failure => ReferenceEquals(failure.InnerException, notificationFailure)));
+                        }
+                        else { TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save"); }
+                        Assert.IsTrue(dialog.IsEnabled);
+                        Assert.AreEqual(1, failureNotices);
+                        Assert.IsTrue(dialog.IsVisible);
+                        Assert.IsFalse(dialog.HasTerminalOutcome);
+                        Assert.AreSame(dialog.DataContext, activeFixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                        BMSTable replacement = activeFixture.Playlist.BMSTables.Single();
+                        Assert.AreNotSame(activeFixture.Table, replacement);
+                        Assert.AreEqual(activeFixture.Table.playlist_id, replacement.playlist_id);
+                        using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+                        {
+                            Assert.AreEqual(1, db.Table<BMSTable>().Count());
+                            Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == replacement.playlist_id));
+                        }
+                        (blocker ?? throw new AssertFailedException("Output blocker was released before the failed save.")).Dispose();
+                        blocker = null;
+                        File.Delete(header);
+                        File.Delete(data);
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-resave-closes");
+                        Task ownerWaitAfterSuccess = dialog.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterSuccess, "property-owner-wait-after-success");
+                        Assert.IsTrue(ownerWaitAfterSuccess.IsCompletedSuccessfully);
+                        Assert.AreNotSame(firstSave, ownerWaitAfterSuccess);
+                        Assert.IsTrue(dialog.HasTerminalOutcome);
+                        Assert.AreEqual(1, failureNotices);
+                        Assert.AreSame(replacement, activeFixture.Playlist.BMSTables.Single());
+                    });
+                Assert.AreSame(fixture.Window, observation.Owner);
+                Assert.AreEqual(1, observation.DataContextDetachCount);
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                Assert.IsTrue(File.Exists(manifest));
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+                Assert.AreEqual(1, verify.Table<BMSTable>().Count());
+                Assert.AreEqual(1, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
+            }
+            finally
+            {
+                if (shown != null)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(shown.WaitForOperationCompletionAsync(), "property-output-test-cleanup");
+                }
+                blocker?.Dispose();
+                fixture?.Close();
+            }
+        });
+    }
+
     [TestMethod]
     [DataRow("success")]
     [DataRow("busy")]

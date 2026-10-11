@@ -982,7 +982,7 @@ public partial class BMSPlaylist : ObservableObject
         await HydrateRequiredAsync("Initialize", exportBeatorajaBmt, verifyRows, authority).ConfigureAwait(false);
         if (reloadExtPlaylist)
         {
-            await externalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, capability: authority).ConfigureAwait(false);
+            (await externalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, capability: authority).ConfigureAwait(false)).ThrowIfFailed();
         }
     }
 
@@ -2192,7 +2192,7 @@ public partial class BMSPlaylist : ObservableObject
         string outputBaseDirBefore = null,
         bool inferOutputBaseDirBeforeWhenMissing = true)
     {
-        MigrateCustomFolderOutputDirectoryWithSettings(
+        PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult result = MigrateCustomFolderOutputDirectoryWithSettings(
             bmsTable,
             outputDirPathBefore,
             outputDirPathAfter,
@@ -2201,9 +2201,11 @@ public partial class BMSPlaylist : ObservableObject
             outputBaseDirBefore,
             inferOutputBaseDirBeforeWhenMissing,
             settings: null);
+        if (result.PrimaryException != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.PrimaryException).Throw(); }
     }
 
-    internal void MigrateCustomFolderOutputDirectoryWithSettings(
+    /// <summary>既存の移行結果と警告を返し、保存セッションが未完了の旧先を保持できるようにします。正本外対象には出力せず未成功を返します。</summary>
+    internal PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult MigrateCustomFolderOutputDirectoryWithSettings(
         BMSTable bmsTable,
         string outputDirPathBefore,
         string outputDirPathAfter,
@@ -2239,7 +2241,7 @@ public partial class BMSPlaylist : ObservableObject
         }
         if (!isCurrentTable)
         {
-            return;
+            return new PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult { Succeeded = false };
         }
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderMigrationPreparation preparation =
             customFolderOutputMaintenanceOwner.PrepareCustomFolderOutputMigration(
@@ -2260,7 +2262,8 @@ public partial class BMSPlaylist : ObservableObject
                 preparation,
                 request => SyncCustomFolderRowsBatch(request, mutationCapability));
         }
-        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
+        customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null, propagatePrimaryFailure: false);
+        return result;
     }
 
     private void ReOutputCustomFoldersAfterExternalReload(
@@ -4395,7 +4398,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>受理済み新規draftをDBへ確定し、正本参照の公開まで同じPで待ちます。公開後処理の失敗でもDB確定事実を保持します。</summary>
     /// <param name="table">保存対象の正本外draft。</param>
     /// <param name="capability">保存操作が保持する同ownerの生存P権限。</param>
-    internal async Task RegisterDraftAsync(BMSTable table, LibraryFileMutationCapability capability)
+    /// <returns>実登録確定後の公開失敗。nullは公開も成功。DB確定前の失敗は例外です。</returns>
+    internal async Task<Exception> RegisterDraftAsync(BMSTable table, LibraryFileMutationCapability capability)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RegisterPlaylistDraft", capability: capability);
         if (table == null) { throw new ArgumentNullException(nameof(table)); }
@@ -4426,8 +4430,9 @@ public partial class BMSPlaylist : ObservableObject
         }
         catch (Exception exception)
         {
-            throw new PlaylistMutationPostCommitException("RegisterPlaylistDraft", exception);
+            return new PlaylistMutationPostCommitException("RegisterPlaylistDraft", exception);
         }
+        return null;
     }
 
     internal LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()

@@ -27,6 +27,94 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
+    /// <summary>
+    /// 外部参照置換と接頭辞変更を実保存し、参照依存の通知時に既に新参照を採用し、選択・ツリー・実詳細行・DBがNEW 1へ揃うことを確認します。
+    /// 受信側単体の非現行参照拒否と、画面のBinding・所有者は既存詳細選択テストとWPF代表へ分担します。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_ExternalReplacementRemapsSelectedFolderAndRefreshesDetail()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistWorkspaceViewModel? workspace = null;
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"Prefix replacement\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.EnablePlaylistUrlCompletion = false);
+            var playlist = new TestBmsPlaylist(songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), settings: settings);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            table.playlist_id = 7481;
+            table.Page_url = new Uri(Path.Combine(directory, "previous-header.json"));
+            table.compat_prefix = "OLD ";
+            table.entries.Single().folder = "OLD 1";
+            Assert.IsTrue(table.EnableExternalSync());
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Selected\",\"level\":\"1\"}]");
+            var library = new TestBmsLibrary(songPath, settings: settings);
+            var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library, propertySaveService: service);
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            workspace.PlaylistSyncProgressChanged += (_, _) => { };
+            workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.SetDetailDataSource(new PlaylistDetailDataSource(library, playlist, new MainChartRowProjectionOwner()));
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("OLD 1"));
+            PlaylistWorkspaceViewModel currentWorkspace = workspace;
+            int folderNotices = 0, entryNotices = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, request) =>
+            {
+                folderNotices++;
+                Assert.AreSame(request.Table, currentWorkspace.CapturePlaylistDetailSelection().Table,
+                    "フォルダ通知に先立ち新参照を採用します。");
+            };
+            service.PlaylistPropertyEntriesChanged += (_, request) =>
+            {
+                entryNotices++;
+                Assert.AreSame(request.Table, currentWorkspace.CapturePlaylistDetailSelection().Table,
+                    "項目通知に先立ち新参照を採用します。");
+            };
+            long contentRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
+            dialog = await workspace.OpenPropertyDialogAsync(table) ?? throw new AssertFailedException("Property dialog was not created.");
+            dialog.Page_url = new Uri(header);
+            dialog.compat_prefix = "NEW ";
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            BMSTable confirmed = playlist.BMSTables.Single();
+            PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection();
+            Assert.AreNotSame(table, confirmed);
+            Assert.AreSame(confirmed, selection.Table);
+            Assert.AreEqual("NEW 1", selection.FolderName);
+            Assert.AreEqual(1, folderNotices);
+            Assert.AreEqual(1, entryNotices);
+            Assert.IsTrue(workspace.DetailViewState.Source.PlaylistContentRevision > contentRevision);
+            Assert.IsTrue(confirmed.FolderNodes.Any(node => node.FolderName == "NEW 1"));
+            string stage = string.Empty;
+            PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.Scope, selection.FolderName, false,
+                new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty }, CancellationToken.None, ref stage);
+            Assert.AreEqual("NEW 1", detail.SourceRows.Single().Folder);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual("NEW 1", db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id).folder);
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [TestMethod]
     public void PlaylistTreeSnapshot_ReleasesReaderLockAfterCapture()
     {
@@ -1214,8 +1302,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    [TestMethod]
-    public async Task PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges()
+    /// <summary>他者属性更新、同ID正本置換、属性不変の本番項目追加を保存前に検出し、古い画面値で上書きしません。</summary>
+    [DataTestMethod]
+    [DataRow("properties")]
+    [DataRow("reference")]
+    [DataRow("entries")]
+    public async Task PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges(string change)
     {
         string tempDirectory = Path.Combine(
             Path.GetTempPath(),
@@ -1231,8 +1323,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSTable table = new()
             {
+                playlist_id = 7601,
                 name = "Initial name",
-                symbol = "OLD"
+                symbol = "OLD",
+                entries = [new BMSTableEntry { md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", folder = "A" }]
             };
             TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(
                 songDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1249,14 +1343,29 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
             session.Values.Name = "Dialog edit";
-            table.symbol = "CONCURRENT";
+            if (change == "properties") { table.symbol = "CONCURRENT"; }
+            else if (change == "reference")
+            {
+                playlist.BMSTables[0] = new BMSTable { playlist_id = table.playlist_id, name = table.name, symbol = table.symbol, entries = table.entries };
+            }
+            else
+            {
+                using (table.ReaderWriterLock.GetWriterGuard())
+                {
+                    table.AddBMSTableEntriesToFolder([new BMSTableEntry { md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", title = "Added" }], "A");
+                }
+                Assert.AreEqual(session.OriginalValues.Name, table.name);
+                Assert.AreEqual(session.OriginalValues.Symbol, table.symbol);
+                Assert.AreNotEqual(session.OriginalValues.EntriesRevision, table.PlaylistEntriesRevision);
+            }
 
             InvalidOperationException conflict = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 async () => await service.TrySaveAsync(session, session.Values));
 
             StringAssert.Contains(conflict.Message, "changed after editing began");
             Assert.AreEqual("Initial name", table.name);
-            Assert.AreEqual("CONCURRENT", table.symbol);
+            Assert.AreEqual(change == "properties" ? "CONCURRENT" : "OLD", table.symbol);
+            if (change == "entries") { Assert.AreEqual(2, table.entries.Count); }
         }
         finally
         {
@@ -1490,6 +1599,74 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 Directory.Delete(tempDirectory, recursive: true);
             }
+        }
+    }
+
+    /// <summary>実draft作成入口から初回登録を確定し、実BMT失敗後の同じ画面の再保存でもIDと表・項目件数を増やしません。</summary>
+    [TestMethod]
+    public async Task CreatePlaylistPropertyDialog_OutputFailureResavesRegisteredDraftWithoutDuplicateId()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        FileStream? blocker = null;
+        try
+        {
+            string songPath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string bmt = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+            blocker = new FileStream(manifest, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
+                () => new CustomFolderOutputSettingsSnapshot(),
+                BmsPlaylistTestSupport.CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty));
+            var library = new TestBmsLibrary(songPath, settings: MainWindowViewModelTestFactory.CreateIsolatedSettings());
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
+            dialog = await workspace.CreatePlaylistPropertyDialogAsync()
+                ?? throw new AssertFailedException("Draft dialog was not created.");
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            dialog.name = "Registered draft";
+            dialog.output_dir = "RegisteredDraft";
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                db.Execute("CREATE TRIGGER fail_draft_insert BEFORE INSERT ON playlist BEGIN SELECT RAISE(FAIL, 'forced draft save failure'); END;");
+            }
+            await Assert.ThrowsExceptionAsync<SQLite.SQLiteException>(async () => await dialog.SaveAndApplyAsync());
+            Assert.AreEqual(0, playlist.BMSTables.Count, "値適用だけで登録済みへ進めません。");
+            Assert.AreEqual("Registered draft", dialog.name, "DB未確定の失敗でも入力を保持します。");
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                Assert.AreEqual(0, db.Table<BMSTable>().Count());
+                db.Execute("DROP TRIGGER fail_draft_insert;");
+            }
+            await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
+            BMSTable registered = playlist.BMSTables.Single();
+            Assert.IsTrue(registered.playlist_id.HasValue);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, db.Table<BMSTable>().Count());
+                Assert.AreEqual(0, db.Table<LR2SongDBExtended.playlist_entry>().Count());
+                Assert.AreEqual(registered.playlist_id, db.Table<BMSTable>().Single().playlist_id);
+            }
+            blocker.Dispose();
+            blocker = null;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.AreSame(registered, playlist.BMSTables.Single());
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual(1, verify.Table<BMSTable>().Count());
+            Assert.AreEqual(0, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
+            Assert.AreEqual(registered.playlist_id, verify.Table<BMSTable>().Single().playlist_id);
+            Assert.IsTrue(File.Exists(manifest));
+        }
+        finally
+        {
+            blocker?.Dispose();
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
         }
     }
 

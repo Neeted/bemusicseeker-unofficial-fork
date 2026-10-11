@@ -1487,7 +1487,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             currentLibrary = new TestBmsLibrary(secondSongDbPath);
             workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
 
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> oldResults =
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult oldResults =
                 await firstPlaylist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     [firstTable],
                     reason: "typed_old_store_receipt",
@@ -1499,7 +1499,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
 
             File.WriteAllText(secondScorePath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"second-updated\",\"level\":\"1\"}]", Encoding.UTF8);
             secondTable.header_sha256 = null;
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> currentResults =
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult currentResults =
                 await secondPlaylist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     [secondTable],
                     reason: "typed_current_store_receipt",

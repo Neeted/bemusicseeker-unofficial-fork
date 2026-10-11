@@ -471,6 +471,324 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         });
     }
 
+    /// <summary>
+    /// 同期元と出力先A→Bの同時保存を実JSON・DBで確定した後のDB失敗でも、同じ編集sessionの再保存で旧A整理・LR2登録・新項目BMTを完了します。
+    /// 実CollectionChangedの置換確定後だけ対象B配下のfolder INSERTを拒否し、取得や正本置換自体の失敗と分けます。通常移行・config失敗は既存継続ケースへ分担します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_ExternalReloadCommitRetainsOutputMigrationAfterLaterDatabaseFailure()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistWorkspaceViewModel? workspace = null;
+        PlaylistPropertyDialogViewModel? dialog = null;
+        TestBmsPlaylist? playlist = null;
+        Task<PlaylistPropertyDialogOperationResult>? saving = null;
+        System.Collections.Specialized.NotifyCollectionChangedEventHandler? afterReplace = null;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string root = Path.Combine(directory, "root-output");
+            string a = Path.Combine(root, "A"), b = Path.Combine(root, "B");
+            string bmt = Path.Combine(directory, "bmt");
+            string oldHeader = Path.Combine(directory, "old-header.json"), oldData = Path.Combine(directory, "old-data.json");
+            string newHeader = Path.Combine(directory, "new-header.json"), newData = Path.Combine(directory, "new-data.json");
+            File.WriteAllText(oldHeader, "{\"name\":\"External migration\",\"symbol\":\"X\",\"data_url\":\"old-data.json\"}");
+            File.WriteAllText(oldData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            File.WriteAllText(newHeader, "{\"name\":\"External migration\",\"symbol\":\"X\",\"data_url\":\"new-data.json\"}");
+            File.WriteAllText(newData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+            LR2Config config = CreateLr2Config(directory, a);
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+                values.EnablePlaylistUrlCompletion = false;
+            });
+            var output = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = Path.Combine(directory, "normal-output"),
+                LR2CustomFolderOutputBaseDirRootType = root,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            var library = new TestBmsLibrary(songPath, () => config, null, null, () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, () => config,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(oldHeader));
+            table.playlist_id = 7461;
+            table.Page_url = new Uri(oldHeader);
+            Assert.IsTrue(table.EnableExternalSync());
+            table.Output_dir = "A";
+            table.is_root_folder = true;
+            table.is_bmt_output = true;
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+            var other = new BMSTable { playlist_id = 7462, name = "Other", Output_dir = "Other", entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table, other]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            playlist.ReOutputCustomFolder(table);
+            Assert.IsTrue(Directory.GetFiles(a, "*.lr2folder").Length > 0);
+            string otherFile = Path.Combine(root, "Other", "manual.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(otherFile) ?? throw new AssertFailedException("Other output has no parent."));
+            File.WriteAllText(otherFile, "other");
+            string unmanaged = Path.Combine(directory, "unmanaged.txt");
+            File.WriteAllText(unmanaged, "keep");
+            workspace = CreatePlaylistWorkspace(playlist, library, () => output, () => config);
+            int replacements = 0;
+            afterReplace = (_, change) =>
+            {
+                if (change.Action != System.Collections.Specialized.NotifyCollectionChangedAction.Replace) { return; }
+                replacements++;
+                BMSTable confirmed = playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id);
+                Assert.AreNotSame(table, confirmed);
+                using var db = new LR2SongDBExtended(songPath);
+                Assert.AreEqual("B", db.Table<BMSTable>().Single(candidate => candidate.playlist_id == table.playlist_id).Output_dir);
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id));
+                string bPrefix = (b + Path.DirectorySeparatorChar).Replace("'", "''", StringComparison.Ordinal);
+                db.Execute($"CREATE TRIGGER fail_later_folder BEFORE INSERT ON folder WHEN substr(NEW.path, 1, length('{bPrefix}')) = '{bPrefix}' BEGIN SELECT RAISE(ABORT, 'test_late_database_failure'); END;");
+            };
+            playlist.BMSTables.CollectionChanged += afterReplace;
+            dialog = await workspace.OpenPropertyDialogAsync(table) ?? throw new AssertFailedException("Property dialog was not created.");
+            dialog.Page_url = new Uri(newHeader);
+            dialog.output_dir = "B";
+            saving = dialog.SaveAndApplyAsync();
+            Exception? failure = null;
+            try { await saving; } catch (Exception caught) { failure = caught; }
+            Assert.IsNotNull(failure);
+            StringAssert.Contains(failure.ToString(), "test_late_database_failure");
+            Assert.AreEqual(1, replacements);
+            BMSTable replacement = playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id);
+            Assert.AreNotSame(table, replacement);
+            Assert.AreEqual("B", dialog.output_dir);
+            Assert.IsTrue(Directory.Exists(a));
+            playlist.BMSTables.CollectionChanged -= afterReplace;
+            afterReplace = null;
+            using (var db = new LR2SongDBExtended(songPath)) { db.Execute("DROP TRIGGER fail_later_folder;"); }
+            File.Delete(newHeader);
+            File.Delete(newData);
+            saving = dialog.SaveAndApplyAsync();
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await saving);
+            Assert.AreSame(replacement, playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id));
+            Assert.IsFalse(Directory.Exists(a));
+            Assert.IsTrue(Directory.GetFiles(b, "*.lr2folder").Length > 0);
+            LR2Config disk = new(Path.Combine(directory, "LR2files", "Config", "config.xml"));
+            CollectionAssert.DoesNotContain(disk.GetBMSSearchDirectoriesForChangeTracking(), a);
+            CollectionAssert.Contains(disk.GetBMSSearchDirectoriesForChangeTracking(), b);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.IsFalse(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(a, StringComparison.OrdinalIgnoreCase)));
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(b, StringComparison.OrdinalIgnoreCase)));
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id));
+                Assert.AreEqual("Other", db.Table<BMSTable>().Single(candidate => candidate.playlist_id == other.playlist_id).Output_dir);
+            }
+            string bmtPath = Directory.GetFiles(bmt, "*.bmt").Single();
+            Newtonsoft.Json.Linq.JObject exported = BeatorajaBmtTableImportService.ReadCachedTableData(bmtPath);
+            StringAssert.Contains(exported.ToString(), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            Assert.AreEqual("other", File.ReadAllText(otherFile));
+            Assert.AreEqual("keep", File.ReadAllText(unmanaged));
+        }
+        finally
+        {
+            if (saving != null) { try { await saving; } catch (Exception) { } }
+            if (playlist != null && afterReplace != null) { playlist.BMSTables.CollectionChanged -= afterReplace; }
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 実保存・LR2移行・config保存・BMT出力の異なる失敗境界でDB=Bを保持し、
+    /// 同じ編集画面の明示再保存だけで旧Aを整理します。C再編集では未完了を先に終えるPとTask終端も確認します。
+    /// 下位移行の管理領域・モード網羅は既存移行テスト、画面の所有と通知はWPF代表へ分担します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("migration", false)]
+    [DataRow("config", false)]
+    [DataRow("bmt", true)]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_UnfinishedOutputsCompleteBeforeSavingFurtherEdits(string failurePoint, bool editAgain)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        FileStream? blocker = null;
+        Task<PlaylistPropertyDialogOperationResult>? saving = null;
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool holdNotification = false;
+        try
+        {
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string rootBase = Path.Combine(directory, "root-output");
+            string normalBase = Path.Combine(directory, "normal-output");
+            string a = Path.Combine(rootBase, "A");
+            string b = Path.Combine(rootBase, "B");
+            string c = Path.Combine(rootBase, "C");
+            string unmanaged = Path.Combine(directory, "unmanaged.txt");
+            File.WriteAllText(unmanaged, "preserve");
+            string otherOutput = Path.Combine(rootBase, "Other");
+            Directory.CreateDirectory(otherOutput);
+            string otherFile = Path.Combine(otherOutput, "manual.txt");
+            File.WriteAllText(otherFile, "other-table");
+            string bmt = Path.Combine(directory, "bmt-output");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            LR2Config config = CreateLr2Config(directory, Path.Combine(directory, "manual-root"), a);
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = directory,
+                LR2CustomFolderOutputBaseDir = normalBase,
+                LR2CustomFolderOutputBaseDirRootType = rootBase,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = directory;
+                values.BMSRootPath = Path.Combine(directory, "manual-root");
+                values.LR2CustomFolderOutputBaseDir = normalBase;
+                values.LR2CustomFolderOutputBaseDirRootType = rootBase;
+                values.EnablePlaylistUrlCompletion = false;
+            });
+            library = new TestBmsLibrary(songPath, () => config, null, null,
+                () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath,
+                () => outputSettings, () => config,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () =>
+                {
+                    if (holdNotification && failurePoint == "bmt") { entered.TrySetResult(); release.Wait(); }
+                    return new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt };
+                },
+                settings: settings);
+            var table = new BMSTable
+            {
+                playlist_id = 7401,
+                name = "Continuation",
+                symbol = "X",
+                Output_dir = "A",
+                is_root_folder = true,
+                is_bmt_output = true,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                entries = [CreateEntry("1234567890abcdef1234567890abcdef", "Alpha")],
+                Folder_order = ["Alpha"]
+            };
+            var other = new BMSTable { playlist_id = 7402, name = "Other", Output_dir = "Other", is_root_folder = true, is_bmt_output = false, entries = [] };
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table, other]);
+            playlist.CommitBMSTablesWithEntriesToDB([table, other]);
+            playlist.ReOutputCustomFolder(table);
+            Assert.IsTrue(Directory.GetFiles(a, "*.lr2folder").Length > 0);
+            PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => outputSettings, () => config);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+            {
+                if (holdNotification && failurePoint != "bmt") { entered.TrySetResult(); release.Wait(); }
+            };
+            dialog = await workspace.OpenPropertyDialogAsync(table)
+                ?? throw new AssertFailedException("Edit dialog was not created.");
+            dialog.output_dir = "B";
+            string configPath = Path.Combine(directory, "LR2files", "Config", "config.xml");
+            if (failurePoint == "migration") { File.WriteAllText(b, "blocks-directory"); }
+            else
+            {
+                string blockPath = failurePoint == "config" ? configPath : manifest;
+                if (!File.Exists(blockPath)) { File.WriteAllText(blockPath, "{\"files\":[],\"playlists\":{}}"); }
+                blocker = new FileStream(blockPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            }
+            if (failurePoint == "bmt")
+            {
+                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await dialog.SaveAndApplyAsync());
+            }
+            else { await Assert.ThrowsExceptionAsync<IOException>(async () => await dialog.SaveAndApplyAsync()); }
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
+            }
+            if (failurePoint == "migration") { Assert.IsTrue(Directory.Exists(a)); }
+            if (failurePoint == "config")
+            {
+                Assert.IsFalse(Directory.Exists(a));
+                Assert.IsTrue(Directory.GetFiles(b, "*.lr2folder").Length > 0);
+                LR2Config disk = new(configPath);
+                CollectionAssert.Contains(disk.GetBMSSearchDirectoriesForChangeTracking(), a);
+                CollectionAssert.DoesNotContain(disk.GetBMSSearchDirectoriesForChangeTracking(), b);
+            }
+            if (editAgain) { dialog.output_dir = "C"; }
+            holdNotification = true;
+            saving = dialog.SaveAndApplyAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, saving, "property-save.pending-output-failure");
+            Assert.IsFalse(saving.IsCompleted);
+            Assert.IsFalse(playlist.TryEnterPlaylistMutation(out IDisposable rejected));
+            rejected?.Dispose();
+            Assert.IsFalse(Directory.Exists(c));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
+            }
+            release.Set();
+            await Assert.ThrowsExceptionAsync<AggregateException>(async () => await saving);
+            Assert.AreEqual(editAgain ? "C" : "B", dialog.output_dir);
+            blocker?.Dispose();
+            blocker = null;
+            if (failurePoint == "migration") { File.Delete(b); }
+            entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            release.Reset();
+            saving = dialog.SaveAndApplyAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, saving, "property-save.pending-output-success");
+            Assert.IsFalse(saving.IsCompleted);
+            Assert.IsFalse(playlist.TryEnterPlaylistMutation(out rejected));
+            rejected?.Dispose();
+            Assert.IsFalse(Directory.Exists(c));
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
+            }
+            holdNotification = false;
+            release.Set();
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await saving);
+            string finalDirectory = editAgain ? c : b;
+            Assert.IsFalse(Directory.Exists(a));
+            if (editAgain) { Assert.IsFalse(Directory.Exists(b)); }
+            Assert.IsTrue(Directory.GetFiles(finalDirectory, "*.lr2folder").Length > 0);
+            LR2Config finalConfig = new(configPath);
+            CollectionAssert.DoesNotContain(finalConfig.GetBMSSearchDirectoriesForChangeTracking(), a);
+            CollectionAssert.Contains(finalConfig.GetBMSSearchDirectoriesForChangeTracking(), finalDirectory);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(editAgain ? "C" : "B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
+                Assert.AreEqual("Other", db.Table<BMSTable>().Single(row => row.playlist_id == other.playlist_id).Output_dir);
+                Assert.IsFalse(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(a, StringComparison.OrdinalIgnoreCase)));
+                Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path.StartsWith(finalDirectory, StringComparison.OrdinalIgnoreCase)));
+            }
+            Assert.IsTrue(File.Exists(manifest));
+            Assert.AreEqual("preserve", File.ReadAllText(unmanaged));
+            Assert.AreEqual("other-table", File.ReadAllText(otherFile));
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable next));
+            next.Dispose();
+        }
+        finally
+        {
+            holdNotification = false;
+            release.Set();
+            if (saving != null) { try { await saving; } catch (Exception) { } }
+            blocker?.Dispose();
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_PostSaveFailureReconcilesDialogWithDurableActiveState()
