@@ -18,14 +18,27 @@ internal static class LibraryFolderMoveCoordinator
         RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder);
     }
 
-    /// <summary>Runs one manual rename through the operation-scoped folder mutation session.</summary>
+    /// <summary>正規化済みの手動改名対象を停止前に確定します。診断対象は保持し、禁止されたルート改名を実移動へ渡しません。</summary>
+    internal static FolderMoveBatch PrepareChartFolderRename(LibraryMutationOwner host, string srcDir, string newName, bool renameRootFolder)
+    {
+        ArgumentNullException.ThrowIfNull(srcDir);
+        ArgumentNullException.ThrowIfNull(newName);
+        string normalizedName = host.NormalizeAutoRenameFolderName(newName);
+        string parent = Path.GetDirectoryName(srcDir);
+        string destination = string.IsNullOrWhiteSpace(normalizedName) || parent == null
+            ? null : Path.Combine(parent, normalizedName);
+        return new FolderMoveBatch(!renameRootFolder && host.IsLibraryRootFolder(srcDir)
+            ? [] : [new FolderAutoRenamePlan { SourceDirectory = srcDir, DestinationDirectory = destination }]);
+    }
+
+    /// <summary>準備時に確定した手動改名の対象を一つの変更セッションへ適用します。直接入口だけはこの受付内で対象を確定します。</summary>
     internal static LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         LibraryMutationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
         bool renameRootFolder,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         if (srcDir == null)
         {
@@ -40,8 +53,9 @@ internal static class LibraryFolderMoveCoordinator
             host.ShowCannotRenameRootFolder(srcDir);
             return null;
         }
-        newName = host.NormalizeAutoRenameFolderName(newName);
-        if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
+        FolderMoveBatch batch = preparedBatch ?? PrepareChartFolderRename(host, srcDir, newName, renameRootFolder);
+        string dstDir = batch.Plans.FirstOrDefault()?.DestinationDirectory;
+        if (string.IsNullOrWhiteSpace(dstDir) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -50,7 +64,6 @@ internal static class LibraryFolderMoveCoordinator
             host.ShowRenameFolderNotExists(srcDir);
             return null;
         }
-        string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
         if (host.EntryExists(dstDir))
         {
             host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
@@ -65,7 +78,7 @@ internal static class LibraryFolderMoveCoordinator
             {
                 receipt = MoveLibraryChartFoldersWithSession(
                     host,
-                    [new FolderAutoRenamePlan { SourceDirectory = srcDir, DestinationDirectory = dstDir }],
+                    batch,
                     unregister,
                     notifyStorageRowPathChanges: false,
                     mutationCapability,
@@ -90,13 +103,13 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     /// <summary>同ownerの生存L/P権限と停止前に固定した実移動計画を使い、一変更セッションで全対象を実行します。確定事実と失敗を返し、必要公開・cleanup終端まで外側が権限を保持します。</summary>
-    /// <param name="preparedPlans">同じ受理操作の準備済みsrc/dst。省略時は従来入口の短いモデル保護で捕捉します。</param>
+    /// <param name="preparedBatch">同じ受理操作の診断計画と実移動。直接入口では短いモデル保護で捕捉します。</param>
     internal static LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         LibraryMutationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         if (charts == null)
         {
@@ -122,11 +135,11 @@ internal static class LibraryFolderMoveCoordinator
                 List<ChartFile> chartSnapshots = [.. chartRefs
                     .Select(chart => chart?.ToChartFileIdentity())
                     .Where(chart => chart != null)];
-                IReadOnlyList<FolderAutoRenamePlan> plans = preparedPlans;
-                if (plans == null)
+                FolderMoveBatch batch = preparedBatch;
+                if (batch == null)
                 {
                     host.RunWithFolderMoveSnapshotLocks(
-                        () => plans = host.BuildRootFolderMovePlans(chartSnapshots, dstDir));
+                        () => batch = new FolderMoveBatch(host.BuildRootFolderMovePlans(chartSnapshots, dstDir)));
                 }
                 if (ContainsDriveRootSource(chartRefs))
                 {
@@ -134,7 +147,7 @@ internal static class LibraryFolderMoveCoordinator
                 }
                 receipt = MoveLibraryChartFoldersWithSession(
                     host,
-                    plans,
+                    batch,
                     unregister,
                     notifyStorageRowPathChanges: true,
                     mutationCapability,
@@ -151,7 +164,7 @@ internal static class LibraryFolderMoveCoordinator
 
     private static LibraryMutationSessionReceipt MoveLibraryChartFoldersWithSession(
         LibraryMutationOwner host,
-        IEnumerable<FolderAutoRenamePlan> plans,
+        FolderMoveBatch batch,
         bool? unregister,
         bool notifyStorageRowPathChanges,
         LibraryFileMutationCapability mutationCapability,
@@ -160,7 +173,17 @@ internal static class LibraryFolderMoveCoordinator
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
-        List<FolderAutoRenamePlan> movePlans = [.. (plans ?? []).Where(plan => plan != null)];
+        ArgumentNullException.ThrowIfNull(batch);
+        IReadOnlyList<FolderAutoRenamePlan> movePlans = batch.Moves;
+        foreach (FolderAutoRenamePlan plan in batch.Plans.Where(plan => !batch.ContainsPhysicalMove(plan)))
+        {
+            if (!string.IsNullOrWhiteSpace(plan.DestinationDirectory)
+                && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase)
+                && host.EntryExists(plan.DestinationDirectory))
+            {
+                postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(plan.SourceDirectory, plan.DestinationDirectory));
+            }
+        }
         if (!host.TryEnterManagedOutputMutation(movePlans.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }),
             recursive: true, out LibraryFileMutationLease playlistLease, mutationCapability)) { return LibraryMutationSessionReceipt.Empty; }
         using LibraryFileMutationLease playlistOperation = playlistLease;
@@ -176,12 +199,6 @@ internal static class LibraryFolderMoveCoordinator
             FolderAutoRenamePlan plan = movePlans[index];
             string srcDir = plan.SourceDirectory;
             string dstDir = plan.DestinationDirectory;
-            if (string.IsNullOrWhiteSpace(srcDir)
-                || string.IsNullOrWhiteSpace(dstDir)
-                || srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
             if (host.EntryExists(dstDir))
             {
                 postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(srcDir, dstDir));

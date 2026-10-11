@@ -603,8 +603,9 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     mutationWithReceipt: (library, operationStore) => operationStore.MoveLibraryChartsWithReceipt(library, moveRequest),
                     publishMutationApplied: true,
                     acquiredOperationGate: operationGate,
-                    physicalPaths: moveRequest.PreparedPlans?.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }),
-                    recursivePhysicalPaths: true));
+                    physicalPaths: moveRequest.PreparedBatch?.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }),
+                    recursivePhysicalPaths: true,
+                    stopPlayback: moveRequest.PreparedBatch == null || moveRequest.PreparedBatch.Moves.Count > 0));
                 operationGateTransferred = true;
                 SelectedChartMutationResult result = await task.ConfigureAwait(false);
                 await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Move,
@@ -658,7 +659,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
         bool publishMutationApplied = false,
         IDisposable acquiredOperationGate = null,
         IEnumerable<string> physicalPaths = null,
-        bool recursivePhysicalPaths = false)
+        bool recursivePhysicalPaths = false,
+        bool stopPlayback = true)
     {
         IDisposable operationGate = acquiredOperationGate;
         if (operationGate == null
@@ -702,7 +704,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 operationStore = store.ForAcceptedOperation(combinedCapability);
             }
             activityLease = chartMutationActivity.Enter();
-            await playback.StopPlaybackForMutationAsync().ConfigureAwait(false);
+            if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
             dialogScope = library.BeginOperationDialogScope();
             suppressionStarted = true;
             PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
@@ -911,7 +913,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
 
     /// <summary>本番の移動計画を一回固定し、停止と物理実行が同じ対象を使う要求へ接続します。</summary>
     public ChartLibraryMoveRequest PrepareLibraryMove(BMSLibrary library, ChartLibraryMoveRequest request)
-        => request.WithPreparedPlans(library.PrepareLibraryRootMovePlans(request.Charts, request.NewParentDirectory));
+        => request.WithPreparedBatch(library.PrepareLibraryRootMoveBatch(request.Charts, request.NewParentDirectory));
 
     /// <summary>停止前と同じ固定計画・生存L/Pで移動し、確定事実を終端へ返します。</summary>
     public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
@@ -922,7 +924,7 @@ internal sealed class BmsLibrarySelectedChartMutationStore : ISelectedChartMutat
             request.Charts,
             request.NewParentDirectory,
             false,
-            reportAtTerminal: true, capability: capability, preparedPlans: request.PreparedPlans);
+            reportAtTerminal: true, capability: capability, preparedBatch: request.PreparedBatch);
     }
 
     public void SetBMSFilesEncoding(

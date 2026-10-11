@@ -1577,6 +1577,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         NotifyPlaybackStarted(generation);
     }
 
+    /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。</summary>
     private async Task StartTemporarilyInstalledChart(
         ChartFile playbackChart,
         ChartFile bmsFile,
@@ -1611,11 +1612,13 @@ public sealed class PlaybackPanelViewModel : ViewModel,
 
             string originalPath = bmsFile.Path;
             string workingPath = originalPath;
+            bool directoryPackage = LongPathFileSystem.DirectoryExists(chartPackage.path);
+            string sourceRoot = directoryPackage ? chartPackage.path : Path.GetDirectoryName(originalPath);
             Task<bool> playbackStartTask = null;
             PlaybackStartObservation playbackStartObservation = null;
             try
             {
-                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(workingPath))))
+                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath))))
                 {
                     string temporaryName = Path.GetFileNameWithoutExtension(workingPath) + "_" + Path.GetExtension(workingPath);
                     LongPathFileSystem.MoveFile(
@@ -1626,7 +1629,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                 }
 
                 List<string> sourceFiles = [];
-                if (LongPathFileSystem.DirectoryExists(chartPackage.path))
+                if (directoryPackage)
                 {
                     string[] permittedExtensions =
                     [
@@ -1635,7 +1638,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     .. ChartResourceExtensions.AudioExtensions,
                     .. ChartResourceExtensions.ImageExtensions,
                 ];
-                    sourceFiles = [.. LongPathFileSystem.EnumerateFiles(chartPackage.path, "*", SearchOption.TopDirectoryOnly)
+                    sourceFiles = [.. LongPathFileSystem.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
                     .Where(file => permittedExtensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))];
                 }
                 else
@@ -1643,9 +1646,9 @@ public sealed class PlaybackPanelViewModel : ViewModel,
                     sourceFiles.Add(workingPath);
                 }
 
-                using (new temporarilyCopyFiles(sourceFiles, installDestination, 2000))
+                using (new temporarilyCopyFiles(sourceFiles, sourceRoot, installDestination, 2000))
                 {
-                    string playbackPath = Path.Combine(installDestination, Path.GetFileName(workingPath));
+                    string playbackPath = Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath));
                     try
                     {
                         playbackStartTask = TryPlayStart(

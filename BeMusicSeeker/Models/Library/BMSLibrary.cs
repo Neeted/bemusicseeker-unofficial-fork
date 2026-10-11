@@ -9807,16 +9807,22 @@ public partial class BMSLibrary : ObservableObject
         RenameChartFolderWithReceipt(srcDir, newName, unregister, renameRootFolder);
     }
 
+    /// <summary>受理済みLの内側で手動改名の正規化済み宛先と実移動を確定します。呼出元が同じ実移動からPと停止の必要性を判定します。</summary>
+    internal FolderMoveBatch PrepareChartFolderRename(string srcDir, string newName, bool renameRootFolder = false)
+        => LibraryFolderMoveCoordinator.PrepareChartFolderRename(libraryMutationOwner, srcDir, newName, renameRootFolder);
+
     /// <summary>
     /// 同じ受付の生存権限でフォルダ名を変更し、確定事実を返します。
     /// 結果に基づく失敗通知は明示した終端担当へ委ね、事前検査と従来入口の通知を維持します。
+    /// 準備済み結果がある場合は正規化と実対象の確定を繰り返しません。
     /// </summary>
+    /// <param name="preparedBatch">同じ受理操作で停止前に確定した診断計画と実移動。</param>
     internal LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         string srcDir,
         string newName,
         bool? unregister = false,
         bool renameRootFolder = false,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         if (srcDir == null)
         {
@@ -9836,7 +9842,7 @@ public partial class BMSLibrary : ObservableObject
             newName,
             unregister,
             renameRootFolder,
-            reportAtTerminal, capability);
+            reportAtTerminal, capability, preparedBatch);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
@@ -9845,20 +9851,21 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>取得済みLの内側で実移動計画を一回固定します。短いモデル保護を解放してから条件付きP・停止へ進みます。</summary>
-    internal IReadOnlyList<FolderAutoRenamePlan> PrepareLibraryRootMovePlans(IEnumerable<LibraryChartRef> charts, string destination)
+    internal FolderMoveBatch PrepareLibraryRootMoveBatch(IEnumerable<LibraryChartRef> charts, string destination)
     {
         List<FolderAutoRenamePlan> plans = null;
         libraryMutationOwner.RunWithFolderMoveSnapshotLocks(() => plans = libraryMutationOwner.BuildRootFolderMovePlans(
             charts.Select(chart => chart.ToChartFileIdentity()), destination));
-        return plans.ToArray();
+        return new FolderMoveBatch(plans);
     }
 
-    /// <summary>同じ受付の生存権限でフォルダを移動し、操作単位の確定事実を返します。失敗通知を終端担当へ委ねられます。</summary>
+    /// <summary>同じ受付の生存権限で確定済みの実移動を適用し、操作単位の確定事実を返します。失敗通知を終端担当へ委ねられます。</summary>
+    /// <param name="preparedBatch">同じ受理操作で停止前に確定した診断計画と実移動。直接入口ではこの受付内で捕捉します。</param>
     internal LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister = false,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         if (charts == null)
         {
@@ -9877,7 +9884,7 @@ public partial class BMSLibrary : ObservableObject
             charts,
             dstDir,
             unregister,
-            reportAtTerminal, capability, preparedPlans);
+            reportAtTerminal, capability, preparedBatch);
     }
 
     /// <summary>

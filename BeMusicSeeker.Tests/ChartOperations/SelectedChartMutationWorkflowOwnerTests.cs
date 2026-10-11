@@ -438,6 +438,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             presentation.Events);
     }
 
+    /// <summary>記録storeで宛先の受渡し、停止・反映・path refresh・活動と抑制の終端順を維持します。本番準備結果とFS/DBは実store代表試験へ分担します。</summary>
     [TestMethod]
     public async Task MoveAsync_AcceptedUsesSelectedLibraryRefsAndPublishesPathRefresh()
     {
@@ -456,6 +457,171 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         CollectionAssert.AreEqual(
             new[] { "activity-start", "playback-stop", "library-refresh-start", "store-move", "path-refresh", "library-refresh-end", "activity-end" },
             events);
+    }
+
+    /// <summary>本番storeの準備から同じ実対象のP・停止・FS/SQLite/current/事前構築lookup・通知・次要求までを接続します。停止中に空の除外先を消しても対象を復活させません。真の交差Busyと複数対象・失敗は既存上位／下位へ分担し、記録storeの成功順序保証も維持します。</summary>
+    [TestMethod]
+    public async Task MoveAsync_RealPreparedRootMovePreservesTargetsAndAcceptsFreshRequest()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Fixture root is missing.");
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            string blockedDestination = Path.Combine(destination, "Blocked");
+            string[] directories = [Path.Combine(source, "A"), Path.Combine(source, "Blocked"), Path.Combine(root, "Background")];
+            var charts = new List<ChartFile>();
+            for (int index = 0; index < directories.Length; index++)
+            {
+                Directory.CreateDirectory(directories[index]);
+                string path = Path.Combine(directories[index], "chart.bms");
+                File.WriteAllText(path, "chart bytes " + index);
+                charts.Add(CreateFile(new string((char)('a' + index), 32), path));
+            }
+            Directory.CreateDirectory(blockedDestination);
+            string lr2Root = Path.Combine(root, "LR2");
+            LR2Config config = BmsPlaylistTestSupport.CreateLr2Config(lr2Root, source);
+            var library = new TestBmsLibrary(songDbPath, () => config, null, null,
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    LR2RootPath = lr2Root,
+                    LR2CustomFolderOutputBaseDir = blockedDestination
+                })
+            { BmsCharts = charts, BmsonCharts = [] };
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
+            foreach (ChartFile chart in charts)
+            {
+                CollectionAssert.AreEqual(new[] { Path.GetDirectoryName(chart.Path) }, initialLookup.GetDistinctDirectoriesByPrimaryHash(chart.Md5).ToArray());
+            }
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var presentation = new RecordingPresentation { BeforeStop = () => { stopped.TrySetResult(); return releaseStop.Task; } };
+            var activity = new ChartMutationActivityOwner();
+            FakeUiDialogService dialogs = AcceptedMessageDialogs();
+            dialogs.ConfirmationResults.Enqueue(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                activity, presentation, dialogs, dialogs, new BmsLibrarySelectedChartMutationStore());
+            int appliedNotifications = 0;
+            Exception? notificationFailure = null;
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            owner.WorkflowChanged += ObserveApplied;
+            activity.ActivityChanged += presentation.OnActivityChanged;
+            Task<SelectedChartMutationResult> first = Task.FromResult(SelectedChartMutationResult.Completed);
+            Task<SelectedChartMutationResult> next = Task.FromResult(SelectedChartMutationResult.Completed);
+            IDisposable? heldPlaylist = null;
+            try
+            {
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out heldPlaylist));
+                first = owner.MoveAsync(new SelectedChartMoveRequest([Target(charts[0]), Target(charts[1])], destination));
+                await TestUiDispatcherHost.AwaitNotificationAsync(stopped.Task, first, "root-move-playback-stop");
+                Assert.IsFalse(first.IsCompleted);
+                Assert.IsTrue(library.OperationAdmission.IsActive);
+                Assert.IsTrue(activity.IsActive);
+                Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable competing));
+                competing?.Dispose();
+                CollectionAssert.AreEqual(new[] { "activity-start", "playback-stop" }, presentation.Events);
+                AssertState(aMoved: false, blockedMoved: false);
+                Assert.IsFalse(Directory.Exists(Path.Combine(destination, "A")));
+                Assert.IsTrue(Directory.Exists(blockedDestination));
+                Assert.AreEqual(0, Directory.GetFileSystemEntries(blockedDestination).Length);
+                // 自分の空fixtureだけを消し、準備済み対象と適用時の存在条件を意図的に違わせます。
+                Directory.Delete(blockedDestination, recursive: false);
+                releaseStop.TrySetResult();
+                SelectedChartMutationResult result = await first;
+                AssertSuccessfulReceipt(result);
+                Assert.IsNull(notificationFailure, notificationFailure?.ToString());
+                Assert.AreEqual(1, appliedNotifications);
+                Assert.AreEqual(1, presentation.PathRefreshCalls);
+                CollectionAssert.AreEqual(new[] { "activity-start", "playback-stop", "library-refresh-start", "path-refresh", "library-refresh-end", "activity-end" }, presentation.Events);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                AssertState(aMoved: true, blockedMoved: false);
+                Assert.IsFalse(Directory.Exists(blockedDestination));
+                heldPlaylist.Dispose();
+                heldPlaylist = null;
+                AssertState(aMoved: true, blockedMoved: false);
+                Assert.IsFalse(Directory.Exists(blockedDestination), "Pの解放だけでは除外した対象を再実行しません。");
+                presentation.BeforeStop = null;
+                next = owner.MoveAsync(new SelectedChartMoveRequest([Target(charts[1])], destination));
+                AssertSuccessfulReceipt(await next);
+                Assert.IsNull(notificationFailure, notificationFailure?.ToString());
+                Assert.AreEqual(2, appliedNotifications);
+                Assert.AreEqual(2, presentation.PathRefreshCalls);
+                CollectionAssert.AreEqual(Enumerable.Repeat(new[] { "activity-start", "playback-stop", "library-refresh-start", "path-refresh", "library-refresh-end", "activity-end" }, 2).SelectMany(events => events).ToArray(), presentation.Events);
+                AssertState(aMoved: true, blockedMoved: true);
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(activity.IsActive);
+                Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable fresh));
+                fresh.Dispose();
+            }
+            finally
+            {
+                releaseStop.TrySetResult();
+                heldPlaylist?.Dispose();
+                try { await Task.WhenAll(first, next); }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    owner.WorkflowChanged -= ObserveApplied;
+                    activity.ActivityChanged -= presentation.OnActivityChanged;
+                    library.RequestShutdown("root-move-entry-test");
+                }
+            }
+
+            void ObserveApplied(object? sender, SelectedChartMutationWorkflowChangedEventArgs args)
+            {
+                if (args is not SelectedChartMutationAppliedEventArgs applied) { return; }
+                appliedNotifications++;
+                try
+                {
+                    Assert.IsTrue(applied.LibraryPathChanged);
+                    Assert.IsTrue(library.OperationAdmission.IsActive, "実保存結果の必須公開までLを保持します。");
+                    AssertState(aMoved: true, blockedMoved: appliedNotifications == 2);
+                }
+                catch (Exception failure) { notificationFailure ??= failure; }
+            }
+
+            void AssertState(bool aMoved, bool blockedMoved)
+            {
+                using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(3, read.Table<LR2SongDB.song>().Count());
+                InstalledChartLookupIndexSnapshot lookup = InvokeCreateInstalledChartLookupSnapshot(library);
+                for (int index = 0; index < charts.Count; index++)
+                {
+                    bool moved = index == 0 ? aMoved : index == 1 && blockedMoved;
+                    string expectedDirectory = moved ? Path.Combine(destination, Path.GetFileName(directories[index])) : directories[index];
+                    string expectedPath = Path.Combine(expectedDirectory, "chart.bms");
+                    CollectionAssert.AreEqual(System.Text.Encoding.UTF8.GetBytes("chart bytes " + index), File.ReadAllBytes(expectedPath));
+                    Assert.IsNotNull(read.Find<LR2SongDB.song>(expectedPath));
+                    Assert.AreEqual(expectedPath, library.BmsCharts.Single(current => ReferenceEquals(current.Token, charts[index].Token)).Path);
+                    CollectionAssert.AreEqual(new[] { expectedDirectory }, lookup.GetDistinctDirectoriesByPrimaryHash(charts[index].Md5).ToArray());
+                    CollectionAssert.AreEqual(new[] { directories[index] }, initialLookup.GetDistinctDirectoriesByPrimaryHash(charts[index].Md5).ToArray());
+                    if (moved)
+                    {
+                        Assert.IsFalse(Directory.Exists(directories[index]));
+                        Assert.IsFalse(File.Exists(charts[index].Path));
+                        Assert.IsNull(read.Find<LR2SongDB.song>(charts[index].Path));
+                    }
+                }
+            }
+
+            static ChartOperationTarget Target(ChartFile chart) => new(chart, null, ChartOperationSourceScope.Library,
+                true, false, false, ChartOperationCapabilities.MoveInLibrary);
+
+            static void AssertSuccessfulReceipt(SelectedChartMutationResult result)
+            {
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.IsNull(result.Failure);
+                Assert.IsNotNull(result.MutationReceipt);
+                Assert.IsTrue(result.MutationReceipt.DurableCommit);
+                Assert.AreEqual(1, result.MutationReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(1, result.MutationReceipt.CatalogChartPathChangeCount);
+            }
+        });
     }
 
     [TestMethod]
@@ -1067,6 +1233,9 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         internal int EncodingRefreshCalls { get; private set; }
 
+        /// <summary>本番store接続試験で停止の実終端だけを保留し、準備済み対象とFSの条件差を観測します。</summary>
+        internal Func<Task>? BeforeStop { get; set; }
+
         internal void OnActivityChanged(object? sender, EventArgs e)
         {
             var activity = (ChartMutationActivityOwner)sender!;
@@ -1118,7 +1287,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         public Task StopPlaybackForMutationAsync()
         {
             Events.Add("playback-stop");
-            return Task.CompletedTask;
+            return BeforeStop?.Invoke() ?? Task.CompletedTask;
         }
     }
 

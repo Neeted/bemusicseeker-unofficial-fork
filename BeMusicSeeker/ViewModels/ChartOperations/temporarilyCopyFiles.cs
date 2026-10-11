@@ -13,123 +13,131 @@ using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal class temporarilyCopyFiles : IDisposable
+/// <summary>一時試聴の相対配置を作り、所有したファイルと空ディレクトリだけを回収します。既存素材と借用ディレクトリは所有しません。</summary>
+internal sealed class temporarilyCopyFiles : IDisposable
 {
     private readonly int sleep;
-
-    private readonly List<string> copiedFilesSrc = [];
-
     private readonly List<string> copiedFilesDst = [];
+    private readonly List<string> createdDirectories = [];
+    private int disposed;
 
+    /// <summary>開始境界後の既存保持時間を待ち、所有物の回収を一回行います。</summary>
     public void Dispose()
     {
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    private void Dispose(bool disposing)
     {
-        if (sleep > 0)
-        {
-            Thread.Sleep(sleep);
-        }
-        copiedFilesDst.AsParallel().ForAll(delegate (string dstFile)
+        if (Interlocked.Exchange(ref disposed, 1) != 0) { return; }
+        if (sleep > 0) { Thread.Sleep(sleep); }
+        var failures = new List<(string Path, Exception Failure)>();
+        copiedFilesDst.AsParallel().ForAll(dstFile =>
         {
             try
             {
-                if (LongPathFileSystem.FileExists(dstFile))
-                {
-                    LongPathFileSystem.DeleteFile(dstFile);
-                }
-                else if (LongPathFileSystem.DirectoryExists(dstFile))
-                {
-                    LongPathFileSystem.DeleteDirectory(dstFile, recursive: true);
-                }
+                if (LongPathFileSystem.FileExists(dstFile)) { LongPathFileSystem.DeleteFile(dstFile); }
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                string message = Resources.Msg_error_preview + Environment.NewLine + Environment.NewLine + Resources.File + ": " + dstFile.ToString() + Environment.NewLine + ex.Message;
-                if (disposing)
-                {
-                    UiDialogRoute.ShowMessageBox(message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                }
-                else
-                {
-                    NLogWrapper.FileLogger?.Warn(ex, "temporary_preview_cleanup_failed path=" + dstFile);
-                }
+                lock (failures) { failures.Add((dstFile, exception)); }
             }
         });
+        // コピー完了とファイル回収の後、子から親へ空の所有ディレクトリだけを除去します。
+        // 一時配置へ第三者が追加したファイルは再帰削除で巻き込みません。
+        foreach (string directory in createdDirectories.OrderByDescending(path => path.Length))
+        {
+            try
+            {
+                if (LongPathFileSystem.DirectoryExists(directory)
+                    && !LongPathFileSystem.EnumerateFileSystemEntries(directory).Any())
+                {
+                    LongPathFileSystem.DeleteDirectory(directory, recursive: false);
+                }
+            }
+            catch (Exception exception) { failures.Add((directory, exception)); }
+        }
+        var errors = new List<Exception>();
+        foreach ((string path, Exception failure) in failures)
+        {
+            errors.Add(failure);
+            try
+            {
+                if (disposing)
+                {
+                    string message = Resources.Msg_error_preview + Environment.NewLine + Environment.NewLine
+                        + Resources.File + ": " + path + Environment.NewLine + failure.Message;
+                    UiDialogRoute.ShowMessageBox(message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                }
+                else { NLogWrapper.FileLogger?.Warn(failure, "temporary_preview_cleanup_failed path=" + path); }
+            }
+            catch (Exception notificationFailure)
+            {
+                if (disposing) { errors.Add(notificationFailure); }
+            }
+        }
+        if (disposing && errors.Count > 0) { throw new AggregateException(errors); }
     }
 
-    public temporarilyCopyFiles(IEnumerable<string> srcFiles, string dstDir, int wait = 0)
+    /// <summary>入力元ルート内のファイルを相対配置のまま並列コピーします。既存宛先は上書き・回収せず、構築失敗時も開始済みコピーの終端後に所有物を回収します。</summary>
+    /// <param name="srcFiles">パッケージ内の対応譜面・音源・画像のファイル。</param>
+    /// <param name="sourceRoot">相対配置の基準となるパッケージルート。</param>
+    /// <param name="dstDir">既存の試聴先ディレクトリ。</param>
+    /// <param name="wait">開始境界後に回収まで保持する既存の時間（ミリ秒）。</param>
+    public temporarilyCopyFiles(IEnumerable<string> srcFiles, string sourceRoot, string dstDir, int wait = 0)
     {
-        temporarilyCopyFiles temporarilyCopyFiles2 = this;
-        if (srcFiles == null)
-        {
-            throw new ArgumentNullException("srcFiles");
-        }
-        if (dstDir == null)
-        {
-            throw new ArgumentNullException("dstDir");
-        }
-        if (!srcFiles.All(LongPathFileSystem.EntryExists))
-        {
-            throw new ArgumentException("srcFiles");
-        }
-        if (!LongPathFileSystem.DirectoryExists(dstDir))
-        {
-            throw new DirectoryNotFoundException(dstDir);
-        }
-        if (wait > 0)
-        {
-            sleep = wait;
-        }
-        copiedFilesSrc = [.. srcFiles.Where(delegate (string file)
-        {
-            string path = Path.Combine(dstDir, Path.GetFileName(file));
-            return !LongPathFileSystem.EntryExists(path);
-        })];
+        ArgumentNullException.ThrowIfNull(srcFiles);
+        ArgumentNullException.ThrowIfNull(sourceRoot);
+        ArgumentNullException.ThrowIfNull(dstDir);
+        string[] sources = srcFiles.ToArray();
+        if (!sources.All(LongPathFileSystem.FileExists)) { throw new ArgumentException(nameof(srcFiles)); }
+        if (!LongPathFileSystem.DirectoryExists(dstDir)) { throw new DirectoryNotFoundException(dstDir); }
+        sleep = Math.Max(0, wait);
         try
         {
-            copiedFilesSrc.AsParallel().ForAll(delegate (string srcFile)
+            var copies = new List<(string Source, string Destination)>();
+            foreach (string source in sources)
             {
-                try
+                string relative = Path.GetRelativePath(sourceRoot, source);
+                if (Path.IsPathRooted(relative) || relative == ".."
+                    || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
                 {
-                    string text = Path.Combine(dstDir, Path.GetFileName(srcFile));
-                    if (LongPathFileSystem.FileExists(srcFile))
-                    {
-                        LongPathFileSystem.CopyFile(srcFile, text, overwrite: false);
-                    }
-                    else
-                    {
-                        if (!LongPathFileSystem.DirectoryExists(srcFile))
-                        {
-                            return;
-                        }
-                        LongPathFileSystem.CopyDirectory(srcFile, text, overwrite: false);
-                    }
-                    lock (temporarilyCopyFiles2.copiedFilesDst)
-                    {
-                        temporarilyCopyFiles2.copiedFilesDst.Add(text);
-                    }
+                    throw new ArgumentException(nameof(srcFiles));
                 }
-                catch (Exception ex)
-                {
-                    UiDialogRoute.ShowMessageBox(Resources.Msg_warn_preview + Environment.NewLine + ex.Message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    throw;
-                }
+                string destination = Path.Combine(dstDir, relative);
+                if (LongPathFileSystem.EntryExists(destination)) { continue; }
+                EnsureDestinationDirectory(Path.GetDirectoryName(destination));
+                copies.Add((source, destination));
+            }
+            copies.AsParallel().ForAll(copy =>
+            {
+                LongPathFileSystem.CopyFile(copy.Source, copy.Destination, overwrite: false);
+                lock (copiedFilesDst) { copiedFilesDst.Add(copy.Destination); }
             });
         }
-        catch
+        catch (Exception copyFailure)
         {
-            Dispose();
-            copiedFilesDst = [];
+            try { Dispose(); }
+            catch (Exception cleanupFailure) { throw new AggregateException(copyFailure, cleanupFailure); }
             throw;
         }
     }
 
-    ~temporarilyCopyFiles()
+    private void EnsureDestinationDirectory(string directory)
     {
-        Dispose(disposing: false);
+        var missing = new Stack<string>();
+        while (!string.IsNullOrWhiteSpace(directory) && !LongPathFileSystem.DirectoryExists(directory))
+        {
+            missing.Push(directory);
+            directory = Path.GetDirectoryName(directory);
+        }
+        while (missing.TryPop(out string path))
+        {
+            LongPathFileSystem.CreateDirectory(path);
+            createdDirectories.Add(path);
+        }
     }
+
+    ~temporarilyCopyFiles() { Dispose(disposing: false); }
 }

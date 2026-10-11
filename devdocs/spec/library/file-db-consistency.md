@@ -16,6 +16,8 @@
 
 ## 仕様
 
+フォルダの改名とルート移動では、停止前に確定した実src/dstを物理処理とDB変更事実へ共通して使います。診断計画を排他範囲や物理対象へ戻さず、宛先の正規化・採番を適用側で再実行しません。成功した対象は同じ変更セッションへ集約し、予期しない物理失敗では確定済みprefixと実移動の未処理suffixを保持します。`FolderAutoRenameWorkflowOwnerTests.PreparedAutoRename_UsesPhysicalTargetsForAdmissionAndPlaybackStop` と `BmsLibraryFolderRenameRefreshTests.AutoRenamePreparedPlans_DiagnosticsDoNotBlockDisjointPhysicalMoves` が実FS/SQLiteの接続と非対象保全を、既存 `ApplyAutoRenamePlans_UnexpectedMoveFailureCommitsConfirmedPrefixAndStopsSuffix` が部分失敗を分担します。
+
 外部変更の全てを包括的に保護する要件はありません。実行直前の存在等を安価に確認するTOCTOU対策は許容しますが、その観測後の外部変更まで防ぐ保証へ広げません。
 
 ### 保証の前提

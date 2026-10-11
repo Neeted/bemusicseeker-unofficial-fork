@@ -39,21 +39,11 @@
 
 機能単位では、旧実装のアルゴリズムへ戻す方が責務・状態・分岐を減らせる場合、その部分を現在の入口へ統合してよい。新旧の実行経路を両方残さず、正常結果、未変更対象、受付、終端、互換性の同じテストで比較する。基準版全体へ戻す評価が必要な場合は別のローカル比較作業ツリーで行い、現行ブランチのresetや無検証の一括revertを行わない。
 
-## 初期指摘と修復対象
+## 保護する管理アーカイブの既存保証
 
-以下の識別子は本計画内だけで使う。テスト名や恒久的な仕様の識別子には持ち込まない。確信度は原因となるコード経路についてのもので、実環境での実行実績を表さない。
+管理一時アーカイブは、展開後に消費済み元パスを再検査せず、準備済み入力を導入まで受け渡す。展開後の取消し回収と診断も保つ。基準版にある修正を再実装せず、全入口の照合と正常導入の検証で維持する。
 
-| 識別 | 条件と問題 | 基準版の判定 | 導入位置の扱い | 修正単位 |
-| --- | --- | --- | --- | --- |
-| R-archive | 管理一時アーカイブを正常展開後、消費済み元パスを再検査して導入を拒否する。展開後取消の回収・診断の引渡しも同系列。 | 修正コードと実ZIPテストあり。保護する既存保証。 | `1e5bb62…`で導入、`77ae92a…`で対処。 | U0、U11で再検証。再実装しない。 |
-| R-rename-scope | 自動改名の事前判定が除外した失敗計画を、適用側がPの対象へ戻す。正常な非交差計画まで停止後Busyとなり得る。 | 準備と適用の対象不一致。高確信。 | `1e5bb62…`の適用側保護追加。 | U8 |
-| F-preview-subdir | 差分の追加音源がサブディレクトリにある場合、一時試聴がトップ階層しかコピーせず、移動先から音源を参照できない。 | 通常の相対パス入力で機能が未充足。コピー対象の不足は確認済み。再生時の現れ方はプレイヤー依存。 | 初導入点未特定。受付整理の新規回帰として計上しない。 | U9 |
-
-### 根拠を追う場所
-
-- `BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs`の`InstallChartPackagesAutoWithProgressAsync`、準備済み入力専用の`InstallChartPackagesAutoCore`。`BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs`、`PackageInstallWorkflowOwnerArchiveTests.cs`。
-- `BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs`の`PreparePhysicalMutation`と、`BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/AutoRenameBatchCoordinator.cs`の`ApplyWithSessionReceipt`。
-- `BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs`の`StartTemporarilyInstalledChart`。`SearchOption.TopDirectoryOnly`で列挙している入力と、一時コピー先の相対構造。
+関連経路は `BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs` の `InstallChartPackagesAutoWithProgressAsync` と準備済み入力専用の `InstallChartPackagesAutoCore`、テストは `BeMusicSeeker.Tests/Install/BmsLibraryManagedArchiveInstallTests.cs` と `PackageInstallWorkflowOwnerArchiveTests.cs` にある。
 
 ## 修正後の設計条件
 
@@ -213,29 +203,9 @@ U0の棚卸しは全期間を通じて更新する。全入口の調査完了を
 
 **コミット例:** `docs: 全機能の正常操作と修復範囲を確定する`。棚卸しの新しい恒久台帳は作らず、本計画を更新する。
 
-### U8：改名の実行対象と排他対象を同一にする
-
-**対象:** `FolderAutoRenameWorkflowOwner.cs`、`AutoRenameBatchCoordinator.cs`、必要な準備済み計画、Testsの`Maintenance`・`FileOperations`。R-rename-scope。
-
-実行可能な移動を一度確定し、事前判定と適用がその同じ集合を使う。失敗・変更不要の計画は診断として保持するが、物理作用の対象へ戻さない。手動改名・配置変更・重複統合にも同じ対象再計算がないか確認する。
-
-**受入:** 正常な二件の改名、変更不要、一部が管理出力交差する正常計画を確認する。失敗計画が混在した場合でも、その計画だけのために正常な非交差対象をP Busyで落とさない。拒否対象のためだけに再生を停止しない。
-
-**コミット例:** `fix: フォルダ改名の準備と適用で同じ移動対象を使う`。
-
-### U9：一時試聴の相対リソース構造を維持する
-
-**対象:** `PlaybackPanelViewModel.cs`、既存の一時コピー処理、Testsの`Playback`・`FileOperations`。F-preview-subdir。
-
-対応する譜面・音源・画像を、パッケージ内の相対配置を保つコピー計画で扱う。単純に再帰列挙へ変えてファイル名だけで平坦化しない。コピー対象をパッケージ外へ拡大せず、既存の導入先ファイルを上書きしない。所有した一時ファイル・ディレクトリだけを回収する。
-
-**受入:** 実譜面に`extra/kick.wav`を定義し、試聴開始時のコピー先に同じ相対パスで存在することを確認する。異なるサブフォルダの同名音源、既存の導入先素材、通常トップ階層入力を含める。停止・再試聴後も元データを保全する。外部playerの遅延読取りを含む既存の寿命保証を弱めない。
-
-**コミット例:** `fix: 差分の一時試聴で追加リソースの相対配置を保持する`。
-
 ### U11：導入・変更・保守・LR2同期の正常結果を確定する
 
-**依存:** U0、U8。管理ZIPは修正を加えず現行経路を検証する。
+**依存:** U0。管理ZIPは修正を加えず現行経路を検証する。改名の確定対象と一変更セッションは[ライブラリ変更仕様](../spec/library/mutations.md)の契約を維持する。
 
 正常系表の新規導入、保留、推定、強制導入、上書き、目録、削除、文字コード・拡張子・難度、改名・配置、重複整理、警告・再走査、LR2同期を、操作ごとに確認する。各操作を「準備」「物理結果」「DB/索引反映」「必要な継続」「次操作」の順で追い、どの段階を既存テストが保証するか対応させる。
 
@@ -267,7 +237,7 @@ WPF端末のテストと機能ownerのテストは役割を分けるが、Comman
 
 ### U14：再生・音声変換・外部連携の実作用を確定する
 
-**依存:** U9と関係する設定反映修正。**対象:** 再生、音声runtime、encoder、外部起動、スコア/IR、関連テスト。
+**依存:** 関係する設定反映の現行契約を維持する。一時試聴の相対配置と資源寿命は[再生仕様](../spec/runtime/audio.md)を正本とする。**対象:** 再生、音声runtime、encoder、外部起動、スコア/IR、関連テスト。
 
 通常開始だけでなく、二曲目、自然終了、モード差、設定変更後の開始、一括変換の二件目を確認する。固定音声・スコアDB・HTTP応答・既存の外部process fixtureを使い、出力内容と引渡し引数を判定する。外部サービスのその日の状態を正常系の正解にしない。
 

@@ -1044,10 +1044,9 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         using LibraryFileMutationCapability libraryCapability = chartFileOperations.CreateMutationCapability(operationGate);
         string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
-        string parent = Path.GetDirectoryName(directoryName);
-        string destination = string.IsNullOrWhiteSpace(parent) ? directoryName : Path.Combine(parent, newFolder);
+        FolderMoveBatch batch = library.PrepareChartFolderRename(directoryName, newFolder);
         LibraryFileMutationLease playlistLease = null;
-        if (IsCurrentLibrary(library) && !library.TryEnterManagedOutputMutation([directoryName, destination], true, out playlistLease, libraryCapability))
+        if (IsCurrentLibrary(library) && !library.TryEnterManagedOutputMutation(batch.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, libraryCapability))
         { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
         using LibraryFileMutationLease acceptedPlaylist = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
@@ -1065,7 +1064,7 @@ internal sealed class RegularChartListOwner : IDisposable
             if (IsCurrentLibrary(library))
             {
                 activityLease = chartMutationActivity.Enter();
-                if (playback != null) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
+                if (playback != null && batch.Moves.Count > 0) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
                 dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = true;
                 PublishRefreshSuppressionChanged(isSuppressed: true);
@@ -1078,7 +1077,7 @@ internal sealed class RegularChartListOwner : IDisposable
                         normalRefreshApplySuppressed = true;
                     }
                     mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false,
-                        reportAtTerminal: mutationDialogs != null, capability: capability);
+                        reportAtTerminal: mutationDialogs != null, capability: capability, preparedBatch: batch);
                     lock (syncRoot)
                     {
                         normalLibraryRefreshApplySuppressed = false;

@@ -440,6 +440,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>外部playerの既存開始境界について、通常・一時配置の入力保持と開始時/開始後の一回通知を確認します。Readyと相対素材の条件は専用ケースが担当します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -543,6 +544,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>StartAtIndexから実コピーを通し、Ready前の相対素材読取りとCompletion前の所有物回収を確認します。playerだけを固定し、低層のディレクトリ所有条件とは分担します。</summary>
     [TestMethod]
     public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion()
     {
@@ -552,36 +554,133 @@ public sealed class PlaybackPanelViewModelTests
         Directory.CreateDirectory(source);
         Directory.CreateDirectory(destination);
         string chartPath = Path.Combine(source, "chart.bms");
-        File.WriteAllText(chartPath, string.Empty);
+        File.WriteAllText(chartPath, "#WAV01 extra/kick.wav");
+        string[] resources = ["extra/kick.wav", "other/kick.wav", "extra/banner.png", "top.wav"];
+        foreach (string resource in resources)
+        {
+            string path = Path.Combine(source, resource);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, resource);
+        }
+        Directory.CreateDirectory(Path.Combine(destination, "extra"));
+        File.WriteAllText(Path.Combine(destination, "extra/banner.png"), "existing image");
+        File.WriteAllText(Path.Combine(directory, "outside.wav"), "outside package");
         File.WriteAllBytes(Path.Combine(directory, "song.db"), []);
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
         var operations = new ChartFileOperationSynchronizer();
         PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(chartPath, destination,
-            Path.Combine(directory, "song.db"), player, new FakePlaybackDialogService(), out _, operations);
+            Path.Combine(directory, "song.db"), player, new FakePlaybackDialogService(), out _, operations, packageRoot: source);
         Task start = panel.StartAtIndex(0);
         try
         {
+            await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, start, "temporary-ready-start");
             string copiedPath = await player.StartObserved.Task;
             Assert.IsFalse(player.LastAllowPreload);
             Assert.IsTrue(File.Exists(copiedPath));
+            Assert.AreEqual("#WAV01 extra/kick.wav", File.ReadAllText(copiedPath));
+            foreach (string resource in resources.Where(path => !path.EndsWith("banner.png", StringComparison.Ordinal)))
+            {
+                Assert.AreEqual(resource, File.ReadAllText(Path.Combine(destination, resource)));
+            }
+            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "outside.wav")));
             Assert.IsFalse(start.IsCompleted);
             ready.SetResult();
             await start;
             Assert.IsFalse(File.Exists(copiedPath));
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "extra/kick.wav")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(destination, "other")));
+            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
             Assert.IsTrue(File.Exists(chartPath));
             Assert.IsFalse(completion.Task.IsCompleted);
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(chartPath, panel.NowPlayingChart.Path);
+            await panel.StopPlayback(closeProcess: true);
+            player.BeforePlayStart = () => Assert.AreEqual("extra/kick.wav", File.ReadAllText(Path.Combine(destination, "extra/kick.wav")));
+            await panel.StartAtIndex(0);
+            Assert.AreEqual(2, player.Starts.Count);
+            Assert.IsFalse(File.Exists(Path.Combine(destination, "extra/kick.wav")));
+            Assert.AreEqual("existing image", File.ReadAllText(Path.Combine(destination, "extra/banner.png")));
+            foreach (string resource in resources) { Assert.AreEqual(resource, File.ReadAllText(Path.Combine(source, resource))); }
         }
         finally
         {
             ready.TrySetResult();
-            await start;
-            await panel.StopPlayback(closeProcess: true);
             completion.TrySetResult();
-            Directory.Delete(directory, recursive: true);
+            try { await start; }
+            finally
+            {
+                try { await panel.StopPlayback(closeProcess: true); }
+                finally { Directory.Delete(directory, recursive: true); }
+            }
+        }
+    }
+
+    /// <summary>外部playerの実開始後に別Taskから相対素材を読み、既存の短い保持中の読取りと開始Task終端後の回収を確認します。固定sleepで成功を推定せず、gateと読取り結果を観測します。</summary>
+    [TestMethod]
+    public async Task TemporaryCopy_ExternalDelayedReadKeepsNestedChartAndRestoresOriginalName()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bms-temporary-external-" + Guid.NewGuid().ToString("N"));
+        string source = Path.Combine(root, "source");
+        string destination = Path.Combine(root, "destination");
+        Directory.CreateDirectory(Path.Combine(source, "charts/extra"));
+        Directory.CreateDirectory(Path.Combine(destination, "charts"));
+        string chart = Path.Combine(source, "charts/chart.bms");
+        string resource = Path.Combine(source, "charts/extra/kick.wav");
+        File.WriteAllText(chart, "#WAV01 extra/kick.wav");
+        File.WriteAllText(resource, "kick");
+        File.WriteAllText(Path.Combine(destination, "charts/chart.bms"), "existing chart");
+        string songDb = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDb, []);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
+        PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(chart, destination, songDb, player,
+            new FakePlaybackDialogService(), out _, packageRoot: source);
+        Task reader = Task.CompletedTask;
+        Task start = Task.CompletedTask;
+        string copied = Path.Combine(destination, "charts", "chart_.bms");
+        player.BeforePlayStart = () =>
+        {
+            reader = Task.Run(async () =>
+            {
+                await releaseRead.Task;
+                Assert.AreEqual("#WAV01 extra/kick.wav", File.ReadAllText(copied));
+                Assert.AreEqual("kick", File.ReadAllText(Path.Combine(destination, "charts/extra/kick.wav")));
+                readObserved.TrySetResult();
+            });
+            started.TrySetResult(copied);
+        };
+        try
+        {
+            start = Task.Run(() => panel.StartAtIndex(0));
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, start, "temporary-external-start");
+            releaseRead.TrySetResult();
+            await TestUiDispatcherHost.AwaitNotificationAsync(readObserved.Task, reader, "temporary-external-relative-read");
+            await start;
+            Assert.IsFalse(completion.Task.IsCompleted, "外部playerの返却Task終端までコピーや選曲を保持しません。");
+            Assert.IsFalse(File.Exists(copied));
+            Assert.IsFalse(Directory.Exists(Path.Combine(destination, "charts/extra")));
+            Assert.AreEqual("existing chart", File.ReadAllText(Path.Combine(destination, "charts/chart.bms")));
+            Assert.AreEqual("#WAV01 extra/kick.wav", File.ReadAllText(chart));
+            Assert.AreEqual("kick", File.ReadAllText(resource));
+            Assert.IsFalse(File.Exists(Path.Combine(source, "charts/chart_.bms")));
+            Assert.IsTrue(player.Commands.Contains("PlayStart:" + copied));
+        }
+        finally
+        {
+            releaseRead.TrySetResult();
+            completion.TrySetResult();
+            try { await Task.WhenAll(start, reader); }
+            finally
+            {
+                try { await panel.StopPlayback(closeProcess: true); }
+                finally { Directory.Delete(root, recursive: true); }
+            }
         }
     }
 
@@ -3215,7 +3314,8 @@ public sealed class PlaybackPanelViewModelTests
         IBMSPlayer player,
         IPlaybackDialogService dialogs,
         out LibraryChartRow activationRow,
-        ChartFileOperationSynchronizer? operations = null)
+        ChartFileOperationSynchronizer? operations = null,
+        string? packageRoot = null)
     {
         ChartFile bmsFile = (ChartTestValues.Empty() with { Path = chartPath });
         ChartFile chart = ChartPackageTestExtensions
@@ -3235,7 +3335,14 @@ public sealed class PlaybackPanelViewModelTests
             dialogs,
             _ => { },
             operations ?? new ChartFileOperationSynchronizer());
-        panel.AttachLibrary(new TestBmsLibrary(songDbPath, settings: testSettings));
+        var library = new TestBmsLibrary(songDbPath, settings: testSettings);
+        if (packageRoot != null)
+        {
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
+            package.path = packageRoot;
+            library.ChartPackagesPending = [package];
+        }
+        panel.AttachLibrary(library);
         return panel;
     }
 

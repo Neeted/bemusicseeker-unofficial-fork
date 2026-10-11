@@ -944,16 +944,20 @@ internal sealed class BmsLibraryLibraryFileOperationsService
                 string requestedPath = createFolderPath?.Invoke(directChildren, DirectoryExt.GetDirectoryNameSimple(folder));
                 if (!string.IsNullOrWhiteSpace(requestedPath) && !folder.Equals(requestedPath, StringComparison.OrdinalIgnoreCase))
                 {
-                    plan.DestinationDirectory = ResolveAutoRenameDestinationDirectory(
-                        folder,
-                        requestedPath,
-                        reservedDestinationFolders,
-                        normalizeFolderName);
+                    plan = new FolderAutoRenamePlan
+                    {
+                        SourceDirectory = folder,
+                        DestinationDirectory = ResolveAutoRenameDestinationDirectory(
+                            folder,
+                            requestedPath,
+                            reservedDestinationFolders,
+                            normalizeFolderName)
+                    };
                 }
             }
             catch (Exception ex)
             {
-                plan.FailureException = ex;
+                plan = new FolderAutoRenamePlan { SourceDirectory = folder, FailureException = ex };
             }
             plans.Add(plan);
         }

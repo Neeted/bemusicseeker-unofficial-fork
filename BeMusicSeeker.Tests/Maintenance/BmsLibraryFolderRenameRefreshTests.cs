@@ -23,6 +23,64 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
+    /// <summary>準備済みの正常二件と診断計画を実FS/SQLiteへ適用し、診断だけの管理出力交差がPの競合を物理対象へ戻さないことを確認します。受付と停止は上位workflow試験が担当します。</summary>
+    [TestMethod]
+    public void AutoRenamePreparedPlans_DiagnosticsDoNotBlockDisjointPhysicalMoves()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string managed = Path.Combine(root, "Managed");
+            string first = Path.Combine(root, "First");
+            string second = Path.Combine(root, "Second");
+            string[] sources = [first, second, managed];
+            foreach (string source in sources)
+            {
+                Directory.CreateDirectory(source);
+                File.WriteAllText(Path.Combine(source, "chart.bms"), source);
+            }
+            ChartFile[] charts = sources.Select((source, index) => (ChartTestValues.Empty() with { Path = Path.Combine(source, "chart.bms"), Md5 = index.ToString("x32"), Token = new OwnedChartToken() })).ToArray();
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
+            var library = new TestBmsLibrary(songDbPath, null, null, null, new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+            { BmsCharts = charts };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            var planningFailure = new IOException("rename planning failed");
+            FolderAutoRenamePlan[] plans =
+            [
+                new() { SourceDirectory = first, DestinationDirectory = first + "Moved" },
+                new() { SourceDirectory = managed, DestinationDirectory = managed + "Failed", FailureException = planningFailure },
+                new() { SourceDirectory = managed, DestinationDirectory = managed },
+                new() { SourceDirectory = second, DestinationDirectory = second + "Moved" }
+            ];
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable accepted));
+            using (accepted)
+            using (LibraryFileMutationCapability capability = library.OperationAdmission.CreateMutationCapability(accepted))
+            {
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
+                using (held)
+                {
+                    AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(charts, false,
+                        new RecordingFolderAutoRenameProgressWriter(), reportAtTerminal: true, capability: capability, preparedBatch: new FolderMoveBatch(plans));
+                    Assert.AreEqual(2, result.AppliedPlanCount);
+                    Assert.AreEqual(2, result.SessionReceipt.ConfirmedChangeCount);
+                    Assert.AreSame(planningFailure, result.Diagnostics.Single(item => item.Kind == AutoRenameBatchDiagnosticKind.RenamePlanFailed).Failure);
+                    Assert.IsTrue(File.Exists(charts[2].Path));
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                    foreach (string source in new[] { first, second })
+                    {
+                        Assert.IsFalse(Directory.Exists(source));
+                        string moved = Path.Combine(source + "Moved", "chart.bms");
+                        Assert.AreEqual(source, File.ReadAllText(moved));
+                        Assert.IsNull(db.Find<LR2SongDB.song>(Path.Combine(source, "chart.bms")));
+                        Assert.IsNotNull(db.Find<LR2SongDB.song>(moved));
+                    }
+                }
+            }
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+        });
+    }
+
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]

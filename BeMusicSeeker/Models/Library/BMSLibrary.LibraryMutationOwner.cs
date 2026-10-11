@@ -788,16 +788,16 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// 計画済み folder rename を一つの operation-scoped session へ集約し、terminal facts を返します。
-    /// LR2 synchronization は caller が同じ外側 lease 内で一回だけ完了します。
+    /// 確定した実移動だけを一つの変更セッションへ集約し、診断を含む終端事実を返します。
+    /// LR2同期は呼出元が同じ外側の受付内で一回だけ完了します。
     /// </summary>
-    /// <param name="plans">現在の command が所有する事前計算済み rename plans。</param>
+    /// <param name="batch">診断計画と停止前に確定した実移動。</param>
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     /// <param name="progressReporter">item 単位の optional progress reporter。</param>
     /// <param name="postLeaseNotifications">lease 解放後に一回公開する command-owned notifications。</param>
     /// <returns>session receipt、LR2 finalization inputs、診断を保持する immutable result。</returns>
     internal AutoRenameBatchResult ApplyAutoRenamePlansWithSessionReceipt(
-        IEnumerable<FolderAutoRenamePlan> plans,
+        FolderMoveBatch batch,
         LibraryFileMutationCapability mutationCapability,
         Action<int, int, string> progressReporter,
         ICollection<Action> postLeaseNotifications)
@@ -805,7 +805,7 @@ internal sealed partial class LibraryMutationOwner
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         return autoRenameBatchCoordinator.ApplyWithSessionReceipt(
-            plans,
+            batch,
             mutationCapability,
             postLeaseNotifications,
             progressReporter);

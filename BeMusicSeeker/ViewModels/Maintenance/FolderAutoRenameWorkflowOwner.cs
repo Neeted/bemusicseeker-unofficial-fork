@@ -29,6 +29,9 @@ internal interface IFolderAutoRenameMutationPort
 
     bool HasTargets(BMSLibrary library, string parentDirectory);
 
+    /// <summary>準備済みの実移動が再生停止を必要とするかを返します。独立代替portは従来の停止を維持します。</summary>
+    bool RequiresPlaybackStop => true;
+
     FolderAutoRenameExecutionResult RenameSelectedWithProgress(
         BMSLibrary library,
         ChartFolderAutoRenameRequest request,
@@ -43,32 +46,35 @@ internal interface IFolderAutoRenameMutationPort
 internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
 {
     private readonly LibraryFileMutationCapability capability;
-    private readonly IReadOnlyList<FolderAutoRenamePlan> preparedPlans;
-    /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
+    private readonly FolderMoveBatch preparedBatch;
+    /// <summary>受理済み操作の明示権限と確定済み実移動を物理変更へ渡す窓口を作ります。元leaseの所有と実終端は呼出元が担当します。</summary>
     internal BmsLibraryFolderAutoRenameMutationPort(LibraryFileMutationCapability capability = null,
-        IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
-    { this.capability = capability; this.preparedPlans = preparedPlans; }
+        FolderMoveBatch preparedBatch = null)
+    { this.capability = capability; this.preparedBatch = preparedBatch; }
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
-    public IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryFolderAutoRenameMutationPort(capability, preparedPlans);
+    public IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryFolderAutoRenameMutationPort(capability, preparedBatch);
 
     /// <summary>同じLで計画を捕捉し、交差する物理作用の前にPを取得します。取得失敗では停止も変更も行いません。</summary>
     public IFolderAutoRenameMutationPort PreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
         string parentDirectory, bool allFolders, LibraryFileMutationCapability capability,
         out LibraryFileMutationLease playlistLease)
     {
-        IReadOnlyList<FolderAutoRenamePlan> plans = library.PrepareAutoRenamePlans(request?.Charts ?? [], parentDirectory, allFolders);
-        if (!library.TryEnterManagedOutputMutation(plans.Where(plan => plan.FailureException == null && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase))
+        FolderMoveBatch batch = preparedBatch ?? library.PrepareAutoRenameBatch(request?.Charts ?? [], parentDirectory, allFolders);
+        if (!library.TryEnterManagedOutputMutation(batch.Moves
             .SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, capability))
         { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-        return new BmsLibraryFolderAutoRenameMutationPort(capability, plans);
+        return new BmsLibraryFolderAutoRenameMutationPort(capability, batch);
     }
 
     public bool HasTargets(BMSLibrary library, string parentDirectory)
     {
-        return preparedPlans != null
-            ? preparedPlans.Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory) && !string.IsNullOrWhiteSpace(plan.DestinationDirectory))
+        return preparedBatch != null
+            ? preparedBatch.Plans.Any(plan => plan.FailureException != null || (!string.IsNullOrWhiteSpace(plan.SourceDirectory) && !string.IsNullOrWhiteSpace(plan.DestinationDirectory)))
             : library?.HasAutoRenameAllChartFolderTargets(parentDirectory) == true;
     }
+
+    /// <summary>同じ確定済み実移動が一件以上ある場合だけ再生を停止します。</summary>
+    public bool RequiresPlaybackStop => preparedBatch?.Moves.Count > 0;
 
     public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
         BMSLibrary library,
@@ -79,7 +85,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithProgress(
             request?.Charts ?? [],
             renameRootFolder: false,
-            progressWriter, reportAtTerminal: true, capability: capability, preparedPlans: preparedPlans)
+            progressWriter, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         return FolderAutoRenameExecutionResult.From(result);
     }
@@ -92,7 +98,7 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
         ArgumentNullException.ThrowIfNull(progressWriter);
         return library?.AutoRenameAllChartFoldersWithProgress(
             parentDirectory,
-            progressWriter, reportAtTerminal: true, capability: capability, preparedPlans: preparedPlans)
+            progressWriter, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 }
@@ -582,7 +588,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 if (!await ExecuteMutation(
                     run,
-                    stopPlayback: true,
+                    stopPlayback: run.PreparedPort.RequiresPlaybackStop,
                     operationPort =>
                     {
                         result = FolderAutoRenameExecutionResult.From(
@@ -602,7 +608,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
             {
                 if (!await ExecuteMutation(
                     run,
-                    stopPlayback: true,
+                    stopPlayback: run.PreparedPort.RequiresPlaybackStop,
                     operationPort =>
                     {
                         result = operationPort.RenameSelectedWithProgress(

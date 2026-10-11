@@ -20,14 +20,14 @@ namespace BeMusicSeeker.Models;
 public partial class BMSLibrary
 {
     /// <summary>受理済みL内で自動改名の実src/dstを一回固定します。モデル保護は戻る前に解放し、呼出元が必要なPを取得して停止します。</summary>
-    internal IReadOnlyList<FolderAutoRenamePlan> PrepareAutoRenamePlans(
+    internal FolderMoveBatch PrepareAutoRenameBatch(
         IEnumerable<ChartFile> charts, string parentDirectory, bool allFolders)
     {
         List<FolderAutoRenamePlan> plans = null;
         libraryMutationOwner.RunWithFolderMoveSnapshotLocks(() => plans = allFolders
             ? libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDirectory)
             : libraryMutationOwner.BuildAutoRenamePlans(charts.Where(chart => chart != null), getBMSDirectories(), false));
-        return plans.ToArray();
+        return new FolderMoveBatch(plans);
     }
 
     /// <summary>
@@ -39,13 +39,13 @@ public partial class BMSLibrary
     /// <param name="progressWriter">進捗の通知先。</param>
     /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
     /// <param name="capability">同ownerの生存L/P権限。外側は必要通知・回収まで所有します。</param>
-    /// <param name="preparedPlans">停止前に一回捕捉した実移動計画。省略時は従来入口で捕捉します。</param>
+    /// <param name="preparedBatch">停止前に一回捕捉した診断計画と実移動。直接入口ではこの受付内で捕捉します。</param>
     /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameChartFoldersWithProgress(
         IEnumerable<ChartFile> chartFiles,
         bool renameRootFolder,
         IFolderAutoRenameProgressWriter progressWriter,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         if (chartFiles == null)
         {
@@ -65,15 +65,15 @@ public partial class BMSLibrary
             libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
-                    IReadOnlyList<FolderAutoRenamePlan> plans = preparedPlans;
-                    if (plans == null)
+                    FolderMoveBatch batch = preparedBatch;
+                    if (batch == null)
                     {
                         libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                            () => plans = libraryMutationOwner.BuildAutoRenamePlans(
-                                chartFiles.Where(chart => chart != null), getBMSDirectories(), renameRootFolder));
+                            () => batch = new FolderMoveBatch(libraryMutationOwner.BuildAutoRenamePlans(
+                                chartFiles.Where(chart => chart != null), getBMSDirectories(), renameRootFolder)));
                     }
                     result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                        plans,
+                        batch,
                         mutationCapability,
                         (total, processed, currentPath) => progressWriter.TryWrite(
                             new FolderAutoRenameProgressUpdate(total, processed, currentPath)),
@@ -100,12 +100,12 @@ public partial class BMSLibrary
     /// <param name="progressWriter">進捗の通知先。</param>
     /// <param name="reportAtTerminal">呼出元が終端で失敗を報告する場合は true。</param>
     /// <param name="capability">同ownerの生存L/P権限。外側は必要通知・回収まで所有します。</param>
-    /// <param name="preparedPlans">停止前に一回捕捉した実移動計画。省略時は従来入口で捕捉します。</param>
+    /// <param name="preparedBatch">停止前に一回捕捉した診断計画と実移動。直接入口ではこの受付内で捕捉します。</param>
     /// <returns>変更セッションの確定結果。</returns>
     internal AutoRenameBatchResult AutoRenameAllChartFoldersWithProgress(
         string parentDir,
         IFolderAutoRenameProgressWriter progressWriter,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, IReadOnlyList<FolderAutoRenamePlan> preparedPlans = null)
+        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
         if (TryBlockCatalogFileMutation(nameof(AutoRenameAllChartFoldersWithProgress), capability: capability))
@@ -121,16 +121,16 @@ public partial class BMSLibrary
             libraryMutationOwner.RunWithFolderMoveWriteLocks(
                 mutationCapability =>
                 {
-                    IReadOnlyList<FolderAutoRenamePlan> plans = preparedPlans;
-                    if (plans == null)
+                    FolderMoveBatch batch = preparedBatch;
+                    if (batch == null)
                     {
                         libraryMutationOwner.RunWithFolderMoveSnapshotLocks(
-                            () => plans = libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir));
+                            () => batch = new FolderMoveBatch(libraryMutationOwner.BuildAutoRenamePlansForSourceFolders(parentDir)));
                     }
-                    if (HasActionableAutoRenamePlan(plans))
+                    if (batch.Plans.Count > 0)
                     {
                         result = libraryMutationOwner.ApplyAutoRenamePlansWithSessionReceipt(
-                            plans,
+                            batch,
                             mutationCapability,
                             (total, processed, currentPath) => progressWriter.TryWrite(
                                 new FolderAutoRenameProgressUpdate(total, processed, currentPath)),

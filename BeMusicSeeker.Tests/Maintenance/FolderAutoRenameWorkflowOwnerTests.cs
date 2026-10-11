@@ -18,6 +18,128 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FolderAutoRenameWorkflowOwnerTests
 {
+    /// <summary>計画生成から本番port・受付・実FS/SQLite・通知終端までを通し、診断交差と実交差の停止順序を確認します。正常二件の反映詳細は下位試験、予約なしと次要求の成立はここが担当します。</summary>
+    [DataTestMethod]
+    [DataRow("mixed")]
+    [DataRow("diagnostics")]
+    [DataRow("intersection")]
+    public async Task PreparedAutoRename_UsesPhysicalTargetsForAdmissionAndPlaybackStop(string scenario)
+    {
+        string root = CreateRoot();
+        FolderAutoRenameWorkflowOwner? owner = null;
+        IDisposable? held = null;
+        try
+        {
+            string managed = Path.Combine(root, "Managed");
+            string first = Path.Combine(scenario == "intersection" ? managed : root, "First");
+            string second = Path.Combine(root, "Second");
+            string failed = Path.Combine(managed, "Failed");
+            string noChange = Path.Combine(managed, "NoChange");
+            string third = Path.Combine(root, "Third");
+            string[] sources = [first, second, failed, noChange, third];
+            string[] titles = ["FirstMoved", "SecondMoved", "Failure", "NoChange", "ThirdMoved"];
+            var charts = new List<ChartFile>();
+            for (int index = 0; index < sources.Length; index++)
+            {
+                Directory.CreateDirectory(sources[index]);
+                string path = Path.Combine(sources[index], "chart.bms");
+                File.WriteAllText(path, sources[index]);
+                charts.Add(ChartTestValues.Empty() with { Path = path, Md5 = index.ToString("x32"), Title = titles[index], RawTitle = titles[index], Token = new OwnedChartToken() });
+            }
+            string songDb = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDb, []);
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed, FolderNameFormat = "%TITLE%" };
+            var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), () => options)
+            { BmsCharts = charts };
+            new BmsLibraryDbGateway(songDb).UpsertSongs(charts);
+            ChartFile[] selected = scenario == "diagnostics" ? [charts[2], charts[3]] : charts.Take(4).ToArray();
+            var planningFailure = new IOException("failed rename plan");
+            var service = new BmsLibraryLibraryFileOperationsService();
+            var batch = new FolderMoveBatch(service.BuildAutoRenamePlans(selected, [], true, _ => selected,
+                (children, parent) => children.Single().Title == "Failure" ? throw planningFailure : Path.Combine(parent, children.Single().Title)));
+            var playback = new NoOpChartMutationPlaybackPort();
+            int terminalCount = 0;
+            int refreshCount = 0;
+            FolderAutoRenameFailure? failure = null;
+            FolderAutoRenameCompletionReceipt? completion = null;
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { refreshCount++; }
+            };
+            owner = new FolderAutoRenameWorkflowOwner(library.OperationAdmission, new ChartMutationActivityOwner(),
+                new BmsLibraryFolderAutoRenameMutationPort(preparedBatch: batch), playback, action => action(), action => action(),
+                new AcceptedFolderDialogService());
+            owner.AttachLibrary(library);
+            owner.FailurePublished += value => failure = value;
+            owner.CompletionPublished += value => completion = value;
+            owner.TerminalPublished += () => terminalCount++;
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out held));
+            Assert.IsTrue(owner.RequestStartSelected(selected.Select(CreatePhysicalTarget).ToArray()));
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, terminalCount);
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            if (scenario == "intersection")
+            {
+                Assert.IsNotNull(failure);
+                StringAssert.Contains(failure.Exception.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                Assert.IsNull(completion);
+                Assert.AreEqual(0, playback.StopCount);
+                Assert.AreEqual(0, refreshCount);
+                foreach (ChartFile chart in charts) { Assert.IsTrue(File.Exists(chart.Path)); }
+                held.Dispose();
+                held = null;
+                Assert.IsTrue(File.Exists(charts[0].Path), "Pの解放だけでは拒否した操作を実行しません。");
+                failure = null;
+                Assert.IsTrue(owner.RequestStartSelected(selected.Select(CreatePhysicalTarget).ToArray()));
+                await owner.WaitForIdleAsync();
+                Assert.IsNull(failure);
+                Assert.AreEqual(2, terminalCount);
+            }
+            else { Assert.IsNull(failure); }
+            Assert.IsNotNull(completion);
+            int expected = scenario == "diagnostics" ? 0 : 2;
+            Assert.AreEqual(expected == 0 ? 0 : 1, playback.StopCount);
+            Assert.AreEqual(expected, completion.SessionReceipt.ConfirmedChangeCount);
+            Assert.AreEqual(expected == 0 ? 0 : 1, refreshCount);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            {
+                for (int index = 0; index < charts.Count; index++)
+                {
+                    string destination = expected > 0 && index < 2 ? Path.Combine(Path.GetDirectoryName(sources[index])!, titles[index], "chart.bms") : charts[index].Path;
+                    Assert.IsTrue(File.Exists(destination));
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
+                    if (expected > 0 && index < 2) { Assert.IsNull(db.Find<LR2SongDB.song>(charts[index].Path)); }
+                }
+            }
+            held?.Dispose();
+            held = null;
+            owner = new FolderAutoRenameWorkflowOwner(library.OperationAdmission, new ChartMutationActivityOwner(),
+                new BmsLibraryFolderAutoRenameMutationPort(), playback, action => action(), action => action(), new AcceptedFolderDialogService());
+            owner.AttachLibrary(library);
+            FolderAutoRenameFailure? nextFailure = null;
+            owner.FailurePublished += value => nextFailure = value;
+            Assert.IsTrue(owner.RequestStartSelected([CreatePhysicalTarget(charts[4])]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(nextFailure, nextFailure?.Exception.ToString());
+            string thirdDestination = Path.Combine(root, "ThirdMoved", "chart.bms");
+            Assert.IsTrue(File.Exists(thirdDestination));
+            Assert.IsFalse(File.Exists(charts[4].Path));
+            using LR2SongDBExtended finalDb = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly();
+            Assert.IsNotNull(finalDb.Find<LR2SongDB.song>(thirdDestination));
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+        }
+        finally
+        {
+            held?.Dispose();
+            if (owner != null) { await owner.WaitForIdleAsync(); }
+            DeleteRoot(root);
+        }
+    }
+
+    private static ChartOperationTarget CreatePhysicalTarget(ChartFile chart) => new(chart, null, ChartOperationSourceScope.Library,
+        isOwned: true, isPending: false, isPlaylistMissing: false, ChartOperationCapabilities.MoveInLibrary);
+
     [TestMethod]
     public async Task SelectedRequest_PublishesTerminalProgressBeforeCompletion()
     {
