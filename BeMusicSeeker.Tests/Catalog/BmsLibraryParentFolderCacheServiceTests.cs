@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryParentFolderCacheServiceTests
 {
+    /// <summary>
+    /// LR2フォルダが存在するrootでもbmsonの所持パスがあれば親候補へ残し、譜面なしの除外をそのまま適用しない。
+    /// </summary>
     [TestMethod]
     public void BuildParentFolderCandidates_BmsonChartKeepsRootEvenWhenLr2FolderExists()
     {
@@ -41,6 +44,9 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
         }
     }
 
+    /// <summary>
+    /// LR2出力先を通常・追加・root型の設定から除外し、所持譜面があっても出力先の子を親候補に混入させない。
+    /// </summary>
     [TestMethod]
     public void BuildParentFolderCandidates_ExcludesCustomFolderOutputBasesEvenWhenChartsExist()
     {
@@ -86,6 +92,10 @@ public sealed class BmsLibraryParentFolderCacheServiceTests
         }
     }
 
+    /// <summary>
+    /// bmsonの所有集合を置換したとき親フォルダcacheの世代変更を一度通知し、表示更新の起点を欠落させない。
+    /// </summary>
+    /// <remarks>実ライブラリの所有集合setterと通知を接続し、一覧更新の起点まで確認する。</remarks>
     [TestMethod]
     public void BmsonSongsSetter_RaisesParentFolderCacheVersionChanged()
     {

@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileProjectionTests
 {
+    /// <summary>
+    /// 空白付き指示行とTAG後のCOMMANDを読み、各表示・検索・件数・画像指定を投影して後勝ち規則や項目対応の誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void ParseDefinition_ReadsSupportedLr2FolderDirectives()
     {
@@ -39,6 +42,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.IsTrue(definition.HasCustomFolderDirective);
     }
 
+    /// <summary>
+    /// アプリが出力する検索SQL・最大件数・表名と空の情報行を読み、生成形式との接続不一致を検出します。
+    /// </summary>
     [TestMethod]
     public void ParseDefinition_ReadsBeMusicSeekerGeneratedFolderText()
     {
@@ -60,6 +66,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(string.Empty, definition.InformationB);
     }
 
+    /// <summary>
+    /// GENREとPLAYLEVELをフォルダの分類・最大件数の別名として読み、BMS指示名を受理しない互換性退行を検出します。
+    /// </summary>
     [TestMethod]
     public void ParseDefinition_TreatsGenreAndPlayLevelAsFolderAliases()
     {
@@ -73,6 +82,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(40, definition.MaxTracks);
     }
 
+    /// <summary>
+    /// 明示定義をLR2のカスタム行へ投影し、外部種別整数・親CRC・更新日時を揃えて既存の登録日時を保持することを確認します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_ProjectsDefinitionToCustomFolderRow()
     {
@@ -120,6 +132,9 @@ public sealed class Lr2FolderFileProjectionTests
             row.parent);
     }
 
+    /// <summary>
+    /// 最大件数未指定の新規行は制限なしで投影し、生成時刻を登録日時に保存してファイル時刻との取り違えを検出します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_DefaultsMaxAndAddDateForNewRow()
     {
@@ -139,6 +154,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(generatedAt.ToUnixtime(), row.adddate);
     }
 
+    /// <summary>
+    /// LR2ルート相対の保存パスと明示ROOT親を保持してカスタム行を作り、無断で絶対パスへ変換する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_AllowsKnownLr2RootRelativeDatabasePath()
     {
@@ -160,6 +178,10 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(2, row.type);
     }
 
+    /// <summary>
+    /// 外部DBが受理するカスタム種別整数を指定どおり保存し、正常種別の拒否や別種別への置換を検出します。
+    /// </summary>
+    /// <remarks>DataRowの2・3・4・6は外部DBのカスタム種別整数です。</remarks>
     [DataTestMethod]
     [DataRow(2)]
     [DataRow(3)]
@@ -179,6 +201,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(folderType, row.type);
     }
 
+    /// <summary>
+    /// 組込み配下の入れ子ファイルをLR2相対階層と実親CRCへ投影し、ROOT直下への平坦化を検出します。
+    /// </summary>
     [TestMethod]
     public void SourceClassifier_UsesRelativePathWithoutFlatteningNestedBuiltinFolders()
     {
@@ -213,6 +238,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreNotEqual(Lr2SongFolderParentNormalizer.RootParentHash, row.parent);
     }
 
+    /// <summary>
+    /// Rival配下を組込みCustomFolderと混同せず絶対パスと実親へ投影し、既定探索範囲の誤拡張を検出します。
+    /// </summary>
     [TestMethod]
     public void SourceClassifier_DoesNotTreatLr2FilesRivalAsDefaultBuiltinSource()
     {
@@ -245,6 +273,9 @@ public sealed class Lr2FolderFileProjectionTests
             row.parent);
     }
 
+    /// <summary>
+    /// 組込み探索と管理出力が重なるファイルは組込みの相対階層を優先し、出力設定で外部保存キーを変える誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void SourceClassifier_PrefersOverlappingBuiltinSourceOverRootCustomOutput()
     {
@@ -266,6 +297,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.IsNull(classification.ParentHash);
     }
 
+    /// <summary>
+    /// ルート出力内の表サブフォルダを実親へ結び、子ファイルをROOT直下へ平坦化する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void SourceClassifier_DoesNotFlattenNestedRootCustomOutputFolders()
     {
@@ -296,6 +330,10 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory), row.parent);
     }
 
+    /// <summary>
+    /// 更新日時が同じでも親が変わった実ファイルを再読込対象へ戻し、既存行だけを保存して古い親を残す判断を検出します。
+    /// </summary>
+    /// <remarks>実ファイルの時刻と読込みを使い、時刻だけの既存行再利用を検出します。</remarks>
     [TestMethod]
     public void CreateLr2FolderFileSyncItems_DoesNotPreserveExistingRowWhenParentDiffers()
     {
@@ -339,6 +377,10 @@ public sealed class Lr2FolderFileProjectionTests
         }
     }
 
+    /// <summary>
+    /// 既知の組込みファイル名から通常・新規曲・コースの外部種別を選び、相対保存パスを保って特殊種別の取り違えを検出します。
+    /// </summary>
+    /// <remarks>既知パスと期待種別のDataRowで通常2・新規曲3・コース6の条件差を示します。</remarks>
     [DataTestMethod]
     [DataRow(@"LR2files\CustomFolder\favorite.lr2folder", 2)]
     [DataRow(@"LR2files\CustomFolder\TOP10.lr2folder", 2)]
@@ -367,6 +409,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.AreEqual(expectedFolderType, classification.FolderType);
     }
 
+    /// <summary>
+    /// CP932で表現できないパスのカスタム行だけを投影から省き、文字列を破損して外部DBへ登録する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_SkipsCp932UnsupportedPath()
     {
@@ -381,6 +426,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.IsNull(row);
     }
 
+    /// <summary>
+    /// 通常ディレクトリ専用の種別1をファイル行として拒否し、カスタム投影で予約種別を混入させる誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_SkipsReservedNormalDirectoryType()
     {
@@ -396,6 +444,9 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.IsNull(row);
     }
 
+    /// <summary>
+    /// 未知の外部種別整数を持つファイル行を作らず、意味不明な種別を正常カスタム行として保存する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void TryCreateFolderRow_SkipsUnknownCustomFolderType()
     {
@@ -411,6 +462,10 @@ public sealed class Lr2FolderFileProjectionTests
         Assert.IsNull(row);
     }
 
+    /// <summary>
+    /// 通常ディレクトリの実DB同期は不足行を追加してもカスタム行を除去せず、同期範囲を跨ぐ誤削除を検出します。
+    /// </summary>
+    /// <remarks>実SQLiteで通常行の追加と種別を跨がない削除範囲を観測します。</remarks>
     [TestMethod]
     public void NormalDirectorySync_DoesNotPruneCustomFolderRows()
     {

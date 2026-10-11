@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -16,6 +18,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryZeroNoteRefreshTests
 {
+    /// <summary>
+    /// resolver未解決の所持譜面から古いゼロノート警告を解除し、警告表示の更新を一回通知して、解除の未公開を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの所持現在値から警告表示の通知へ接続し、警告解除の公開を観測する。</remarks>
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_PublishesWarningRefreshWhenWarningsChange()
     {
@@ -51,6 +57,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         });
     }
 
+    /// <summary>
+    /// 実入力と保存ノート数の不整合警告が既にある再確認では表示更新を出さず、同じ警告での不要な再通知を検出する。
+    /// </summary>
+    /// <remarks>実BMSLibraryへ保存譜面情報をhydrateし、所持現在値と表示通知への接続を確認する。警告追加は実譜面の読取りも必要とする。</remarks>
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_DoesNotRaiseChartFilesZeroNoteWhenWarningsDoNotChange()
     {
@@ -86,6 +96,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         });
     }
 
+    /// <summary>
+    /// 実譜面にノートがあるのに保存情報がゼロなら同じ所持tokenへ警告・強調・要約を反映し、不整合の見逃しを検出する。
+    /// </summary>
+    /// <remarks>実BMSLibraryへ保存譜面情報をhydrateし、所持現在値と表示通知への接続を確認する。警告追加は実譜面の読取りも必要とする。</remarks>
     [TestMethod]
     public async Task RecheckZeroNoteWarnings_SetsStructuredWarningWhenMismatchIsDetected()
     {
@@ -114,6 +128,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         });
     }
 
+    /// <summary>
+    /// 保存譜面情報のノート数からゼロノートBMSだけを所持tokenで返し、通常BMSやBmsonの混入を検出する。
+    /// </summary>
+    /// <remarks>実BMSLibraryへ保存譜面情報をhydrateし、ゼロノート一覧が所持BMSのtokenを返すことを確認する。</remarks>
     [TestMethod]
     public async Task ChartFilesZeroNote_UsesOwnedBmsSnapshot()
     {
@@ -159,9 +177,9 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ZeroNoteRefreshTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
+            File.WriteAllBytes(songDbPath, []);
             await testAction(songDbPath);
         }
         finally
@@ -227,16 +245,44 @@ public sealed class BmsLibraryZeroNoteRefreshTests
             }
         };
 
+        var workers = new ConcurrentBag<Task>();
+        Func<string, string, string, Func<Task>, bool>? previousScheduler = library.StartupBackgroundTaskScheduler;
+        library.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+        {
+            workers.Add(Task.Run(work));
+            return true;
+        };
+        Exception? primaryFailure = null;
         library.PropertyChanged += handler;
         try
         {
             queueHydration();
             TryComplete();
-            await completion.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(
+                completion.Task, Task.WhenAll(workers), "zero-note.hydration-completed");
+            await Task.WhenAll(workers);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
         }
         finally
         {
+            try
+            {
+                await Task.WhenAll(workers);
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure is null) { primaryFailure = cleanupFailure; }
+                else { primaryFailure.Data["HydrationSecondaryDiagnostics"] = cleanupFailure.ToString(); }
+            }
             library.PropertyChanged -= handler;
+            library.StartupBackgroundTaskScheduler = previousScheduler;
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
     }
 

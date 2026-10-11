@@ -10,14 +10,14 @@ using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>
-/// PLV-HIST-20260829 provider-neutral rollback contract tests.
-/// </summary>
+/// <summary>情報源別の履歴から基準日のスコアを復元し、欠損と不正を隠さないことを検証する。</summary>
+/// <remarks>境界日時・旧値は復元器へ直接渡す。読取り契約のケースは専用SQLiteを使い、実トリガー・索引の状態とDBバイト列の不変を観測する。表示と要求世代はセッション・ビューアへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistLampHistoricalScoreSnapshotTests
 {
     private static readonly DateTime TestToday = new(2026, 8, 29);
 
+    /// <summary>基準日翌日の午前0時を含めて巻き戻し、同時刻は行ID降順で旧値を復元する。境界行の除外や同時刻の逆処理で別スコアへ戻る誤りを検出する。</summary>
     [TestMethod]
     public void Cutoff_includes_local_midnight_and_same_timestamp_uses_source_id_descending()
     {
@@ -46,6 +46,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreEqual(120, score!.ExScore);
     }
 
+    /// <summary>基準日より後の履歴がなければ現在スコアをそのまま維持する。履歴行の存在だけで巻き戻したり未プレイへ置換する誤りを検出する。</summary>
     [TestMethod]
     public void No_future_history_keeps_exact_current_score()
     {
@@ -78,6 +79,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreSame(currentScore, result.ScoreSnapshot.ScoresByHash[hash]);
     }
 
+    /// <summary>LR2の旧プレイ回数は存在するが旧値4項目がすべて欠損した履歴を利用不可にする。欠損を現在値や未プレイで補う誤りを検出する。</summary>
     [TestMethod]
     public void Lr2_nonnull_old_playcount_with_all_null_tuple_degrades_the_historical_snapshot()
     {
@@ -99,6 +101,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>LR2の旧プレイ回数NULLは他の旧値が存在しても初回プレイ前と解釈し、旧スコアを除く。NULLと旧値欠損を混同する誤りを検出する。</summary>
     [TestMethod]
     public void Lr2_null_old_playcount_is_the_explicit_first_play_sentinel()
     {
@@ -127,6 +130,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(result.ScoreSnapshot.ScoresByHash.ContainsKey(hash));
     }
 
+    /// <summary>beatorajaの旧クリア・旧EXスコアを現在ノーツ数に合わせて復元し、DJランクを算出する。現在EX値の残存や情報源別の旧値対応漏れを検出する。</summary>
     [TestMethod]
     public void Beatoraja_rollback_uses_oldclear_and_oldscore_with_current_notes()
     {
@@ -158,6 +162,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreEqual(RankType.A, score.Rank);
     }
 
+    /// <summary>保存値上限のMAXと満点EXスコアを有効な過去成績として復元する。上限の誤拒否やMAXを別ランプへ変換する誤りを検出する。</summary>
     [TestMethod]
     public void Beatoraja_oldclear_max_restores_the_valid_upper_boundary()
     {
@@ -190,6 +195,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreEqual(RankType.MAX, score.Rank);
     }
 
+    /// <summary>旧クリアNO_PLAY・EXスコア0を有効な履歴スコアとして復元する。未プレイという保存値を不正履歴や現在成績へ置換する誤りを検出する。</summary>
     [TestMethod]
     public void Beatoraja_oldclear_no_play_projects_to_np()
     {
@@ -229,7 +235,9 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreEqual(RankType.F, score!.Rank);
     }
 
+    /// <summary>保存範囲の直前・直後の旧クリア値は診断付きで履歴を利用不可にする。不正整数のカテゴリへの転用を検出する。</summary>
     [DataTestMethod]
+    // 保存範囲0〜10の下側と上側を個別に確認する。
     [DataRow(-1)]
     [DataRow(11)]
     public void Beatoraja_invalid_oldclear_outside_storage_range_degrades_the_historical_snapshot(int invalidOldClear)
@@ -261,6 +269,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>全件読取りで確定・未確定両方のLR2履歴を新しい順に取り込み、旧プレイ回数NULLとDB内容を維持する。未確定の脱落や参照時の書込みを検出する。</summary>
     [TestMethod]
     public void Lr2_reader_includes_unfinalized_rows_without_writing_the_database()
     {
@@ -314,6 +323,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         }
     }
 
+    /// <summary>beatoraja履歴からモード0だけを新しい順に読み、score・scorelog双方を書き換えない。別モードの混入と読取り時の修復を検出する。</summary>
     [TestMethod]
     public void Beatoraja_reader_reads_only_mode_zero_without_writing_score_databases()
     {
@@ -356,6 +366,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         }
     }
 
+    /// <summary>LR2の旧ランプ操作履歴だけが欠けた場合は復元不能として診断を返す。部分的旧値の暗黙補完を検出する。</summary>
     [TestMethod]
     public void Malformed_old_values_degrade_the_historical_snapshot()
     {
@@ -376,6 +387,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>負の旧プレイ回数は利用不可と診断を返す。初回プレイを示すNULLと不正な回数を混同する誤りを検出する。</summary>
     [TestMethod]
     public void Negative_lr2_old_playcount_degrades_the_historical_snapshot()
     {
@@ -396,6 +408,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>1ノーツに対するint最大EXスコアの履歴は診断付きで利用不可とし、ノーツ数から許容できない成績を受理する誤りを検出する。</summary>
     [TestMethod]
     public void Old_exscore_above_double_total_notes_degrades_the_historical_snapshot()
     {
@@ -416,6 +429,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>変換不能なUnix時刻を持つ履歴は診断付きで利用不可とする。行を黙って除いて現在スコアを正しい過去値として返す誤りを検出する。</summary>
     [TestMethod]
     public void Invalid_history_unix_timestamp_degrades_instead_of_being_ignored()
     {
@@ -446,6 +460,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.FailureMessage));
     }
 
+    /// <summary>今日より未来の有効時刻は選択可能な最古日を広げず、基準日後の巻戻し対象には含める。日付範囲の検査で必要な履歴まで捨てる誤りを検出する。</summary>
     [TestMethod]
     public void Valid_timestamp_after_today_is_excluded_from_range_but_remains_a_rollback_candidate()
     {
@@ -466,7 +481,9 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         Assert.AreEqual(120, result.ScoreSnapshot.ScoresByHash[hash].ExScore);
     }
 
+    /// <summary>LR2履歴トリガーの欠損と定義不一致は履歴を利用不可にし、読取りでDBを修復しない。信頼できない履歴の受理や書込みを検出する。</summary>
     [DataTestMethod]
+    // 欠損と、同じ名前で定義が異なるトリガーの両方は履歴の信頼性を失わせる。
     [DataRow("missing")]
     [DataRow("mismatched")]
     public void Lr2_trigger_schema_defect_degrades_without_repairing_the_database(string defect)
@@ -518,6 +535,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         }
     }
 
+    /// <summary>LR2の索引だけが欠損したDBは過去スコアを復元でき、DBを書き換えない。修復可能な索引欠損による過剰拒否や参照時修復を検出する。</summary>
     [TestMethod]
     public void Lr2_index_only_schema_defect_keeps_historical_snapshot_available_without_repairing_the_database()
     {
@@ -571,6 +589,7 @@ public sealed class PlaylistLampHistoricalScoreSnapshotTests
         }
     }
 
+    /// <summary>プレイリスト外の履歴からも情報源全体の最古日を求め、今日までを選択可能にする。所属譜面だけへ日付範囲を狭める誤りを検出する。</summary>
     [TestMethod]
     public void Provider_wide_range_uses_history_not_playlist_membership()
     {

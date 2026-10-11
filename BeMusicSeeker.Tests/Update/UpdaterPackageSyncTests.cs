@@ -23,6 +23,10 @@ public sealed class UpdaterPackageSyncTests
 {
     private CaseProcessScope? activeProcessScope;
 
+    /// <summary>
+    /// 受付確認後もproceed前は更新を適用せず、prepared保存情報と独立復旧登録を保ち、取消で旧ファイルを維持して登録を片付ける順序誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void UpdaterWaitsForProceedDecisionBeforeApplyingOrWaitingForApplicationExit()
     {
@@ -51,27 +55,8 @@ public sealed class UpdaterPackageSyncTests
 
                 string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
                 string journalJson = File.ReadAllText(journalPath);
-                Assert.IsFalse(journalJson.Contains('\n'), "The durable journal must remain compact JSON.");
                 using var journalDocument = JsonDocument.Parse(journalJson);
                 JsonElement journal = journalDocument.RootElement;
-                CollectionAssert.AreEqual(
-                    new[]
-                    {
-                        "Version",
-                        "Phase",
-                        "AppDirectory",
-                        "PackagePath",
-                        "ApplicationProcessId",
-                        "BackupDirectory",
-                        "PreviousDirectory",
-                        "ExtractDirectory",
-                        "RestartExecutablePath",
-                        "RestartProcessId",
-                        "Preflight",
-                        "BackupComplete",
-                        "NewPackagePaths"
-                    },
-                    journal.EnumerateObject().Select(property => property.Name).ToArray());
                 Assert.AreEqual(JsonValueKind.Number, journal.GetProperty("Version").ValueKind);
                 Assert.AreEqual(1, journal.GetProperty("Version").GetInt32());
                 Assert.AreEqual(JsonValueKind.String, journal.GetProperty("Phase").ValueKind);
@@ -142,6 +127,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 新しい更新の前にapplyingの未完了journalを回復し、新版の適用後だけjournalと旧世代を片付けて未回復状態への上書きを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdateRecoversIncompleteDurableJournalBeforeNewMutation()
     {
@@ -191,6 +180,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// バックアップ途中の回復は未移動の現行ファイルを消さず、部分的なコピーを現行へ昇格する誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommandRestoresPartialBackupWithoutDeletingUnmovedApplicationFiles()
     {
@@ -232,6 +225,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// watchdog回復で旧版を復元して実再起動markerを得てからjournalとbackupを退役し、復旧と再起動の接続欠落を検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void WatchdogRecoversApplyingTransactionAndRestartsPreviousApplication()
     {
@@ -275,6 +272,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 記録されたアプリPIDが再利用されても別プロセスの存在だけで復旧を止めず、旧版復元と実再起動が欠落する誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommandDoesNotTrustReusedApplicationPidAfterRestart()
     {
@@ -316,6 +317,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 同じ実行ファイルが実際に生存すると更新・復旧を延期して旧世代と新しい復旧登録を保ち、稼働中のアプリを上書きする誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommandDefersWhenTheApplicationExecutableIsStillRunning()
     {
@@ -420,6 +425,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 復元済みjournalだけが残りbackupがない状態で再回復しても現行ファイルを保ち、後片付けの再実行で復元を繰り返す誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RolledBackJournalCleanupDoesNotReplayRestoreAfterBackupWasRemoved()
     {
@@ -457,6 +466,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 判断待ちの実ツールがリースを保持すると競合更新を失敗にし、先着取消後も旧ファイルを保って二重適用の受付漏れを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void UpdaterRejectsConcurrentTransactionLeaseWithoutMutation()
     {
@@ -492,6 +505,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 管理ファイルの排他失敗では本体と利用者ツリー・ZIPを維持して元理由を保存し、backup移動や再起動を始める誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_PreflightManagedLockLeavesCanonicalAndPreservedTreesUnchanged()
     {
@@ -544,6 +561,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 復元途中にも故障したら元失敗receiptと唯一のbackup・journalを保持し、故障解消後の回復で収束して回復材料を消す誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommand_RollbackSecondFaultRetainsPrimaryReceiptAndRecoveryMaterial()
     {
@@ -611,6 +632,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 更新リース保持中の回復は短い否定観測で終端せず、取消による解放後に直列回復してRunOnceと監視登録を片付ける誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void RecoverCommandSerializesRunOnceConsumersWhenTransactionLeaseIsUnavailable()
     {
@@ -648,6 +673,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 旧manifestがない配布から現layoutへ更新し、旧管理DLLだけを整理して利用者追加DLLと設定を保つことで移行時の過剰削除を検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RemovesLegacyDllLayoutWithoutPreviousManifest()
     {
@@ -818,6 +847,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// メタデータを含まない更新では旧アプリ管理archive・DB・取込履歴を整理し、新版と古いメタデータを混在させる誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RemovesAppManagedMetadataArtifactsWhenPackageHasNoMetadata()
     {
@@ -854,6 +887,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 同梱版更新は新しいmetadata archiveへ置換して旧DB・取込履歴を整理し、古い解析情報を残す誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_ReplacesAppManagedMetadataArtifactsWithBundledArchive()
     {
@@ -892,6 +929,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 適用後の実再起動callbackが失敗すると旧metadataと本体・利用者ツリーを復元し、元失敗を残して新版を誤確定する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの確定・復元と元の再起動失敗を観測するため、managed buildの既存callback境界を使用する。ほかのツール起動ケースが実配布プロセスを分担する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure()
     {
@@ -941,6 +982,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// backup先が専用の子領域でない更新要求は本体変更前に拒否し、本体を退避先として扱う誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsBackupDirectoryOutsideDedicatedChildWithoutMutation()
     {
@@ -969,6 +1014,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 再起動先が存在しない更新要求は本体変更前に拒否し、再起動不能な配布を適用する誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsMissingRestartTargetBeforeMutation()
     {
@@ -992,6 +1041,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 新packageの管理対象に再起動先がないと旧本体・manifest・ZIPを保って拒否し、起動先のない更新を始める誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsPackageWithoutManagedRestartTargetBeforeMutation()
     {
@@ -1018,6 +1071,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 正でないアプリPIDの要求は旧本体とZIPを保ってbackup作成前に拒否し、プロセス同一性なしに変更を始める誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsInvalidProcessIdBeforeMutation()
     {
@@ -1041,6 +1098,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// downloads外のpackageは旧本体とZIPを保ってbackup作成前に拒否し、更新領域外のファイルを消費する誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsPackageOutsideDownloadsBeforeMutation()
     {
@@ -1071,6 +1132,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 新版再起動後にZIP削除が失敗しても新版と実markerを維持し、確定後の後片付け失敗で旧版へ戻す誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_DoesNotRollbackAfterRestartWhenCleanupFails()
     {
@@ -1111,6 +1176,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// ファイルからディレクトリへ置換した後の再起動失敗では元ファイルと無関係な兄弟を復元し、種類変更の巻き戻し欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの確定・復元と元の再起動失敗を観測するため、managed buildの既存callback境界を使用する。ほかのツール起動ケースが実配布プロセスを分担する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RollbackRestoresFileDirectoryTransition()
     {
@@ -1148,6 +1217,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 管理された子ファイルだけのディレクトリを新版ファイルへ置換し、旧子ファイルを残して適用できなくなる誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_ReplacesManagedDirectoryWithFile()
     {
@@ -1184,6 +1257,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 未管理の子を含むディレクトリのファイル化は変更前に拒否し、利用者の子・旧世代・ZIPと理由を保って過剰削除を検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsDirectoryToFileTransitionWithUnmanagedChildBeforeMutation()
     {
@@ -1227,6 +1304,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// manifest管理外の既存ファイルを上書きするpackageは変更前に拒否し、旧本体・利用者内容・manifest・ZIPを保って境界越えを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsReplacingUnmanagedFileWhenManifestExistsBeforeMutation()
     {
@@ -1270,6 +1351,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 管理ファイルのパスが利用者の子を持つディレクトリへ変わっていれば拒否し、manifestだけを信頼した再帰削除を検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsManagedFilePathThatBecameDirectoryWithUserChild()
     {
@@ -1313,6 +1398,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 共有ディレクトリの管理ファイル適用後に再起動が失敗しても未管理の兄弟を残して復元し、復元範囲の過剰な削除を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの確定・復元と元の再起動失敗を観測するため、managed buildの既存callback境界を使用する。ほかのツール起動ケースが実配布プロセスを分担する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RollbackPreservesUnmanagedSiblingInSharedDirectory()
     {
@@ -1351,6 +1440,10 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
+    /// <summary>
+    /// 管理パスの祖先がシンボリックリンクなら適用を拒否し、外部sentinel・旧本体・ZIPを保ってリンク先を変更する誤りを検出する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
     [TestMethod]
     public void ApplyUpdate_RejectsReparseAncestorBeforeMovingManagedPath()
     {

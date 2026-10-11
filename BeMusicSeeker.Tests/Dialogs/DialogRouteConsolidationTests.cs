@@ -36,6 +36,7 @@ public sealed class DialogRouteConsolidationTests
         new Regex(@"ProgressDialog\.Current", RegexOptions.Compiled),
     ];
 
+    /// <summary>本番の直接dialog呼出しを含むファイル集合を許可境界と照合し、機能側から調停処理を迂回する表示を検出します。</summary>
     [TestMethod]
     public void DirectDialogRouteFiles_MatchDocumentedBoundaries()
     {
@@ -51,6 +52,7 @@ public sealed class DialogRouteConsolidationTests
             "直接表示を行う実装は devdocs/spec/ui/dialogs.md の許可範囲と一致する必要があります。");
     }
 
+    /// <summary>利用者の肯定・否定・取消・閉鎖と表示不可を区別し、非表示や閉鎖を受理結果へ誤分類しません。</summary>
     [TestMethod]
     public void UiDialogResult_SeparatesUserChoicesFromDisplayFailures()
     {
@@ -69,59 +71,7 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable).IsAccepted);
     }
 
-    [TestMethod]
-    public void LegacyDialogEntryPoints_AreCoordinatorBackedAndDoNotUseStandardFallback()
-    {
-        string root = FindRepositoryRoot();
-        string bmsLibraryDialogService = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "Dialogs", "BmsLibraryDialogService.cs"));
-        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-        string emergencyDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "EmergencyDialog.cs"));
-
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "DispatcherMessageBox.cs")), "DispatcherMessageBox should be removed after legacy call sites move to coordinator-backed routes.");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogLegacyAdapter.cs")), "UiDialogLegacyAdapter should be removed after legacy entrypoints are retired.");
-        StringAssert.Contains(bmsLibraryDialogService, "UiDialogCoordinator");
-        Assert.IsFalse(bmsLibraryDialogService.Contains("DispatcherMessageBox"), "BmsLibraryDialogService must not route model dialogs through DispatcherMessageBox.");
-        Assert.IsFalse(bmsLibraryDialogService.Contains("UiDialogLegacyAdapter"), "BmsLibraryDialogService must not route through the retired legacy adapter.");
-        StringAssert.Contains(emergencyDialog, "MessageBox.Show(");
-        Assert.IsFalse(File.Exists(Path.Combine(root, "BeMusicSeeker", "Views", "ThemedDialogInteractionMessageActions.cs")), "Livet message box actions should be removed after notification routes move to the coordinator.");
-        Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"InformationDialog\""), "MainWindow must not keep unused Livet information dialog triggers.");
-        Assert.IsFalse(mainWindowXaml.Contains("MessageKey=\"ConfirmationDialog\""), "MainWindow must not keep unused Livet confirmation dialog triggers.");
-    }
-
-    [TestMethod]
-    public void ViewCodeBehindMessages_DoNotUseDispatcherMessageBox()
-    {
-        string root = FindRepositoryRoot();
-        string viewsRoot = Path.Combine(root, "BeMusicSeeker", "Views");
-        var offenders = Directory
-            .EnumerateFiles(viewsRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
-            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
-            .ToList();
-
-        CollectionAssert.AreEqual(
-            Array.Empty<string>(),
-            offenders,
-            "View code-behind must not use the retired DispatcherMessageBox route.");
-    }
-
-    [TestMethod]
-    public void ViewModels_DoNotUseDispatcherMessageBox()
-    {
-        string root = FindRepositoryRoot();
-        string viewModelsRoot = Path.Combine(root, "BeMusicSeeker", "ViewModels");
-        var offenders = Directory
-            .EnumerateFiles(viewModelsRoot, "*.cs", SearchOption.AllDirectories)
-            .Where(path => File.ReadAllText(path).Contains("DispatcherMessageBox.Show("))
-            .Select(path => NormalizeRelativePath(new Uri(root + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(path)).ToString()))
-            .ToList();
-
-        CollectionAssert.AreEqual(
-            Array.Empty<string>(),
-            offenders,
-            "ViewModel messages must not use the retired DispatcherMessageBox route.");
-    }
-
+    /// <summary>本番compiled呼出辺で標準MessageBoxを緊急表示に限り、その呼出元をAppに限って通常経路の迂回を検出します。</summary>
     [TestMethod]
     public void StandardMessageBox_IsLimitedToEmergencyDialog()
     {

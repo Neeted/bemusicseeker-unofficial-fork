@@ -18,6 +18,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 {
+    /// <summary>再検査storeの呼出後に一回だけ完了通知し、呼出の欠落や余計な警告表示を検出します。</summary>
     [TestMethod]
     public async Task RescanAsync_UsesStoreAndPublishesCompletionAfterSuccess()
     {
@@ -40,6 +41,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.MessageCalls);
     }
 
+    /// <summary>変更拒否は取消とbusy警告で返し、完了通知や成功への読み替えを検出します。</summary>
     [TestMethod]
     public async Task RescanAsync_WhenLibraryBlocksMutation_ShowsWarningWithoutRefresh()
     {
@@ -63,6 +65,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         StringAssert.Contains(dialogs.LastMessage, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
     }
 
+    /// <summary>拒否警告が表示できない場合は失敗を返し、通常取消として表示失敗を隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task RescanAsync_WhenBlockedWarningCannotBeShown_ReturnsFailure()
     {
@@ -83,6 +86,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         Assert.AreEqual(0, completionCalls);
     }
 
+    /// <summary>再検査後の通知先例外を元の失敗として返し、成功結果だけを返す誤りを検出します。</summary>
     [TestMethod]
     public async Task RescanAsync_WhenCompletionObserverFails_ReturnsFailure()
     {
@@ -99,6 +103,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         Assert.AreEqual(1, store.RescanCalls);
     }
 
+    /// <summary>無視・解除の要求値を保存へ渡し、保存失敗後に再試行や成功への代替を行う誤りを検出します。</summary>
     [TestMethod]
     public void SetWarningsIgnored_PassesUnsetAndDoesNotFallbackAfterFailure()
     {
@@ -194,7 +199,6 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
 
     private static ChartFile CreateChart(string path)
     {
-        ChartFile file = (ChartTestValues.Empty() with { Path = path });
         return new ChartFile(ChartFileKind.Bms, path, "resource-health-hash", null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 

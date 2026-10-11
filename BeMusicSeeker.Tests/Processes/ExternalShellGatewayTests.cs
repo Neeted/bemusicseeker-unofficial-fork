@@ -8,18 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExternalShellGatewayTests
 {
-    [TestMethod]
-    public void RequestFactoriesPreserveTypedOperationAndTarget()
-    {
-        var url = ExternalShellRequest.OpenUrl("https://example.invalid");
-        var file = ExternalShellRequest.OpenAssociatedFile(@"C:\Songs\chart.bms");
-
-        Assert.AreEqual(ExternalShellRequestKind.Url, url.Kind);
-        Assert.AreEqual("https://example.invalid", url.Target);
-        Assert.AreEqual(ExternalShellRequestKind.AssociatedFile, file.Kind);
-        Assert.AreEqual(@"C:\Songs\chart.bms", file.Target);
-    }
-
+    /// <summary>空URLと空白ファイル対象を引数失敗として拒否し、曖昧なshell要求を作りません。</summary>
     [TestMethod]
     public void RequestFactoriesRejectEmptyTargets()
     {
@@ -27,6 +16,7 @@ public sealed class ExternalShellGatewayTests
         Assert.ThrowsException<ArgumentException>(() => ExternalShellRequest.OpenAssociatedFile("  "));
     }
 
+    /// <summary>関連文書の操作を注入gatewayへ関連付けファイル要求として渡し、対象pathや操作種別を取り違えません。</summary>
     [TestMethod]
     public void SelectedChartRelatedDocumentUsesInjectedGateway()
     {

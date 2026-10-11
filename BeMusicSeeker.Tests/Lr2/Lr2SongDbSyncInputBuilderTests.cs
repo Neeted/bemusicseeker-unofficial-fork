@@ -24,6 +24,10 @@ public sealed class Lr2SongDbSyncInputBuilderTests
         Directories
     }
 
+    /// <summary>
+    /// 走査なしの入力を実管理出力設定へ接続し、三種類の列挙から旧管理候補だけを除いて準備済み出力と外部候補を混合することを確認します。
+    /// </summary>
+    /// <remarks>実管理設定のSQLite読込みと準備済みファイルのmetadataを使い、列挙portだけを固定入力へ差替えます。</remarks>
     [TestMethod]
     public void CreateNoScanInput_EnumeratesThenExcludesManagedScopeAndOverlaysPreparedFile()
     {

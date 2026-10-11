@@ -17,9 +17,11 @@ using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>Hubの入力通知と行への投影を直接検査します。導入・再走査・フォルダ変更とURL取得のケースだけは実workflowの通知接続と終端を通し、Windowへの表示接続はMainWindowProgressStatusBarWpfTestsが分担します。</remarks>
 [TestClass]
 public sealed class OperationProgressHubViewModelTests
 {
+    /// <summary>見積中に導入・URL取得を開始すると各進捗と取消先を同時に表示し、URL終端後も稼働中の導入行を維持します。</summary>
     [TestMethod]
     public void InstallPipelinePresentation_ShowsAcquisitionInstallAndEstimateTogether()
     {
@@ -82,23 +84,36 @@ public sealed class OperationProgressHubViewModelTests
             Task urlAcquisition = playlistWorkspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/priority.zip")],
                 isDiffUrl: false);
-            urlGateway.ReadStarted.Wait();
-            OperationProgressRow urlRow = hub.Rows.Single(row => row.Key == "url");
-            Assert.AreEqual(1d, urlRow.Maximum);
-            Assert.AreEqual(0d, urlRow.Value);
-            Assert.AreEqual("https://example.invalid/priority.zip", urlRow.Detail);
-            Assert.AreEqual(OperationProgressAction.CancelUrlDownload, urlRow.Action);
-            Assert.AreEqual(OperationProgressAction.CancelInstall, hub.Rows.Single(row => row.Key == "install").Action);
-            Assert.AreEqual(4d, hub.Rows.Single(row => row.Key == "estimate").Value);
-            Assert.AreEqual(3, hub.Rows.Count);
-            urlGateway.Response.TrySetResult(new AppHttpResponse(
-                new Uri("https://example.invalid/priority.zip"),
-                new MemoryStream([1, 2, 3], writable: false)));
-            urlAcquisition.GetAwaiter().GetResult();
+            try
+            {
+                urlGateway.ReadStarted.Wait();
+                OperationProgressRow urlRow = hub.Rows.Single(row => row.Key == "url");
+                Assert.AreEqual(1d, urlRow.Maximum);
+                Assert.AreEqual(0d, urlRow.Value);
+                Assert.AreEqual("https://example.invalid/priority.zip", urlRow.Detail);
+                Assert.AreEqual(OperationProgressAction.CancelUrlDownload, urlRow.Action);
+                Assert.AreEqual(OperationProgressAction.CancelInstall, hub.Rows.Single(row => row.Key == "install").Action);
+                Assert.AreEqual(4d, hub.Rows.Single(row => row.Key == "estimate").Value);
+                Assert.AreEqual(3, hub.Rows.Count);
+                urlGateway.Response.TrySetResult(new AppHttpResponse(
+                    new Uri("https://example.invalid/priority.zip"),
+                    new MemoryStream([1, 2, 3], writable: false)));
+                urlAcquisition.GetAwaiter().GetResult();
 
-            Assert.IsTrue((GetPipelineRow(hub) != null));
-            Assert.AreEqual(1, (GetPipelineRow(hub)?.Value ?? 0d));
-            StringAssert.Contains((GetRow(hub, "install")?.Detail ?? string.Empty), "drop.zip");
+                Assert.IsTrue((GetPipelineRow(hub) != null));
+                Assert.AreEqual(1, (GetPipelineRow(hub)?.Value ?? 0d));
+                StringAssert.Contains((GetRow(hub, "install")?.Detail ?? string.Empty), "drop.zip");
+            }
+            finally
+            {
+                if (!urlGateway.Response.Task.IsCompleted)
+                {
+                    urlGateway.Response.TrySetResult(new AppHttpResponse(
+                        new Uri("https://example.invalid/priority.zip"),
+                        new MemoryStream([1, 2, 3], writable: false)));
+                }
+                urlAcquisition.GetAwaiter().GetResult();
+            }
         }
         finally
         {
@@ -109,6 +124,7 @@ public sealed class OperationProgressHubViewModelTests
         }
     }
 
+    /// <summary>総数ゼロの実導入進捗にも非ゼロ分母を与え、導入receipt終端で行を除去して稼働表示を残しません。</summary>
     [TestMethod]
     public async Task InstallPipelinePresentation_NormalizesEmptyMaximumAndInactiveState()
     {
@@ -134,10 +150,10 @@ public sealed class OperationProgressHubViewModelTests
         fixture.ReleasePackageProgress();
         await fixture.Package.WaitForIdleAsync();
         Assert.IsFalse((GetPipelineRow(hub) != null));
-        Assert.AreEqual(0, (GetPipelineRow(hub)?.Value ?? 0d));
-        Assert.AreEqual(1, (GetPipelineRow(hub)?.Maximum ?? 1d));
+
     }
 
+    /// <summary>接続済みフォルダ変更の件数・対象を表示し、実workflowのidleと表示終端通知後にその行を除去します。</summary>
     [TestMethod]
     public void FolderAutoRenamePresentation_NormalizesProgressAndClearsOnCompletion()
     {
@@ -167,12 +183,10 @@ public sealed class OperationProgressHubViewModelTests
         fixture.Folder.WaitForIdleAsync().Wait();
         progressCleared.Wait();
         Assert.IsFalse((GetRow(hub, "rename") != null));
-        Assert.AreEqual(0.0, (GetRow(hub, "rename")?.Value ?? 0d));
-        Assert.AreEqual(1.0, (GetRow(hub, "rename")?.Maximum ?? 1d));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "rename")?.Label ?? string.Empty));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "rename")?.Detail ?? string.Empty));
+
     }
 
+    /// <summary>接続済み再走査の進捗をHubへ配送し、実workflowのidleと表示終端通知後には進捗行と取消操作を残しません。</summary>
     [TestMethod]
     public void MaintenanceRescanPresentation_UsesAttachedWorkflowProgressAndTerminalReset()
     {
@@ -202,6 +216,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse((GetRow(hub, "maintenance")?.CanCancel == true));
     }
 
+    /// <summary>同じHubへ導入・再走査・フォルダ変更の通知源を二度接続すると拒否し、重複通知購読を防ぎます。</summary>
     [TestMethod]
     public void WorkflowProgressSources_CannotBeAttachedTwice()
     {
@@ -214,6 +229,7 @@ public sealed class OperationProgressHubViewModelTests
             fixture.Folder));
     }
 
+    /// <summary>完了件数が総数を超えた同期通知を総数へclampし、現対象表と正規化した件数を通知付きで表示します。</summary>
     [TestMethod]
     public void PlaylistSyncPresentation_UsesNormalizedValuesAndCurrentTableName()
     {
@@ -242,6 +258,7 @@ public sealed class OperationProgressHubViewModelTests
         CollectionAssert.Contains(changedProperties, nameof(hub.Rows));
     }
 
+    /// <summary>表同期のactive行にinactive通知が届くと行を除去し、対象や件数の古い表示を残しません。</summary>
     [TestMethod]
     public void PlaylistSyncPresentation_InactiveSnapshotClearsState()
     {
@@ -259,12 +276,10 @@ public sealed class OperationProgressHubViewModelTests
         workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot());
 
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "playlist:playlist:0")?.Label ?? string.Empty));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "playlist:playlist:0")?.Detail ?? string.Empty));
-        Assert.AreEqual(0.0, (GetRow(hub, "playlist:playlist:0")?.Value ?? 0d));
-        Assert.AreEqual(0.0, (GetRow(hub, "playlist:playlist:0")?.Maximum ?? 0d));
+
     }
 
+    /// <summary>activeとinactiveが順にqueueされたときは旧active callbackを先に実行しても表示を再生せず、最新通知だけを採用します。</summary>
     [TestMethod]
     public void PlaylistSyncPresentation_DropsOlderQueuedSnapshotWhenNewerSnapshotArrives()
     {
@@ -289,6 +304,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
     }
 
+    /// <summary>queue済みactive通知の適用前にshell終了が始まった場合、適用callbackを排出しても新しい同期表示を出しません。</summary>
     [TestMethod]
     public void PlaylistSyncPresentation_SuppressesQueuedSnapshotDuringShellClosing()
     {
@@ -315,6 +331,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.Rows.Any(row => row.Key.StartsWith("playlist:")));
     }
 
+    /// <summary>同じHubへplaylist通知源を二度接続すると拒否し、重複購読で進捗を二重配送しません。</summary>
     [TestMethod]
     public void PlaylistProgressSources_CannotBeAttachedTwice()
     {
@@ -327,6 +344,7 @@ public sealed class OperationProgressHubViewModelTests
             () => false));
     }
 
+    /// <summary>起動進捗の名称・詳細と段階分子分母を親行の本文へ投影し、実通知でも子行更新を伝えます。</summary>
     [TestMethod]
     public void StartupProgressPresentation_ProjectsParentStageGauge()
     {
@@ -349,6 +367,7 @@ public sealed class OperationProgressHubViewModelTests
         CollectionAssert.Contains(changedProperties, nameof(StartupProgressWorkflowOwner.DetailRows));
     }
 
+    /// <summary>起動表示をinactiveかつ名称・詳細nullで更新すると空表示と入力された初期分子分母へ戻し、古い進捗を残しません。</summary>
     [TestMethod]
     public void StartupProgressPresentation_InactiveAndNullValuesClearState()
     {
@@ -364,6 +383,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(1.0, hub.StartupProgress.Maximum);
     }
 
+    /// <summary>必須起動・表同期・LR2同期の終端に依存せず任意初期化の親表示を維持し、LR2未完了・失敗の独立警告は明示的に消すまで表示します。</summary>
     [TestMethod]
     public void StartupBackgroundInitializationPresentation_KeepsParentAndIndependentWorkVisible()
     {
@@ -430,6 +450,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
     }
 
+    /// <summary>任意初期化表示の通知listenerが例外を投げても開始・終端状態を更新し、購読者失敗によって表示状態を固定しません。</summary>
     [TestMethod]
     public void StartupBackgroundInitializationPresentation_IsolatesThrowingSubscriber()
     {
@@ -450,6 +471,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
     }
 
+    /// <summary>LR2実行行は起動と完了表示猶予中も独立件数を維持し、検証段階は不定進捗へ切り替えて起動親へ加算せず、LR2終端でだけ消えます。</summary>
     [TestMethod]
     public async Task Lr2SongDbSyncPresentation_RemainsVisibleDuringStartupAndCompletionDelay()
     {
@@ -529,6 +551,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.Rows.Any(row => row.Key == "lr2"));
     }
 
+    /// <summary>LR2未完了は取消もゲージもない独立警告として残し、状態不在への更新では行を除去します。</summary>
     [TestMethod]
     public void Lr2SongDbSyncPresentation_KeepsIncompleteWarningAndClearsNotNeeded()
     {
@@ -551,17 +574,11 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.Rows.Single(row => row.Key == "lr2").IsIndeterminate);
 
         hub.UpdateLr2SongDbSyncStatus(null);
+        Assert.IsFalse(hub.Rows.Any(row => row.Key == "lr2"));
 
-        Assert.IsFalse((GetRow(hub, "lr2") != null));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "lr2")?.Label ?? string.Empty));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "lr2")?.Detail ?? string.Empty));
-        Assert.AreEqual(string.Empty, (GetRow(hub, "lr2")?.ToolTip ?? string.Empty));
-        Assert.AreEqual(0.0, (GetRow(hub, "lr2")?.Value ?? 0d));
-        Assert.AreEqual(1.0, (GetRow(hub, "lr2")?.Maximum ?? 1d));
-        Assert.IsFalse((GetRow(hub, "lr2")?.HasGauge == true));
-        Assert.IsNull(GetRow(hub, "lr2"));
     }
 
+    /// <summary>LR2未完了を起動成功の失敗や進捗増減へ転換せず、起動完了の表示終端後にも独立警告として維持します。</summary>
     [TestMethod]
     public async Task Lr2SongDbSyncIncompleteStatus_RemainsDedicatedWithoutStartupAccounting()
     {
@@ -636,15 +653,16 @@ public sealed class OperationProgressHubViewModelTests
         }
     }
 
+    /// <summary>起動・全再初期化・差分読込みに対応した実LR2要求だけを必須親へ所属させ、未完了の警告は親終端後も独立行にします。</summary>
     [DataTestMethod]
-    [DataRow((int)StartupProgressOperationKind.Startup)]
-    [DataRow((int)StartupProgressOperationKind.FullReinitialize)]
-    [DataRow((int)StartupProgressOperationKind.ReloadFileDiff)]
-    public void Lr2Rows_AttachOnlyAssociatedRequiredExecutionAndLeaveTerminalWarningIndependent(int operationKind)
+    [DataRow(StartupProgressOperationKind.Startup)]
+    [DataRow(StartupProgressOperationKind.FullReinitialize)]
+    [DataRow(StartupProgressOperationKind.ReloadFileDiff)]
+    public void Lr2Rows_AttachOnlyAssociatedRequiredExecutionAndLeaveTerminalWarningIndependent(object operationKindValue)
     {
-
+        var operationKind = (StartupProgressOperationKind)operationKindValue;
         StartupProgressWorkflowOwner owner = TestStartupProgressOwnerFactory.Create();
-        long token = owner.StartStartupProgressOperation((StartupProgressOperationKind)operationKind);
+        long token = owner.StartStartupProgressOperation(operationKind);
         var hub = new OperationProgressHubViewModel(owner);
         hub.BeginBackgroundProgressGeneration(1);
         var request = new OperationProgressRequest(1, token, "lr2_song_db_sync", 3);
@@ -669,6 +687,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsTrue(hub.Rows.Any(row => row.Key == "lr2"));
     }
 
+    /// <summary>汎用背景要求と対応する専用件数表示だけを統合し、別要求・別操作の行と専用通知終端後も稼働する汎用処理を維持します。</summary>
     [TestMethod]
     public void PlaylistRows_KeepIndependentRequestsAndMergeOnlyMatchingDedicatedWork()
     {
@@ -706,6 +725,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.HasRows);
     }
 
+    /// <summary>外部同期とTable URL取込みを両方の終端順で実行し、同期だけを起動任意親へ所属させて先着終端が他方の件数・対象・親を消しません。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -803,6 +823,7 @@ public sealed class OperationProgressHubViewModelTests
         }
     }
 
+    /// <summary>同時に稼働する初期化子行を親へ所属させ、旧token通知を拒否し、準備件数100%だけでは消さず対応phase完了で除去します。</summary>
     [TestMethod]
     public void InitializationRows_RejectOldTokensKeepConcurrentDetailsAndUsePhaseCompletion()
     {
@@ -832,6 +853,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.Rows.Any(row => row.Key.Contains("Lr2FolderFileCheck")));
     }
 
+    /// <summary>必須と任意の同時workを別親へ所属させ、旧世代終端は無視して親終端後も個々の実終端または世代更新まで行を維持します。</summary>
     [TestMethod]
     public void BackgroundRows_KeepParallelWorkAndRejectOldGeneration()
     {
@@ -865,11 +887,12 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.HasRows);
     }
 
+    /// <summary>起動種別・要求source・版が一致した必須スコア実行だけを親へ所属させ、表示用行の所属判定で親進捗を増減させません。</summary>
     [DataTestMethod]
-    [DataRow(false, "score_hydration_deferred", 2, true)]
-    [DataRow(true, "ranking_refresh_deferred", 2, false)]
-    [DataRow(true, "ranking_refresh_deferred", 1, false)]
-    [DataRow(false, "ranking_refresh_deferred", 2, false)]
+    [DataRow(false, "score_hydration_deferred", 2, true)] // 起動の必須スコア要求とsource・版が一致します。
+    [DataRow(true, "ranking_refresh_deferred", 2, false)] // 全再初期化でも順位は任意workです。
+    [DataRow(true, "ranking_refresh_deferred", 1, false)] // 異なる版の順位を必須要求へ混ぜません。
+    [DataRow(false, "ranking_refresh_deferred", 2, false)] // 通常起動でもsource不一致の順位は独立します。
     public void ExecutionRows_BelongToParentOnlyForExpectedMatchingRequest(
         bool fullReinitialize, string name, int reportedVersion, bool expectedChild)
     {
@@ -887,6 +910,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(parentMaximum, hub.StartupProgress.Maximum);
     }
 
+    /// <summary>操作IDの有無にかかわらず同sourceの旧要求終端は新要求の件数・対象を残し、新要求の終端でだけ最後の行を消します。</summary>
     [DataTestMethod]
     [DataRow(0L)]
     [DataRow(7L)]
@@ -908,6 +932,7 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.HasRows);
     }
 
+    /// <summary>スコア再読込みでは対応するモデル要求の版だけを必須親へ所属させ、任意順位と次版実行を混入させません。</summary>
     [DataTestMethod]
     [DataRow("score_hydration_deferred")]
     [DataRow("ranking_refresh_deferred")]

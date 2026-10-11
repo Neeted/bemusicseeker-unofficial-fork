@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
 {
+    /// <summary>
+    /// ライブラリ未接続の再確認はfalseで終え、保守callbackを呼ばず、対象のない実行を開始する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task RecheckAsync_WithoutAttachedLibraryIsNoOp()
     {
@@ -26,8 +29,11 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         Assert.AreEqual(0, recheckCount);
     }
 
+    /// <summary>
+    /// 共通譜面排他の保持中は同期再確認を未開始で拒否し、解放後の新規要求で現在ライブラリを一回処理して、競合中の実行や永久拒否を検出する。
+    /// </summary>
     [TestMethod]
-    public async Task RecheckAsync_FailsFastWhileSharedChartFileGateIsBusyThenRunsAfterRelease()
+    public void Recheck_FailsFastWhileSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
         var synchronizer = new ChartFileOperationSynchronizer();
         var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
@@ -55,6 +61,9 @@ public sealed class ZeroNoteMaintenanceWorkflowOwnerTests
         Assert.AreEqual(1, Volatile.Read(ref recheckCount));
     }
 
+    /// <summary>
+    /// 受理した再確認の保守callbackが失敗すると元例外を非同期入口へ伝え、成功への読み替えを検出する。
+    /// </summary>
     [TestMethod]
     public async Task RecheckAsync_PropagatesLibraryFailure()
     {

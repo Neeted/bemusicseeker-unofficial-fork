@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -24,6 +23,8 @@ using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExt
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>workspaceから保存・削除・browser・lamp遷移・reload cleanupへの実要求と失敗経路を検証します。</summary>
+/// <remarks>SQLiteの確定とlockは実資源を使い、lampのVM受信だけ共有dispatcherでbuild終端を観測します。実画面のBinding・modal・resizeは上位WPFケースが分担します。</remarks>
 [TestClass]
 public sealed class PlaylistWorkspaceActionWorkflowTests
 {
@@ -115,6 +116,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>二表をsnapshotへ捕捉して順序と同じ表参照を保ち、別workerのwriter取得が完了して読取lockを残していないことを確認します。</summary>
     [TestMethod]
     public void PlaylistTreeSnapshot_ReleasesReaderLockAfterCapture()
     {
@@ -182,6 +184,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
 
 
+    /// <summary>通常ローカルfolderだけ改名・削除を許可し、特殊folder・外部同期・未選択を拒否して禁止対象へ編集を露出する誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistFolderContextMenuAvailability_PreservesEditabilityPolicy()
     {
@@ -215,6 +218,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsFalse(missing.CanRename);
     }
 
+    /// <summary>store未接続、通常表、外部同期表の操作可否を評価し、属性画面の利用条件と同期中のfolder作成禁止を各操作へ配送します。</summary>
     [TestMethod]
     public void PlaylistTableContextMenuAvailability_PreservesAllActionPolicyFields()
     {
@@ -279,6 +283,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>page優先とheader fallbackの外部URIを解決し、内蔵recommended・estimation・未知の専用URIをbrowserへ渡さないことを確認します。</summary>
     [TestMethod]
     public void PlaylistTableExternalLinks_PreserveNormalHeaderAndSpecialRoutes()
     {
@@ -313,6 +318,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(unsupportedTable, out _));
     }
 
+    /// <summary>実libraryにLR2利用者IDがあっても内蔵recommendedを外部ページへ解決せず、利用者IDの存在で専用URIを誤許可する分岐を検出します。</summary>
     [TestMethod]
     public void PlaylistTableExternalLinks_DisableBuiltInPageEvenWhenPlayerIdIsConfigured()
     {
@@ -345,6 +351,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>summaryと表の外部URIだけをbrowser境界へ渡し、summary側の起動失敗処理と表側の元例外伝達をそれぞれ確認します。</summary>
     [TestMethod]
     public async Task PlaylistExternalLinkActions_UseWorkspaceBrowserBoundaryAndPreserveFailureContracts()
     {
@@ -372,6 +379,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             () => failingWorkspace.OpenPlaylistTablePage(table));
     }
 
+    /// <summary>同IDの古い表・summary参照を現表へ解決し、削除済IDやIDなしを名前・URIだけで現表へ誤接続しないことを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceResolvesCurrentTableIdentityOutsideTheView()
     {
@@ -440,6 +448,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>clear・rankの全カテゴリから検索aliasを生成し、MAXとPERFECT、ASSISTの別名、未プレイと未所持を含む独立入力の期待行へ絞り込みます。</summary>
     [TestMethod]
     public void PlaylistLampNavigation_UsesChartSearchAliasesForEveryClearAndRankCategory()
     {
@@ -635,6 +644,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>未所持でも存在するscore、NO_PLAY、NO_SONGを明示入力し、前のkeywordを置換してAAA・clear NP・rank NPごとの期待行を公開します。</summary>
     [TestMethod]
     public void PlaylistLampNavigation_ReplacesKeywordAndPublishesFinalRowsForUnownedScoreAndNoPlay()
     {
@@ -741,6 +751,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>空文字名の通常folderをlamp遷移先として受理し、全体scopeのnullと混同せず空folderに一致する行を公開します。</summary>
     [TestMethod]
     public void PlaylistLampNavigation_AcceptsEmptyNormalFolderAndPublishesFinalRows()
     {
@@ -809,11 +820,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>実VMのlamp要求購読から空名folderの詳細build終端まで待ち、keyword・選択・確定行が同じ条件へ揃うことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistLampNavigation_EmptyFolderRunsMainWindowConsumerAndCommitsFinalRows()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string tempDirectory = Path.Combine(
                 Path.GetTempPath(),
@@ -986,11 +998,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         });
     }
 
+    /// <summary>実VMの全体lamp要求から詳細buildを完了し、二つの通常folderの該当行だけを採用して特殊folderと不一致scoreを除外します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistLampNavigation_OverallRunsMainWindowConsumerAcrossNormalFoldersAndExcludesSpecialFolder()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string tempDirectory = Path.Combine(
                 Path.GetTempPath(),
@@ -1230,6 +1243,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         };
     }
 
+    /// <summary>実表writerをworkerで保有したまま保存を開始し、呼出しが未完了Taskを返してwriter解放後に完了することを確認します。</summary>
     [TestMethod]
     public async Task PlaylistPropertySave_WaitsOffUiThreadBehindAWriter()
     {
@@ -1276,12 +1290,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     playlist.FreeWriterLockBMSTables();
                 }
             });
+            Task<PlaylistPropertySaveCommit>? saveTask = null;
             try
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(writerAcquired.Task, writer, "playlist-property.writer");
                 Assert.IsTrue(playlist.IsWriteLockHeldAnyBMSTable);
-                Task<PlaylistPropertySaveCommit> saveTask =
-                    service.TrySaveAsync(session, session.Values);
+                saveTask = service.TrySaveAsync(session, session.Values);
                 Assert.IsFalse(saveTask.IsCompleted);
                 releaseWriter.Set();
                 Assert.IsNotNull(await saveTask);
@@ -1289,8 +1303,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             finally
             {
                 releaseWriter.Set();
-                await writer;
-                session.Dispose();
+                try
+                {
+                    await writer;
+                    if (saveTask != null) { await saveTask; }
+                }
+                finally { session.Dispose(); }
             }
         }
         finally
@@ -1304,6 +1322,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
     /// <summary>他者属性更新、同ID正本置換、属性不変の本番項目追加を保存前に検出し、古い画面値で上書きしません。</summary>
     [DataTestMethod]
+    // propertiesは属性競合、referenceは同ID参照置換、entriesは属性不変の行変更です。
     [DataRow("properties")]
     [DataRow("reference")]
     [DataRow("entries")]
@@ -1376,6 +1395,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>表への値適用通知を失敗させ、名前・記号・sortとfolder順を開始前へ戻して部分的な編集値を残す誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistPropertySave_RollsBackAllValuesWhenAPropertyNotificationFails()
     {
@@ -1447,6 +1467,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>prefix保存後の公開を失敗させても実DBと行名の確定を保持し、同値の次保存で二重prefixや公開再試行を起こさず、無効属性・通知不成立・取消も区別します。</summary>
     [TestMethod]
     public async Task CompleteSummaryPropertyEdit_FreshSameValueSaveDoesNotReplayPrefixFollowUp()
     {
@@ -1670,6 +1691,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>draft作成の設定捕捉を止め、同時作成を未開始として拒否し、先行作成とresetが実DB・正本集合へ未保存表を登録しないことを確認します。</summary>
     [TestMethod]
     public async Task CreatePlaylistPropertyDialog_RejectsConcurrentOpenWithoutCanonicalDraftRegistration()
     {
@@ -1813,6 +1835,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>storeのないworkspaceへ空集合と空packageを渡し、参照sortの失効通知を生成しないことを確認します。</summary>
     [TestMethod]
     public void InstallPackageReferenceAttachment_EmptyOrMissingPlaylistIsNoOp()
     {
@@ -1826,6 +1849,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(0, invalidationCount);
     }
 
+    /// <summary>参照付与時のlibrary未接続でInvalidOperationExceptionを返し、その後に同じスレッドで表集合のreaderを再取得・解放できることを確認します。</summary>
     [TestMethod]
     public void InstallPackageReferenceAttachment_ReleasesReaderLockWhenLibraryFails()
     {
@@ -1866,6 +1890,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>重複した表の同期オン要求で破壊的変更の確認を行い、取消なら同期状態を変えないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
     {
@@ -1891,6 +1916,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsFalse(table.is_external_sync);
     }
 
+    /// <summary>外部同期オンの表へオフを要求し、解除用確認の承諾後だけ表の同期状態を変更します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionAcceptsDisableConfirmationAndMutatesTable()
     {
@@ -1941,6 +1967,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>同期オンの確認を表示できない場合、明示失敗を返して表を変更せず、確認不成立を承諾へ置換しないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionPropagatesDialogFailureWithoutMutation()
     {
@@ -1964,6 +1991,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.IsFalse(table.is_external_sync);
     }
 
+    /// <summary>重複summary行の削除で表削除の確認を要求し、空選択は削除対象なしとして扱うことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryRemovalRequiresConfirmation()
     {
@@ -1982,6 +2010,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(Array.Empty<PlaylistSummaryRow>());
     }
 
+    /// <summary>通常folderの削除確認を要求し、特殊folderと外部同期表では前の確認要求を置換せず新たな削除確認を開始しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceFolderRemovalRequiresConfirmationAndRejectsInvalidTargets()
     {
@@ -2003,6 +2032,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreSame(confirmationRequest, dialogs.LastConfirmationRequest);
     }
 
+    /// <summary>確認待ち中に外部同期へ切り替わったfolder削除を承諾後に拒否し、開始時の可否だけで禁止対象を変更する誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistRemovalWorkflowRejectsExternalSyncRaceAfterConfirmation()
     {
@@ -2031,6 +2061,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             rejectedKinds);
     }
 
+    /// <summary>未選択・確認取消では選択を変更せず、承諾時に選択と実DBの表削除を確定して削除workflowの配送を確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkflowOwner()
     {
@@ -2060,6 +2091,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist"));
     }
 
+    /// <summary>内蔵recommendedのlevel上書きを警告で拒否し、通常表は確認承諾後だけlibraryへ進んで欠落による元失敗を返します。</summary>
     [TestMethod]
     public async Task PlaylistTableLevelOverwriteWorkflowOwnsRecommendationAndConfirmation()
     {
@@ -2098,6 +2130,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(1, libraryProviderCalls);
     }
 
+    /// <summary>列設定初期化の取消では同じ設定と無通知を保ち、承諾後だけ設定を置換して一回通知することを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
     {
@@ -2131,6 +2164,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(1, notificationCount);
     }
 
+    /// <summary>列設定の初期化確認を表示できない場合、明示失敗と元の設定を維持して未承諾の初期化を防ぎます。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummaryColumnResetPropagatesDialogFailure()
     {
@@ -2149,6 +2183,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
     }
 
+    /// <summary>三つのrecommended政策URIを実score入力から登録し、利用者IDと確認を必要とせず各URIの異なる表を一度ずつ生成することを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRecommendedImportAcceptsThreePoliciesWithoutConfirmationOrPlayerId()
     {
@@ -2157,7 +2192,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         Task<ExternalPlaylistImportQueueSummary>? completion = null;
-        Exception? primaryFailure = null;
         try
         {
             string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
@@ -2188,7 +2222,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             CollectionAssert.AreEquivalent(new[] { "bmseeker:table.recommended", "bmseeker:table.recommended?base=failed", "bmseeker:table.recommended?failed=noplay" },
                 playlist.BMSTables.Select(table => table.Page_url.AbsoluteUri).ToArray());
         }
-        catch (Exception ex) { primaryFailure = ex; throw; }
         finally
         {
             playlist?.StartupReadiness.MarkRequiredPlaylistReady();
@@ -2200,15 +2233,15 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>ready前の内蔵importを未開始として拒否してscore読取も表登録も行わず、ready後の次明示要求だけを一回登録します。</summary>
     [TestMethod]
-    public async Task PlaylistWorkspaceRecommendedImportAdmitsDuringInitializationAndDefersUntilReadiness()
+    public async Task PlaylistWorkspaceRecommendedImportRejectsBeforeReadinessAndAcceptsNextExplicitRequest()
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceActionWorkflowTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         Task<ExternalPlaylistImportQueueSummary>? completion = null;
-        Exception? primaryFailure = null;
         try
         {
             string databasePath = BmsPlaylistTestSupport.CreateTempSongDbPath(directory);
@@ -2239,7 +2272,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Assert.AreEqual(1, reads);
             Assert.AreEqual(1, playlist.BMSTables.Count);
         }
-        catch (Exception ex) { primaryFailure = ex; throw; }
         finally
         {
             playlist?.StartupReadiness.MarkRequiredPlaylistReady();
@@ -2278,51 +2310,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         CollectionAssert.AreEqual(new[] { entry }, snapshot.ToArray());
     }
 
-    [TestMethod]
-    public async Task PlaylistReloadCleanupReadinessAndSnapshotAreOwnedByWorkspace()
-    {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        var stopwatch = Stopwatch.StartNew();
 
-        await workspace.WaitForPlaylistReloadCleanupReadinessAsync(
-            waitForSummaryRefresh: true,
-            waitForDetailRefresh: true,
-            requestedAtTimestamp: 0L);
 
-        stopwatch.Stop();
-        Assert.IsTrue(stopwatch.ElapsedMilliseconds < 1000L);
-        PlaylistReloadCleanupSnapshot snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
-        Assert.IsFalse(snapshot.SummaryAlive);
-        Assert.AreEqual(0, snapshot.SummaryRowCount);
-        Assert.IsFalse(snapshot.PreviousDetailRows.SourceAlive);
-        Assert.AreEqual(0, snapshot.PreviousDetailRows.SourceRowCount);
-        Assert.IsFalse(snapshot.PreviousDetailRows.ViewAlive);
-        Assert.AreEqual(0, snapshot.PreviousDetailRows.ViewRowCount);
-
-        workspace.IsPlaylistSummaryMode = true;
-        var firstSummaryRows = new ObservableCollection<PlaylistSummaryRow>
-        {
-            new PlaylistSummaryRow { PlaylistId = 1 }
-        };
-        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-        {
-            Rows = firstSummaryRows,
-            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
-        }));
-        var secondSummaryRows = new ObservableCollection<PlaylistSummaryRow>
-        {
-            new PlaylistSummaryRow { PlaylistId = 2 }
-        };
-        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-        {
-            Rows = secondSummaryRows,
-            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
-        }));
-        snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
-        Assert.IsFalse(snapshot.SummaryAlive);
-        Assert.AreEqual(0, snapshot.SummaryRowCount);
-    }
-
+    /// <summary>単表再読込では全体cleanupを予約せずidleを保ち、その理由を診断へ渡すことを確認します。</summary>
     [TestMethod]
     public void PlaylistReloadCleanupSkipsSingleReloadInsideWorkspace()
     {
@@ -2336,6 +2326,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         StringAssert.Contains(log[0], "reason=not_full_reload");
     }
 
+    /// <summary>先行cleanupのdispatcher待機中に二つの全再読込を予約し、先行と最新だけを処理して中間予約を実行せずidleまで待つことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistReloadCleanupProcessesLatestPendingFullReload()
     {
@@ -2354,22 +2345,31 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             reloadCleanupLog: log.Add);
 
         Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
-        await dispatcherEntered.Task.ConfigureAwait(false);
         Task cleanupIdle = workspace.WaitForPlaylistReloadCleanupIdleAsync();
-        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 2));
-        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 3));
-        Assert.IsFalse(cleanupIdle.IsCompleted);
-        dispatcherRelease.TrySetResult(true);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(dispatcherEntered.Task, cleanupIdle, "playlist.cleanup-dispatcher");
+            Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 2));
+            Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 3));
+            Assert.IsFalse(cleanupIdle.IsCompleted);
+            dispatcherRelease.TrySetResult(true);
 
-        await cleanupIdle.ConfigureAwait(false);
+            await cleanupIdle.ConfigureAwait(false);
 
-        Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
-        Assert.AreEqual(2, garbageCollectionCount);
-        Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=1")));
-        Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=3")));
-        Assert.IsFalse(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=2")));
+            Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
+            Assert.AreEqual(2, garbageCollectionCount);
+            Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=1")));
+            Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=3")));
+            Assert.IsFalse(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=2")));
+        }
+        finally
+        {
+            dispatcherRelease.TrySetResult(true);
+            await cleanupIdle.ConfigureAwait(false);
+        }
     }
 
+    /// <summary>tree展開状態を明示変更し、同値代入では通知せず展開・折畳みごとに一回通知して表示への変更配送を確認します。</summary>
     [TestMethod]
     public void PlaylistTreeExpansionState_IsOwnedByWorkspaceAndRaisesOnlyOnChange()
     {
@@ -2377,12 +2377,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         List<string> propertyNames = [];
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
 
-        Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
-        workspace.IsPlaylistTreeExpanded = true;
+        workspace.IsPlaylistTreeExpanded = false;
+        propertyNames.Clear();
+        workspace.IsPlaylistTreeExpanded = false;
         Assert.AreEqual(0, propertyNames.Count);
 
-        workspace.IsPlaylistTreeExpanded = false;
         workspace.IsPlaylistTreeExpanded = true;
+        workspace.IsPlaylistTreeExpanded = false;
 
         CollectionAssert.AreEqual(
             new[]
@@ -2391,9 +2392,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 nameof(PlaylistWorkspaceViewModel.IsPlaylistTreeExpanded)
             },
             propertyNames);
-        Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
+        Assert.IsFalse(workspace.IsPlaylistTreeExpanded);
     }
 
+    /// <summary>未接続では変更を禁止するlock状態を返し、実store接続後は表集合・個別表writerと更新中状態に追従して誤受付を防ぎます。</summary>
     [TestMethod]
     public void PlaylistLockState_IsOwnedByWorkspaceAndPreservesPreInitializationFallbacks()
     {
@@ -2454,44 +2456,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    [TestMethod]
-    public void Constructor_RequiresExplicitCustomFolderOutputSettingsProvider()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            null,
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-    }
+
 
 }

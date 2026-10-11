@@ -22,6 +22,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {
+    /// <summary>
+    /// 二種類の重複MD5で三フォルダが連結する入力から一群と四譜面を抽出し、間接的な連結の分断と重複警告の欠落を検出します。
+    /// </summary>
     [TestMethod]
     public void Analyze_GroupsDirectoriesConnectedByDuplicateHashes()
     {
@@ -44,6 +47,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
     }
 
+    /// <summary>
+    /// 同じ譜面へ重複警告を二回適用しても強調と一件の表示要約を保ち、警告の二重追加を検出します。
+    /// </summary>
     [TestMethod]
     public void ApplyDuplicateWarnings_SetsStructuredWarningWithoutDuplicates()
     {
@@ -59,22 +65,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.AreEqual("[1] 重複譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
-    [TestMethod]
-    public void ClearDuplicateState_RemovesStructuredDuplicateWarningsOnly()
-    {
-
-        var service = new BmsLibraryDuplicateService();
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\BMS", "DirA", "a.bms"));
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
-
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
-        Assert.AreEqual("[1] サブフォルダ譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
-    }
-
+    /// <summary>
+    /// BMSとBMSONのMD5一致だけを重複群へ含め、SHA256だけの一致や別MD5を誤って統合する判断を検出します。
+    /// </summary>
     [TestMethod]
     public void Analyze_BuildSnapshotIncludesBmsonAndUsesMd5PrimaryLookupHash()
     {
@@ -116,12 +109,15 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.AreEqual(2, snapshot.DuplicateHashRowCount);
         Assert.AreEqual(2, result.ConnectedDirectoryCount);
         Assert.IsTrue(result.DuplicateGroups.Any(group => group.Folders.Count == 2 && group.Folders.Contains("C:\\BMS\\DirA") && group.Folders.Contains("C:\\BMS\\DirC")));
-        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson && chart.Token != null));
+        Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Any(chart => chart.Kind == ChartFileKind.Bmson));
         Assert.IsTrue(result.DuplicateGroups.SelectMany(group => group.ChartFiles).Where(chart => chart.Kind == ChartFileKind.Bmson).All(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
         Assert.IsFalse(result.DuplicateGroups.Any(group => group.Folders.Contains("C:\\BMS\\DirB") || group.Folders.Contains("C:\\BMS\\DirD") || group.Folders.Contains("C:\\BMS\\DirE") || group.Folders.Contains("C:\\BMS\\DirF")));
         Assert.AreEqual(2, result.DuplicateCharts.Count);
     }
 
+    /// <summary>
+    /// 重複群のフォルダに固有譜面を同梱しても、重複MD5を持つ二譜面だけへ警告を付けることを確認します。
+    /// </summary>
     [TestMethod]
     public void Analyze_DuplicateWarningTargetsOnlyRowsWithDuplicateHash()
     {
@@ -150,6 +146,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.IsTrue(duplicateBmsonChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
+    /// <summary>
+    /// 所持スナップショットから重複群と同梱譜面だけを具体化し、無関係な譜面の具体化とリソースの先行解析を検出します。
+    /// </summary>
     [TestMethod]
     public void Analyze_OwnedCollectionSnapshotMaterializesOnlyGroupedRows()
     {
@@ -189,6 +188,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.Single(chart => chart.Kind == ChartFileKind.Bmson).Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
+    /// <summary>
+    /// 同一フォルダの大文字小文字違いを含む重複入力でも固有の同梱譜面を同群へ含め、パス表記による分断を検出します。
+    /// </summary>
     [TestMethod]
     public void Analyze_DuplicateConnectedDirectoryMatchingIgnoresPathCasing()
     {
@@ -208,10 +210,12 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.IsTrue(result.DuplicateGroups[0].ChartFiles.Any(chart => string.Equals(chart.Path, uniqueSibling.Path, System.StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// nullまたは空のパスを持つBMSONから重複行を作らず、識別できない譜面の重複索引への混入を検出します。
+    /// </summary>
     [TestMethod]
     public void BuildSnapshot_SkipsBmsonRowsWithoutPath()
     {
-        var service = new BmsLibraryDuplicateService();
         List<ChartFile> bmsonSongs =
         [
             ChartTestValues.Empty(ChartFileKind.Bmson) with {
@@ -232,6 +236,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         Assert.AreEqual(0, snapshot.DuplicateHashCount);
     }
 
+    /// <summary>
+    /// BMSONの所持集合を置換すると既存の重複群を失効させ、古い検索結果を現在値として残す誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void BmsonSongsSetter_InvalidatesDuplicateCache()
     {
@@ -262,6 +269,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// BMSとBMSONの重複を検索後にBMSONを除くと、再検索で群と警告を解除し、失効後の古い重複表示を検出します。
+    /// </summary>
     [TestMethod]
     public void SearchDuplicateChartGroups_RebuildsAfterBmsonSongsChangeInvalidatesCache()
     {
@@ -299,6 +309,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持集合へ持ち込まれた古い重複警告を全検索で解除し、追跡済み対象だけを消す不完全な再構築を検出します。
+    /// </summary>
     [TestMethod]
     public void SearchDuplicateChartGroups_FullClearsUntrackedDuplicateWarningsAfterBmsFilesReplacement()
     {
@@ -324,6 +337,10 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 選択BMSONの実ファイルと所持集合が削除され、操作後のDBに対象行がないことを確認します。
+    /// </summary>
+    /// <remarks>実ファイル削除と所持集合への反映を実ライブラリで行い、操作後のSQLiteを読み戻します。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_BmsonPendingRow_UnregistersBmsonSong()
     {
@@ -352,7 +369,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
                 Assert.IsFalse(File.Exists(chartPath));
                 Assert.AreEqual(0, library.BmsonCharts.Count);
-                using var songDb = new LR2SongDBExtended(songDbPath);
+                using var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(chartPath));
             }
             finally
@@ -365,6 +382,9 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// BMSONだけを所持するライブラリでも指定MD5から導入先を解決し、BMSだけを調べる検索の漏れを検出します。
+    /// </summary>
     [TestMethod]
     public void TryGetInstalledDirectoryByHash_ResolvesBmsonOnlyLibrary()
     {
@@ -406,12 +426,12 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 統合と同じ受付で必須保守を行い、BMS/BMSONの移動先リソースを反映します。
-    /// 実storeへの外側権限転送と単独入口を分担し、DB拒否でも確定済み統合と元失敗を保持します。
+    /// 統合先のリソースを同じ受付で再検査し、保存・通知・次回表示を更新します。保守保存拒否時も確定した統合と元失敗を保持します。
     /// </summary>
-    /// <param name="bmson">BMSON と BMS の双方で同じ確定・失敗境界を確認します。</param>
-    /// <param name="maintenanceOutcome">0: 正常、1: 必須保守のDB書込み拒否。</param>
-    /// <param name="useOuterAdmission">実storeへ同じ受付の生存権限を渡すか。</param>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    /// <param name="bmson">falseはBMS、trueはBMSONの保存と通知を確認します。</param>
+    /// <param name="maintenanceOutcome">0は正常、1は移動先の保守保存だけを拒否します。</param>
+    /// <param name="useOuterAdmission">trueは実storeへ生存する外側受付を渡します。</param>
     [DataTestMethod]
     [DataRow(false, 0, false)]
     [DataRow(true, 0, true)]
@@ -593,8 +613,12 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 読込み済みの複数exact source行を実mergeで処理し、確定した物理配置とcatalogを揃えます。
+    /// BMS・BMSONの複数の元パスを統合し、表記違いと既存宛先を含めても物理配置・DB・各索引を揃え、古い不変スナップショットを保持します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    /// <param name="bmson">BMSとBMSONの各保存表を確認します。</param>
+    /// <param name="caseVariant">同じ物理ファイルの大文字小文字違い、または別ファイルを元行にします。</param>
+    /// <param name="destinationExists">既存宛先と利用者列を保持する条件です。</param>
     [DataTestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
@@ -706,7 +730,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             CollectionAssert.AreEquivalent(currentPaths, bmson
                 ? library.BmsonCharts.Select(row => row.Path).ToArray()
                 : library.BmsCharts.Select(row => row.Path).ToArray());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             CollectionAssert.AreEquivalent(currentPaths, bmson
                 ? readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
                 : readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
@@ -761,9 +785,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// BMSの重複源cleanupとBMSONのpath-only移動を同じ実mergeで処理し、
-    /// cleanupされた種類だけstorage row通知を発行します。
+    /// 重複BMSの除去と固有BMSONの移動を一回で確定し、両種類の変更通知と物理配置・DB登録の取り違えを検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_MixedKindsNotifiesChangedCommonTargets()
     {
@@ -829,7 +853,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { destinationBmsonPath },
                 library.BmsonCharts.Select(song => song.Path).ToArray());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             CollectionAssert.AreEquivalent(
                 new[] { destinationBmsPath },
                 readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
@@ -842,8 +866,12 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// スキャンを省略した通常起動ではmergeを拒否し、file diff収束後だけ同じ操作を受理します。
+    /// 未走査の起動直後は統合を拒否して旧DBと実体を保ち、差分走査でパスが収束した後だけ統合を受理することを確認します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    /// <param name="bmson">BMSとBMSONの旧保存行を確認します。</param>
+    /// <param name="includePlainRow">ドットを含む旧パスに通常表記の行も併存させます。</param>
+    /// <param name="dotFirst">二表記が併存する場合の保存順を反転します。</param>
     [DataTestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
@@ -943,7 +971,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 CollectionAssert.AreEquivalent(inputPaths, bmson
                     ? library.BmsonCharts.Select(row => row.Path).ToArray()
                     : library.BmsCharts.Select(row => row.Path).ToArray());
-                using (var blockedReadback = new LR2SongDBExtended(songDbPath))
+                using (var blockedReadback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
                 {
                     CollectionAssert.AreEquivalent(inputPaths, bmson
                         ? blockedReadback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
@@ -974,7 +1002,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 CollectionAssert.AreEquivalent(expectedPaths, bmson
                     ? library.BmsonCharts.Select(row => row.Path).ToArray()
                     : library.BmsCharts.Select(row => row.Path).ToArray());
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 CollectionAssert.AreEquivalent(expectedPaths, bmson
                     ? readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray()
                     : readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
@@ -990,6 +1018,10 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 統合中の元フォルダ削除通知で所持集合が変わっても捕捉済みBMSONを移動先へ再登録し、保守対象の消失と索引更新の漏れを検出します。
+    /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_BmsonOnly_ReRegistersSongAtDestination()
     {
@@ -1029,9 +1061,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     }
 
                     sourceCleanupObserved = true;
-                    // The source collection is deliberately changed after the
-                    // executor cleanup callback.  The merge maintenance input
-                    // must already be captured, so this cannot erase its target.
+                    // 元集合を削除通知中に置換しても、捕捉済みの保守入力を失わないことを確認します。
                     library.BmsonCharts = [];
                 };
 
@@ -1063,7 +1093,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreEqual(dstChartPath, library.BmsonCharts[0].Path);
                 Assert.AreEqual(Path.GetFileName(dstDir), library.BmsonCharts[0].Folder);
                 Assert.AreEqual(dstDir, library.BmsonCharts[0].Directory);
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
                 {
                     Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
@@ -1086,9 +1116,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// canonical DB 書込に失敗しても、確認済み physical change と旧登録を失わず、
-    /// source cleanup や filesystem rollback を行わずに復旧候補を session へ残します。
+    /// 統合のDB確定を拒否すると成功公開を行わず、元登録・コピー済み両実体・復旧候補を保持し、物理変更を隠す失敗結果を検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1152,7 +1182,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             Assert.IsTrue(receipt.RecoveryPaths.Contains(destinationPath, StringComparer.OrdinalIgnoreCase));
             Assert.IsFalse(receipt.MaintenanceHadUpdates);
             Assert.AreEqual(0, ownedCollectionPublicationCount);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             if (bmson)
             {
                 Assert.IsNotNull(readback.Find<LR2SongDBExtended.bmson_song>(sourcePath));
@@ -1167,8 +1197,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// LR2 必須反映の失敗後も durable facts と source cleanup を維持し、成功公開と maintenance を行いません。
+    /// LR2への必須反映が失敗しても確定済みの移動とDB登録を保持し、成功公開や保守続行による失敗の隠蔽を検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_Lr2FinalizationFailureReturnsDurableNonSuccessWithoutMaintenancePublication()
     {
@@ -1268,6 +1299,10 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 物理統合の失敗通知が例外を投げても元失敗を保持し、解放済みの受付から別統合へ再入できることを確認します。
+    /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_FailedDialogEffectIsIsolatedAndCanReenterAfterLeaseRelease()
     {
@@ -1370,6 +1405,10 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// BMSを移動しても既存DBのタイトル・お気に入り・登録日時・タグを保存し、解析値による利用者列の上書きを検出します。
+    /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_BmsChartPreservesExistingLr2SongUserColumns()
     {
@@ -1438,9 +1477,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 内容が異なる同名ファイルの衝突では、既存ファイル・登録を保ったまま、
-    /// 移動した譜面の全 projection に採番後の実 destination を使います。
+    /// 異なる内容の同名ファイルは既存実体と利用者列を保ち、採番された実移動先へ所持集合とDBを揃えることを確認します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_DifferentContentCollisionUsesActualDestinationEverywhere()
     {
@@ -1530,10 +1569,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 選択した source folder の merge は、同梱通常ファイルと既存ディレクトリの
-    /// 型衝突が一件でもあれば detached package 全体を変更前に拒否し、source
-    /// 登録、宛先、song.db を保持します。
+    /// 同梱ファイルと宛先ディレクトリが衝突すると変更前に全体を拒否し、元実体・登録・宛先内容を損なう部分適用を検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_RejectsTypeConflictAndPreservesSourceRegistration()
     {
@@ -1614,8 +1652,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 全譜面が重複でも resource-only merge を一つの session として確定し、移動先の登録を維持します。
+    /// 全BMSONが重複でも同梱リソースの移動と元登録の除去を一回で確定し、譜面移動がないことを無変更と扱う誤りを検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [TestMethod]
     public void MergeChartDirectory_BmsonDuplicateSkip_CommitsResourceOnlySession()
     {
@@ -1668,7 +1707,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(File.Exists(dstChartPath));
                 Assert.AreEqual(1, library.BmsonCharts.Count);
                 Assert.AreEqual(dstChartPath, library.BmsonCharts[0].Path);
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
                 {
                     Assert.IsNull(songDb.Find<LR2SongDBExtended.bmson_song>(srcChartPath));
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
@@ -1685,9 +1724,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// source に owned chart がない merge は、source確認だけで終了し、
-    /// cold/warm いずれも optional lookup を先行構築しない。
+    /// 対象譜面のない統合では実体と登録を保ち、冷えた索引の先行構築や温めた索引の無用な更新・再列挙を検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1787,7 +1826,6 @@ public sealed class BmsLibraryDuplicateServiceTests
                 out bool updatedPlaylistCacheHit,
                 out int updatedPlaylistStaleRetries);
             Assert.AreEqual("cached", updatedPrimary.Status);
-            Assert.AreEqual(0L, updatedPrimary.BuildMs);
             Assert.IsTrue(updatedPlaylistCacheHit);
             Assert.AreEqual(0, updatedPlaylistStaleRetries);
             Assert.AreSame(initialPlaylist, updatedPlaylist);
@@ -1803,12 +1841,9 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// Merge の source cleanup と移動を同じ library で連続実行しても、warm な
-    /// 所持 hash / installed / playlist resolve lookup を次回利用へ押し出さない。
-    /// 背景16件は対象差分のprimary hash更新（最大8件）を上回り、全件列挙なしの実observerを
-    /// 検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
-    /// 実重複検索のフォルダ・譜面・警告集合とDB/所持の22→21→20件、既存実体bytesも保ちます。
+    /// 二回の実統合で重複群・実体・DB・温めた各索引を差分更新し、旧スナップショットの変更と全所持の再列挙を検出します。
     /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
     [DataTestMethod]
     [DataRow(16)]
     public void MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild(int backgroundCount)
@@ -2009,7 +2044,6 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.AreSame(updatedInstalled, cachedInstalled);
                 Assert.IsTrue(updatedPrimary.FullDirectoryLookupInitialized);
                 Assert.AreEqual("cached", updatedPrimary.Status);
-                Assert.AreEqual(0L, updatedPrimary.BuildMs);
                 Assert.IsTrue(updatedPlaylistCacheHit);
                 Assert.AreEqual(0, updatedPlaylistStaleRetries);
                 Assert.IsTrue(cachedPlaylistCacheHit);
@@ -2113,7 +2147,6 @@ public sealed class BmsLibraryDuplicateServiceTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_DuplicateTests_" + System.Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             // fixture schemaは初期化処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。

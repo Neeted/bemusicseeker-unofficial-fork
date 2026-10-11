@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RegularChartListFilterServiceTests
 {
+    /// <summary>題名限定検索を通常一覧へ適用し、一致する譜面だけを返して別題名を混ぜません。</summary>
     [TestMethod]
     public void ApplyKeywordFilter_UsesGridKeywordSearchQuery()
     {
@@ -27,6 +28,7 @@ public sealed class RegularChartListFilterServiceTests
         Assert.AreEqual("Alpha Song", filtered[0].Title);
     }
 
+    /// <summary>7鍵盤指定では5鍵盤を除き、鍵盤不明の旧譜面を7鍵盤とともに元順で表示します。</summary>
     [TestMethod]
     public void ApplyModeFilter_IncludesUnknownAndSelectedModes()
     {
@@ -42,6 +44,7 @@ public sealed class RegularChartListFilterServiceTests
         CollectionAssert.AreEqual(new[] { unknown, sevenKeys }, filtered);
     }
 
+    /// <summary>5・14鍵盤の複合指定へ旧譜面の鍵盤不明値も含め、旧データをフィルターで消さず未選択鍵盤を混ぜません。</summary>
     [TestMethod]
     public void CreateModeFilterValueSet_PreservesLegacyUnknownMode()
     {
@@ -51,6 +54,7 @@ public sealed class RegularChartListFilterServiceTests
         CollectionAssert.AreEquivalent(new int?[] { null, 5, 14 }, values.ToArray());
     }
 
+    /// <summary>元一覧が欠損したキーワード・鍵盤絞込みを例外で拒否し、空一覧成功へ置き換えて呼出し誤りを隠しません。</summary>
     [TestMethod]
     public void ApplyFilters_RejectNullSourceRows()
     {

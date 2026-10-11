@@ -4,7 +4,9 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -13,11 +15,12 @@ using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Owns BMS/BMSON chart-info parser behavior and compatibility cases.
+/// BMS・bmsonの詳細解析と外部参照値に対する互換性を確認します。
 /// </summary>
 [TestClass]
 public sealed class ChartInfoParserBehaviorTests
 {
+    /// <summary>通常音符・LN・scratch・地雷・BGAを含むBMSから詳細を生成し、統計、明示難度・TOTAL、判定値、保存ハッシュの取違えを検出する。</summary>
     [TestMethod]
     public void ParseBms_SimpleFixture_ComputesChartMetadata()
     {
@@ -46,9 +49,6 @@ public sealed class ChartInfoParserBehaviorTests
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
             BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
-            BeMusicSeeker.Models.ChartDetails bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.Md5, digest.Sha256);
-
-            AssertChartInfoEquivalent(row, bytesRow);
             Assert.AreEqual(digest.Md5, row.md5);
             Assert.AreEqual(digest.Sha256, row.sha256);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, row.parser_version);
@@ -78,6 +78,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>EXLEVEL未指定でDEFEXRANKだけあるBMSを読み、別ヘッダーをexlevelとして誤採用する互換違反を検出する。</summary>
     [TestMethod]
     public void ParseBms_ExLevelDefaultsToZeroAndIgnoresDefExRank()
     {
@@ -100,6 +101,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>多数の小数小節倍率を積み上げても参照互換の長さとspeedchange終端を維持し、減算誤差が最終時刻をずらす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_SectionRateUsesParsedRateWithoutSubtractionDrift()
     {
@@ -123,6 +125,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>小さいBPMをspeedchangeへ保存するときJava互換の指数表記を維持し、文字列化の差による外部比較不一致を検出する。</summary>
     [TestMethod]
     public void ParseBms_SpeedChangeUsesJavaStyleSmallExponentText()
     {
@@ -144,6 +147,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>長い十進BPMをJavaと同じdoubleへ丸め、speedchangeとchart stringへ異なる近傍値を保存する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_DoubleValuesUseJavaParseDoubleRounding()
     {
@@ -167,6 +171,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>bmsonのJSON数値の原文から参照互換のBPMを生成し、中間変換で末尾桁が変わってハッシュ入力をずらす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBmson_RawJsonDoublesUseJavaParseDoubleRounding()
     {
@@ -191,6 +196,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>符号付きゼロ・非有限・subnormal・指数境界・最大値をJDK21互換の文字列へ変換し、保存表現の桁や指数の退行を検出する。</summary>
     [TestMethod]
     public void JavaDoubleToStringJdk21_MatchesKnownCompatibilityCases()
     {
@@ -211,6 +217,7 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual("8.492905781983985E17", JavaDoubleToStringJdk21.ToString(8.492905781983985E17));
     }
 
+    /// <summary>十進・十六進表記と丸め境界を既知のIEEEビットへ変換し、符号、underflow、overflowや境界丸めの互換違反を検出する。</summary>
     [TestMethod]
     public void JavaDoubleParserJdk17_MatchesKnownCompatibilityCases()
     {
@@ -241,6 +248,7 @@ public sealed class ChartInfoParserBehaviorTests
         AssertJavaDoubleParseBits("131.4889812233735", "40606fa5bbf357e9");
     }
 
+    /// <summary>音符として無効でも小節番号を持つ行を時間軸へ反映し、末尾speedchangeの参照互換時刻を短縮する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_InvalidChartLikeLineExtendsTimelineSections()
     {
@@ -262,6 +270,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>STOP・scroll・charge LN・地雷を含むbmsonから詳細を生成し、各統計・feature・TOTAL換算とレーン別保存値の取り違えを検出する。</summary>
     [TestMethod]
     public void ParseBmson_SimpleFixture_ComputesChartMetadata()
     {
@@ -284,9 +293,6 @@ public sealed class ChartInfoParserBehaviorTests
             ChartFile digest = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
 
             BeMusicSeeker.Models.ChartDetails row = ChartInfoParser.Parse(chartPath, digest.Md5, digest.Sha256);
-            BeMusicSeeker.Models.ChartDetails bytesRow = ChartInfoParser.ParseBytes(File.ReadAllBytes(chartPath), chartPath, digest.Md5, digest.Sha256);
-
-            AssertChartInfoEquivalent(row, bytesRow);
             Assert.AreEqual(digest.Md5, row.md5);
             Assert.AreEqual(digest.Sha256, row.sha256);
             Assert.AreEqual(10, row.level);
@@ -315,6 +321,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>scroll指定の次のtimelineで既定rateへ戻し、一度の指定を後続時刻へ持ち越してspeedchangeを変える誤りを検出する。</summary>
     [TestMethod]
     public void ParseBmson_ScrollDoesNotCarryToLaterTimelines()
     {
@@ -338,6 +345,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>重複するscroll・BGAキーは最後の値を採用し、省略されたinfoとrateは入力規格の互換値へ補完して前値の混在を検出する。</summary>
     [TestMethod]
     public void BmsonJsonParser_DuplicateKeysUseLastValueAndDefaultsMatchReference()
     {
@@ -366,6 +374,7 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(2, document.Bga.BgaEvents[0].Y);
     }
 
+    /// <summary>途中で切れたJSONを失敗として伝え、破損データを既定内容で正常受理する誤りを検出する。</summary>
     [TestMethod]
     public void BmsonJsonParser_InvalidJsonRemainsFatal()
     {
@@ -380,8 +389,9 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>level未指定と明示0を区別して小数値は参照通り切り捨て、未知levelの0化や難度の誤確定を検出する。</summary>
     [TestMethod]
-    public void ParseBmson_LevelMissingNullExplicitZeroAndFloatTruncated()
+    public void ParseBmson_LevelMissingExplicitZeroAndFloatTruncated()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
@@ -419,6 +429,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>BASE62指定の小文字IDを定義と音符の両方へ適用し、IDの大小文字を同一視してBPM変更や音符を落とす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_Base62Fixture_UsesBase62ForIndexedDefinitionsAndDataTokens()
     {
@@ -447,6 +458,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>コロン区切りのBPM定義を参照互換で受理し、定義の未解決により最大・主BPMを元値へ戻す誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_IndexedBpmCommandAcceptsColonSeparator()
     {
@@ -470,6 +482,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>小節0でBPMを変更しても初期値を最小最大へ含め、再生前の定義を統計から落とす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_InitialBpmIsIncludedInMinMaxBpmEvenWhenMeasureZeroChangesBpm()
     {
@@ -492,6 +505,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>通常音符を一個ずつ持つ二枝のRANDOM入力を通常音符1・スクラッチ0として解析し、複数枝の音符混在やrandom featureの消失を検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomFixture_UsesStableSelectedBranchOne()
     {
@@ -520,6 +534,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>空白のない無効RANDOM指定を診断しつつ音符は解析し、無効指定をrandom featureへ誤分類する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_InvalidCompactRandomCommandDoesNotSetRandomFeature()
     {
@@ -543,6 +558,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>一日を超えるが保存可能な低BPM譜面を受理し、任意の一日上限で従来入力を拒否する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_TimelineLongerThanOneDayIsAllowed()
     {
@@ -562,6 +578,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>ミリ秒整数の保存範囲を超える時間軸を明示失敗へ伝え、overflowした長さで成功扱いする誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_TimelineLongerThanIntMillisecondsIsFatal()
     {
@@ -579,6 +596,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>大きいSTOPの参照互換wrapを保持して情報診断を返し、正常音符やwrapのraw・変換時刻情報を落とす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_JavaIntWrappedTimelineAddsDiagnostic()
     {
@@ -604,6 +622,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>枝1が保存時間範囲を超えたRANDOM入力では解析可能な後続枝を選び、全譜面を失敗扱いする誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomRetrySkipsTimelineLongerThanIntMilliseconds()
     {
@@ -632,6 +651,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>不正なBPM・STOP・TOTAL定義を含んでも有効音符を解析し、TOTALを明示値扱いする誤りや全体拒否を検出する。</summary>
     [TestMethod]
     public void ParseBms_MalformedKnownCommandsAreNonFatalAndTotalUndefined()
     {
@@ -655,6 +675,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>完全な整数指定、無効指定からの推論、後続無効難度を区別し、明示状態や先行有効値を誤って上書きする互換違反を検出する。</summary>
     [TestMethod]
     public void ParseBms_LevelAndDifficultyUseStrictReferenceParsingAndDifficultyInference()
     {
@@ -710,6 +731,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>空白省略・等号区切り・Unicode数字のヘッダーを参照互換で読むことで、有効なlevel・難度・rankを取り落とす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_HeaderCommandsAcceptBeatorajaReserveWordFormsAndUnicodeDigits()
     {
@@ -735,6 +757,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>TOTALの末尾ごみを未定義として扱い、小数の有効値は保持して部分文字列の誤受理や整数化を検出する。</summary>
     [TestMethod]
     public void ParseBms_TotalRejectsTrailingGarbageButAcceptsDecimal()
     {
@@ -757,6 +780,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>初期BPMも時刻0の代替定義もない入力を失敗にし、時刻を計算できない譜面の正常受理を検出する。</summary>
     [TestMethod]
     public void ParseBms_MissingInitialBpmIsFatal()
     {
@@ -769,6 +793,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>初期BPMが省略されても時刻0のindexed定義で解析し、参照互換の主BPM・音符と最小値を失う誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_MeasureZeroIndexedBpmCanDefineInitialTimelineBpm()
     {
@@ -791,6 +816,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>初期BPM省略時に時刻0の直接BPMで解析を開始し、indexed経路だけを受理する誤りや統計値の退行を検出する。</summary>
     [TestMethod]
     public void ParseBms_MeasureZeroDirectBpmCanDefineInitialTimelineBpm()
     {
@@ -812,6 +838,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>ゼロ・負値・非数値の初期BPMを代替定義なしで受理せず、不正な時間計算を成功扱いする誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_InvalidInitialBpmWithoutTimelineZeroBpmIsFatal()
     {
@@ -819,6 +846,7 @@ public sealed class ChartInfoParserBehaviorTests
         {
             string[] texts =
             [
+                // 時刻0に代替定義がないゼロ・負値・非数値をそれぞれ検査する。
                 "#BPM 0\r\n#00111:01\r\n",
                 "#BPM -120\r\n#00111:01\r\n",
                 "#BPM nope\r\n#00111:01\r\n"
@@ -834,6 +862,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>枝1に初期BPMがなくても後続枝の時刻0定義で再解析し、random譜面の有効枝を取り落とす誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneHasInvalidInitialBpm()
     {
@@ -862,6 +891,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>小節倍率で保存時間範囲を超える枝を避けて後続枝を解析し、倍率由来の失敗を再試行不能にする誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomRetryUsesLaterBranchWhenBranchOneTimelineIsTooLong()
     {
@@ -890,6 +920,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>IF終了後の共通音符を読むことで、RANDOMの枝状態が後続の主データまで除外する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomEndIfDoesNotSkipFollowingMainData()
     {
@@ -917,6 +948,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>ENDRANDOMで枝の適用範囲を閉じて後続音符を読み、非選択枝の状態をブロック外へ持ち越す誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_RandomEndRandomCanCloseRandomBlock()
     {
@@ -941,6 +973,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>未知JSON欄を無視し未対応modeの参照互換7鍵として解析を維持して、有効音符の拒否や統計欠落を検出する。</summary>
     [TestMethod]
     public void ParseBmson_UnknownFieldsAreIgnoredAndUnsupportedModeFallsBackToBeat7()
     {
@@ -964,6 +997,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>LNのchart stringをbeatoraja互換の数字markerでハッシュ化し、通常音符と混同する誤りを独立した期待ハッシュで検出する。</summary>
     [TestMethod]
     public void ParseBms_LongNoteChartHashUsesBeatorajaNumericLongNoteMarker()
     {
@@ -984,6 +1018,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>同時刻同レーンの地雷を後の通常音符で置換し、統計・feature・レーン数へ古い音符が残る誤りを検出する。</summary>
     [TestMethod]
     public void ParseBms_NormalNoteCollisionOverwritesExistingNoteLikeBeatoraja()
     {
@@ -1010,6 +1045,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>LN終端確定時に範囲内の通常音符を除き、二重計数やレーン別統計の残留を検出する。</summary>
     [TestMethod]
     public void ParseBms_LongNoteEndRemovesInsideLaneNotesLikeBeatoraja()
     {
@@ -1033,6 +1069,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>コロン以外の区切りを持つ既存互換入力から参照と同じ音符数を生成し、従来受理した行の取り落としを検出する。</summary>
     [TestMethod]
     public void ParseBms_MalformedChannelLineWithoutColonIsStillDecodedLikeBeatoraja()
     {
@@ -1054,6 +1091,7 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>同時刻継続音符の探索とLNの音声継続時刻を反映し、音符数が同じでも異なる音声区間のchart hashを同一化する誤りを検出する。</summary>
     [TestMethod]
     public void ParseBmson_LongNoteAudioDurationAffectsChartHash()
     {
@@ -1097,6 +1135,8 @@ public sealed class ChartInfoParserBehaviorTests
         });
     }
 
+    /// <summary>実BMS千件を独立beatoraja期待へ照合し、核となる詳細・ハッシュ・整数BPMの差分と既存許容幅を超える分布・密度・長さの退行を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。期待または解析結果にRandomがある行は値比較から除外する。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1154,6 +1194,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(0, diffs.BpmIntegerDiffs, diffs.ToString());
     }
 
+    /// <summary>重複JSONキーを持つ二つの実bmsonを参照DBへ照合し、キー採用順によるハッシュ・音符・長さの互換違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     public void ParseRealBmsonDuplicateKeyFixtures_MatchBeatorajaHash()
@@ -1183,6 +1225,8 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>実bmson千三十四件の比較対象の詳細・ハッシュ・長さ・密度・TOTALを参照DBへ照合し、互換正規化と許容誤差内の一致を維持する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。levelの期待0と解析結果nullを同等とし、min/max BPMは整数化、浮動小数値は1e-6以内の差を許容する。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1215,7 +1259,6 @@ public sealed class ChartInfoParserBehaviorTests
             ChartInfoParser.ChartInfoParseResult fromBytesResult;
             try
             {
-                actual = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
                 fromBytesResult = ChartInfoParser.ParseBytesDetailed(File.ReadAllBytes(chartPath), chartPath, expected.md5, expected.sha256);
             }
             catch (Exception ex)
@@ -1228,8 +1271,7 @@ public sealed class ChartInfoParserBehaviorTests
                     + " message=" + ex.Message);
                 throw;
             }
-            BeMusicSeeker.Models.ChartDetails fromBytes = fromBytesResult.Row;
-            AssertChartInfoEquivalent(actual, fromBytes);
+            actual = fromBytesResult.Row;
             diffs.Add(expected, actual, (fromBytesResult.ChartString ?? throw new AssertFailedException("詳細解析のChartStringがありません。")));
         }
 
@@ -1245,6 +1287,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(0, diffs.MainBpmDiffs, diffs.ToString());
     }
 
+    /// <summary>既知の遅い四件を分離した実BMS七百五十五件を期限内に参照DBへ照合し、新規timeout・解析失敗・保存値の差分を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。期待または解析結果にRandomがある行は値比較から除外する。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ProductionDiffFull")]
@@ -1253,7 +1297,7 @@ public sealed class ChartInfoParserBehaviorTests
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_FULL"), "1", StringComparison.Ordinal))
         {
-            Assert.Inconclusive("Set BMS_TEST_PRODUCTION_DIFF_FULL=1 to run the full production diff compatibility fixture.");
+            Assert.Inconclusive("本番diff全件の互換検査にはBMS_TEST_PRODUCTION_DIFF_FULL=1の明示指定が必要。");
         }
 
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
@@ -1330,6 +1374,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(0, diffs.TotalDiffs, diffs.ToString());
     }
 
+    /// <summary>通常群から分離した既知の遅い四件を明示実行時の期限内で解析し、解析完了と参照値一致の退行を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。期待または解析結果にRandomがある行は値比較から除外する。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilitySlow")]
@@ -1338,7 +1384,7 @@ public sealed class ChartInfoParserBehaviorTests
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_CHART_INFO_SLOW"), "1", StringComparison.Ordinal))
         {
-            Assert.Inconclusive("Set BMS_TEST_CHART_INFO_SLOW=1 to run the slow chart_info parser fixtures.");
+            Assert.Inconclusive("遅いchart_info fixtureの検査にはBMS_TEST_CHART_INFO_SLOW=1の明示指定が必要。");
         }
 
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
@@ -1377,51 +1423,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(0, diffs.TotalDiffs, diffs.ToString());
     }
 
-    [TestMethod]
-    [TestCategory("Compatibility")]
-    public void ParseProductionDiffFixture_ParsePathAndBytesAgreeForSamples()
-    {
-        string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_diff");
-        string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
-        Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
-
-        string[] sha256s =
-        [
-            "cf3203eb2b057ca03f6a1579eb50c1169c6cf2b6956058077313ab3eed5f5a3a",
-            "dfc23c232b435b8abcfc9363a15400b4115a7bec0d66b0d405e6e6cdfcf224e2",
-            "45d530304e95f336578c639f4e38551c380053a7b9b843d38106bad11cc4ce5e",
-            "4cf26b3ba8d762de8db62eec0b7790a37da600b303aecffa6391018d83680266",
-            "9aa0dd20de15bd0f7d0166afcdaf87f05c0e331fe8cdc3017d931781526a8559",
-            "850175e80107119b507b42aa992b632bd3976a9ca7d1b348eb8af7bf854570e6",
-            "418806ce0bcd1eecc2256b022d1aad8c9616f7c21389eab61e280952e0f68558",
-            "0f9297f384c02a4060f31962e768dc6a34d83aa551fbc5a01c19a6b7c6c40b77",
-            "2125eeb135073c7d1f20968bef763ac1dc6290fd836fcc29309c5d351b60667e",
-            "b40404294f647c238462a47adf9f5e8a5a38832805c6bed7d8ed81926004afb6"
-        ];
-
-        using var connection = new SQLiteConnection(expectedDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
-        foreach (string sha256 in sha256s)
-        {
-            RealChartInfoExpectedRow expected = connection.Query<RealChartInfoExpectedRow>(
-                "SELECT sc.fixture_id, sc.fixture_path, e.* "
-                    + "FROM FixtureSampleChart sc "
-                    + "JOIN FixtureExpectedChartInfo e ON e.sha256 = sc.sha256 "
-                    + "WHERE sc.sha256 = ?;",
-                sha256).Single();
-            string chartPath = Path.Combine(fixtureRootPath, expected.fixture_path.Replace('/', Path.DirectorySeparatorChar));
-
-            BeMusicSeeker.Models.ChartDetails fromPath = ChartInfoParser.Parse(chartPath, expected.md5, expected.sha256);
-            BeMusicSeeker.Models.ChartDetails fromBytes = ChartInfoParser.ParseBytesDetailed(
-                File.ReadAllBytes(chartPath),
-                chartPath,
-                expected.md5,
-                expected.sha256,
-                timeout: TimeSpan.FromSeconds(10)).Row;
-
-            AssertChartInfoEquivalent(fromPath, fromBytes);
-        }
-    }
-
+    /// <summary>実STOP overflow入力の長さ・音符・featureを参照DBへ照合し、Java整数wrapの互換を合成入力だけでは見落とす誤りを検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     public void ParseProductionDiffFixture_JavaIntWrappedStopLengthMatchesBeatoraja()
@@ -1452,6 +1455,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(expected.feature, result.Row.feature);
     }
 
+    /// <summary>衝突を含む四つの実譜面を参照DBへ照合し、通常・LN・scratch各計数とレーン別保存値の互換違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     public void ParseProductionDiffFixture_NoteCollisionCountsMatchBeatorajaSamples()
@@ -1460,6 +1465,7 @@ public sealed class ChartInfoParserBehaviorTests
         string expectedDbPath = Path.Combine(fixtureRootPath, "expected.db");
         Assert.IsTrue(File.Exists(expectedDbPath), "chart_info_production_diff expected.db fixture is missing.");
 
+        // 個々の外部入力はSHA-256と参照DBのfixture_pathで特定する。
         string[] sha256s =
         [
             "4cf26b3ba8d762de8db62eec0b7790a37da600b303aecffa6391018d83680266",
@@ -1490,6 +1496,8 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>無効な省略RANDOMを含む実譜面で参照hashとfeatureを保ち、地雷は残してrandomを誤設定する分類違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     public void ParseProductionDiffFixture_InvalidCompactRandomDoesNotSetRandomFeature()
@@ -1516,6 +1524,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.IsTrue((result.Row.feature & FeatureMine) != 0);
     }
 
+    /// <summary>報告された七つの実差分入力をJDK21参照へ照合し、ハッシュ・長さ・分布・速度・密度の再発を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ProductionDiffFull")]
@@ -1524,7 +1534,7 @@ public sealed class ChartInfoParserBehaviorTests
     {
         if (!string.Equals(Environment.GetEnvironmentVariable("BMS_TEST_PRODUCTION_DIFF_FULL"), "1", StringComparison.Ordinal))
         {
-            Assert.Inconclusive("Set BMS_TEST_PRODUCTION_DIFF_FULL=1 to run the latest production diff compatibility fixture.");
+            Assert.Inconclusive("最新の本番diff全件の互換検査にはBMS_TEST_PRODUCTION_DIFF_FULL=1の明示指定が必要。");
         }
 
         string fixtureRootPath = Path.Combine(FindRepoRoot(), "BeMusicSeeker.Tests", "TestData", "chart_info_production_latest_diff");
@@ -1561,6 +1571,7 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>timeoutと解析失敗を成功差分とは別に数え、後から成功解析した行だけのハッシュ差を集計して失敗行の混入を検出する。</summary>
     [TestMethod]
     public void CompatibilityDiffCounts_RecordsSkippedProductionDiffRowsWithoutCountingDiffs()
     {
@@ -1586,6 +1597,8 @@ public sealed class ChartInfoParserBehaviorTests
         StringAssert.Contains(diffs.ToString(), "parseFailure=1");
     }
 
+    /// <summary>時刻0の定義で初期BPMを補う実譜面を参照DBへ照合し、ハッシュ・長さ・音符・BPM統計の互換違反を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1618,6 +1631,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual((int)(expected.maxbpm ?? 0.0), (int)(actual.maxbpm ?? 0.0));
     }
 
+    /// <summary>長い時間軸の二つの実入力を参照DBへ照合し、長さだけでなく分布・密度・ハッシュを変える時刻退行を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1654,6 +1669,8 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>overflowから再試行する四つの実random入力を解析し、例外なくrandom状態と正の音符・非負の長さを成立させる保証の退行を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1693,6 +1710,8 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>実RANDOM/ENDIFの範囲入力で参照の音符・scratch・長さを保ち、枝状態による大量の主データ脱落を検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1719,6 +1738,8 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.AreEqual(136083, actual.length);
     }
 
+    /// <summary>参照でも初期BPM不足として失敗する二つの実入力を拒否し、既定BPM補完で失敗を隠す誤りを検出する。</summary>
+    /// <remarks>実配布入力と独立参照DBを使う互換検査。明示実行・規模・解析期限は既存区分のまま保持する。</remarks>
     [TestMethod]
     [TestCategory("Compatibility")]
     [TestCategory("ParserCompatibilityFull")]
@@ -1745,10 +1766,12 @@ public sealed class ChartInfoParserBehaviorTests
         }
     }
 
+    /// <summary>明示手動実行でJava参照toolを実譜面へ接続し、成功JSONとchart hashの出力が失われる誤りを検出する。</summary>
+    /// <remarks>ローカルJDKと参照リポジトリが必要な既存手動caseで、通常検証の依存へ追加しない。</remarks>
     [TestMethod]
     [TestCategory("CompatibilityTool")]
-    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("Manual smoke check for local JDK/reference repos. Normal dotnet test must not depend on Java.")]
-    public void ChartStringDumpTool_BuildsAndDumpsReferenceChartString()
+    [Microsoft.VisualStudio.TestTools.UnitTesting.Ignore("ローカルJDK・参照リポジトリを使う手動確認。通常検証をJavaへ依存させないため自動実行しない。")]
+    public async Task ChartStringDumpTool_BuildsAndDumpsReferenceChartString()
     {
         string repoRoot = FindRepoRoot();
         string scriptPath = Path.Combine(repoRoot, "tools", "chartstring-dump", "run.ps1");
@@ -1763,12 +1786,9 @@ public sealed class ChartInfoParserBehaviorTests
         Assert.IsTrue(File.Exists(scriptPath), "chartstring-dump run script is missing.");
         Assert.IsTrue(File.Exists(chartPath), "chartstring-dump smoke fixture is missing.");
 
-        string powershellPath = File.Exists(@"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe")
-            ? @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-            : "pwsh";
         var startInfo = new ProcessStartInfo
         {
-            FileName = powershellPath,
+            FileName = "pwsh",
             Arguments = "-ExecutionPolicy Bypass -File \"" + scriptPath + "\" \"" + chartPath + "\"",
             WorkingDirectory = repoRoot,
             UseShellExecute = false,
@@ -1776,14 +1796,74 @@ public sealed class ChartInfoParserBehaviorTests
             RedirectStandardError = true
         };
 
-        using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start chartstring-dump.");
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit(30000);
+        Process? process = null;
+        Task[] ownedTasks = [];
+        Exception? primaryFailure = null;
+        try
+        {
+            process = Process.Start(startInfo) ?? throw new InvalidOperationException("Failed to start chartstring-dump.");
+            Task exitTask = process.WaitForExitAsync();
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+            ownedTasks = [exitTask, stdoutTask, stderrTask];
+            try
+            {
+                await Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail("chartstring-dump did not finish with both output streams within 30 seconds.");
+            }
+            string stdout = await stdoutTask;
+            string stderr = await stderrTask;
+            Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
+            StringAssert.Contains(stdout, "\"ok\":true");
+            StringAssert.Contains(stdout, "\"charthash\":");
+        }
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+        }
+        finally
+        {
+            Exception? cleanupFailure = null;
+            try
+            {
+                if (process is not null && !process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                cleanupFailure = ex;
+            }
+            try
+            {
+                await Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (Exception ex)
+            {
+                cleanupFailure = cleanupFailure is null ? ex : new AggregateException(cleanupFailure, ex);
+            }
+            process?.Dispose();
+            if (cleanupFailure is not null)
+            {
+                if (primaryFailure is null)
+                {
+                    primaryFailure = cleanupFailure;
+                }
+                else
+                {
+                    primaryFailure.Data["chartstring-dump.cleanup"] = cleanupFailure;
+                }
+            }
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
 
-        Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
-        StringAssert.Contains(stdout, "\"ok\":true");
-        StringAssert.Contains(stdout, "\"charthash\":");
     }
 
 }

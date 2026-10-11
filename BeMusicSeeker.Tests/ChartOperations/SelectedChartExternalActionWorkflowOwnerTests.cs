@@ -16,6 +16,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SelectedChartExternalActionWorkflowOwnerTests
 {
+    /// <summary>既存パスでフォルダを開く要求をshellへ渡し、対象の取り違えや転送漏れを検出します。</summary>
     [TestMethod]
     public void Execute_OpenExplorerPassesExistingPathToGateway()
     {
@@ -35,6 +36,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { @"C:\Songs\alpha.bms" }, explorerPaths);
     }
 
+    /// <summary>関連付け起動が失敗しても一回の呼出しで終え、操作へ例外を漏らす誤りを検出します。</summary>
     [TestMethod]
     public void Execute_OpenFileSuppressesAssociatedLauncherFailure()
     {
@@ -54,6 +56,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(1, launcherCalls);
     }
 
+    /// <summary>非対応の対象を含むファイル不在の入力ではfolder・file操作を実行せず、shellを呼ぶ誤りを検出します。</summary>
     [TestMethod]
     public void Execute_MissingPathOrCapabilityDoesNotOpenAnything()
     {
@@ -79,6 +82,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(0, gatewayCalls);
     }
 
+    /// <summary>playlistの詳細SHA256を解決入力とKaleid URLまで保持し、保存投影でhashを落とす誤りを検出します。</summary>
     [TestMethod]
     public void ResolveConfiguredActions_PlaylistStorageProjectionPreservesChartInfoSha256()
     {
@@ -124,6 +128,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual("https://kaleidir.com/charts/" + chartInfoSha256, kaleid.Url);
     }
 
+    /// <summary>URL起動の例外をWebLaunchFailedとして返し、成功扱いや元の例外欠落を検出します。</summary>
     [TestMethod]
     public void Execute_UrlLauncherFailureReturnsTypedResult()
     {
@@ -150,6 +155,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsInstanceOfType(result.Exception, typeof(InvalidOperationException));
     }
 
+    /// <summary>所有BMS・保留BMS/BMSONの空白を含むパスを引数へ渡し、設定から削除後の再起動やtoken展開誤りを検出します。</summary>
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -211,6 +217,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(1, programGateway.RequestCount);
     }
 
+    /// <summary>playlist未解決・hashのみ・保留ファイル不在・権限不在ではprogram候補と起動を拒否し、実行可能性の漏れを検出します。</summary>
     [TestMethod]
     [DataRow("playlist-missing")]
     [DataRow("hash-only")]
@@ -259,6 +266,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(0, programGateway.RequestCount);
     }
 
+    /// <summary>gatewayの実行ファイル不在を専用失敗と診断へ写し、成功や別分類への取り違えを検出します。</summary>
     [TestMethod]
     public void Execute_ConfiguredProgramMapsGatewayMissingExecutableToTypedFailure()
     {
@@ -296,6 +304,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual("raw executable detail", result.Diagnostic);
     }
 
+    /// <summary>不正な設定JSONを診断付きInvalidSettingsで返し、既定設定へ置換して実行する誤りを検出します。</summary>
     [TestMethod]
     public void Execute_InvalidSettingsReturnsTypedFailureWithInternalDiagnosticOnly()
     {
@@ -320,6 +329,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(result.Diagnostic));
     }
 
+    /// <summary>既存ファイルと操作権限の照会だけで実行可を返し、照会時に起動する副作用を検出します。</summary>
     [TestMethod]
     public void CanExecute_UsesExistingLocalEligibilityWithoutInvokingLaunchers()
     {
@@ -341,6 +351,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(0, launchCalls);
     }
 
+    /// <summary>非対応の対象を含むファイル不在の入力でfile・folderの両操作を拒否し、入口ごとの受付漏れを検出します。</summary>
     [TestMethod]
     public void CanExecute_RejectsMissingLocalPathCapability()
     {
@@ -358,6 +369,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.IsFalse(owner.CanExecute(missingFile, SelectedChartExternalActionKind.OpenFile));
     }
 
+    /// <summary>関連文書はtxt・HTML候補を順に集め、種別の欠落や返却順の逆転を検出します。</summary>
     [TestMethod]
     public async Task QueryRelatedDocuments_ReturnsTextBeforeHtmlCandidates()
     {
@@ -383,6 +395,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "*.txt", "*.htm?" }, requests);
     }
 
+    /// <summary>譜面が存在しない場合はUnavailableを返して列挙せず、不要な探索を始める誤りを検出します。</summary>
     [TestMethod]
     public async Task QueryRelatedDocuments_MissingChartPathDoesNotEnumerate()
     {
@@ -403,6 +416,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(0, enumerationCalls);
     }
 
+    /// <summary>候補なしと列挙例外をEmpty・Failedへ分け、探索失敗を空結果として隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task QueryRelatedDocuments_DistinguishesEmptyAndEnumerationFailure()
     {
@@ -419,6 +433,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         Assert.AreEqual(RelatedDocumentQueryStatus.Failed, failed.Status);
     }
 
+    /// <summary>受渡し後の入力一覧変更を結果へ反映せず、可変一覧の共有による候補の変化を検出します。</summary>
     [TestMethod]
     public void RelatedDocumentQueryReceipt_CopiesAvailablePaths()
     {
@@ -432,6 +447,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
             receipt.Paths.ToArray());
     }
 
+    /// <summary>列挙中の取消は解放後にCanceledで終わり、取消を成功した空結果へ写す誤りを検出します。</summary>
     [TestMethod]
     public async Task QueryRelatedDocuments_CancellationDoesNotReturnSuccessfulReceipt()
     {
@@ -463,6 +479,7 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         }
     }
 
+    /// <summary>文書を開く時点で存在を再確認し、未存在の起動や関連付けの失敗を隠す誤りを検出します。</summary>
     [TestMethod]
     public void OpenRelatedDocument_RechecksPathAndPropagatesLauncherFailure()
     {
@@ -572,7 +589,6 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
         string? sha256 = null,
         BeMusicSeeker.Models.ChartDetails? chartInfo = null)
     {
-        ChartFile file = (ChartTestValues.Empty() with { Path = path });
         var chart = new ChartFile(ChartFileKind.Bms, path, md5, sha256, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, chartInfo);
         return new ChartOperationTarget(
             chart,

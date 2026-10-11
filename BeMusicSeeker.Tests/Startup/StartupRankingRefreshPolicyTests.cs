@@ -6,6 +6,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupRankingRefreshPolicyTests
 {
+    /// <summary>
+    /// 保証：IR取得とランキングキャッシュ更新の四組合せを別々の要求へ写し、両方無効の場合だけ作業なしとして不要な同期を防ぐ。
+    /// </summary>
     [TestMethod]
     public void CreateWorkPlanMapsTheFourIndependentFlagCombinations()
     {
@@ -33,6 +36,9 @@ public sealed class StartupRankingRefreshPolicyTests
         }
     }
 
+    /// <summary>
+    /// 保証：明示更新・LR2参照・LR2スコアDBがそろう場合だけ起動時ランキング処理を予約し、別スコア元やDB欠落で予約しない。
+    /// </summary>
     [TestMethod]
     public void ShouldQueueRequiresOnlyTheExistingQueueInputs()
     {
@@ -67,6 +73,9 @@ public sealed class StartupRankingRefreshPolicyTests
             plan: plan));
     }
 
+    /// <summary>
+    /// 保証：両更新フラグが無効なら他の予約条件がそろっても作業を開始せず、無設定の外部同期を防ぐ。
+    /// </summary>
     [TestMethod]
     public void ShouldQueueSuppressesWhenBothRefreshFlagsAreDisabled()
     {
@@ -81,6 +90,9 @@ public sealed class StartupRankingRefreshPolicyTests
             plan: plan));
     }
 
+    /// <summary>
+    /// 保証：IR取得のみ・キャッシュ更新のみを独立して予約でき、一方の設定を他方の前提として扱わない。
+    /// </summary>
     [TestMethod]
     public void EachRefreshFlagIsIndependent()
     {
@@ -101,6 +113,9 @@ public sealed class StartupRankingRefreshPolicyTests
         Assert.IsTrue(StartupRankingRefreshPolicy.ShouldQueue(true, ActiveScoreSource.Lr2, true, cacheOnly));
     }
 
+    /// <summary>
+    /// 保証：操作モードとオフライン推定に左右されず更新フラグを再評価し、先の起動計画を後の要求へ流用しない。
+    /// </summary>
     [TestMethod]
     public void PlanIgnoresOperationModeAndOfflineEstimateAndCanBeReevaluated()
     {

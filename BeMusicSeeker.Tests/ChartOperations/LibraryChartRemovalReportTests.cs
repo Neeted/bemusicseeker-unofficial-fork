@@ -10,10 +10,13 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>FSDB-C6 deletion-specific mapping; the general bounded renderer matrix remains in A.</summary>
+/// <summary>削除の対象別状態を通知へ写します。一般の長さ制約と失敗別表示はFileDbMutationReportTestsが担います。</summary>
 [TestClass]
 public sealed class LibraryChartRemovalReportTests
 {
+    /// <summary>
+    /// 保証：削除がすべて確定した場合は通知せず、未実行・未確認等の各状態では対象パスを含むエラーとして知らせる。
+    /// </summary>
     [TestMethod]
     public void NormalDeletionIsSilentAndEveryUnconfirmedStateIsAnError()
     {
@@ -29,6 +32,9 @@ public sealed class LibraryChartRemovalReportTests
         }
     }
 
+    /// <summary>
+    /// 保証：混在した削除結果の通知を各言語の長さ上限へ収め、通知先が失敗しても対象別事実と元のファイル・カタログ例外を保持する。
+    /// </summary>
     [TestMethod]
     public async Task MixedFactsStayIntactAcrossBoundedLocalizationAndReporterFailure()
     {

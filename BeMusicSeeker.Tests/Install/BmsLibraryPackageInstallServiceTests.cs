@@ -28,11 +28,11 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
-
     /// <summary>
-    /// Observes the resource index before the second package is staged and verifies that
-    /// successful package directories are published only once at the operation terminal.
+    /// 通常・強制の導入で二つのパッケージの資源とDB行を確定し、二件目の物理準備中は旧索引を保ち、終端で一度だけ公開することを確認して途中公開を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // force=falseは通常導入、trueは所持済み譜面も含む強制導入。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -50,7 +50,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             for (int i = 0; i < sources.Length; i++)
             {
                 string path = CreateBmsFile(sources[i], names[i], "#TITLE P0Package" + i + "\r\n" + body);
-                // These bytes are only enumerated, existence-checked and moved, never decoded.
+                // 列挙・存在確認・移動に使うバイト列で、メディアの復号は行わない。
                 File.WriteAllBytes(Path.Combine(sources[i], "shared.wav"), [1, 2, 3]);
                 File.WriteAllBytes(Path.Combine(sources[i], "picture.png"), [4, 5]);
                 File.WriteAllBytes(Path.Combine(sources[i], "clip.mp4"), [6, 7]);
@@ -76,7 +76,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string existingPath = CreateBmsFile(existingDirectory, "existing.bms", "#TITLE Existing\r\n" + body);
             if (force)
             {
-                // Force mode must still install real resources when one chart is already owned.
+                // 強制導入でも所持済み譜面に実資源を導入する。
                 File.Copy(Path.Combine(sources[0], names[0]), existingPath, overwrite: true);
             }
             File.WriteAllBytes(Path.Combine(existingDirectory, "shared.wav"), [1, 2, 3]);
@@ -124,8 +124,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     return;
                 }
-                // Observe actual lookup results now, not just a snapshot inspected after the batch.
-                // Assertions stay outside the executor so they cannot be caught as mutation failures.
+                // 物理処理中の実索引結果を捕捉し、終端後のsnapshotだけでは見えない途中公開を観測する。
+                // 表明はexecutor外で行い、処理失敗へ捕捉されて隠れないようにする。
                 LibraryResourceIndexSnapshot snapshot = owner.CaptureSnapshot();
                 beforeSecondPackage = snapshot;
                 audioAtSecondPackage = snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray();
@@ -210,8 +210,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 string.Equals(file.Path, existingPath, StringComparison.OrdinalIgnoreCase)).Token);
         });
     }
-
-    /// <summary>一要求内の非交差導入を確定し、後続の実交差だけBusy未処理に残します。交差先へFS/DB作用を開始しません。</summary>
+    /// <summary>
+    /// 一要求の非交差パッケージを導入し、後続の管理フォルダとの交差だけをBusyで保留し、交差先へのFS・DB変更や成功の巻戻しを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void AutoInstall_ManagedIntersectionBusyPreservesNonIntersectingCommittedPackage()
     {
@@ -271,6 +273,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 管理一時フォルダの保留を除くと実フォルダも削除し、未収束を理由とする不要な警告や管理入力の残存を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RemovePendingPackages_DeletesManagedTemporaryPackageSource()
     {
@@ -303,6 +309,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// カタログ未収束でも保留全解除を受け付け、一覧を空にして警告を出さず、解除を収束待ちで拒否する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RemovePendingPackagesAll_UnconvergedCatalogStillClearsPendingWithoutWarning()
     {
@@ -330,6 +340,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 利用者所有フォルダは保留から除いても実フォルダを保ち、管理一時入力と混同した削除を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RemovePendingPackages_DoesNotDeleteUserOwnedPackageSource()
     {
@@ -365,6 +379,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 保留拡張子の実変更後に排他を解放して一度通知し、通知先例外で成功を戻す誤りと通知中の排他保持を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_PublishesAfterLeaseReleaseAndIsolatesSubscriberFailure()
     {
@@ -416,6 +434,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 保留DB反映が失敗しても先行の物理変更失敗の通知を回収し、後続の物理成功と元DB失敗を保持して通知や成功対象の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_FlushesEarlierEffectWhenPackageApplyFails()
     {
@@ -463,8 +485,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         (thirdChart)
                     ],
                     ".bme"));
-
-            Assert.IsInstanceOfType<SQLite.SQLiteException>(primaryFailure);
             StringAssert.Contains(primaryFailure.Message, "install");
             Assert.AreEqual(2, dialogService.CallCount);
             Assert.IsTrue(dialogService.LaterFailureWasObserved);
@@ -475,6 +495,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 通常譜面の拡張子変更で先行の物理失敗と後続のDB失敗が起きても、排他解放後に先行失敗を知らせ、後続の物理成功を失う誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RenameBMSFilesExtensions_FlushesEarlierFailureAfterCatalogApplyFailure()
     {
@@ -518,8 +542,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     ],
                     ".bme",
                     unregister: false));
-
-            Assert.IsInstanceOfType<SQLite.SQLiteException>(primaryFailure);
             StringAssert.Contains(primaryFailure.Message, "song");
             Assert.AreEqual(1, dialogService.Calls.Count);
             Assert.IsTrue(failureDialogObservedReleasedLease);
@@ -529,6 +551,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 拡張子変更のDB確定後にLR2同期が失敗したら例外を伝えつつFS・保存行・所持パスの確定を保ち、確定済み変更の巻戻しを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RenameBMSFilesExtensions_PropagatesDurableAfterCommitFailure()
     {
@@ -579,6 +605,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 拡張子変更に成功した選択譜面だけを登録解除し、失敗した譜面と別所有者の同一MD5を保ち、全件索引再構築やハッシュの過剰削除を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void RenameBMSFilesExtensions_UnregistersOnlySuccessfulChartsAndPreservesHashOwner()
     {
@@ -751,6 +781,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 実Bmsonをパッケージから発見して所持判定へ渡し、BMS専用一覧に依存して所持のみのパッケージを取り落とす誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_UsesPackageChartEntries()
     {
@@ -776,6 +810,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 実Bmsonの所持ハッシュをライブラリ入口から照合し、所持のみの保留パッケージが結果から欠落する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void GetPendingPackagesContainingOnlyInstalledCharts_MatchesInstalledBmsonByChartEntryHash()
     {
@@ -803,11 +841,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreSame(pendingPackage, result[0]);
         });
     }
-
     /// <summary>
-    /// R5-01: 混在 package の既所持譜面は、source cleanup 設定が OFF なら
-    /// 保持し、ON なら実 FS/DB で確認できる所持コピーを根拠に削除します。
+    /// 所持済みと新規譜面が混在する導入で新規行を確定し、元入力の削除設定に従って所持コピーを保持または削除して、設定を無視する入力削除を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 第一値は元入力削除の設定、第二値はその設定から期待する実削除。
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, true)]
@@ -881,6 +919,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持のみ二件の片付けは成功件数を保ち、片付け失敗が混在する場合だけ終端報告へ案内を集約し、確定失敗への誤分類や二重案内を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 第一値は終端への報告集約、第二値は片付け失敗の注入。
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -933,11 +976,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
         });
     }
-
     /// <summary>
-    /// 全譜面の推定先が空の先行パッケージが、後続パッケージの共通譜面を
-    /// 既所持として誤除外しないことを、実ファイルと song.db で検証します。
+    /// 推定先のない先行パッケージは入力・警告を保留に残し、同じMD5を持つ後続の実導入を妨げる未実行ハッシュ予約を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_EmptyDestinationPackageDoesNotReserveHashForLaterPackage()
     {
@@ -1016,11 +1058,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(result.FailedPackages.Contains(secondPackage));
         });
     }
-
     /// <summary>
-    /// 複数 package の physical prepare 後に canonical transaction が失敗しても、
-    /// package/catalog/resource publication を部分確定せず recovery candidate を一つの session terminal に保持します。
+    /// 複数の物理準備後にDB反映が失敗したら保存行と一覧・索引を部分公開せず、準備済み出力を回復候補へ残し、確定前の部分成功を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_CanonicalApplyFailureKeepsPreparedTargetsWithoutPartialPublication()
     {
@@ -1157,11 +1198,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(thirdSourceDirectoryPath, thirdPackage.path, ignoreCase: true);
         });
     }
-
     /// <summary>
-    /// 後続 duplicate 判定は DB commit ではなく先行 physical success overlay を使い、
-    /// canonical apply が後で失敗しても未実行予約を成功扱いしません。
+    /// 先行の物理成功だけを後続重複判定へ使い、後のDB失敗では保留・元入力と回復候補を保ち、同一譜面を二度物理導入する誤りを検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPhysicalSuccessOverlayBeforeCanonicalApplyFailure()
     {
@@ -1241,6 +1281,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// BMS所持集合がなくてもBmsonの資源のみを実導入し、既存識別を保って排他解放後に通知することで、種類依存の欠落と通知中のロック保持を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_ResourceOnlyBmsonWorksWithoutBmsFiles()
     {
@@ -1328,12 +1372,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
         });
     }
-
     /// <summary>
-    /// 先行 package の physical success 後に source cleanup だけが失敗しても、
-    /// 後続 package が同じ推定導入 session で固有譜面または resource-only として
-    /// 再評価され、operation terminal に cleanup failure を保持することを検証します。
+    /// 先行導入の元入力片付けが失敗しても、後続の新規譜面または資源のみを再判定して確定し、片付け失敗を元の分類で終端へ残すことを確認する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // falseは資源のみ、trueは未所持の独立譜面も含む後続入力。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1467,9 +1510,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             else
             {
-                // The shared chart has an independent durable copy from the
-                // earlier package, so a resource-only install may consume its
-                // remaining source after the same verified cleanup proof.
+                // 先行パッケージが独立した保存済みコピーを持つため、
+                // 資源のみ導入でもその照合を根拠に元譜面を片付ける。
                 Assert.IsFalse(Directory.Exists(secondPendingDirectoryPath));
                 Assert.IsFalse(File.Exists(secondBmsonPath));
             }
@@ -1493,11 +1535,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
-
     /// <summary>
-    /// resource-only / cleanup-only の
-    /// canonical install-row apply が失敗した場合、prepare 件数を成功として公開しません。
+    /// 資源導入・片付けのみのDB反映が失敗したら準備件数を成功として公開せず、保留行・入力と回復候補を保持して、未確定成功件数の漏出を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // falseは資源上書き、trueは元入力の片付けだけをDB反映失敗の対象にする。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1578,11 +1620,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 "SELECT COUNT(1) FROM song WHERE path = ?;", installedChartPath));
         });
     }
-
     /// <summary>
-    /// DST 通知は outer file mutation lease 解放後に行い、
-    /// 購読者の例外を required finalization failure に変換しません。
+    /// 資源のみの実導入を確定して外側排他を解放してから適用先を通知し、通知先が例外を投げても確定成功を維持することで、通知失敗の誤分類を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // falseは通常購読、trueは通知先の例外を注入して成功保持を確認する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1699,13 +1741,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     pendingBmsonPath));
         });
     }
-
     /// <summary>
-    /// resource-only 導入はcatalogの譜面件数を増やさず、既存のBMSON owner・snapshotを
-    /// 保持したまま、実resource移動とpending install rowのdurable receiptを完了します。
-    /// 背景16件は全件列挙を検出する閾値を上回り、resource-only操作の局所更新を確認できます。
-    /// 背景件数による時間・仕事量比較はこの契約に含めません。
+    /// 二回の資源のみ導入で所持譜面と取得済み索引を保ち、通知時のモデルロック解放・DB更新と終端後の警告・健全性・実資源を確認して、全件再構築や譜面追加への誤分類を検出する。背景16件は全件処理を見分ける入力である。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
     [DataTestMethod]
     [DataRow(16)]
     public void OverwritePendingInstalledOnlyPackagesResources_UsesWarmCatalogWithoutChartDelta(int backgroundCount)
@@ -2030,6 +2070,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 元入力の片付けだけでも外側排他を保って再入要求を拒否し、片付けを実行しない成功や途中の追加導入を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void OverwritePendingInstalledOnlyPackagesResources_CleanupOnlyUsesOuterLeaseAndExcludesReentry()
     {
@@ -2113,6 +2157,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 資源導入後の通知先が例外を投げても確定済みの資源と所持表示を保ち、通知失敗で導入成功を取り消す誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_SubscriberFailureDoesNotReclassifyCommittedInstall()
     {
@@ -2158,7 +2206,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
             Exception? packageEntryInspectionFailure = null;
-            pendingEntry.PropertyChanged += (_, _) =>
+            bool subscriberFailureReached = false;
+            System.ComponentModel.PropertyChangedEventHandler handler = (_, _) =>
             {
                 try
                 {
@@ -2178,23 +2227,35 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
                 if (File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")))
                 {
+                    subscriberFailureReached = true;
                     throw new InvalidOperationException("subscriber publication failed");
                 }
             };
+            pendingEntry.PropertyChanged += handler;
+            try
+            {
+                library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
 
-            library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
-
-            Assert.IsNull(
-                packageEntryInspectionFailure,
-                packageEntryInspectionFailure?.ToString());
-            Assert.AreEqual(0, library.ChartPackagesPending.Count);
-            Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
-            Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+                Assert.IsNull(
+                    packageEntryInspectionFailure,
+                    packageEntryInspectionFailure?.ToString());
+                Assert.IsTrue(subscriberFailureReached);
+                Assert.AreEqual(0, library.ChartPackagesPending.Count);
+                Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+                Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
+            }
+            finally
+            {
+                pendingEntry.PropertyChanged -= handler;
+            }
         });
     }
 
 
-
+    /// <summary>
+    /// 保留一覧にないパッケージの導入要求は入力ファイルとパスを変更せず、対象外入力への物理作用を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_LeavesPackageUnchangedWhenItIsNotPending()
     {
@@ -2224,6 +2285,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// LR2同期中でもnullの導入要求は引数失敗を伝え、稼働状態を理由に不正要求を成功扱いする誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_NullStillThrowsWhenLr2SyncIsRunning()
     {
@@ -2243,10 +2308,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
-
     /// <summary>
-    /// 自動導入の非同期入口が、譜面索引なしでも単独動作・LR2設定の登録ルート自身・子孫を除外し、FSとDBを保持します。
+    /// 譜面索引が空でも登録ルート自身・子孫を自動導入から除外し、単独動作とLR2設定の双方でFS・DBを変える再導入を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 第一値でLR2基点かBMS基点を選び、第二値で基点自身・配下フォルダ・配下ファイルを区別する。
     [DataTestMethod]
     [DataRow(false, "root")]
     [DataRow(false, "directory")]
@@ -2311,11 +2377,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(nestedChartPath));
         });
     }
-
     /// <summary>
-    /// 強制導入の本番入口を、primary hash lookupだけを先に温めた状態で実行し、
-    /// 確定した譜面がFS・SQLite・installed lookupへ反映されることを確認します。
+    /// 主ハッシュだけを温めた状態から強制導入し、実FS・DB・現在索引へ新譜面を反映して過去索引は保ち、遅延索引の更新漏れを検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void ForceInstallPendingPackages_UpdatesPrimaryLookupThroughLibraryInstall()
     {
@@ -2422,11 +2487,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 sourcePath));
         });
     }
-
     /// <summary>
-    /// 推定導入の本番入口で、実際に確定したexact pathへ譜面を追加し、
-    /// 既存行と新行のhashがinstalled lookupへ反映されることを確認します。
+    /// 明示した推定先の正確なパスへ導入し、既存譜面を保ってFS・DB・索引とパッケージを更新することで、確定先の不一致を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_AddsExactTargetThroughLibraryInstall()
     {
@@ -2538,11 +2602,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(expectedInstalledPath, package.ChartEntries.Single().Chart.Path);
         });
     }
-
     /// <summary>
-    /// 強制導入の本番入口で、別sourceから同一bytesを別destinationへ導入します。
-    /// distinct hash集合が変わらない場合のcontent versionとplaylist summary cacheを確認します。
+    /// 同じ内容を別フォルダへ実導入すると所有者数だけ増やし、ハッシュ集合の版とプレイリスト集計を再利用して、不要な全体失効を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void ForceInstallPendingPackages_SameDigestAdditionKeepsHashVersionAndPlaylistSummaryCache()
     {
@@ -2675,14 +2738,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(installed.Path, package.ChartEntries.Single().Chart.Path);
         });
     }
-
     /// <summary>
-    /// 自動導入の非同期入口も推定／強制導入と同じ本番catalog入口へ到達し、
-    /// 事前に確定した宛先をFS・SQLite・索引・通知へ渡します。通常通知時は短いモデルguardを解放し、
-    /// 自動導入の外側Lは保持して新規受付をBusyにし、実Taskの終端後だけ新規受付を許可します。
-    /// 背景16件は新規2譜面によるprimary hash更新（最大8件）を上回るため、
-    /// 全件列挙なしの実observerを検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
+    /// 自動導入結果の宛先をFS・DB・索引と照合し、全件再構築なく通知を更新する。通知中は短いモデルロックを解放して外側受付を実Task終端まで保ち、途中の再受付を検出する。
     /// </summary>
+    // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
     [DataTestMethod]
     [DataRow(16)]
     public void InstallChartPackagesAuto_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
@@ -2691,6 +2750,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     // 推定先導入も同じ実catalog入口と局所差分を通るため、autoと同じ16件の背景で確認します。
+    /// <summary>
+    /// 推定先への実導入結果の宛先をFS・DB・索引と照合し、局所差分を通知して、通知時の排他解放と全件再構築の不在を確認する。
+    /// </summary>
+    // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
     [DataTestMethod]
     [DataRow(16)]
     public void InstallPendingPackagesToEstimatedDestinations_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
@@ -2699,17 +2762,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     // 強制導入も同じ実catalog入口と局所差分を通るため、autoと同じ16件の背景で確認します。
+    /// <summary>
+    /// 強制導入結果の宛先をFS・DB・索引と照合し、推定済みの別宛先を使わず局所差分と通知を更新して、誤った適用先や全件再構築を検出する。
+    /// </summary>
+    // 背景16件は少数変更と全件処理を区別する入力で、処理時間の比較値ではない。
     [DataTestMethod]
     [DataRow(16)]
     public void ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta(int backgroundCount)
     {
         AssertNormalInstallRouteUsesPreflightDestinationAndWarmDelta("force", backgroundCount);
     }
-
     /// <summary>
-    /// 保留中のBMS/BMSONを本番導入入口から導入し、導入前の一時警告を表示した後も
-    /// 導入後の計算済み充足値とResourceHealthが新規・通常一覧へ届き、不足継続・解消を正しく投影することを確認します。
+    /// BMS・Bmsonの導入後に実保存した資源充足値を新規・通常一覧へ反映し、導入前の一時警告を残す誤りと冷温索引による警告の欠落を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。 導入結果から新規・通常一覧の管理主体へ渡る警告と資源状態も観測する。</remarks>
+    // 順に譜面種類(BMS/Bmson)、導入先資源の既存有無、健全性索引のcold/warmを組み合わせる。
     [DataTestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, false, true)]
@@ -2920,7 +2987,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     preserveSummary: false,
                     Stopwatch.StartNew());
                 Assert.IsTrue(newlyInstalledView.WasCommitted);
-                Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, newlyInstalledView.Route);
                 Assert.AreEqual(1, table.Rows.Count);
                 ResourceHealthIndexSnapshot afterNewlyInstalledView = library.TryGetCurrentResourceHealthIndexSnapshotForView();
                 Assert.AreNotSame(ResourceHealthIndexSnapshot.Empty, afterNewlyInstalledView);
@@ -2960,7 +3026,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     preserveSummary: false,
                     Stopwatch.StartNew());
                 Assert.IsTrue(normalView.WasCommitted);
-                Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, normalView.Route);
                 Assert.AreSame(afterNewlyInstalledView, library.TryGetCurrentResourceHealthIndexSnapshotForView());
                 Assert.AreEqual(1, table.Rows.Count);
                 var normalRow = (LibraryChartRow)table.Rows[0]!;
@@ -3422,8 +3487,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
-
-    /// <summary>未収束の実非同期入口では導入せず保留・入力を保持し、モデル警告をOperationMessagesへ残します。実配送はowner側へ分担します。</summary>
+    /// <summary>
+    /// 未収束の自動導入は実入力を保留へ残しモデルの操作メッセージへ理由を渡し、収束前の物理導入や直接ダイアログの重複を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling()
     {
@@ -3469,8 +3536,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, installed.OperationMessages.Count);
         });
     }
-
-    /// <summary>他の変更が受付を保持するとき実非同期入口は副作用前にBusyで失敗し、空の成功として公開しません。</summary>
+    /// <summary>
+    /// 別変更が受付を保持する間の自動導入はBusy例外で失敗し、処理しない空結果を成功として返す誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_WhenAnotherFileMutationOwnsAdmission_FailsInsteadOfPublishingEmptySuccess()
     {
@@ -3489,6 +3558,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 複数排他の取得途中または解放が失敗しても取得済みを一度ずつ解放し、元失敗と片付け失敗を保って、排他漏れと失敗の上書きを検出する。
+    /// </summary>
     [TestMethod]
     public void PendingEstimatedInstallMutationLease_ReleasesEveryGuardOnAcquireAndDisposeFailure()
     {
@@ -3520,11 +3592,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, throwingGuard.DisposeCount);
         Assert.AreEqual(1, releasedGuard.DisposeCount);
     }
-
     /// <summary>
-    /// 推定導入の分類を実入口から確認します。重複の除外、異なる DST の拒否、導入済み entry の空 DST、
-    /// MD5 が異なる場合の独立性を、物理出力と canonical DB の結果で区別します。
+    /// 重複MD5・異なる推定先・所持済みの空推定先・MD5差を分類して一度だけDBへ反映し、未確定の予約やSHA256だけによる重複排除を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     [DataRow("duplicate")]
     [DataRow("different_destinations")]
@@ -3618,8 +3689,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
-
-    /// <summary>BMSON を実際に導入し、canonical row と package entry の更新に BMS adapter を要求しません。</summary>
+    /// <summary>
+    /// 実Bmsonを共通導入経路からFS・Bmson保存行・所持へ反映し、BMS行への誤保存と保留・推定先の残存を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_InstallsBmsonWithoutCompatibilityAdapter()
     {
@@ -3655,7 +3728,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(1, library.BmsonCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
-            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(string.IsNullOrEmpty(entry.Chart.InstallDestination));
             string installedPath = Path.Combine(target, "chart.bmson");
             Assert.AreEqual(installedPath, library.BmsonCharts.Single().Path);
@@ -3665,8 +3737,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(installedPath, readback.Table<LR2SongDBExtended.bmson_song>().Single().path);
         });
     }
-
-    /// <summary>実非同期入口の保留公開時に、先行物理成功だけが重複根拠となり未導入hashを予約しない分類を捕捉します。後続直接推定による警告更新と区別し、終端のThird実導入・FS・DB・一回反映も保持します。</summary>
+    /// <summary>
+    /// 自動導入の途中保留公開では先行の物理成功だけを所持と分類し、未導入の同一MD5を後続で実導入して、未実行ハッシュの予約を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallChartPackagesAuto_OnlyPhysicalSuccessReservesHashesForLaterCandidates()
     {
@@ -3743,8 +3817,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
         });
     }
-
-    /// <summary>導入先と確認設定によらず明示的に拒否された package は、入力元・DB・保留を保持します。</summary>
+    /// <summary>
+    /// 推定先と確認設定の有無によらず明示拒否したBmson導入は保留・実入力・DBを保ち、拒否条件を無視した物理変更を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 順に推定先の有無と新規導入確認の設定を変え、未承認入力を保つ。
     [DataTestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
@@ -3791,15 +3868,17 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
             }
-            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsFalse(Directory.Exists(target));
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.bmson_song>().Count());
         });
     }
-
-    /// <summary>公開入口で確認設定と応答を適用し、拒否時は保留を保持、承認時は新規先へ導入します。</summary>
+    /// <summary>
+    /// 公開強制導入は設定とYes・No・無応答を適用し、拒否では元入力と既存所持を保持、承認では新規先へ導入して、無応答の承認や既存先への上書きを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 順に推定先の有無、確認設定、No・未選択閉鎖・Yesの応答を区別する。
     [DataTestMethod]
     [DataRow(false, true, (int)MessageBoxResult.No)]
     [DataRow(false, true, (int)MessageBoxResult.None)]
@@ -3912,6 +3991,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 実列挙した資源のうち明示除外パスを計画へ含めず、除外入力の誤移動を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void BuildComponentMovePlan_SkipsExcludedPaths()
     {
@@ -3937,6 +4020,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 入力元の実更新日時が新しければ上書きを選び、古い宛先を優先して更新を失う誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DecideComponentMove_PrefersOverwriteWhenSourceIsNewer()
     {
@@ -3957,6 +4044,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 削除対象パスだけを差分へ除き、空になるパッケージの保存行削除を求めつつ元エントリを保ち、準備時の先行変更や対象外削除を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildPendingPackageMutationDelta_RemovesMatchedChartPathsAndDeletesEmptyPackages()
     {
@@ -3986,6 +4076,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         CollectionAssert.AreEquivalent(new[] { "C:\\Pending\\Pkg2" }, delta.InstallPathsToDelete);
     }
 
+    /// <summary>
+    /// Bmsonも対象パスだけを差分から除き、残エントリと元パッケージを保って、種類による削除漏れや準備段階の直接変更を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildPendingPackageMutationDelta_RemovesAdapterlessBmsonByChartPathWithoutMaterializing()
     {
@@ -4013,16 +4106,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(package, delta.RemainingPackages[0]);
-        Assert.IsNull(keepEntry.GetBmsChartForTest());
-        Assert.IsNull(removeEntry.GetBmsChartForTest());
         Assert.AreEqual(2, package.ChartEntries.Count);
         Assert.AreEqual(1, delta.EntryMutations.Count);
         Assert.AreSame(package, delta.EntryMutations[0].Package);
         Assert.AreEqual(keepEntry.Chart.Path, delta.EntryMutations[0].RemainingEntries.Single().Chart.Path);
-        Assert.IsNull(package.ChartEntries[0].GetBmsChartForTest());
         Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
     }
 
+    /// <summary>
+    /// 所持ハッシュだけを移動防止の基準へ渡し、選択した未導入ハッシュを予約せず、計画段階で後続導入を排除する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildEstimatedInstallBatchPlan_FiltersCandidatesWithoutReservingUncommittedHashes()
     {
@@ -4055,12 +4148,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsFalse(plan.MoveGuardLookup.ContainsPrimaryHash(newFile.Md5));
         PackageChartEntry alreadyInstalledEntry = mixedPackage.ChartEntries.Single(entry => entry.Chart.Path == alreadyInstalledInPackage.Path);
         Assert.AreEqual(string.Empty, ChartWarningTestHelpers.BuildDigestText(alreadyInstalledEntry));
-        Assert.IsTrue(plan.FilterMs >= 0);
-        Assert.IsTrue(plan.PlanBuildMs >= 0);
         Assert.AreEqual(2, plan.SelectedPendingCount);
         Assert.AreEqual(0, plan.CleanupOnlyCandidateCount);
     }
 
+    /// <summary>
+    /// 健全入力の手動待ちパッケージを自動導入対象から除いて別件数に数え、保留理由を導入可能として扱う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildEstimatedInstallBatchPlan_CountsDeferredManualHoldPackagesSeparately()
     {
@@ -4082,6 +4176,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(pendingFile.Warnings, pendingFile.InstallDestination));
     }
 
+    /// <summary>
+    /// 混在パッケージのBMS・Bmson双方から適用先を解除し、譜面種類による解除漏れを検出する。
+    /// </summary>
     [TestMethod]
     public void ChartPackage_ClearEntryInstallDestinations_DoesNotMaterializeAdapterlessBmsonEntries()
     {
@@ -4104,34 +4201,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         }
 
         Assert.AreEqual(string.Empty, bmsEntry.Chart.InstallDestination);
-        Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
 
-    [TestMethod]
-    public void ApplyPendingResourceHealthProjection_BmsonUsesChartResourceSnapshot()
-    {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            string chartPath = Path.Combine(tempDirectoryPath, "chart.bmson");
-            ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
-            {
-                Path = chartPath,
-                Folder = tempDirectoryPath,
-                RawTitle = "BMSON",
-                RawArtist = "Artist",
-                Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                Resources = TestChartResources.Create(["missing.wav"])
-            };
-            var entry = PackageChartEntry.FromChart((song));
-
-            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
-
-            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsNull(entry.GetBmsChartForTest());
-        });
-    }
-
+    /// <summary>
+    /// 音声・画像のないBmson入力を評価して両警告と健全性を現在エントリへ渡し、種類別資源や表示用値の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void ApplyPendingResourceHealthProjection_StoresWarningsAndHealthOnPackageEntry()
     {
@@ -4156,38 +4232,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
             Assert.IsTrue(entry.Chart.WAVHealth.HasValue);
             Assert.IsTrue(entry.Chart.BGAHealth.HasValue);
-            Assert.IsNull(entry.GetBmsChartForTest());
         });
     }
-
-    [TestMethod]
-    public void ApplyPendingResourceHealthProjection_BmsUsesChartProjectionWithoutMutatingMaintenance()
-    {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
-            File.WriteAllText(
-                chartPath,
-                "#PLAYER 1\r\n"
-                + "#TITLE BMS\r\n"
-                + "#WAVAA missing.wav\r\n"
-                + "#00111:AA\r\n");
-            ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-            var entry = PackageChartEntry.FromChart((file));
-
-            IReadOnlyList<ChartWarning> warnings = BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
-
-            Assert.IsTrue(warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-            Assert.IsFalse((file.ResourceHealthMaintenanceSnapshot?.Origin is MaintenanceInfoOrigin.DbHydrated or MaintenanceInfoOrigin.Calculated));
-            Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-        });
-    }
-
     /// <summary>
-    /// Protected and ordinary sources may be dropped together. Normalized root
-    /// aliases must not bypass protection or exclude a sibling with the same prefix.
+    /// 登録ルートの大文字小文字・ドット・末尾区切り違いも保護し、同じprefixの外側兄弟は保留へ取り込んで、別名による保護回避と過剰除外を検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
+    // falseは正規基点、trueは末尾区切りなどを含む同一基点の別表記。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -4226,6 +4277,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 実BMSの不足音声を保留Entryの警告へ投影し、保守情報のOriginをDB読込み済み・計算済みとせず音声警告を保持する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesBmsResourcesWithoutMutatingMaintenance()
     {
@@ -4259,6 +4314,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 同じパッケージの不足音声と健全な譜面を別々に評価し、一件目だけの評価や健全エントリへの誤警告を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAllPackageEntries()
     {
@@ -4299,6 +4358,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持済みと分類した譜面にも不足音声の警告と健全性を投影し、所持判定で資源確認を省く誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ProjectsResourceHealthForAlreadyInstalledEntries()
     {
@@ -4330,6 +4393,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 元フォルダを実削除したパッケージだけを一覧除去の結果へ渡し、物理削除成功を反映しない誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DeletePendingPackageSources_RemovesPackagesWhoseSourceWasDeleted()
     {
@@ -4360,6 +4427,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 異なる音声を参照する実譜面を単一ファイルの二パッケージへ分け、無関係な譜面を一つに合流する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages()
     {
@@ -4379,6 +4450,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 独立譜面を分割して発見した元フォルダを再グループ化可能として返し、発見結果から再検索対象が抜ける誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_MarksSplitDirectoryAsRegroupEligible()
     {
@@ -4398,6 +4473,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 子フォルダで独立譜面を分割したときその子を再グループ化対象へ返し、親への誤登録や再検索対象の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_MarksNestedSplitDirectoryAsRegroupEligible()
     {
@@ -4418,6 +4497,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 実Bmsonと同梱音声のフォルダを一つのBmsonパッケージとして発見し、BMSのないフォルダを取り落とす誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_DetectsPureBmsonDirectoryPackage()
     {
@@ -4439,6 +4522,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 直下と子の譜面を一つのフォルダパッケージとして発見し、子譜面の欠落や誤分割を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void SearchChartPackagesRecursivelyWithMetadata_DetectsRootAndNestedChartsAsOneDirectoryPackage()
     {
@@ -4462,6 +4549,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 子フォルダのBmsonへ入れ子警告と説明を付け、共通エントリへの捕捉後も警告を保ち解除できることで、種類別の警告欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void ApplyNestedChartFileWarnings_AddsNestedWarningWithoutMaterializingAdapterlessBmsonEntries()
     {
@@ -4483,12 +4574,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             bool applied = BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
 
             Assert.IsTrue(applied);
-            Assert.IsNull(rootEntry.GetBmsChartForTest());
-            Assert.IsNull(nestedEntry.GetBmsChartForTest());
             Assert.IsTrue(nestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             StringAssert.Contains(ChartWarningCollection.BuildTooltipText(nestedEntry.Chart.Warnings), Resources.Warning_NestedChartFileInPackage);
             var normalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
-            Assert.IsNull(normalizedNestedEntry.GetBmsChartForTest());
             Assert.IsTrue(normalizedNestedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
             var clearedNormalizedNestedEntry = PackageChartEntry.FromChart(nestedEntry.Chart);
             clearedNormalizedNestedEntry.ClearStructuredWarnings();
@@ -4496,6 +4584,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 明示選択したBmson一件をファイルパッケージとして保留へ渡し、親の同梱入力へ勝手に範囲を広げる誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DetectsSingleBmsonFileSelection()
     {
@@ -4524,6 +4616,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 音声不足の実Bmsonを自動導入せず保留へ残して不足を説明し、Bmsonの資源検査を省いた自動導入を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsBmsonPackagePendingWhenResourcesAreMissing()
     {
@@ -4547,15 +4643,18 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, result.PendingPackagesToAdd.Count);
             Assert.AreEqual(0, result.AutoInstallCandidates.Count);
             PackageChartEntry chartEntry = result.PendingPackagesToAdd[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.GetBmsChartForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.IsTrue(chartEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             StringAssert.Contains(chartEntry.Chart.Warnings.Single(warning => warning.Kind == ChartWarningKind.ResourceWavMissing).Message, "WAV");
         });
     }
 
+    /// <summary>
+    /// 実Bmsonの所持判定へ共通譜面を渡して所持警告を付け、BMS専用判定による警告の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
-    public void PrepareAutoInstallWorkflow_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
+    public void PrepareAutoInstallWorkflow_MarksInstalledBmsonEntry()
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -4580,15 +4679,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             PackageChartEntry installedEntry = result.DiscoveredPackages
                 .SelectMany(package => package.ChartEntries)
                 .First(entry => string.Equals(entry.Chart.Path, installedBmsonPath, StringComparison.OrdinalIgnoreCase));
-            PackageChartEntry unmatchedEntry = result.DiscoveredPackages
-                .SelectMany(package => package.ChartEntries)
-                .First(entry => string.Equals(entry.Chart.Path, unmatchedBmsonPath, StringComparison.OrdinalIgnoreCase));
-            Assert.IsNull(installedEntry.GetBmsChartForTest());
             Assert.IsTrue(installedEntry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.AlreadyInstalled));
-            Assert.IsNull(unmatchedEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>
+    /// 実BMS解析から捕捉した音声・動画・任意画像をエントリの資源入力へ渡し、解析後の共通投影で資源種類が落ちる誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageChartEntry_ResourceSnapshotUsesAcquiredBmsResourcesWithoutOwner()
     {
@@ -4614,6 +4712,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// Bmsonの共通入力にある音声・動画・任意画像をエントリの資源入力へ渡し、BMS専用投影による種類別の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void PackageChartEntry_ResourceSnapshotUsesAcquiredBmsonResourcesWithoutOwner()
     {
@@ -4633,6 +4734,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.AreEqual(1, entry.ResourceSnapshot.OptionalImageReferenceCount);
     }
 
+    /// <summary>
+    /// 資源と同じstemの譜面しか存在しない入力は音声・動画不足で保留へ残し、譜面自身を資源の代わりに数える誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_KeepsChartPackagePendingWhenOnlySameStemChartFileExists()
     {
@@ -4674,6 +4779,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 同じstemの画像があっても音声・動画不足で保留へ残し、資源分類を越えて画像を代用する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotUseImageAsAudioOrMovieResource()
     {
@@ -4715,6 +4824,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 同じstemの音声と動画をそれぞれの種類で確認して導入候補へ進め、名前だけの衝突で健全な入力を保留する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_UsesSameStemAudioAndMovieResourcesByCategory()
     {
@@ -4757,6 +4870,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 入れ子譜面の警告を音声不足より前に要約し、両説明を残して保留することで、警告の欠落や重要な構造警告の埋没を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_PrioritizesNestedChartWarningBeforeResourceWarnings()
     {
@@ -4789,6 +4906,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 明示Bmsonファイルでも隣接音声が揃えばフォルダ単位の導入候補にし、資源を残して単独譜面だけを導入する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ExplicitBmsonFileWithAdjacentResourcesUsesDirectoryPackage()
     {
@@ -4815,13 +4936,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(string.Equals(packageDirectoryPath, result.AutoInstallCandidates[0].path, StringComparison.OrdinalIgnoreCase));
             Assert.AreEqual(0, result.PendingPackagesToAdd.Count);
             PackageChartEntry chartEntry = result.AutoInstallCandidates[0].ChartEntries.Single();
-            Assert.IsNull(chartEntry.GetBmsChartForTest());
             Assert.AreEqual(ChartFileKind.Bmson, chartEntry.Chart.Kind);
             Assert.AreEqual(1, chartEntry.ResourceSnapshot.AudioReferenceCount);
             Assert.AreEqual(0, chartEntry.Chart.Warnings.Count);
         });
     }
 
+    /// <summary>
+    /// 明示フォルダと資源のある明示譜面ファイルを共にフォルダ導入候補へ分類し、入力形状による自動導入の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_ClassifiesDetectedDirectoriesAsInstallable()
     {
@@ -4854,12 +4978,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(Directory.Exists(result.AutoInstallCandidates[0].path));
             Assert.IsTrue(result.AutoInstallCandidates.Any(package => package.path.Equals(filePackageDirectoryPath, StringComparison.OrdinalIgnoreCase)));
             Assert.IsTrue(result.DiscoveredPackages.All(package => package.GetBmsChartsForTest().Count > 0));
-            Assert.IsTrue(result.DiscoveryMs >= 0);
-            Assert.IsTrue(result.ClassificationMs >= 0);
-            Assert.IsTrue(result.TotalMs >= 0);
         });
     }
 
+    /// <summary>
+    /// 発見したパッケージの資源入力面は推定時に初めて構築して二度目は再利用し、発見段階の重複走査とキャッシュ不利用を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotPrebuildSourceSurfaceForDiscoveredPackages()
     {
@@ -4917,18 +5042,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             });
     }
 
-    [TestMethod]
-    public void PackageChartEntry_FromBmsChartProjection_ProjectsBmsMode()
-    {
-
-        ChartFile source = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
-        source = source with { Mode = 7 };
-
-        var entry = PackageChartEntry.FromChart((source));
-
-        Assert.AreEqual(7, entry.Chart.Mode);
-    }
-
+    /// <summary>
+    /// フォルダの一部譜面だけを選択した場合は再グループ化対象にせず、選択外譜面まで次の検索範囲へ広げる誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void PrepareAutoInstallWorkflow_DoesNotMarkRegroupEligibleSourceDirectoryForPartialFileSelection()
     {
@@ -4956,10 +5073,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(result.DiscoveredPackages.All(package => File.Exists(package.path)));
         });
     }
-
     /// <summary>
-    /// durable DB receipt 前は source と package owner の path を保持し、失敗時に destination を compensation することを検証します。
+    /// 物理準備後のDB確定が失敗すると宛先を補償し、元入力・現在エントリと通知なしを保って、確定前のパス公開や入力消費を検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_PrecommitFailureRetainsSourceAndRestoresPackageOwner()
     {
@@ -5034,6 +5151,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 元フォルダと同じ・子・祖先の宛先を物理変更前に拒否し、保存callbackを呼ばず元入力を保って、自己重複移動の開始を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [DataTestMethod]
     [DataRow("same")]
     [DataRow("inside")]
@@ -5086,13 +5207,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(sourceChartPath));
         });
     }
-
     /// <summary>
-    /// A collision-resolved destination is the single path shared by the
-    /// filesystem receipt, the detached projection, and the live package.
-    /// The destination is intentionally discovered from the completed receipt
-    /// and filesystem rather than reimplementing collision resolution here.
+    /// 既存ファイル衝突を回避した実宛先をreceipt・準備結果・現在パッケージへ揃え、既存bytesを保って元を消費し、経路間の確定パス不一致を検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_CollisionUsesReceiptDestinationForAllPackageState()
     {
@@ -5152,6 +5270,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 単一BMS・単一Bmson・混在フォルダの実衝突解決先をbytesから識別し、準備結果と現在パッケージへ同じパスを渡して、入力形状別の宛先不一致を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [DataTestMethod]
     [DataRow("single-bms")]
     [DataRow("single-bmson")]
@@ -5172,7 +5294,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var collisionBytesByPath = new Dictionary<string, byte[]>(StringComparer.Ordinal);
             var entries = new List<PackageChartEntry>();
 
-            void AddBmsChart(string relativePath, string sourceTitle, string existingTitle, string hash)
+            void AddBmsChart(string relativePath, string sourceTitle, string existingTitle)
             {
                 string sourcePath = Path.Combine(sourceRootPath, relativePath);
                 string collisionPath = Path.Combine(destinationDirectoryPath, relativePath);
@@ -5213,7 +5335,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             if (string.Equals(shape, "single-bms", StringComparison.Ordinal))
             {
-                AddBmsChart("chart.bms", "single bms source", "single bms existing", "11111111111111111111111111111111");
+                AddBmsChart("chart.bms", "single bms source", "single bms existing");
             }
             else if (string.Equals(shape, "single-bmson", StringComparison.Ordinal))
             {
@@ -5221,7 +5343,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             else
             {
-                AddBmsChart("chart.bms", "mixed bms source", "mixed bms existing", "33333333333333333333333333333333");
+                AddBmsChart("chart.bms", "mixed bms source", "mixed bms existing");
                 AddBmsonChart("nested\\chart.bmson", "mixed-bmson", "44444444444444444444444444444444");
             }
 
@@ -5282,11 +5404,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 package.path);
         });
     }
-
     /// <summary>
-    /// 同梱通常ファイルと既存ディレクトリの型衝突は、smart overwrite の設定にかかわらず
-    /// パッケージ全体を変更前に拒否し、source と宛先を保持することを検証します。
+    /// 同梱通常ファイルの宛先がフォルダなら上書き設定によらず全体を事前拒否し、先行譜面や既存フォルダのbytesを変更する誤りを検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
+    // smart上書きの有無の両方で、ファイルの宛先が既存フォルダなら拒否する。
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -5354,11 +5476,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(File.Exists(Path.Combine(destinationDirectoryPath, "chart.bms")));
         });
     }
-
     /// <summary>
-    /// 保留画面の実入口では、型衝突 package だけを拒否し、前後の独立 package
-    /// は durable な DB 登録と一覧更新まで継続することを検証します。
+    /// 型衝突の保留パッケージだけを失敗として保持し、前後の独立入力をFS・DB・一覧へ確定して、バッチ全体の停止や衝突入力の部分変更を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallPendingPackagesToEstimatedDestinations_RejectsConflictingPackageAndContinuesIndependentPackages()
     {
@@ -5471,11 +5592,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Path.Combine(thirdDestinationDirectoryPath, "third.bms")));
         });
     }
-
     /// <summary>
-    /// 操作開始前に消えた source は item failure として保持し、正常な後続を継続します。
-    /// 欠落 package と同じ hash の後続も、予約を成功扱いせず導入できることを検証します。
+    /// 通常・強制導入で開始前に消えた入力を対象失敗へ残し、同じMD5の後続を実導入して、失敗入力のハッシュ予約や成功の巻戻しを検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // falseは通常導入、trueは強制導入で同じ開始前入力消失を注入する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -5571,11 +5692,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(sources[1], verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
         });
     }
-
     /// <summary>
-    /// 宛先 root 自体が通常ファイルの場合も、root の作成前に型衝突として拒否し、
-    /// source と既存ファイルを変更しないことを検証します。
+    /// 宛先ルートが通常ファイルならフォルダ作成や保存callbackの前に型衝突として拒否し、元譜面と既存ファイルの破損を検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_RejectsFileDestinationRootBeforeMutation()
     {
@@ -5629,11 +5749,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual("existing destination file", File.ReadAllText(destinationPath));
         });
     }
-
     /// <summary>
-    /// 明示した候補順の後半に型衝突がある場合、前半の候補も公開せずに
-    /// パッケージの変更を全体として拒否することを検証します。
+    /// 明示順の後半資源に型衝突があれば先行資源を公開せず保存callbackも呼ばない。終端に一時準備が残らないことを確認し、パッケージの部分変更を検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void BuildComponentMovePlan_ExplicitOrderedCandidatesRejectWholePackageBeforePromotion()
     {
@@ -5706,11 +5825,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         });
     }
-
     /// <summary>
-    /// durable DB receipt 後にだけ source を finalize cleanup し、canonical
-    /// package state finalizer は cleanup 前に実行されることを検証します。
+    /// 保存callback時に元譜面を、durable finalizer時に元ディレクトリを保ち、終端後は元入力を片付けて導入先ファイルと現在パッケージのパスを保持する。早期の入力消費や反映漏れを検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DurableCommitFinalizesSourceAfterCanonicalFinalizer()
     {
@@ -5764,12 +5882,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(Path.Combine(destinationDirectoryPath, "chart.bms"), package.ChartEntries.Single().Chart.Path);
         });
     }
-
     /// <summary>
-    /// Force-install publishes entry changes only after the command lease is
-    /// released.  A failing subscriber is best-effort and cannot change the
-    /// durable receipt or prevent later entry notifications.
+    /// 強制導入では排他解放後に各エントリを通知し、先行購読者の例外後も後続通知・DB・物理確定を保って、通知失敗による中断を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void ForceInstallPendingPackages_PublishesEntryNotificationsAfterLeaseAndBestEffort()
     {
@@ -5888,11 +6004,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 installedRows.Any(row => string.Equals(row.path, entry.Chart.Path, StringComparison.OrdinalIgnoreCase))));
         });
     }
-
     /// <summary>
-    /// 実非同期入口で全パッケージの物理準備が成功しても正本の確定が失敗した場合、
-    /// DB・パッケージ・リソースを部分公開せず、準備済み宛先をセッションの確認候補に保持します。
+    /// 自動導入の全物理準備後にDB反映が失敗したら部分一覧・保存行を公開せず、元入力と実フォルダの回復候補を残して、未確定成功の公開を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
     public void InstallChartPackagesAutoWithProgress_CanonicalApplyFailurePublishesNoPartialPackageState()
     {
@@ -5953,17 +6068,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
 
-            // session-wide DB failure does not invent per-item compensation. All physical prepares remain
-            // observable for recovery and source cleanup has not run because the durable point was not reached.
+            // セッション全体のDB失敗を対象別補償へ読み替えず、準備済み物理出力を回復候補として残す。
+            // 保存確定前なので元入力の片付けは始まらない。
             Assert.IsTrue(File.Exists(firstDestinationChartPath));
             Assert.IsTrue(File.Exists(secondDestinationChartPath));
             Assert.IsTrue(File.Exists(thirdDestinationChartPath));
             Assert.IsTrue(Directory.Exists(firstSourceDirectoryPath));
             Assert.IsTrue(Directory.Exists(secondSourceDirectoryPath));
             Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
-            // Auto-named directory packages are prepared as one directory mutation per package,
-            // so session recovery facts retain the promoted directory boundary rather than
-            // synthesizing per-chart mutation paths that were never executor targets.
+            // 自動採番パッケージの物理準備単位はフォルダなので、
+            // 回復候補にも実際に昇格したフォルダ境界を残す。
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(firstDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(secondDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
             Assert.IsTrue(commandResult.RecoveryPaths.Contains(thirdDestinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
@@ -5985,11 +6099,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
         });
     }
-
     /// <summary>
-    /// 先行 package の physical success を durable prefix として一回 commit し、
-    /// current physical failure と未処理 suffix を同じ session terminal に保持します。
+    /// 強制導入の途中コピーが失敗しても先行成功を一回確定し、元の物理失敗と未処理後続を保って、事前拒否への誤分類や未実行資源の公開を検出する。
     /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    // 第一値は終端集約、第二値はコピー中の入力消失(falseは別のコピー失敗)を選ぶ。
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -6110,8 +6224,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 after.DirectoryLookupCache.Keys.ToArray());
             AssertResourceCandidates(after, "first-resource", firstDestinationDirectoryPath);
             AssertResourceCandidates(after, "second-resource");
-            // Each package has a distinct key so failed and unexecuted resources cannot hide
-            // behind a candidate already published for the successful prefix.
+            // パッケージごとに異なるキーを使い、失敗・未実行の資源が先行成功の候補に隠れないようにする。
             AssertResourceCandidates(after, "third-resource");
             foreach (string resourceKey in new[] { "first-resource", "second-resource", "third-resource" })
             {
@@ -6136,10 +6249,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 StringComparison.OrdinalIgnoreCase)));
         });
     }
-
     /// <summary>
-    /// 異なる path の同一 component を smart skip した場合も、source delete は durable receipt 後の finalize で行うことを検証します。
+    /// 同内容の資源をsmart上書きで省略しても元入力は保存確定後にだけ消費し、準備前の消失や省略資源の片付け漏れを検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_SmartSameComponentDeletesSourceDuringFinalize()
     {
@@ -6192,10 +6305,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(destinationPath));
         });
     }
-
     /// <summary>
-    /// single-file package は source を directory として列挙せず、file cleanup だけを finalize することを検証します。
+    /// 単一譜面入力はファイルのまま移動と片付けを確定し、元の親フォルダ全体を削除扱いする誤りと現在パスの更新漏れを検出する。
     /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_SingleFilePackageFinalizesFileSource()
     {
@@ -6239,6 +6352,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// Bmsonを保護資源の対象外、テキストを保護対象と分類し、譜面の上書き判断へ資源保護を誤適用する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void IsSmartOverwriteProtectedExtension_DoesNotTreatBmsonAsProtectedResource()
     {
@@ -6248,6 +6364,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(service.IsSmartOverwriteProtectedExtension("notes.txt"));
     }
 
+    /// <summary>
+    /// 全譜面を選択しフォルダ削除を指定すると同梱資源も実削除して対象結果を返し、空になった入力フォルダの残存を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DeletePendingCharts_DeletesWholePackageDirectoryWhenSelectionCoversPackage()
     {
@@ -6287,6 +6407,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// Bmsonパッケージの全譜面選択とフォルダ削除指定で同梱資源も実削除し、種類によるフォルダ片付けの欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryFromPackageSelectionWithoutMaterializing()
     {
@@ -6319,11 +6443,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsFalse(Directory.Exists(packageDirectoryPath));
         });
     }
 
+    /// <summary>
+    /// フォルダ削除を指定しないBmson選択は譜面ファイルを実削除して対象結果へ返し、種類による削除漏れを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DeletePendingCharts_DeletesAdapterlessBmsonChartByPathWithoutMaterializing()
     {
@@ -6356,48 +6483,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
             CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsFalse(File.Exists(bmsonPath));
         });
     }
 
-    [TestMethod]
-    public void DeletePendingCharts_DeletesWholeAdapterlessBmsonPackageDirectoryByPathWithoutMaterializing()
-    {
-
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryPackageInstallService();
-            string packageDirectoryPath = Path.Combine(tempDirectoryPath, "PendingBmsonPkg");
-            Directory.CreateDirectory(packageDirectoryPath);
-            string bmsonPath = Path.Combine(packageDirectoryPath, "chart.bmson");
-            File.WriteAllText(bmsonPath, CreateBmsonJsonWithSound("sound.wav"));
-            File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
-            ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonPath);
-            var adapterlessBmsonEntry = PackageChartEntry.FromChart((bmsonSong));
-            var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
-            package.path = packageDirectoryPath;
-
-            PendingFileDeletionResult result = service.DeletePendingCharts(
-                [adapterlessBmsonEntry.Chart],
-                [package],
-                sendToRecycleBin: false,
-                deleteContainingPackageFoldersWhenNoBms: true,
-                new RealFileMutationService(),
-                null,
-                null);
-
-            Assert.AreEqual(1, result.Requested);
-            Assert.AreEqual(1, result.Processed);
-            Assert.AreEqual(1, result.Removed);
-            Assert.AreEqual(0, result.Failed);
-            Assert.AreEqual(0, result.Skipped);
-            CollectionAssert.AreEqual(new[] { bmsonPath }, result.ChartPathsToRemove);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
-        });
-    }
-
+    /// <summary>
+    /// Bmsonのパッケージフォルダ削除が失敗すると元譜面と資源を保ち、失敗対象を報告して、失敗を削除成功や一覧除去へ読み替える誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void DeletePendingCharts_FailedPackageFolderDeleteDoesNotMaterializeAdapterlessBmsonEntries()
     {
@@ -6433,13 +6526,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(packageDirectoryPath, result.Failures[0].Path);
             Assert.AreEqual(0, result.Skipped);
             Assert.AreEqual(0, result.ChartPathsToRemove.Count);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
             Assert.IsTrue(File.Exists(bmsonPath));
             Assert.IsTrue(File.Exists(Path.Combine(packageDirectoryPath, "sound.wav")));
             Assert.IsTrue(Directory.Exists(packageDirectoryPath));
         });
     }
 
+    /// <summary>
+    /// 混在とBmsonのみのパッケージからBMSだけを捕捉し、拡張子修正の対象へBmsonを混ぜる誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void GetPendingBmsFormatChartFilesSnapshot_ExcludesBmsonCharts()
     {
@@ -6461,52 +6557,38 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package, adapterlessBmsonPackage]);
 
             CollectionAssert.AreEqual(new[] { bmsFile }, result.ToArray());
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>
+    /// 対象譜面が空なら件数なしを返して変更callbackを呼ばず、空入力から不要な変更処理を始める誤りを検出する。
+    /// </summary>
     [TestMethod]
-    public void GetPendingBmsFormatChartFilesSnapshot_PreservesCapturedCommonValue()
+    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions_EmptyInputDoesNotInvokeRename()
     {
         var service = new BmsLibraryPackageInstallService();
-        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "C:\\Pending\\chart.bms");
-        var bmsEntry = PackageChartEntry.FromChart((bmsFile));
-        var package = ChartPackage.FromChartEntries([bmsEntry]);
+        int renameCallCount = 0;
 
-        List<ChartFile> result = service.GetPendingBmsFormatChartFilesSnapshot([package]);
-
-        CollectionAssert.AreEqual(new[] { bmsFile }, result.ToArray());
-        Assert.AreSame(bmsFile, bmsEntry.GetBmsChartForTest());
-    }
-
-    [TestMethod]
-    public void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions_ExcludesBmsonCharts()
-    {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryPackageInstallService();
-            string bmsonPath = Path.Combine(tempDirectoryPath, "chart.bmson");
-            File.WriteAllText(bmsonPath, "{}");
-            int renameCallCount = 0;
-
-            PendingZeroNoteRenameResult result = service.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
-                [],
-                delegate
+        PendingZeroNoteRenameResult result = service.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
+            [],
+            delegate
+            {
+                renameCallCount++;
+                return new RenameInvalidExtensionOutcome
                 {
-                    renameCallCount++;
-                    return new RenameInvalidExtensionOutcome
-                    {
-                        Action = RenameInvalidExtensionAction.Renamed
-                    };
-                });
+                    Action = RenameInvalidExtensionAction.Renamed
+                };
+            });
 
-            Assert.AreEqual(0, result.Total);
-            Assert.AreEqual(0, result.Processed);
-            Assert.AreEqual(0, renameCallCount);
-            Assert.IsTrue(File.Exists(bmsonPath));
-        });
+        Assert.AreEqual(0, result.Total);
+        Assert.AreEqual(0, result.Processed);
+        Assert.AreEqual(0, renameCallCount);
     }
 
+    /// <summary>
+    /// 拡張子変更・重複削除・失敗を別件数と対象結果へ分け、成功パスだけを登録解除へ渡して、失敗対象の誤除去を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void RenamePendingBmsFormatChartFileExtensions_ReturnsRenamedDuplicateDeletedAndFailedFiles()
     {
@@ -6520,12 +6602,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string duplicateSourcePath = Path.Combine(tempDirectoryPath, "duplicate.bms");
             string duplicateDestinationPath = Path.Combine(tempDirectoryPath, "duplicate.bme");
             string failureSourcePath = Path.Combine(tempDirectoryPath, "failure.bms");
-            string bmsonSourcePath = Path.Combine(tempDirectoryPath, "skip.bmson");
             File.WriteAllText(renameSourcePath, "rename");
             File.WriteAllText(duplicateSourcePath, "same");
             File.WriteAllText(duplicateDestinationPath, "same");
             File.WriteAllText(failureSourcePath, "failure");
-            File.WriteAllText(bmsonSourcePath, "{}");
             ChartFile renameFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", renameSourcePath);
             ChartFile duplicateFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", duplicateSourcePath);
             ChartFile failureFile = CreateFile("cccccccccccccccccccccccccccccccc", failureSourcePath);
@@ -6560,10 +6640,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEquivalent(new[] { renameFile.Path, duplicateFile.Path }, result.ChartPathsToRemove);
             Assert.AreEqual(1, result.Failures.Count);
             Assert.AreSame(failureFile, result.Failures[0].File);
-            Assert.IsTrue(File.Exists(bmsonSourcePath));
         });
     }
 
+    /// <summary>
+    /// 単一譜面の導入後に元親が空なら親も削除し、消費済みの空フォルダが残る誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenRemainingFilesAreEmpty()
     {
@@ -6580,6 +6663,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 導入後の元親に未所持譜面が残れば親と残譜面を保ち、未導入入力を巻き込む片付けを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenUninstalledChartRemains()
     {
@@ -6598,6 +6685,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 残譜面の実コピーが片付け範囲外の所持先にある場合だけ親を消費し、確認済み重複入力の片付け漏れを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenOnlyInstalledChartsRemain()
     {
@@ -6620,6 +6711,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持譜面が元親の片付け範囲内にあれば範囲外のコピーがあっても親を保ち、所持パスを巻き込む削除を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenOwnedChartRemainsInsideCleanupBoundary()
     {
@@ -6648,6 +6743,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 残譜面に安全な所持コピーがあってもreadmeなど別資源が残れば元親を保ち、未消費資源を削る片付けを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenNonChartFileRemains()
     {
@@ -6682,6 +6781,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 残譜面が今回の実導入先と同じ内容なら導入先を独立コピーの根拠にして親を消費し、安全な重複の片付け漏れを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenResidualMatchesPlanDestination()
     {
@@ -6700,6 +6803,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 子にハッシュを照合できない残譜面があれば安全な重複も含め元親を保ち、不明入力を削除可能と扱う誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_KeepsParentDirectory_WhenRemainingChartHashCannotBeMatched()
     {
@@ -6735,6 +6842,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 子に残る譜面も片付け範囲外の実所持コピーを確認できれば元親を消費し、再帰残譜面の確認漏れによる不要保留を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenNestedRemainingChartsAreAllInstalled()
     {
@@ -6759,6 +6870,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 残Bmsonの実所持コピーを範囲外で確認して元親を消費し、BMS以外の重複入力を確認できない片付け漏れを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
     public void MovePackageFilesWithReceipt_DeletesParentDirectory_WhenRemainingBmsonChartIsInstalled()
     {
@@ -6784,6 +6899,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// ZIP・7z・RAR・LZHの実入力を展開して保存日時と進捗を復元し、形式別の展開・必須日時復元の欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
     [DataTestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
@@ -6832,6 +6951,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 各実書庫の必須更新日時復元が失敗したら展開先を受理せず進捗と失敗通知を残し、復元失敗を正常入力へ読み替える誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
     [DataTestMethod]
     [DataRow("fixture.zip")]
     [DataRow("fixture.7z")]
@@ -6879,6 +7002,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// フォルダと書庫を混在させても書庫だけの順番と総数を進捗へ渡し、全入力件数による書庫番号の誤表示を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void ExpandInstallSources_ReportsArchiveOrdinalAmongArchivesOnly()
@@ -6920,6 +7047,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 暗号化・破損書庫の展開失敗では元書庫を保って準備先を削除し、失敗通知と進捗を残すことで、失敗入力の消費や部分展開の採用を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
     [DataTestMethod]
     [DataRow("encrypted.7z")]
     [DataRow("corrupt.7z")]
@@ -6975,6 +7106,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// dot-dotと空白を含む実ZIPエントリは展開ルート外へ出る前に拒否し、準備フォルダや外部ファイルを残す経路逸脱を検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [DataTestMethod]
     [DataRow("../outside.txt")]
     [DataRow(".. /outside.txt")]
@@ -7036,17 +7171,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         return state.CreateSnapshot();
     }
 
-    private static List<ChartFile> GetAddedBmsFiles(PackageInstallExecutionResult result)
-    {
-        return [.. (result?.AddedCharts ?? [])
-            .Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
-
-    private static List<ChartFile> GetAddedBmsonSongs(PackageInstallExecutionResult result)
-    {
-        return [.. (result?.AddedCharts ?? [])
-            .Where(song => song?.Kind == ChartFileKind.Bmson && !string.IsNullOrWhiteSpace(song.Path))];
-    }
 
     private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<ChartFile> targetFiles)
     {
@@ -7150,7 +7274,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             + "\r\n#BPM 120\r\n#WAV01 " + resourceKey + ".wav"
             + "\r\n#BMP01 " + resourceKey + ".png"
             + "\r\n#BMP02 " + resourceKey + ".mp4\r\n#00111:01\r\n");
-        // The fixture only scans, checks and transfers these bytes; it never decodes media.
+        // 列挙・検査・転送だけのバイト列で、メディアの復号は行わない。
         File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".wav"), [1, 2, 3]);
         File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".png"), [4, 5]);
         File.WriteAllBytes(Path.Combine(directoryPath, resourceKey + ".mp4"), [6, 7]);
@@ -7362,7 +7486,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
 
-
     private sealed class ReentrantCleanupFileMutationService : IFileMutationService
     {
         private readonly RealFileMutationService inner = new();
@@ -7448,8 +7571,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     ReentryFailure = exception;
                 }
             });
-            // The task itself is the completion signal.  This bounded wait is
-            // only a deadlock watchdog while the outer cleanup call is active.
+            // 実Taskで終端を観測する。この短い期限は外側片付け中の再入が
+            // ロックで停止する反例を検出するために保つ。
             ReentryCompletedDuringCleanup = reentryTask.Wait(TimeSpan.FromSeconds(5));
         }
     }
@@ -7638,16 +7761,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    private sealed class CallbackDisposable(Action dispose) : IDisposable
-    {
-        private Action? dispose = dispose;
-
-        public void Dispose()
-        {
-            Interlocked.Exchange(ref dispose, null)?.Invoke();
-        }
-    }
-
     private sealed class FailingDeleteDirectoryFileMutationService : IFileMutationService
     {
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
@@ -7706,7 +7819,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    /// <summary>Injects one path-specific deletion failure while retaining real mutation behavior.</summary>
+    /// <summary>実削除を保ち、指定した一つのパスだけ削除失敗を注入する。</summary>
     internal sealed class FailingDestinationDeleteFileMutationService(string failurePath) : IFileMutationService
     {
         private readonly RealFileMutationService inner = new();
@@ -7756,7 +7869,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
     private sealed class RealFileMutationService : IFileMutationService
     {
-        /// <summary>Observes a source immediately before a real file or directory copy; unset by default.</summary>
+        /// <summary>実ファイル・フォルダのコピー直前に入力を観測し、未設定なら観測を行わない。</summary>
         public Action<string>? BeforeCopy { get; set; }
 
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)

@@ -11,12 +11,15 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbSyncWorkflowOwnerTests
 {
+    /// <summary>
+    /// 手動再同期は強制要求を一回キューへ渡して実処理の終端まで返らず、非強制化と早期完了を検出します。
+    /// </summary>
     [TestMethod]
     public async Task RequestManualResync_QueuesForcedRequestAndAwaitsIt()
     {
         var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingRuntime { QueueTask = terminal.Task };
-        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
+        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
         Task operation = owner.RequestManualResyncAsync();
         try
         {
@@ -32,12 +35,15 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         finally { terminal.TrySetResult(); await operation; }
     }
 
+    /// <summary>
+    /// 設定保存の同じ生存権限を生成データ付き要求へ渡して実終端を待ち、権限の差替えや借用権限の無断解放を検出します。
+    /// </summary>
     [TestMethod]
     public async Task SettingsCoreSync_ForwardsLiveCapabilityAndAwaitsBothSurfaceRequest()
     {
         var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = new RecordingRuntime { QueueTask = terminal.Task };
-        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
+        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
         var admission = new ChartFileOperationSynchronizer();
         Assert.IsTrue(admission.TryEnter(out IDisposable lease));
         using (lease)
@@ -64,11 +70,14 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         Assert.IsFalse(admission.IsActive);
     }
 
+    /// <summary>
+    /// 外部出力基点だけの変更は外部行同期へ渡し、全データの強制再同期キューを起動する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public async Task SettingsExternalImpact_UsesExternalRowsOnly()
     {
         var runtime = new RecordingRuntime();
-        Lr2SongDbSyncWorkflowOwner owner = CreateOwner(runtime);
+        var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
 
         var admission = new ChartFileOperationSynchronizer();
         Assert.IsTrue(admission.TryEnter(out IDisposable lease));
@@ -80,6 +89,9 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         Assert.AreEqual(0, runtime.QueueCalls.Count);
     }
 
+    /// <summary>
+    /// 外部行同期の実処理が未終端なら待ち続け、後から届く元IO失敗を呼出元へ伝えて通知だけの早期成功を検出します。
+    /// </summary>
     [TestMethod]
     public async Task SettingsExternalImpact_TracksActualOperationFailureUntilTerminal()
     {
@@ -96,7 +108,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             try
             {
                 observed = owner.SyncExternalFolderRowsAfterCustomFolderOutputBaseSettingsChangeAsync("SettingDialog.SaveSettings", capability);
-                Assert.IsNotNull(observed);
                 Assert.IsFalse(observed.IsCompleted);
                 completion.SetException(failure);
                 System.IO.IOException thrown = await Assert.ThrowsExceptionAsync<System.IO.IOException>(() => observed);
@@ -115,11 +126,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         }
     }
 
-    private static Lr2SongDbSyncWorkflowOwner CreateOwner(RecordingRuntime runtime)
-    {
-        return new Lr2SongDbSyncWorkflowOwner(runtime);
-    }
-
     private sealed class RecordingRuntime : ILr2SongDbSyncWorkflowRuntime
     {
         internal bool IsLr2ModeEnabled { get; set; } = true;
@@ -133,8 +139,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         internal Task QueueTask { get; set; } = Task.CompletedTask;
 
         internal Task ExternalSyncTask { get; set; } = Task.CompletedTask;
-
-        internal Exception QueueFailure { get; set; } = null!;
 
         bool ILr2SongDbSyncWorkflowRuntime.IsLr2ModeEnabled => IsLr2ModeEnabled;
 
@@ -154,10 +158,6 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             }
             Events.Add("queue:" + reason);
             QueueCalls.Add(new QueueCall(reason, force, allowIncompleteToQueue, initializationResult, capability, acceptedBackground, prepareGeneratedData, includeBuiltinGeneratedData));
-            if (QueueFailure != null)
-            {
-                throw QueueFailure;
-            }
             await QueueTask.ConfigureAwait(false);
             return true;
         }

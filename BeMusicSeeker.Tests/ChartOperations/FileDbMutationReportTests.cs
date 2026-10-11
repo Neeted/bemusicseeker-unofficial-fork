@@ -111,6 +111,7 @@ public sealed class FileDbMutationReportTests
         StringAssert.Contains(report.MessageBoxText, @"D:\Recovery\backup");
     }
 
+    /// <summary>六言語の長い操作名・回復候補・各失敗を上限内に縮めて案内を残し、表示の肥大化や回復案内の欠落を検出します。</summary>
     [TestMethod]
     public void RendererBoundsCandidatesErrorsAndWholeBodyAcrossLanguages()
     {
@@ -175,6 +176,7 @@ public sealed class FileDbMutationReportTests
         }
     }
 
+    /// <summary>六件の保存先型衝突は五件と省略数を警告へ載せ、全件展開や省略数の取り違えを検出します。</summary>
     [TestMethod]
     public void DestinationTypeConflictsRenderWarningWithFiveDetailsAndOmittedCount()
     {
@@ -250,6 +252,7 @@ public sealed class FileDbMutationReportTests
         StringAssert.EndsWith(report.MessageBoxText, Resources.FileDbMutationReport_DestinationTypeConflict_Guidance);
     }
 
+    /// <summary>型衝突・回復候補・複数失敗が長くても六言語で本文上限と末尾案内を保ち、専用表示での切り捨てを検出します。</summary>
     [TestMethod]
     public void ConflictReportBoundsWholeBodyAndRetainsGuidanceAcrossLanguages()
     {
@@ -269,6 +272,7 @@ public sealed class FileDbMutationReportTests
         }
     }
 
+    /// <summary>事前拒否の事実を持たない実行時型衝突はErrorで原因を伝え、単なる警告へ格下げする誤りを検出します。</summary>
     [TestMethod]
     public void ExecutorTypeConflictWithoutPreflightFactsRemainsError()
     {
@@ -280,6 +284,7 @@ public sealed class FileDbMutationReportTests
         StringAssert.Contains(report.MessageBoxText, failure.Message);
     }
 
+    /// <summary>終端通知が失敗しても一回で終え、確定済みdurable・finalizer・cleanupの事実を変更する誤りを検出します。</summary>
     [TestMethod]
     public async Task ReporterFailureDoesNotAlterFactsOrRetry()
     {
@@ -321,7 +326,7 @@ public sealed class FileDbMutationReportTests
     }
 }
 
-/// <summary>Local terminal/model dialog recorder shared by the report and real folder-rename route tests.</summary>
+/// <summary>終端通知と実folder変更経路が渡した要求を記録し、表示失敗を局所注入します。</summary>
 internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibraryDialogService
 {
     internal List<UiMessageRequest> Messages { get; } = [];

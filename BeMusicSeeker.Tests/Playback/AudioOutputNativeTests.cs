@@ -15,6 +15,8 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class AudioOutputNativeTests
 {
+    /// <summary>16／24bit整数Waveの実保存を大量の正負微小値と無音で測り、ditherの偏りと2LSBを超す量子化誤差を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのencoderとWave保存を使い、native変換後のPCMを検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow(16)]
     [DataRow(24)]
@@ -96,6 +98,8 @@ public sealed class AudioOutputNativeTests
         }
     }
 
+    /// <summary>実24bit Waveへ無音を保存し、software TPDFの－1／0／＋1LSB分布からdither欠落や偏りを検出する。</summary>
+    /// <remarks>実NULL_DEVICEのencoderとWave保存を使い、native変換後のPCMを検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void TwentyFourBitSoftwareDitherHasExpectedSilenceDistribution()
     {
@@ -143,6 +147,8 @@ public sealed class AudioOutputNativeTests
         Assert.IsTrue(System.Math.Abs((positiveOneCount / (double)sampleCount) - 0.125d) <= 0.005d);
     }
 
+    /// <summary>nativeの24bit無dither変換を量子化格子の境界値で照合し、負値の符号とLSBの損失を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのencoderとWave保存を使い、native変換後のPCMを検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeTwentyFourBitConversionPreservesQuantizerGridWithoutDither()
     {
@@ -181,6 +187,8 @@ public sealed class AudioOutputNativeTests
         }
     }
 
+    /// <summary>実float Waveへ単位範囲を超える正負PCMを保存し、不要な整数化・dither・クリップを防ぐ。</summary>
+    /// <remarks>実NULL_DEVICEのencoderとWave保存を使い、native変換後のPCMを検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void FloatWaveManualWritePreservesSamplesBeyondUnitRange()
     {

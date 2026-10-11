@@ -19,6 +19,7 @@ public sealed class AppHttpClientTests
 {
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>BOM付きファイルを同期取得して本文だけを返し、BOMが解析入力へ混入する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public void GetString_FileUri_StripsUtf8Bom()
@@ -36,6 +37,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>BOM付きファイルを非同期取得して本文だけを返し、BOMが解析入力へ混入する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public async Task GetStringAsync_FileUri_StripsUtf8Bom()
@@ -53,6 +55,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>BOM無しUTF-8ファイルの本文を同期取得で保持し、先頭文字を欠落させません。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public void GetString_FileUri_PreservesPlainUtf8()
@@ -70,6 +73,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>実HTTPのPOST応答からUTF-8 BOMを除いた本文を取得し、要求メソッドがPOSTであることを確認します。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public async Task PostString_StripsUtf8BomFromResponse()
@@ -83,6 +87,7 @@ public sealed class AppHttpClientTests
         Assert.AreEqual("POST", server.RequestMethod);
     }
 
+    /// <summary>所有ファイルを実HTTPのPOSTへ渡して応答BOMだけを除き、アップロード経路の解析入力を保持します。</summary>
     [TestMethod]
     [TestCategory("Http")]
     public async Task PostFile_StripsUtf8BomFromResponse()
@@ -104,6 +109,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>各同期・非同期取得でヘッダーから本文へ進んでも元の期限を共有し、保留本文を取消して応答streamを解放します。</summary>
     [DataTestMethod]
     [DataRow("GetStringAsync")]
     [DataRow("PostFormAsync")]
@@ -159,6 +165,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>GET・form POSTのヘッダー直後と本文途中で外部取消し、fixture解放前に実peer切断まで観測して待ち手だけの取消を防ぎます。</summary>
     [DataTestMethod]
     [DataRow("GetStringAsync", false)]
     [DataRow("PostFormAsync", false)]
@@ -212,6 +219,7 @@ public sealed class AppHttpClientTests
         }
     }
 
+    /// <summary>同期・非同期GETの実応答で日本語と記号を保持してBOMだけを除き、取得経路の復号不一致を検出します。</summary>
     [DataTestMethod]
     [DataRow("GetStringAsync")]
     [DataRow("GetString")]
@@ -226,6 +234,7 @@ public sealed class AppHttpClientTests
         Assert.AreEqual("GET", server.RequestMethod);
     }
 
+    /// <summary>同期・非同期form POSTで日本語・空値・同名複数値を実peerへ保持して渡し、応答BOMを除去します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]

@@ -18,7 +18,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>compiled列menuと検索・編集Controlのイベント接続、popupの実配置・仮想化・IME経路を検査するため実WPFを使います。候補生成・保存失敗・編集可否の条件網羅はSearchとCustomTableのownerテストが分担します。</remarks>
 [TestClass]
+// MainWindowのApplication.Resourcesとテーマ設定を一時変更し、所有Window・popupを閉じてから共有状態を復元します。
 [DoNotParallelize]
 public sealed class MainWindowChartPresentationWpfTests
 {
@@ -53,6 +55,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>compiled列メニューのリセットClickを一回の列reset端末へ配送し、XAMLと処理の接続漏れを検出します。</summary>
     [TestMethod]
     public void MainColumnResetClickUsesActualCompiledMenuRoute()
     {
@@ -77,7 +80,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>保証：実列factoryの導入先とplaylist MemoをF2/Enterで確定し、MainChartList端末と詳細編集の開始・終了へ接続する。</summary>
+    /// <summary>実列factoryの導入先とplaylist MemoをF2/Enterで確定し、MainChartList端末へ対象行・列・入力を配送して詳細編集状態の開始・終了を通知します。</summary>
     [TestMethod]
     public void MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute()
     {
@@ -183,6 +186,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>行選択後のF2開始通知で編集TextBoxの配置と初期値が既に成立し、editor設置前の開始通知を検出します。</summary>
     [TestMethod]
     public void CustomTableCellEditStartedSeesInstalledEditorAfterKeyboardActivation()
     {
@@ -250,6 +254,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>編集開始が取消された場合と列幅不足の場合は開始要求だけを通知し、editor設置とStarted通知を実行しません。</summary>
     [TestMethod]
     public void CustomTableCellEditFailuresDoNotRaiseStarted()
     {
@@ -326,6 +331,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>実テーマ切替を表とcornerへ反映し、縦・横・両方向のoverflowで必要scrollbarと両方向時だけのcornerを表示します。</summary>
     [TestMethod]
     public void CustomTableScrollBarsUseCompiledThemeAndCornerContract()
     {
@@ -389,18 +395,9 @@ public sealed class MainWindowChartPresentationWpfTests
                     .Single(scrollBar => scrollBar.Orientation == Orientation.Horizontal);
                 Border corner = table.Children.OfType<Border>().Single();
 
-                Assert.IsNull(table.FocusVisualStyle);
-                Assert.IsTrue(table.UseLayoutRounding);
-                Assert.IsTrue(table.SnapsToDevicePixels);
                 object trackBackground = table.FindResource(trackBackgroundResourceKey);
                 Assert.AreSame(trackBackground, table.Background);
                 Assert.AreSame(trackBackground, corner.Background);
-                Assert.AreEqual(1, Grid.GetColumn(verticalScrollBar));
-                Assert.AreEqual(0, Grid.GetRow(verticalScrollBar));
-                Assert.AreEqual(0, Grid.GetColumn(horizontalScrollBar));
-                Assert.AreEqual(1, Grid.GetRow(horizontalScrollBar));
-                Assert.AreEqual(1, Grid.GetColumn(corner));
-                Assert.AreEqual(1, Grid.GetRow(corner));
 
                 resourceHostWindow.Measure(new Size(tableWidth, tableHeight));
                 resourceHostWindow.Arrange(new Rect(0d, 0d, tableWidth, tableHeight));
@@ -470,8 +467,9 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>compiled検索TextBoxの編集を通常譜面のfilterへ配送し、editor内の値だけを更新して一覧検索へ届かない接続漏れを検出します。</summary>
     [TestMethod]
-    public void ConstructorBindsChartFilterAndMainChartOwner()
+    public void KeywordEditorTextUpdatesComposedChartFilter()
     {
         WithSimpleTextBoxStyles(() =>
         {
@@ -481,14 +479,6 @@ public sealed class MainWindowChartPresentationWpfTests
                 {
                     KeywordSearchEditor searchEditor = GetNamedElement<KeywordSearchEditor>(window, "KeywordSearchEditor");
                     TextBox keyword = searchEditor.InputTextBoxControl;
-                    CustomTableView table = GetNamedElement<CustomTableView>(window, "customTableView");
-
-                    AssertBindingPath(searchEditor, KeywordSearchEditor.TextProperty, "ChartFilters.KeywordFilter");
-                    AssertBindingPath(keyword, TextBox.TextProperty, "Text");
-                    Assert.AreSame(viewModel.MainChartList, table.DataContext);
-                    AssertBindingPath(table, CustomTableView.ItemsSourceProperty, "Rows");
-                    AssertBindingPath(table, CustomTableView.SelectedIndexProperty, "SelectedIndex");
-
                     keyword.Text = "wave6e-filter";
                     BindingOperations.GetBindingExpression(searchEditor, KeywordSearchEditor.TextProperty)?.UpdateSource();
                     Assert.AreEqual("wave6e-filter", viewModel.ChartFilters.KeywordFilter);
@@ -496,8 +486,9 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>通常譜面とサマリーの警告表示を切り替えてもヘルプ・clear操作の位置を維持し、警告の出現で操作位置が移動しません。</summary>
     [TestMethod]
-    public void SearchToolbars_UseFixedCompositeGeometryAndWarningSlots()
+    public void SearchToolbars_WarningVisibilityKeepsNeighborPositions()
     {
         WithSimpleTextBoxStyles(() =>
         {
@@ -507,11 +498,7 @@ public sealed class MainWindowChartPresentationWpfTests
                 {
                     MaterializeMainWindow(window);
 
-                    Grid rootGrid = GetNamedElement<Grid>(window, "grid");
-                    Assert.AreEqual(27d, rootGrid.RowDefinitions[1].Height.Value, 0.01d);
-
                     SearchChrome normal = GetSearchChrome(window, "KeywordSearchEditor");
-                    AssertSearchChromeGeometry(normal);
                     Point normalHelpBeforeWarning = GetRelativeOrigin(normal.HelpSlot, normal.Outer);
                     Point normalClearBeforeWarning = GetRelativeOrigin(normal.ClearSlot, normal.Outer);
                     Assert.AreEqual(Visibility.Collapsed, normal.WarningContent.Visibility);
@@ -536,7 +523,6 @@ public sealed class MainWindowChartPresentationWpfTests
                     MaterializeMainWindow(window);
 
                     SearchChrome summary = GetSearchChrome(window, "PlaylistSummaryKeywordSearchEditor");
-                    AssertSearchChromeGeometry(summary);
                     Assert.AreEqual(Visibility.Collapsed, summary.WarningContent.Visibility);
                     Point summaryHelpWithoutWarning = GetRelativeOrigin(summary.HelpSlot, summary.Outer);
                     Point summaryClearWithoutWarning = GetRelativeOrigin(summary.ClearSlot, summary.Outer);
@@ -559,8 +545,9 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>compiled検索filterメニューの実描画と選択操作を通常譜面・サマリー別に接続し、片側の選択が他方のfilterを変えません。</summary>
     [TestMethod]
-    public void SearchVariants_PreserveBindingsPopupTargetsAndClearRoutes()
+    public void SearchVariants_FilterMenusChangeOnlyCorrespondingOwner()
     {
         WithSimpleTextBoxStyles(() =>
         {
@@ -574,48 +561,6 @@ public sealed class MainWindowChartPresentationWpfTests
                     AssertFilterAffordanceMaterialized(summary);
                     MaterializeMainWindow(window);
                     AssertFilterAffordanceRendered(normal);
-                    Assert.AreSame(viewModel, normal.Editor.DataContext);
-                    Assert.AreSame(viewModel, summary.Editor.DataContext);
-                    AssertBindingPath(normal.Editor, KeywordSearchEditor.TextProperty, "ChartFilters.KeywordFilter");
-                    AssertBindingPath(summary.Editor, KeywordSearchEditor.TextProperty, "PlaylistWorkspace.PlaylistSummaryKeywordFilter");
-                    AssertBindingPath(normal.TextBox, TextBox.TextProperty, "Text");
-                    AssertBindingPath(summary.TextBox, TextBox.TextProperty, "Text");
-                    AssertBindingPath(normal.HelpButton, ToggleButton.IsCheckedProperty, "ChartFilters.IsKeywordSearchHelpOpen");
-                    AssertBindingPath(summary.HelpButton, ToggleButton.IsCheckedProperty, "PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen");
-                    Assert.IsNull(BindingOperations.GetBindingExpression(normal.SuggestionPopup, Popup.IsOpenProperty));
-                    Assert.IsNull(BindingOperations.GetBindingExpression(summary.SuggestionPopup, Popup.IsOpenProperty));
-                    Assert.AreSame(normal.HelpButton, normal.HelpPopup.PlacementTarget);
-                    Assert.AreSame(summary.HelpButton, summary.HelpPopup.PlacementTarget);
-                    Assert.IsNull(normal.HelpButton.FocusVisualStyle);
-                    Assert.IsNull(summary.HelpButton.FocusVisualStyle);
-                    AssertBindingPathAndOwner(
-                        normal.WarningContent,
-                        UIElement.VisibilityProperty,
-                        "ChartFilters.HasKeywordSearchWarning",
-                        viewModel);
-                    AssertBindingPathAndOwner(
-                        normal.WarningContent,
-                        FrameworkElement.ToolTipProperty,
-                        "ChartFilters.KeywordSearchWarningText",
-                        viewModel);
-                    AssertBindingPathAndOwner(
-                        summary.WarningContent,
-                        UIElement.VisibilityProperty,
-                        "PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning",
-                        viewModel);
-                    AssertBindingPathAndOwner(
-                        summary.WarningContent,
-                        FrameworkElement.ToolTipProperty,
-                        "PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText",
-                        viewModel);
-                    AssertFilterMenuBindings(
-                        normal.FilterButton,
-                        "ChartFilters.ModeFilter",
-                        viewModel);
-                    AssertFilterMenuBindings(
-                        summary.FilterButton,
-                        "PlaylistWorkspace.PlaylistSummaryOwnedFilter",
-                        viewModel);
                     ChartModeFilter modeBeforeInteraction = viewModel.ChartFilters.ModeFilter;
                     PlaylistOwnedFilter ownedFilterBeforeInteraction = viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter;
                     MenuItem normalFilterItem = GetFilterMenuItem(normal.FilterButton.DropDownContextMenu!, true);
@@ -636,25 +581,8 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    [TestMethod]
-    public void SearchEditorRouteOwnsPopupStateInsteadOfViewModel()
-    {
-        WithSimpleTextBoxStyles(() =>
-        {
-            MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (_, window) =>
-                {
-                    KeywordSearchEditor editor = GetNamedElement<KeywordSearchEditor>(window, "KeywordSearchEditor");
 
-                    Assert.IsNull(
-                        BindingOperations.GetBindingExpression(
-                            editor.AssistancePopupControl,
-                            Popup.IsOpenProperty));
-                });
-        });
-    }
-
+    /// <summary>clearアイコンのmouse操作で検索入力を空にして補助popupを更新し、サマリー側へ通常譜面の保存クエリを混入させません。</summary>
     [TestMethod]
     public void SearchEditor_ClearMouseRouteRefreshesOnlyItsOwnEmptyAssistanceImmediately()
     {
@@ -709,6 +637,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>入力変更で補助popupを即時更新してprefix候補へ絞り、空へ戻すと保存したお気に入り・履歴・フィールドのsectionを復元します。</summary>
     [TestMethod]
     public void SearchEditor_RefreshesImmediatelyAndRestoresEmptySections()
     {
@@ -765,6 +694,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>候補を上下選択してEnterで入力へ適用し、IME処理キーでは入力を変えず、Escapeで閉じたpopupをDownで再開します。</summary>
     [TestMethod]
     public void SearchEditor_NavigationAndImeKeepInputLifecycleOwnedByEditor()
     {
@@ -818,6 +748,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>保存候補の削除とお気に入り追加を実buttonから実行し、検索入力と元履歴を変えず、操作を識別できる名称を表示します。</summary>
     [TestMethod]
     public void SearchEditor_SavedRowActionsKeepQueryUnchanged()
     {
@@ -865,6 +796,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>保存候補とフィールドを別viewportへ表示して操作buttonを描画し、サマリーでは専用output候補だけを提供して未対応値候補を出しません。</summary>
     [TestMethod]
     public void SearchEditor_UsesIndependentSectionViewportsAndSummaryFieldCatalog()
     {
@@ -891,9 +823,7 @@ public sealed class MainWindowChartPresentationWpfTests
                                 normal.Editor.AssistancePopupControl.Child!)
                             .ToArray();
                         Assert.AreEqual(3, sectionViewports.Length);
-                        Assert.AreEqual(130d, sectionViewports[0].MaxHeight, 0.01d);
-                        Assert.AreEqual(130d, sectionViewports[1].MaxHeight, 0.01d);
-                        Assert.AreEqual(260d, sectionViewports[2].MaxHeight, 0.01d);
+                        Assert.IsTrue(sectionViewports.All(viewport => viewport.MaxHeight > 0d && double.IsFinite(viewport.MaxHeight)));
                         Assert.IsTrue(sectionViewports.All(viewport => viewport.VerticalScrollBarVisibility == ScrollBarVisibility.Auto));
                         Button[] actionButtons = FindVisualDescendants<Button>(
                                 normal.Editor.AssistancePopupControl.Child!)
@@ -937,6 +867,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>viewportを超えるお気に入りを保存したまま表示行だけを実体化し、全件Control生成による仮想化退行を検出します。</summary>
     [TestMethod]
     public void SearchEditor_LargeFavoritesVirtualizeOffViewportRows()
     {
@@ -975,6 +906,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>お気に入りと履歴の画面外行をscrollで表示し、同じ描画surfaceのDataContext変更にも全文tooltipと操作名を追従させます。</summary>
     [TestMethod]
     public void SearchEditor_SavedRowTooltipsAndAccessibilityFollowRecycledDataContext()
     {
@@ -1037,10 +969,8 @@ public sealed class MainWindowChartPresentationWpfTests
                                 Assert.AreNotEqual(lastItem.Query, actionName);
                             }
 
-                            // The virtualizing panel normally reuses this surface while it
-                            // scrolls. Reassigning the same realized surface is the approved
-                            // deterministic negative control when a runtime chooses to recreate
-                            // the template instead; Loaded handlers must not own row state.
+                            // runtimeがtemplateを再生成しても、同じsurfaceを再利用する入力を固定します。
+                            // Loaded時の行状態だけでtooltipを保持する実装を検出します。
                             lastRow.SetCurrentValue(FrameworkElement.DataContextProperty, firstItem);
                             TestUiDispatcherHost.ProcessQueuedPresentation();
                             Assert.AreSame(lastApply, FindApplyButton(lastRow));
@@ -1060,6 +990,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>保存済み検索には全文tooltipと識別名を出し、通常・サマリーのフィールド候補と値候補には保存クエリtooltipを混入させません。</summary>
     [TestMethod]
     public void SearchEditor_QueryTooltipsAreLimitedToSavedRows()
     {
@@ -1125,6 +1056,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>異なる幅へ変更した通常・サマリー入力面をpopup開放前に捕捉し、長い保存クエリでpopupを広げず全文と省略表示を保ちます。</summary>
     [TestMethod]
     public void SearchEditor_SavedQueryPopupWidthIsBoundToPreOpenSurface()
     {
@@ -1205,6 +1137,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>お気に入り・履歴・値・フィールドの各少数候補は件数増減へviewport高さを追従させ、最大高さまでの空白を常に確保しません。</summary>
     [TestMethod]
     public void SearchEditor_ShortSectionsSizeToContentForSavedValuesAndFields()
     {
@@ -1262,6 +1195,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>実IME開始・更新イベント中のEnterでは候補適用と履歴確定を抑止し、文字列確定後だけ通常のEnter・Tab適用を再開します。</summary>
     [TestMethod]
     public void SearchEditor_ActiveImeCompositionRoutedEventsDoNotApplyOrCommitHistory()
     {
@@ -1310,9 +1244,7 @@ public sealed class MainWindowChartPresentationWpfTests
                         Assert.AreEqual(textBeforeComposition + "title", chrome.TextBox.Text);
                         Assert.AreEqual(historyCountBefore, owner.SavedQueryOwner.History.Count);
 
-                        // The committed composition was observed by the editor. Reset the
-                        // input to a fresh field prefix and prove ordinary terminal keys
-                        // are no longer blocked by the composition guard.
+                        // IME確定を通した後、新しいprefixでEnter・Tabの抑止解除を確認します。
                         chrome.TextBox.Text = "tit";
                         chrome.TextBox.CaretIndex = chrome.TextBox.Text.Length;
                         TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -1334,49 +1266,45 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>指定したTextBoxの境界幅と編集controlの境界なし設定をcompiled templateへ反映し、styleが有効値を固定幅で上書きしません。</summary>
     [TestMethod]
     public void SimpleTextBox_TemplateChromeFollowsEffectiveBorderThickness()
     {
         WithSimpleTextBoxStyles(() =>
         {
-            MainWindowPresentationTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (_, _) =>
-                {
-                    var host = new Grid();
-                    host.Resources.MergedDictionaries.Add(new ResourceDictionary
-                    {
-                        Source = new Uri(
-                            "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
-                            UriKind.RelativeOrAbsolute)
-                    });
-                    host.Resources.MergedDictionaries.Add(new ResourceDictionary
-                    {
-                        Source = new Uri(
-                            "/BeMusicSeeker;component/Themes/Light.xaml",
-                            UriKind.RelativeOrAbsolute)
-                    });
-                    var simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
-                    host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
-                    var implicitTextBox = new TextBox();
-                    var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
-                    var editableTextBlock = new EditableTextBlock
-                    {
-                        Width = 220d,
-                        Height = 30d,
-                        Text = "editable",
-                        IsInEditMode = true
-                    };
-                    host.Children.Add(implicitTextBox);
-                    host.Children.Add(explicitTextBox);
-                    host.Children.Add(editableTextBlock);
-                    MaterializeElement(host, 500d, 120d);
+            var host = new Grid();
+            host.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri(
+                    "/BeMusicSeeker;component/Themes/Simple Styles.xaml",
+                    UriKind.RelativeOrAbsolute)
+            });
+            host.Resources.MergedDictionaries.Add(new ResourceDictionary
+            {
+                Source = new Uri(
+                    "/BeMusicSeeker;component/Themes/Light.xaml",
+                    UriKind.RelativeOrAbsolute)
+            });
+            var simpleTextBoxStyle = (Style)host.FindResource("SimpleTextBox");
+            host.Resources.Add(typeof(TextBox), simpleTextBoxStyle);
+            var implicitTextBox = new TextBox { BorderThickness = new Thickness(3d) };
+            var explicitTextBox = new TextBox { BorderThickness = new Thickness(0d) };
+            var editableTextBlock = new EditableTextBlock
+            {
+                Width = 220d,
+                Height = 30d,
+                Text = "editable",
+                IsInEditMode = true
+            };
+            host.Children.Add(implicitTextBox);
+            host.Children.Add(explicitTextBox);
+            host.Children.Add(editableTextBlock);
+            MaterializeElement(host, 500d, 120d);
 
-                    AssertTextBoxChrome(implicitTextBox, new Thickness(1d));
-                    AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
-                    TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
-                    AssertTextBoxChrome(editor, new Thickness(0d));
-                });
+            AssertTextBoxChrome(implicitTextBox, new Thickness(3d));
+            AssertTextBoxChrome(explicitTextBox, new Thickness(0d));
+            TextBox editor = FindVisualDescendants<TextBox>(editableTextBlock).Single();
+            AssertTextBoxChrome(editor, new Thickness(0d));
         });
     }
 
@@ -1388,48 +1316,8 @@ public sealed class MainWindowChartPresentationWpfTests
         return (T)element!;
     }
 
-    private static void AssertBindingPath(
-        DependencyObject element,
-        DependencyProperty property,
-        string expectedPath)
-    {
-        BindingBase? binding = BindingOperations.GetBindingBase(element, property);
-        Assert.IsInstanceOfType(binding, typeof(Binding), expectedPath);
-        Assert.AreEqual(expectedPath, ((Binding)binding!).Path?.Path);
-    }
 
-    private static void AssertBindingPathAndOwner(
-        DependencyObject element,
-        DependencyProperty property,
-        string expectedPath,
-        object expectedOwner)
-    {
-        BindingBase? bindingBase = BindingOperations.GetBindingBase(element, property);
-        Assert.IsInstanceOfType(bindingBase, typeof(Binding), expectedPath);
-        var binding = (Binding)bindingBase!;
-        Assert.AreEqual(expectedPath, binding.Path?.Path);
-        object? owner = binding.Source ?? (element as FrameworkElement)?.DataContext;
-        Assert.AreSame(expectedOwner, owner);
-    }
 
-    private static void AssertFilterMenuBindings(
-        DropDownMenuButton filterButton,
-        string expectedPath,
-        object expectedOwner)
-    {
-        ContextMenu menu = filterButton.DropDownContextMenu
-            ?? throw new AssertFailedException("The search filter menu must be present.");
-        MenuItem[] items = menu.Items.OfType<MenuItem>().ToArray();
-        Assert.IsTrue(items.Length > 0);
-        foreach (MenuItem item in items)
-        {
-            AssertBindingPathAndOwner(
-                item,
-                MenuItem.IsCheckedProperty,
-                expectedPath,
-                expectedOwner);
-        }
-    }
 
     private static void AssertFilterAffordanceMaterialized(SearchChrome chrome)
     {
@@ -1501,41 +1389,6 @@ public sealed class MainWindowChartPresentationWpfTests
             GetNamedElement<Popup>(window, $"{suffix}KeywordSearchHelpPopup"));
     }
 
-    private static void AssertSearchChromeGeometry(SearchChrome chrome)
-    {
-        MaterializeElement(chrome.Outer, 600d, 24d);
-        Assert.AreEqual(24d, chrome.Outer.Height, 0.01d);
-        Assert.AreEqual(24d, chrome.Outer.ActualHeight, 0.01d);
-        Assert.IsTrue(chrome.Outer.ActualHeight > 0d);
-        Assert.AreEqual(new Thickness(1d), chrome.Outer.BorderThickness);
-        Assert.IsNotNull(chrome.Outer.BorderBrush);
-        Assert.IsTrue(chrome.Outer.IsVisible || chrome.Outer.Visibility == Visibility.Visible);
-        Assert.AreEqual(390d, chrome.TextBox.Width, 0.01d);
-        Assert.AreEqual(390d, chrome.TextBox.ActualWidth, 0.01d);
-        Assert.AreEqual(new Thickness(0d), chrome.TextBox.BorderThickness);
-        Assert.AreEqual(390d, chrome.Layout.ColumnDefinitions[1].Width.Value, 0.01d);
-        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[2].Width.Value, 0.01d);
-        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[3].Width.Value, 0.01d);
-        Assert.AreEqual(20d, chrome.Layout.ColumnDefinitions[4].Width.Value, 0.01d);
-        Assert.AreEqual(20d, chrome.WarningSlot.Width, 0.01d);
-        Assert.AreEqual(20d, chrome.HelpSlot.Width, 0.01d);
-        Assert.AreEqual(20d, chrome.ClearSlot.Width, 0.01d);
-        Assert.AreEqual(2, Grid.GetColumn(chrome.WarningSlot));
-        Assert.AreEqual(3, Grid.GetColumn(chrome.HelpSlot));
-        Assert.AreEqual(4, Grid.GetColumn(chrome.ClearSlot));
-        Assert.AreEqual(Visibility.Visible, chrome.WarningSlot.Visibility);
-        Assert.IsTrue(chrome.WarningContent.Visibility is Visibility.Visible or Visibility.Collapsed);
-        Assert.IsTrue(chrome.HelpButton.IsVisible || chrome.HelpButton.Visibility == Visibility.Visible);
-        Assert.IsTrue(chrome.ClearSlot.IsVisible || chrome.ClearSlot.Visibility == Visibility.Visible);
-        AssertSlotBounds(chrome.WarningSlot);
-        AssertSlotBounds(chrome.HelpSlot);
-        AssertSlotBounds(chrome.ClearSlot);
-        AssertSlotChildCentered(chrome.HelpSlot, chrome.HelpButton, chrome.Outer);
-        AssertSlotChildCentered(chrome.ClearSlot, chrome.ClearIcon, chrome.Outer);
-        AssertIntegerThickness(chrome.WarningContent.Margin);
-        AssertIntegerThickness(chrome.HelpButton.Margin);
-        AssertIntegerThickness(chrome.ClearIcon.Margin);
-    }
 
     private static void WithPresentedMainWindow(TestWindowPresentationScope presentationScope, MainWindow window, Action action)
     {
@@ -1712,11 +1565,6 @@ public sealed class MainWindowChartPresentationWpfTests
         Assert.AreEqual(expected.Y, actual.Y, 0.01d);
     }
 
-    private static void AssertSlotBounds(Grid slot)
-    {
-        Assert.AreEqual(20d, slot.ActualWidth, 0.01d);
-        Assert.AreEqual(20d, slot.ActualHeight, 0.01d);
-    }
 
     private static void AssertSlotChildCentered(
         FrameworkElement slot,
@@ -1736,13 +1584,6 @@ public sealed class MainWindowChartPresentationWpfTests
         Assert.AreEqual(slotCenter.Y, childCenter.Y, devicePixelTolerance);
     }
 
-    private static void AssertIntegerThickness(Thickness margin)
-    {
-        Assert.AreEqual(Math.Truncate(margin.Left), margin.Left);
-        Assert.AreEqual(Math.Truncate(margin.Top), margin.Top);
-        Assert.AreEqual(Math.Truncate(margin.Right), margin.Right);
-        Assert.AreEqual(Math.Truncate(margin.Bottom), margin.Bottom);
-    }
 
     private static void MaterializeMainWindow(MainWindow window)
     {

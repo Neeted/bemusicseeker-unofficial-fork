@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDialogRoutingTests
 {
+    /// <summary>上書き導入の確認を注入dialogへ一回渡し、拒否されたpackageを保留一覧から除きません。</summary>
     [TestMethod]
     public void ForceInstallPendingPackages_UsesDialogServiceForOverrideConfirmation()
     {
@@ -45,6 +46,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>消失フォルダのrenameで対象path付き警告を注入dialogへ一回渡し、無通知の成功へ置換しません。</summary>
     [TestMethod]
     public void RenameChartFolder_UsesDialogServiceForMissingFolderWarning()
     {
@@ -63,6 +65,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>Everythingの代替走査理由を警告dialogへ渡し、理由・警告種別・既定応答を失いません。</summary>
     [TestMethod]
     public void ShowEverythingFallbackWarning_UsesDialogService()
     {
@@ -85,6 +88,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>不完全走査を中止した理由を警告へ渡し、Everythingの失敗と取り違えた通知を出しません。</summary>
     [TestMethod]
     public void ShowFileScanSkippedIncompleteWarning_UsesDialogService()
     {
@@ -107,6 +111,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>既存DBがある空走査では件数・DB・Everythingと原因を警告へ渡し、空の正常走査と取り違えません。</summary>
     [TestMethod]
     public void ShowEmptyScanWithExistingDbWarning_UsesDialogService()
     {
@@ -131,6 +136,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>Everything警告の重複要求を一通知へ集約し、最初の理由を後続理由で上書きしません。</summary>
     [TestMethod]
     public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
     {
@@ -152,6 +158,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>不完全走査の重複警告を一通知へ集約し、最初の原因と走査中止の分類を保持します。</summary>
     [TestMethod]
     public void QueueFileScanSkippedIncompleteWarning_CoalescesDuplicateRequests()
     {
@@ -174,6 +181,7 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
+    /// <summary>既存DBの空走査警告は一通知へ集約し、後続原因で最初の原因やEverythingの分類を置換しません。</summary>
     [TestMethod]
     public void QueueEmptyScanWithExistingDbWarning_CoalescesDuplicateRequests()
     {

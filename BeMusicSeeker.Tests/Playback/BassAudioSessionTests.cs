@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioSessionTests
 {
+    /// <summary>照会と明示テストを反復し、部分初期化／cleanupの独立失敗を要求とともに保持して隔離し、明示回収後だけ再受付できる。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -214,6 +215,7 @@ public sealed class BassAudioSessionTests
         public void Wait(TimeSpan interval) => throw new AssertFailedException("Sound was not requested.");
     }
 
+    /// <summary>排他leaseの参照を複製しても完了とDisposeを一度だけ処理し、次の初期化受付を壊さない。</summary>
     [TestMethod]
     public void ExclusiveLease_CopiedReferenceSharesCompletionAndDisposesOnce()
     {
@@ -228,6 +230,7 @@ public sealed class BassAudioSessionTests
         next.ObserveOwnership(() => true);
     }
 
+    /// <summary>callback故障と過大レベルの最初の値をsessionごとに一度だけ記録・回収し、後続値で原因を上書きしない。</summary>
     [TestMethod]
     public void CallbackOutputFailureAndOverLevelArePendingOncePerAudioSession()
     {
@@ -252,6 +255,7 @@ public sealed class BassAudioSessionTests
         Assert.IsTrue(secondSession.TryMarkOutputOverLevelPending());
     }
 
+    /// <summary>callback gain故障を管理側の既存例外経路へ渡し、元の演算段階を失わない。</summary>
     [TestMethod]
     public void PendingCallbackGainFailureCanUseTheExistingManagementExceptionRoute()
     {
@@ -265,6 +269,7 @@ public sealed class BassAudioSessionTests
         Assert.IsTrue(session.HasCallbackOutputFailure);
     }
 
+    /// <summary>core未取得の初期化失敗ではdevice選択もFreeも呼ばず、取得していないnative資源を解放しない。</summary>
     [TestMethod]
     public void CoreInitializationFailure_DoesNotFreeUninitializedCore()
     {
@@ -282,6 +287,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, native.Count("FreeCore"));
     }
 
+    /// <summary>初期化の主失敗にcleanupが重なっても元例外を置換せず、未確認所有をCleanupPendingへ残す。</summary>
     [TestMethod]
     public void CleanupFailure_DoesNotReplacePrimaryInitializationFailure()
     {
@@ -321,6 +327,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(1, native.Count("FreeCore"));
     }
 
+    /// <summary>ASIO・stream・coreを所有deviceで各一回解放し、再解放でnative処理やcallback所有を復活させない。</summary>
     [TestMethod]
     public void AsioSetupFailure_ReleasesAsioStreamsAndCoreExactlyOnce()
     {
@@ -353,6 +360,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, session.CallbackOutputHandle);
     }
 
+    /// <summary>ASIO照会の途中取消では取得済みASIOとcoreを回収し、残存所有なく次の音声要求を受け入れる。</summary>
     [TestMethod]
     public void AsioCapabilityQuery_CancellationReleasesThePartiallyAcquiredSession()
     {
@@ -382,6 +390,7 @@ public sealed class BassAudioSessionTests
         next.Dispose();
     }
 
+    /// <summary>active session中のASIO照会はBusyとして拒否し、照会とcleanupを呼ばず既存所有を維持する。</summary>
     [TestMethod]
     public void AsioCapabilityQuery_RejectsAnActiveSessionWithoutChangingOwnership()
     {
@@ -423,6 +432,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, native.Count("SetCoreDevice"));
     }
 
+    /// <summary>照会成功後もcleanup未確認なら結果を失敗にし、所有を隔離して次照会をBusyとして拒否する。</summary>
     [TestMethod]
     public void AsioCapabilityQuery_CleanupFailureFailsAndRetainsSessionOwnership()
     {
@@ -482,6 +492,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>照会native失敗とcleanup未確認が重なっても主native段階・番号を保持し、cleanupを併記して所有を隔離する。</summary>
     [TestMethod]
     public void AsioCapabilityQuery_CleanupFailurePreservesPrimaryNativeFailure()
     {
@@ -545,6 +556,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>保存deviceへの選択に失敗したら所有を保持し、別deviceのstreamやcoreをFreeしない。</summary>
     [TestMethod]
     public void DeviceSelectionFailure_RetainsOwnershipWithoutFreeingUnknownDevice()
     {
@@ -570,6 +582,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, native.Count("FreeCore"));
     }
 
+    /// <summary>native層が既解放を示すInitエラーは冪等cleanup成功として一度だけ扱う。</summary>
     [TestMethod]
     public void AlreadyReleasedNativeLayer_IsAnIdempotentCleanupSuccess()
     {
@@ -592,6 +605,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(1, native.Count("FreeCore"));
     }
 
+    /// <summary>Released表示でもnative所有が残る場合は実cleanupを行い、状態名だけで解放済みと誤判定しない。</summary>
     [TestMethod]
     public void ReleasedState_WithRecordedNativeOwnershipStillPerformsCleanup()
     {
@@ -613,6 +627,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(1, native.Count("FreeCore"));
     }
 
+    /// <summary>保存core deviceが既解放なら未知deviceをFreeせず記録所有を解除し、playerへ解放を一回通知する。</summary>
     [TestMethod]
     public void CoreDeviceAlreadyReleased_ClearsRecordedOwnershipWithoutFreeingUnknownDevice()
     {
@@ -643,6 +658,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(1, playerReleaseNotifications);
     }
 
+    /// <summary>同じstream handleの重複所有を拒否し、統合所有内のhandleをnativeへ一度だけ解放する。</summary>
     [TestMethod]
     public void UnifiedStreamOwnership_RejectsDuplicateHandleAndReleasesOnce()
     {
@@ -668,6 +684,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, playerReleaseNotifications);
     }
 
+    /// <summary>callback出力交換は旧解放前に新sourceを公開し、解放成功後も新callback先を保持する。</summary>
     [TestMethod]
     public void CallbackOutputReplacement_PublishesBeforeReleaseAndKeepsReplacementOnSuccess()
     {
@@ -689,6 +706,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, session.OutputHandle);
     }
 
+    /// <summary>旧出力解放がfalseならcallback先と所有handleを旧sourceへ戻し、未確認解放を採用しない。</summary>
     [TestMethod]
     public void CallbackOutputReplacement_RestoresPreviousSourceWhenReleaseFails()
     {
@@ -709,6 +727,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(101, session.OutputHandle);
     }
 
+    /// <summary>旧出力解放が例外なら元失敗を返し、callback先と所有handleを旧sourceへ復元する。</summary>
     [TestMethod]
     public void CallbackOutputReplacement_RestoresPreviousSourceWhenReleaseThrows()
     {
@@ -725,6 +744,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(101, session.OutputHandle);
     }
 
+    /// <summary>session不在または公開handleなしのcallbackはreadせずゼロを返し、無効pointerを使用しない。</summary>
     [TestMethod]
     public void PublishedCallbackOutputReader_DoesNotReadWithoutSessionHandle()
     {
@@ -733,6 +753,7 @@ public sealed class BassAudioSessionTests
             new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO), IntPtr.Zero, 16));
     }
 
+    /// <summary>callbackは公開handleをpullしてからgainを適用し保護byteを変えず、故障後は無音にして元原因を管理側へ渡す。</summary>
     [TestMethod]
     public void PublishedCallbackOutputReader_AppliesGainAfterPullAndPreservesBufferGuards()
     {
@@ -769,6 +790,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>正の初回callback frame数を公開してから非同期継続へ通知し、ゼロ・負frameを成功と扱わず観測済み通知を保持する。</summary>
     [TestMethod]
     public async Task FirstCallbackReady_PublishesRealFramesBeforeAsynchronousContinuationAndIsRetained()
     {
@@ -803,6 +825,7 @@ public sealed class BassAudioSessionTests
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
+    /// <summary>初回callbackの負長・非整列長は元故障で待機を起こし、最大frameを成功として増やさず再待機にも故障を返す。</summary>
     [DataTestMethod]
     [DataRow(-1, (int)AudioPcmRenderStage.InvalidReadLength)]
     [DataRow(1, (int)AudioPcmRenderStage.UnalignedFrame)]
@@ -828,6 +851,7 @@ public sealed class BassAudioSessionTests
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
+    /// <summary>オフラインNullDeviceの準備通知は物理callbackを待たずに通過し、未観測frameを捏造しない。</summary>
     [TestMethod]
     public async Task FirstCallbackReady_NullDeviceDoesNotRequirePhysicalObservation()
     {
@@ -857,6 +881,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>ASIO tempo交換は旧解放前に新callbackを公開し、解放失敗では旧callbackとhandleへ戻す。</summary>
     [TestMethod]
     public void AsioTempoReplacement_PublishesBeforeReleaseAndRestoresOnFailure()
     {
@@ -891,6 +916,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(101, session.OutputHandle);
     }
 
+    /// <summary>callbackを持たないNullDeviceのtempo解放では新sourceをcallback先として公開しない。</summary>
     [TestMethod]
     public void NonCallbackTempoReplacement_ReleasesWithoutPublishingReplacement()
     {
@@ -912,6 +938,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(101, session.CallbackOutputHandle);
     }
 
+    /// <summary>未開始WASAPIでも取得済みmixer・WASAPI・coreを解放し、未開始出力のStopを呼ばない。</summary>
     [TestMethod]
     public void UnstartedWasapiSession_ReleasesOwnedMixerWithoutStoppingOutput()
     {
@@ -937,6 +964,7 @@ public sealed class BassAudioSessionTests
         Assert.IsTrue(session.IsReleased);
     }
 
+    /// <summary>WASAPI解放未確認ではcallback sourceと所有を保持し、明示再試行の成功後だけ解除する。</summary>
     [TestMethod]
     public void WasapiFreeFailure_RetainsCallbackSourceUntilRetrySucceeds()
     {
@@ -966,6 +994,7 @@ public sealed class BassAudioSessionTests
         Assert.IsTrue(session.IsReleased);
     }
 
+    /// <summary>cleanup未確認のsessionはlifecycleへ残し、明示解放確認後にだけ別sessionの取得を許す。</summary>
     [TestMethod]
     public void CleanupFailure_RemainsOwnedUntilLaterRetrySucceeds()
     {
@@ -1007,6 +1036,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(2, native.Count("FreeCore"));
     }
 
+    /// <summary>scope付き解放tokenが古い場合は別の現sessionを選ばず、正しいtokenだけを解放対象とする。</summary>
     [TestMethod]
     public void ScopedReleaseToken_DoesNotSelectAnotherOwnedSession()
     {
@@ -1036,6 +1066,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>session leaseは解放falseでtokenを保持し、明示解放成功でのみ解除する。</summary>
     [TestMethod]
     public void SessionLease_RetainsTokenUntilCleanupIsConfirmed()
     {
@@ -1060,6 +1091,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(2, releaseCalls);
     }
 
+    /// <summary>解放確認済みtokenは回復後のsessionへ交換でき、旧tokenを現所有として残さない。</summary>
     [TestMethod]
     public void SessionLease_ReleasedTokenCanBeReplacedByRecoveredSession()
     {
@@ -1079,6 +1111,7 @@ public sealed class BassAudioSessionTests
         Assert.AreSame(replacement, lease.Session);
     }
 
+    /// <summary>初期化中・active・cleanup保留のtoken交換を拒否し、未解放sessionの所有を維持する。</summary>
     [TestMethod]
     public void SessionLease_UnreleasedTokenRejectsReplacementAndRetainsOwner()
     {
@@ -1102,6 +1135,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>lease解放が例外でも元失敗とtokenを保持し、明示再試行の対象を失わない。</summary>
     [TestMethod]
     public void SessionLease_ReleaseExceptionRetainsTokenForRetry()
     {
@@ -1117,6 +1151,7 @@ public sealed class BassAudioSessionTests
         Assert.AreSame(session, lease.Session);
     }
 
+    /// <summary>stream解放確認は該当handleだけを解除し、別mixerを残したまま新出力所有へ交換する。</summary>
     [TestMethod]
     public void OutputHandleReplacement_ForgetsOnlyConfirmedRelease()
     {
@@ -1138,6 +1173,7 @@ public sealed class BassAudioSessionTests
         Assert.AreEqual(0, session.MixerHandle);
     }
 
+    /// <summary>shutdown要求後は新rootとcallback受付を拒否し、受理済みroot内の継続を許して全root終端後にshutdownする。</summary>
     [TestMethod]
     public void OperationGate_ShutdownAllowsNestedCallAndRejectsNewRootUntilDrain()
     {
@@ -1219,6 +1255,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>初期化途中のsessionも未確認所有として扱い、cleanup終端後だけ現sessionと回復要求を解除する。</summary>
     [TestMethod]
     public void Lifecycle_InitializingSessionRequiresRecoveryUntilCleanupCompletes()
     {
@@ -1240,10 +1277,10 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>共有leaseからcleanupへの昇格を拒否し、取得直前到達後も二つ・一つのroot保持中はcleanupを取得せず、全解放後に取得・終端することを確認します。</summary>
     [TestMethod]
-    public void OperationGate_SessionCleanupDrainsAllRootsAndRejectsSharedPromotion()
+    public async Task OperationGate_SessionCleanupDrainsAllRootsAndRejectsSharedPromotion()
     {
-        // cleanup leaseが受理済みroot操作の解放を待つ排他動作を検査するため、遷移待ちに短い期限を使う。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
         Assert.IsTrue(gate.TryEnterOperation(out BassAudioOperationLease ambient));
         using (ambient)
@@ -1251,116 +1288,143 @@ public sealed class BassAudioSessionTests
             Assert.IsFalse(gate.TryEnterSessionCleanup(out _));
         }
 
-        using var rootsReady = new Barrier(3);
-        using var releaseRoots = new ManualResetEventSlim();
-        Task CreateRoot()
-        {
-            return Task.Factory.StartNew(
+        using var releaseFirstRoot = new ManualResetEventSlim();
+        using var releaseSecondRoot = new ManualResetEventSlim();
+        var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task CreateRoot(TaskCompletionSource entered, ManualResetEventSlim release) =>
+            Task.Factory.StartNew(
                 () =>
                 {
                     Assert.IsTrue(gate.TryEnterOperation(out BassAudioOperationLease operation));
                     using (operation)
                     {
-                        rootsReady.SignalAndWait();
-                        releaseRoots.Wait();
+                        entered.TrySetResult();
+                        release.Wait();
                     }
                 },
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
-        }
 
-        Task firstRoot = CreateRoot();
-        Task secondRoot = CreateRoot();
-        rootsReady.SignalAndWait();
-        using var cleanupEntered = new ManualResetEventSlim();
-        Task cleanup = Task.Factory.StartNew(
-            () =>
-            {
-                Assert.IsTrue(gate.TryEnterSessionCleanup(out BassAudioExclusiveLease lifecycle));
-                try
-                {
-                    cleanupEntered.Set();
-                    lifecycle.Complete(success: true);
-                }
-                finally
-                {
-                    lifecycle.Dispose();
-                }
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-
+        Task firstRoot = Task.CompletedTask;
+        Task secondRoot = Task.CompletedTask;
+        Task cleanup = Task.CompletedTask;
+        bool verified = false;
         try
         {
-            Assert.IsFalse(cleanupEntered.IsSet);
-            releaseRoots.Set();
-            Assert.IsTrue(cleanupEntered.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsTrue(Task.WaitAll([firstRoot, secondRoot, cleanup], TimeSpan.FromSeconds(2)));
+            firstRoot = CreateRoot(firstEntered, releaseFirstRoot);
+            secondRoot = CreateRoot(secondEntered, releaseSecondRoot);
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstEntered.Task, firstRoot, "audio-cleanup.first-root");
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondEntered.Task, secondRoot, "audio-cleanup.second-root");
+            cleanup = Task.Factory.StartNew(
+                () =>
+                {
+                    cleanupAttempted.TrySetResult();
+                    Assert.IsTrue(gate.TryEnterSessionCleanup(out BassAudioExclusiveLease lifecycle));
+                    using (lifecycle)
+                    {
+                        cleanupEntered.TrySetResult();
+                        lifecycle.Complete(success: true);
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupAttempted.Task, cleanup, "audio-cleanup.before-acquire");
+            // 取得直前通知後の禁止期間を観測する。通常完了を時間経過から推定しない。
+            Assert.IsFalse(cleanup.Wait(TimeSpan.FromMilliseconds(100)));
+            Assert.IsFalse(cleanupEntered.Task.IsCompleted);
+            releaseFirstRoot.Set();
+            await firstRoot;
+            Assert.IsFalse(cleanup.Wait(TimeSpan.FromMilliseconds(100)));
+            Assert.IsFalse(cleanupEntered.Task.IsCompleted);
+            releaseSecondRoot.Set();
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, cleanup, "audio-cleanup.acquired");
+            await Task.WhenAll(secondRoot, cleanup);
+            verified = true;
         }
         finally
         {
-            releaseRoots.Set();
+            releaseFirstRoot.Set();
+            releaseSecondRoot.Set();
+            try
+            {
+                await Task.WhenAll(firstRoot, secondRoot, cleanup);
+            }
+            catch when (!verified)
+            {
+                // 本体で観測した失敗を回収時のworker失敗で上書きしない。
+            }
         }
     }
 
+    /// <summary>cleanupの実lease保持中は初期化workerの取得直前到達後も取得・終端しないことを否定観測し、解放後の実取得と終端を確認します。</summary>
     [TestMethod]
-    public void OperationGate_NoSessionCleanupRemainsExclusiveAgainstInitialization()
+    public async Task OperationGate_NoSessionCleanupRemainsExclusiveAgainstInitialization()
     {
-        // cleanup中の初期化を拒み、cleanup完了後に進める排他遷移の停止検出に短い期限を使う。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
-        using var cleanupEntered = new ManualResetEventSlim();
         using var releaseCleanup = new ManualResetEventSlim();
-        using var initializationAttempted = new ManualResetEventSlim();
-        using var initializationEntered = new ManualResetEventSlim();
-        Task cleanup = Task.Factory.StartNew(
-            () =>
-            {
-                Assert.IsTrue(gate.TryEnterSessionCleanup(out BassAudioExclusiveLease lifecycle));
-                try
-                {
-                    cleanupEntered.Set();
-                    releaseCleanup.Wait();
-                    lifecycle.Complete(success: true);
-                }
-                finally
-                {
-                    lifecycle.Dispose();
-                }
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-
-        Assert.IsTrue(cleanupEntered.Wait(TimeSpan.FromSeconds(2)));
-        Task initialization = Task.Factory.StartNew(
-            () =>
-            {
-                initializationAttempted.Set();
-                using BassAudioExclusiveLease lifecycle = gate.EnterSessionInitialization();
-                initializationEntered.Set();
-                lifecycle.Complete(success: true);
-            },
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var initializationAttempted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var initializationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task cleanup = Task.CompletedTask;
+        Task initialization = Task.CompletedTask;
+        bool verified = false;
         try
         {
-            Assert.IsTrue(initializationAttempted.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsFalse(initializationEntered.IsSet);
+            cleanup = Task.Factory.StartNew(
+                () =>
+                {
+                    Assert.IsTrue(gate.TryEnterSessionCleanup(out BassAudioExclusiveLease lifecycle));
+                    using (lifecycle)
+                    {
+                        cleanupEntered.TrySetResult();
+                        releaseCleanup.Wait();
+                        lifecycle.Complete(success: true);
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, cleanup, "audio-initialization.cleanup-acquired");
+            initialization = Task.Factory.StartNew(
+                () =>
+                {
+                    initializationAttempted.TrySetResult();
+                    using BassAudioExclusiveLease lifecycle = gate.EnterSessionInitialization();
+                    initializationEntered.TrySetResult();
+                    lifecycle.Complete(success: true);
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            await TestUiDispatcherHost.AwaitNotificationAsync(initializationAttempted.Task, initialization, "audio-initialization.before-acquire");
+            // 取得直前通知後の禁止期間を観測する。通常完了を時間経過から推定しない。
+            Assert.IsFalse(initialization.Wait(TimeSpan.FromMilliseconds(100)));
+            Assert.IsFalse(initializationEntered.Task.IsCompleted);
             releaseCleanup.Set();
-            Assert.IsTrue(cleanup.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsTrue(initializationEntered.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsTrue(initialization.Wait(TimeSpan.FromSeconds(2)));
+            await TestUiDispatcherHost.AwaitNotificationAsync(initializationEntered.Task, initialization, "audio-initialization.acquired");
+            await Task.WhenAll(cleanup, initialization);
+            verified = true;
         }
         finally
         {
             releaseCleanup.Set();
+            try
+            {
+                await Task.WhenAll(cleanup, initialization);
+            }
+            catch when (!verified)
+            {
+                // 本体で観測した失敗を回収時のworker失敗で上書きしない。
+            }
         }
     }
 
+    /// <summary>runtime初期化ではcleanup隔離を解除できず、明示cleanup成功でだけ新要求を再開する。</summary>
     [TestMethod]
     public void OperationGate_RuntimeInitializationCannotClearCleanupQuarantine()
     {
@@ -1382,6 +1446,7 @@ public sealed class BassAudioSessionTests
         Assert.IsFalse(gate.AdmissionClosed);
     }
 
+    /// <summary>cleanup隔離中は別rootを拒否し、受理済み要求の継続と明示cleanupは許して成功後に次要求を受け入れる。</summary>
     [TestMethod]
     public void OperationGate_CleanupQuarantineRejectsNewRootsButAllowsAcceptedContinuationAndCleanup()
     {
@@ -1441,6 +1506,7 @@ public sealed class BassAudioSessionTests
         nextRequest.Dispose();
     }
 
+    /// <summary>初期化中のshutdown要求は初期化完了でも受付を再開せず、shutdown終端後も新操作を拒否する。</summary>
     [TestMethod]
     public void OperationGate_WaitingShutdownKeepsAdmissionClosedWhenRuntimeInitializationCompletes()
     {
@@ -1488,6 +1554,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>player stream解放失敗ではmanaged ownerと未通知状態を保持し、native解放成功後に一回だけownerへ確認を渡す。</summary>
     [TestMethod]
     public void PlayerStreamCleanup_RetainsManagedOwnerUntilNativeReleaseSucceeds()
     {
@@ -1517,6 +1584,7 @@ public sealed class BassAudioSessionTests
         GC.KeepAlive(owner);
     }
 
+    /// <summary>native入力bufferはstream解放未確認中に読める所有を保ち、明示解放成功後に新viewを拒否する。</summary>
     [TestMethod]
     public void PlayerStreamCleanup_RetainsNativeAudioInputUntilReleaseIsConfirmed()
     {
@@ -1558,6 +1626,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>cleanup補助登録は未所有handleだけを受け取り、重複登録でownerを奪わず一回だけ解放通知する。</summary>
     [TestMethod]
     public void PlayerStreamCleanupFallback_RetainsOnlyUnownedHandle()
     {
@@ -1585,6 +1654,7 @@ public sealed class BassAudioSessionTests
         GC.KeepAlive(owner);
     }
 
+    /// <summary>stream解放callbackから別threadが所有一覧を読めることを確認し、registry lock保持中のowner呼出しによるdeadlockを検出する。</summary>
     [TestMethod]
     public async Task StreamReleaseCallbackRunsOutsideTheOwnershipRegistryLock()
     {
@@ -1634,6 +1704,7 @@ public sealed class BassAudioSessionTests
         }
     }
 
+    /// <summary>同時開始をlifecycleで直列化し、一つだけがnative所有を取得して二重初期化しない。</summary>
     [TestMethod]
     public async Task ConcurrentInitialization_OnlyOneSessionAcquiresNativeOwnership()
     {

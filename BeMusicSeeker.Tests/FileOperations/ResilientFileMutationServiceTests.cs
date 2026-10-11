@@ -22,9 +22,8 @@ public sealed class ResilientFileMutationServiceTests
 
     private readonly ResilientFileMutationService resilientFileMutationService = new();
 
-    /// <summary>
-    /// ReadOnly ファイルでも直接削除できることを検証します。
-    /// </summary>
+    /// <summary>ReadOnlyの実ファイルを直接削除し、属性補正の欠落による回収失敗を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void DeleteFileDirect_RemovesReadOnlyFile()
     {
@@ -40,9 +39,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// ReadOnly を含むディレクトリツリーでも直接削除できることを検証します。
-    /// </summary>
+    /// <summary>子ファイル・子ディレクトリ・rootがReadOnlyの実ツリーを再帰削除し、対象だけの属性補正で子を残す誤りを検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void DeleteDirectoryDirect_RemovesReadOnlyTree()
     {
@@ -63,9 +61,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// シェル経由の永久削除でも ReadOnly ファイルを削除できることを検証します。
-    /// </summary>
+    /// <summary>ReadOnlyファイルをshell経由の永久削除で回収し、直接削除だけで成立する属性補正へ限定する誤りを検出する。</summary>
+    /// <remarks>Windows shellの実削除経路を使い、成功時にdialogを出さない条件で物理回収を確認する。</remarks>
     [TestMethod]
     public void DeleteFileShell_RemovesReadOnlyFile()
     {
@@ -81,9 +78,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 上書き先が ReadOnly でもファイル移動が成功することを検証します。
-    /// </summary>
+    /// <summary>ReadOnlyの既存宛先へ移動して新内容だけを残し、上書き失敗や移動元の残留を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void MoveFile_OverwritesReadOnlyDestination()
     {
@@ -103,9 +99,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 長パス上の ReadOnly 上書き先でもファイル移動が成功することを検証します。
-    /// </summary>
+    /// <summary>長パスのReadOnly宛先を新内容へ置換して移動元を消し、通常パスでは見えない属性補正・パス変換の退行を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void MoveFile_OverwritesLongReadOnlyDestination()
     {
@@ -127,9 +122,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 上書き移動で移動元を動かせない場合、既存の移動先を失わないことを検証します。
-    /// </summary>
+    /// <summary>実排他で移動元を動かせない上書きでは双方を保持し、先に既存宛先を削って内容を失う誤りを検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void MoveFile_OverwritePreservesDestination_WhenSourceCannotMove()
     {
@@ -151,9 +145,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 別ボリュームへのファイル移動はコピー後に移動元を削除し、上書き先を置き換えることを検証します。
-    /// </summary>
+    /// <summary>別volumeへの上書き移動で新内容をコピーして元を消し、renameだけの実装による移動失敗や旧内容残留を検出する。</summary>
+    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
     [TestMethod]
     public void MoveFile_CrossVolumeOverwriteCopiesAndDeletesSource()
     {
@@ -170,9 +163,8 @@ public sealed class ResilientFileMutationServiceTests
         Assert.AreEqual("source", ReadAllText(destinationFilePath));
     }
 
-    /// <summary>
-    /// 長パス上のディレクトリ上書き移動は既存の宛先を消さず、衝突ファイルだけを上書きしてマージすることを検証します。
-    /// </summary>
+    /// <summary>長パスの既存ディレクトリをマージ移動し、衝突は置換して宛先だけのファイルと子を保持する保証の退行を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void MoveDirectory_OverwritesLongDestinationByMerging()
     {
@@ -205,9 +197,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 別ボリュームの存在しない長パス宛先へディレクトリを移動できることを検証します。
-    /// </summary>
+    /// <summary>別volumeの未作成長パス宛先へroot・子の内容を移して元を消し、ディレクトリ作成やコピー後回収の漏れを検出する。</summary>
+    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
     [TestMethod]
     public void MoveDirectory_CrossVolumeCreatesLongDestinationAndDeletesSource()
     {
@@ -226,9 +217,8 @@ public sealed class ResilientFileMutationServiceTests
         Assert.AreEqual("nested", ReadAllText(Path.Combine(destinationDirectoryPath, "child", "nested.wav")));
     }
 
-    /// <summary>
-    /// 別ボリュームの既存宛先へディレクトリをマージ移動できることを検証します。
-    /// </summary>
+    /// <summary>別volumeの既存宛先をマージして衝突内容を置換し、双方だけのファイル・新しい子を保持して全体置換や子の脱落を検出する。</summary>
+    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
     [TestMethod]
     public void MoveDirectory_CrossVolumeOverwritesExistingDestinationByMerging()
     {
@@ -260,9 +250,8 @@ public sealed class ResilientFileMutationServiceTests
         Assert.AreEqual("new-child", ReadAllText(Path.Combine(destinationDirectoryPath, "new-child", "new.bms")));
     }
 
-    /// <summary>
-    /// 別ボリュームの既存宛先へ overwrite=false で移動すると失敗し、双方を保持することを検証します。
-    /// </summary>
+    /// <summary>別volumeの既存宛先で上書き禁止を守って双方の内容を保持し、失敗後の部分移動や誤上書きを検出する。</summary>
+    /// <remarks>実際に異なるvolumeを用いる。書込み可能な第二volumeがない既存Inconclusiveを維持し、同volumeの成功で代替しない。</remarks>
     [TestMethod]
     public void MoveDirectory_CrossVolumeOverwriteFalseExistingDestinationThrowsAndPreservesBothSides()
     {
@@ -283,9 +272,8 @@ public sealed class ResilientFileMutationServiceTests
         Assert.AreEqual("destination", ReadAllText(Path.Combine(destinationDirectoryPath, "destination.bms")));
     }
 
-    /// <summary>
-    /// ディレクトリコピーでコピー先をコピー元配下に置く自己再帰を禁止することを検証します。
-    /// </summary>
+    /// <summary>コピー先が元配下なら作成前に拒否して元を保持し、自己再帰による無限複製や部分出力を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void CopyDirectory_Throws_WhenDestinationIsInsideSource()
     {
@@ -304,9 +292,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// ディレクトリ移動で移動先を移動元配下に置く自己再帰を禁止することを検証します。
-    /// </summary>
+    /// <summary>移動先が元配下なら双方を保持して拒否し、親子を含む自己移動による内容破壊を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void MoveDirectory_Throws_WhenDestinationIsInsideSource()
     {
@@ -326,9 +313,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// ReadOnly ファイルでもタイムスタンプを更新できることを検証します。
-    /// </summary>
+    /// <summary>ReadOnlyファイルの指定更新日時をfilesystem分解能内で保存し、属性を理由に日時更新を省く誤りを検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void SetTimestamps_UpdatesReadOnlyFile()
     {
@@ -346,9 +332,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 長パス上の ReadOnly ディレクトリでもタイムスタンプを更新できることを検証します。
-    /// </summary>
+    /// <summary>長パスのReadOnlyディレクトリへ指定更新日時を保存し、ファイル専用処理や通常パスだけの日時更新への退行を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void SetTimestamps_UpdatesLongReadOnlyDirectory()
     {
@@ -366,9 +351,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// ロック中のファイル削除失敗は診断情報付きの FileMutationException に変換されることを検証します。
-    /// </summary>
+    /// <summary>排他で開かれた実ファイルの削除を再試行後の構造化失敗へ変換し、対象パス・試行事実・原因の欠落を検出する。</summary>
+    /// <remarks>固有ディレクトリの実属性・内容・排他を使い、I/Oの成功結果と回収を観測する。</remarks>
     [TestMethod]
     public void DeleteFileDirect_ThrowsStructuredException_WhenFileIsLocked()
     {
@@ -389,9 +373,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// durable DB receipt 前の失敗では compensation を一度だけ行い、source と旧 destination を保持することを検証します。
-    /// </summary>
+    /// <summary>DB確定portが失敗したとき実公開を一度だけ補償して元と旧宛先を保持し、未確定の新内容やstageを残す誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_PrecommitFailureCompensatesOnceAndPreservesPriorFilesystem()
     {
@@ -429,9 +412,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 予定する型と既存宛先の型が異なる場合、退避前に拒否して双方を保持することを検証します。
-    /// </summary>
+    /// <summary>ファイル予定先に実ディレクトリがある要求をI/O・DB確定前に拒否し、sentinelや元を破壊する誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RejectsFileDestinationWhenExistingDirectory()
     {
@@ -471,9 +453,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 予定するディレクトリと既存通常ファイルの逆向き衝突も、退避前に拒否することを検証します。
-    /// </summary>
+    /// <summary>ディレクトリ予定先に実ファイルがある要求を変更前に拒否し、逆向きの型衝突を見落として既存内容を破壊する誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RejectsDirectoryDestinationWhenExistingFile()
     {
@@ -522,9 +503,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 置換フラグ相当の backup path が実態と食い違っていても、型ガードを迂回できないことを検証します。
-    /// </summary>
+    /// <summary>計画上backupなしでも実宛先の型を再検査し、予定値だけで型guardを迂回して外部ディレクトリを消す誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RejectsTypeConflictWhenBackupFlagSaysDestinationIsAbsent()
     {
@@ -570,9 +550,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 計画後半に型衝突がある場合、前半の公開も開始前に拒否することを検証します。
-    /// </summary>
+    /// <summary>後半の宛先に型衝突がある計画は全変更・DB確定前に拒否し、先行対象だけを部分公開する誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RejectsWholePlanWhenLaterDestinationTypeConflicts()
     {
@@ -626,9 +605,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 全体検証後に外部で作られた異なる型の宛先も、退避直前に停止することを検証します。
-    /// </summary>
+    /// <summary>事前検査後に外部が作った異なる型の宛先を公開直前に検出し、一回補償とstage回収を行って外部sentinelを守る保証の退行を検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RechecksDestinationTypeBeforePromotion()
     {
@@ -671,9 +649,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 先行操作後の退避直前衝突では、既存の一回補償で先行操作を戻すことを検証します。
-    /// </summary>
+    /// <summary>先行公開後の後半宛先の外部型衝突で一回だけ補償し、先行公開を残したまま通常拒否で終了する誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RechecksLaterDestinationAndCompensatesEarlierPromotion()
     {
@@ -728,9 +705,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// 先行操作後の型衝突で補償にも失敗した場合、通常拒否へ格下げせず復旧事実を保持することを検証します。
-    /// </summary>
+    /// <summary>後半の型衝突と先行公開の補償失敗が重なると手動復旧の事実・パスを保持し、通常の拒否へ格下げして復旧対象を失う誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_RechecksLaterDestinationAndPreservesCompensationFailure()
     {
@@ -784,10 +760,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// durable DB commit 後の canonical finalizer は、同じ executor session 内で
-    /// source cleanup より前に一度だけ実行され、receipt には callback を保持しないことを検証します。
-    /// </summary>
+    /// <summary>DBのdurable確定後にfinalizerを元回収前へ一度だけ接続し、順序違反や補償の再実行、成功後の元残留を検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_DurableFinalizerRunsBeforeCleanup()
     {
@@ -827,6 +801,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
+    /// <summary>durable後のfinalizer失敗でも宛先確定と元回収を保持し、補償で確定内容を戻す誤りや失敗分類の消失を検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_DurableFinalizerFailureKeepsDurableOutcome()
     {
@@ -857,6 +833,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
+    /// <summary>finalizerと元回収の両方が失敗するとdurable状態・両原因・復旧パスを保持し、二次失敗で主因や未回収元を隠す誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_DurableFinalizerAndCleanupFailurePreserveBothFailures()
     {
@@ -891,6 +869,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
+    /// <summary>確定portがdurableと失敗を同時に返した場合にfinalization失敗として保持し、未確定失敗と誤認して補償する誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_DurableCommitResultFailureIsDurableFinalizationFailure()
     {
@@ -921,9 +901,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// durable receipt 後の source cleanup failure は authoritative destination を維持し、cleanup failure として返すことを検証します。
-    /// </summary>
+    /// <summary>durable後に元回収だけが失敗した場合は新宛先を保持して回収失敗付きの完了を返し、確定済み内容への補償を検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_CleanupFailureReturnsCompletedWithCleanupFailureWithoutCompensation()
     {
@@ -953,9 +932,8 @@ public sealed class ResilientFileMutationServiceTests
         });
     }
 
-    /// <summary>
-    /// compensation failure は ManualRecoveryRequired で停止し、後続 cleanup を行わないことを検証します。
-    /// </summary>
+    /// <summary>DB確定前の補償が失敗したとき手動復旧で停止して元・宛先・backupを保持し、後続回収で復旧用の内容を失う誤りを検出する。</summary>
+    /// <remarks>実filesystemのstage・公開・補償を観測する。DB確定portは結果を注入し、実DBのtransactionは上位保存caseが分担する。</remarks>
     [TestMethod]
     public void FileDbMutationExecutor_CompensationFailureReturnsManualRecoveryAndRetainsRecoveryPaths()
     {

@@ -14,6 +14,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryPendingLegacyMutationTests
 {
+    /// <summary>存在しない選択譜面を失敗として集計し、ファイルや親ディレクトリの削除へ進まず元パスと失敗型を返す。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void DeletePendingCharts_MissingSourceIsFailureWithoutFileMutation()
     {
@@ -52,6 +54,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         });
     }
 
+    /// <summary>譜面パスがディレクトリになっている入力を失敗にし、削除portを呼ばず元ディレクトリを残す。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void DeletePendingCharts_WrongKindSourceIsFailureWithoutMutation()
     {
@@ -89,6 +93,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         });
     }
 
+    /// <summary>実symlinkの選択譜面を拒否し、外部のリンク先を残してファイルや親ディレクトリの削除へ進まない。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void DeletePendingCharts_ReparseSourceIsFailureWithoutMutation()
     {
@@ -107,7 +113,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 || exception is UnauthorizedAccessException
                 || exception is PlatformNotSupportedException)
             {
-                Assert.Inconclusive("The test environment does not permit file symbolic links: " + exception.Message);
+                Assert.Inconclusive("実ファイルsymlinkを作成できない環境のため、この安全境界の実入力検証は未実施: " + exception.Message);
                 return;
             }
             ChartFile chartFile = ChartTestValues.Empty() with
@@ -140,7 +146,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         });
     }
 
-    /// <summary>Chart-only deletion preserves the failed row without escalating to its package.</summary>
+    /// <summary>譜面単位の削除が一件失敗しても成功した兄弟だけを除き、失敗譜面・パッケージ・保存行を残して親の削除へ昇格しない。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void DeletePendingCharts_ChartOnlyChildFailureKeepsFailedRowAndPackage()
     {
@@ -155,11 +162,11 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([failedFile, successfulFile]);
             package.path = packageDirectoryPath;
             var fileMutationService = new RecordingDeleteFileMutationService(failedFile.Path);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
-            }
+            });
             var library = new TestBmsLibrary(
                 songDbPath,
                 null,
@@ -185,17 +192,15 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.AreSame(package, library.ChartPackagesPending.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
             Assert.AreEqual(failedFile.Path, package.ChartEntries.Single().Chart.Path);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.install>().Count());
             Assert.AreEqual(package.path, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
         });
     }
 
-    /// <summary>
-    /// B2-01/04/05: the authorized unit is the whole directory package;
-    /// failure must not cause individual deletion or removal of its rows.
-    /// </summary>
+    /// <summary>パッケージ全体の削除は指定されたごみ箱方針と再帰正規化で行い、失敗したパッケージの譜面・リソース・保存行を保持する。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは完全削除、trueはごみ箱指定。どちらも失敗したパッケージの部分削除を禁止する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -230,12 +235,12 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             var fileMutationService = new RecordingDeleteFileMutationService(directoryFailurePath: failedDirectoryPath);
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 songDb.InsertOrReplace(failedPackage, typeof(LR2SongDBExtended.install));
                 songDb.InsertOrReplace(successfulPackage, typeof(LR2SongDBExtended.install));
-            }
+            });
             var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogService)
             {
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([failedPackage, successfulPackage])
@@ -266,15 +271,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 new[] { failedA.Path, failedB.Path },
                 failedPackage.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
             Assert.AreEqual(1, dialogService.Calls.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(failedDirectoryPath, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
         });
     }
 
-    /// <summary>
-    /// B2-02: discovery's recursive chart set determines the last selection;
-    /// unchecked whole-package deletion must still preserve resources.
-    /// </summary>
+    /// <summary>一部の譜面削除ではパッケージとリソースを残し、最後の譜面ではフォルダ全体削除の指定に応じてリソースの保持を分ける。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは最後の譜面も単体削除、trueは最後の選択時だけパッケージ全体を削除する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -299,11 +303,11 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             var fileMutationService = new RecordingDeleteFileMutationService();
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
-            }
+            });
             var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogService)
             {
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package])
@@ -317,7 +321,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryShellPaths.Count);
             Assert.AreSame(package, library.ChartPackagesPending.Single());
             Assert.AreEqual(nestedChartPath, package.ChartEntries.Single().Chart.Path);
-            using (var verifyPartialDb = new LR2SongDBExtended(songDbPath))
+            using (var verifyPartialDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(packageDirectoryPath, verifyPartialDb.Table<LR2SongDBExtended.install>().Single().path);
             }
@@ -339,15 +343,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             }
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, dialogService.Calls.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
         });
     }
 
-    /// <summary>
-    /// B2-03: selecting all independent single-file packages must not convert
-    /// them into a directory package or authorize parent cleanup.
-    /// </summary>
+    /// <summary>再帰探索の有無にかかわらず独立した単一譜面パッケージをすべて選択しても、親フォルダや未選択の説明ファイルを削除しない。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
+    // falseは直下探索、trueは再帰探索。探索方法によって親を削除する権限を広げない。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -373,14 +376,14 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             var fileMutationService = new RecordingDeleteFileMutationService();
             var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.install>();
                 foreach (ChartPackage package in packages)
                 {
                     songDb.InsertOrReplace(package, typeof(LR2SongDBExtended.install));
                 }
-            }
+            });
             var library = new TestBmsLibrary(songDbPath, null, null, fileMutationService, dialogService)
             {
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages)
@@ -397,11 +400,13 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             Assert.AreEqual(0, fileMutationService.DeleteDirectoryDirectPaths.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, dialogService.Calls.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.install>().Count());
         });
     }
 
+    /// <summary>拡張子変更の準備後に入力が消えた場合、失敗として集計して移動・重複削除へ進まず元のファイル不在を伝える。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void InvalidExtensionPlan_LateMissingSourceIsFailureWithoutMutation()
     {
@@ -440,6 +445,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
         });
     }
 
+    /// <summary>拡張子変更で実symlinkを拒否し、移動・重複削除を行わず外部のリンク先を保持する。</summary>
+    /// <remarks>実ファイルで物理変更と残存を観測する。ライブラリ経由のケースでは実SQLite保存行も確認し、ごみ箱そのものは局所portで代替する。</remarks>
     [TestMethod]
     public void InvalidExtensionPlan_ReparseSourceIsFailureWithoutMutation()
     {
@@ -456,7 +463,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 || exception is UnauthorizedAccessException
                 || exception is PlatformNotSupportedException)
             {
-                Assert.Inconclusive("The test environment does not permit file symbolic links: " + exception.Message);
+                Assert.Inconclusive("実ファイルsymlinkを作成できない環境のため、この安全境界の実入力検証は未実施: " + exception.Message);
                 return;
             }
             ChartFile sourceFile = ChartTestValues.Empty() with
@@ -528,7 +535,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
 
         private readonly string? directoryFailurePath;
 
-        /// <summary>Records mutations and optionally fails one file or directory before modifying it.</summary>
+        /// <summary>実変更を記録し、指定された一つのファイルまたはディレクトリを変更前に失敗させる。</summary>
         internal RecordingDeleteFileMutationService(string? failurePath = null, string? directoryFailurePath = null)
         {
             this.failurePath = failurePath;
@@ -543,10 +550,10 @@ public sealed class BmsLibraryPendingLegacyMutationTests
 
         internal List<string> DeleteDirectoryShellPaths { get; } = [];
 
-        /// <summary>Records the requested recycle policy without using the machine's recycle bin.</summary>
+        /// <summary>実機のごみ箱を使わず、要求された削除方針を記録する。</summary>
         internal List<RecycleOption> DeleteDirectoryRecycleOptions { get; } = [];
 
-        /// <summary>Records the correction scope passed to the directory operation.</summary>
+        /// <summary>ディレクトリ操作へ渡された属性正規化の範囲を記録する。</summary>
         internal List<ReadOnlyNormalizationScope> DeleteDirectoryNormalizationScopes { get; } = [];
 
         internal List<string> MoveFilePaths { get; } = [];

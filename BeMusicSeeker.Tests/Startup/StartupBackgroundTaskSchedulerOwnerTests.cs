@@ -15,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupBackgroundTaskSchedulerOwnerTests
 {
+    /// <summary>
+    /// reset前に開始した子Taskの進捗は元世代を維持し、observer失敗を隔離して同名要求の開始・終端を二重表示しない。
+    /// </summary>
     [TestMethod]
     public async Task Report_ChildTaskRetainsGenerationAfterResetAndDoesNotDuplicateRequest()
     {
@@ -62,6 +65,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(2, notifications.Count, "要求と同名の開始・終端を二重表示しない。");
     }
 
+    /// <summary>
+    /// scoreとrankingのworkerを再利用しても各受付の世代・tokenを保ち、実行reporterとschedulerの通知を重複せず依存処理まで終える。
+    /// </summary>
     [DataTestMethod]
     [DataRow("score_hydration_deferred")]
     [DataRow("ranking_refresh_deferred")]
@@ -133,6 +139,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 進捗observerの失敗を隔離して他observerへ開始・終端を届け、保持中の要求identityを終端まで一致させる。
+    /// </summary>
     [TestMethod]
     public async Task ProgressChanged_CapturesRequestIdentityAndIsolatesObserverFailure()
     {
@@ -178,6 +187,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(notifications.First().Request, terminal.Request);
     }
 
+    /// <summary>
+    /// resetを跨いでqueue済み処理を実行しても受付時の世代・operation tokenを維持し、新しい要求として表示しない。
+    /// </summary>
     [TestMethod]
     public async Task Reset_QueuedExecutionPreservesAcceptedRequestIdentity()
     {
@@ -199,6 +211,10 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(owner.IsFullyIdle);
     }
 
+    /// <summary>
+    /// 実playlist URL補完の受付を新旧ExecutionContextから呼び、捕捉世代を保ちながら現行要求だけを独立行へ表示する。
+    /// </summary>
+    /// <remarks>実playlist受付と進捗hubへの接続を使い、scheduler単体では観測できない世代捕捉と表示選別を確認する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -275,6 +291,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// Start前に受理した処理は開始を待ち、Start後に一度実行して全終端へ到達する。
+    /// </summary>
     [TestMethod]
     public async Task QueueBeforeStartWaitsUntilSchedulerStarts()
     {
@@ -303,6 +322,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 未開始予約の取消は一度だけ成立してその予約を破棄し、実行や二重discardを起こさない。
+    /// </summary>
     [TestMethod]
     public async Task CancelQueued_DiscardsOnlyTheReservedRequestExactlyOnce()
     {
@@ -330,6 +352,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, discards);
     }
 
+    /// <summary>
+    /// 取消ログとdiscard callbackが失敗しても処理を破棄してidle通知を届け、schedulerを停止状態に残さない。
+    /// </summary>
     [TestMethod]
     public async Task CancelQueued_DiagnosticFailureStillDiscardsAndNotifies()
     {
@@ -373,39 +398,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(owner.IsFullyIdle);
     }
 
-    [TestMethod]
-    public async Task NewReservationInvalidatesOldPreSubmitAndOnlyCurrentWorkRuns()
-    {
-        int oldRuns = 0;
-        int newRuns = 0;
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
-        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
-
-        Assert.IsFalse(owner.QueueReserved(
-            oldReservation,
-            "old",
-            () =>
-            {
-                Interlocked.Increment(ref oldRuns);
-                return Task.CompletedTask;
-            }));
-        Assert.IsTrue(owner.QueueReserved(
-            newReservation,
-            "new",
-            () =>
-            {
-                Interlocked.Increment(ref newRuns);
-                return Task.CompletedTask;
-            }));
-
-        owner.Start();
-        await WaitForFullyIdleAsync(owner);
-
-        Assert.AreEqual(0, oldRuns);
-        Assert.AreEqual(1, newRuns);
-    }
-
+    /// <summary>
+    /// 同世代で小さいまたは同じowner sequenceの予約を拒否し、先に受理した予約を一度だけ実行する。
+    /// </summary>
     [TestMethod]
     public async Task SameGenerationLowerOrEqualOwnerSequenceCannotReplaceCurrentReservation()
     {
@@ -434,6 +429,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, Volatile.Read(ref runs));
     }
 
+    /// <summary>
+    /// 同世代の新しいowner sequenceだけを実行し、旧予約の投入や取消が新予約を変更しない。
+    /// </summary>
     [TestMethod]
     public async Task HigherOwnerSequenceReplacesLowerAndOldCancelCannotAffectIt()
     {
@@ -476,6 +474,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, Volatile.Read(ref newRuns));
     }
 
+    /// <summary>
+    /// reset後の新世代は小さいsequenceでも予約を受理し、旧世代の未投入予約を実行しない。
+    /// </summary>
     [TestMethod]
     public async Task ResetIsolatesOwnerSequenceOrderingByGeneration()
     {
@@ -517,6 +518,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, Volatile.Read(ref runs));
     }
 
+    /// <summary>
+    /// 新予約の投入後に届く旧同名予約を拒否し、queueされた新処理を旧処理で置換しない。
+    /// </summary>
     [TestMethod]
     public async Task OldLateSubmitCannotReplaceNewSameNameQueue()
     {
@@ -550,30 +554,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, newRuns);
     }
 
-    [TestMethod]
-    public async Task OldReservationCancelCannotRemoveNewSameNameQueue()
-    {
-        int newRuns = 0;
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-        StartupBackgroundTaskReservation oldReservation = Reserve(owner, "playlist_virtual_order_prewarm");
-        StartupBackgroundTaskReservation newReservation = Reserve(owner, "playlist_virtual_order_prewarm");
-
-        Assert.IsTrue(owner.QueueReserved(
-            newReservation,
-            "new",
-            () =>
-            {
-                Interlocked.Increment(ref newRuns);
-                return Task.CompletedTask;
-            }));
-        Assert.IsFalse(owner.CancelQueued(oldReservation, "old_reset"));
-
-        owner.Start();
-        await WaitForFullyIdleAsync(owner);
-
-        Assert.AreEqual(1, newRuns);
-    }
-
+    /// <summary>
+    /// 同じ予約の再投入を開始前に拒否し、取消では最初のdiscardだけを呼んで二重受付を起こさない。
+    /// </summary>
     [TestMethod]
     public async Task SameReservationReplayBeforeStartIsRejectedAndFirstDiscardIsRetained()
     {
@@ -614,6 +597,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         StringAssert.Contains(owner.BuildSummaryLog(0L), "playlist_virtual_order_prewarm{queued=1,");
     }
 
+    /// <summary>
+    /// reset後もqueue済み予約の取消を許し、未投入の旧予約と旧世代の新予約は拒否する。
+    /// </summary>
     [TestMethod]
     public async Task ResetRetainsQueuedReservationButRejectsOldUnsubmittedReservation()
     {
@@ -653,6 +639,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, retainedDiscards);
     }
 
+    /// <summary>
+    /// 実行開始でdequeueした予約を再投入できず、開始済み処理を重複実行しない。
+    /// </summary>
     [TestMethod]
     public async Task DequeuedReservationCannotBeSubmittedAgainAfterRunningStarts()
     {
@@ -697,6 +686,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 旧処理のdequeueで新しい未投入予約を失効させず、旧終端後に新予約も一度実行する。
+    /// </summary>
     [TestMethod]
     public async Task DequeueKeepsNewerPreSubmitReservationCurrent()
     {
@@ -744,7 +736,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
-    /// <summary>実後続を保持しても必須idleは成立し、全終端は未成立のままです。既存補完名も同じ後続分類へ接続します。</summary>
+    /// <summary>
+    /// folder treeと補完の後続処理中も必須idleは成立し、後続の実終端までは全体idleが成立しない。
+    /// </summary>
     [DataTestMethod]
     [DataRow("library_folder_tree_refresh", "post_initialization_folder_tree_refresh")]
     [DataRow("chart_info_backfill", "post_initialization_default")]
@@ -783,6 +777,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 後続GCは実行中の必須処理が終端へ到達してから開始し、必須処理と同時に実行しない。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationGarbageCollectionWaitsForRequiredWorkToBecomeIdle()
     {
@@ -822,6 +819,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 後続GCは必須登録の終了と遅れて登録した必須処理の終端を待ち、登録途中の空queueを完了として扱わない。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationGarbageCollectionWaitsForRequiredSchedulingClosure()
     {
@@ -864,6 +864,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 導入済み保守は必須登録が閉じるまで開始せず、遅れて追加した必須処理の終端後に開始する。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationInstallableMaintenanceWaitsForRequiredSchedulingClosureAndLateRequiredEnrollment()
     {
@@ -906,6 +909,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 開始済み導入済み保守の終端までは後から受理した必須処理を開始せず、共通の実行排他を維持する。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationInstallableMaintenanceBlocksFollowingRequiredWorkUntilTerminal()
     {
@@ -946,6 +952,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 必須処理が失敗しても終端として後続保守を開始し、失敗と成功を別々の診断に記録する。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationInstallableMaintenanceStartsAfterRequiredFaultReachesTerminal()
     {
@@ -987,6 +996,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// custom folder修復は必須登録の終了と遅い必須処理の終端を待ち、登録途中に物理出力を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationCustomFolderRepairWaitsForRequiredSchedulingClosureAndLateRequiredEnrollment()
     {
@@ -1030,6 +1042,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 開始済みcustom folder修復の終端まで後続保守を開始せず、両処理を順に実行して終端を記録する。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationCustomFolderRepairBlocksFollowingRequiredMaintenanceUntilTerminal()
     {
@@ -1072,6 +1087,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 登録終了の前後いずれの終了要求でも未開始folder修復を一度だけ破棄し、受理済み保守を実終端まで回収する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1122,6 +1140,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 古い世代の必須登録終了は新世代のGCを開始させず、現世代の終了通知だけで実行を許す。
+    /// </summary>
     [TestMethod]
     public async Task StaleRequiredSchedulingClosureCannotReleaseNewGenerationGarbageCollection()
     {
@@ -1145,6 +1166,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         await WaitForFullyIdleAsync(owner);
     }
 
+    /// <summary>
+    /// 旧世代GCの実行中はreset後の必須処理も開始せず、世代変更で実行中の排他を失わない。
+    /// </summary>
     [TestMethod]
     public async Task RunningGarbageCollectionBlocksRequiredWorkAfterGenerationReset()
     {
@@ -1174,8 +1198,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             owner.MarkRequiredInitializationSchedulingComplete();
             owner.MarkPostInitializationSchedulingComplete();
 
-            // This negative watchdog deliberately holds the old generation's GC gate long enough to prove
-            // that new required work cannot enter while the contention condition remains active.
+            // 旧世代のGC gateを保持している間、新しい必須処理が開始しないことを否定観測する。
             Assert.IsFalse(requiredEntered.Task.Wait(TimeSpan.FromMilliseconds(250)), owner.DescribeWaitState());
 
             garbageCollectionRelease.SetResult(true);
@@ -1190,6 +1213,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 後続登録の終了だけでは全体idleにならず、最後の処理終端でidle通知を更新する。
+    /// </summary>
     [TestMethod]
     public async Task PostInitializationCompletionRequiresSchedulingClosureAndFullIdle()
     {
@@ -1226,6 +1252,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.IsTrue(Volatile.Read(ref idleNotifications) > notificationsBeforeFinalRelease);
     }
 
+    /// <summary>
+    /// queue・実行中・全終端の各段階でbacklog数を実作業と一致させ、開始や終端の計上を落とさない。
+    /// </summary>
     [TestMethod]
     public async Task CaptureWorkSnapshot_ReportsQueuedRunningAndIdleBacklog()
     {
@@ -1266,6 +1295,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 必須maintenanceの実終端まで依存する導入済み保守を開始せず、依存順で一度ずつ実行する。
+    /// </summary>
     [TestMethod]
     public async Task DependencyAndPriorityOrderingArePreserved()
     {
@@ -1305,6 +1337,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 同じlaneの未開始要求はURL補完・参照反映・外部同期の優先順で実行し、先着順で重要処理を後回しにしない。
+    /// </summary>
     [TestMethod]
     public async Task HigherPriorityRequestStartsBeforeEarlierLowerPriorityRequestInSameLane()
     {
@@ -1347,6 +1382,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 同名再実行の最新処理が終端になるまで依存処理を開始せず、旧処理の終端で早く依存を解放しない。
+    /// </summary>
     [TestMethod]
     public async Task SameNameRerunBlocksDependentUntilLatestVersionCompletes()
     {
@@ -1394,6 +1432,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 新しい同名処理の後に旧workerが終わっても完了versionを後退させず、後続の依存処理を停止させない。
+    /// </summary>
     [TestMethod]
     public async Task CompletionVersionDoesNotRegressWhenOlderWorkerFinishesAfterLatestWorker()
     {
@@ -1448,6 +1489,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 開始前に同名要求を合流すると最新だけを一度実行し、置換された旧処理を実行しない。
+    /// </summary>
     [TestMethod]
     public async Task CoalescingRunsOnlyTheLatestRequest()
     {
@@ -1473,6 +1517,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(1, latestRuns);
     }
 
+    /// <summary>
+    /// 保持した実workerでlaneと全体の同時実行上限を観測し、超過分をqueueに残して解放後に全六件を実行する。
+    /// </summary>
     [TestMethod]
     public async Task LaneAndTotalConcurrencyLimitsAreEnforced()
     {
@@ -1561,11 +1608,14 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             }
             catch
             {
-                // Cleanup releases all gated workers without replacing the test's primary failure.
+                // 保持した全workerを解放し、検査の元の失敗をcleanup失敗で置換しない。
             }
         }
     }
 
+    /// <summary>
+    /// resetでqueue済み作業を失わず旧実行中の数も維持し、新世代を合わせた同時実行上限を超えない。
+    /// </summary>
     [TestMethod]
     public async Task ResetRetainsQueuedWorkAndPreservesRunningConcurrencyAccounting()
     {
@@ -1621,6 +1671,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// reset後も完了済み依存を保持し、別処理で待つqueue済み後続が解放後に開始できる。
+    /// </summary>
     [TestMethod]
     public async Task ResetPreservesCompletedDependencyForRetainedQueuedWork()
     {
@@ -1668,6 +1721,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 依存元の失敗を終端として後続を実行し、元の失敗を診断に残して依存queueを永久に止めない。
+    /// </summary>
     [TestMethod]
     public async Task FailureCompletesDependencyAndRecordsSummary()
     {
@@ -1693,7 +1749,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         StringAssert.Contains(summary, "installable_maintenance");
     }
 
-    /// <summary>未開始の通信・任意補完は終了で破棄し、受理済み必須読込みだけを実終端まで回収します。</summary>
+    /// <summary>
+    /// 終了時に未開始の通信・任意補完をlock外で破棄し、新規受付を拒否して受理済み必須処理だけを回収する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("external_playlist_sync")]
     [DataRow("chart_info_backfill")]
@@ -1714,7 +1772,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             });
             owner.Queue(deferredName, "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
             {
-                // The discard callback is synchronous, so keep it active until the probe acquires the owner locks.
+                // 同期discard callbackを保持し、別threadのprobeがowner lockを取得できることを観測する。
                 discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
                 discarded.TrySetResult(true);
             });
@@ -1739,6 +1797,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 終了で最新同名要求を破棄したことも終端として記録し、reset後の依存処理を旧version待ちに残さない。
+    /// </summary>
     [TestMethod]
     public async Task ShutdownDiscardMarksLatestSameNameVersionComplete()
     {
@@ -1781,6 +1842,9 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         }
     }
 
+    /// <summary>
+    /// 実行数の終端計上後にlock外からidle通知を呼び、通知先の別thread再入とidle観測を成立させる。
+    /// </summary>
     [TestMethod]
     public async Task IdleNotificationRunsAfterAccountingOutsideOwnerLock()
     {

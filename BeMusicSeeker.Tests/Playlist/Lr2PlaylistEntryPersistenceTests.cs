@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2PlaylistEntryPersistenceTests
 {
+    /// <summary>playlist項目を実SQLiteへ保存し接続を閉じて再読込みしてもタイトルを保持し、列mappingや永続化の欠落を検出します。</summary>
     [TestMethod]
     public void PlaylistEntryTitleRoundTripsThroughSongDb()
     {

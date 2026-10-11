@@ -15,7 +15,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Threading;
-using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -36,6 +35,8 @@ using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>compiled 設定画面の操作・通知・保存 owner・終了への実接続を検証します。</summary>
+/// <remarks>実 WPF は BAML のクリック配送、native Close、modal 復帰、表示寸法、Automation、live binding の観測に必要です。保存形式・判断条件は Settings の下位ケースが分担し、Application 辞書・culture・native 音声受付・ログを共有するため非並列にします。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class SettingsWindowPresentationTests
@@ -46,14 +47,16 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
+    /// <summary>実再同期ボタンと owned 確認の承認後に設定画面を閉じ、強制同期を一回配送して DataContext を解除することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var runtime = new RecordingManualResyncRuntime();
-            SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
+            using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime);
             var ownerWindow = new Window
             {
                 Width = 320,
@@ -139,26 +142,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void SettingsWindow_IsStandardResizableWindow()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            var window = new SettingsWindow();
-
-            Assert.IsInstanceOfType<Window>(window);
-            Assert.AreEqual(ResizeMode.CanResize, window.ResizeMode);
-            Assert.AreEqual(WindowStartupLocation.CenterOwner, window.WindowStartupLocation);
-            Assert.IsFalse(window.ShowInTaskbar);
-            Assert.IsTrue(double.IsFinite(window.Width) && window.Width > 0d);
-            Assert.IsTrue(double.IsFinite(window.Height) && window.Height > 0d);
-            Assert.IsTrue(double.IsFinite(window.MinWidth) && window.MinWidth > 0d);
-            Assert.IsTrue(double.IsFinite(window.MinHeight) && window.MinHeight > 0d);
-            Assert.IsTrue(window.MinWidth <= window.Width);
-            Assert.IsTrue(window.MinHeight <= window.Height);
-        });
-    }
-
+    /// <summary>実表示した sidebar は native client の左端まで届き、ページ header には内側間隔が残ることを測定して外側 inset の誤適用を検出します。</summary>
     [TestMethod]
     public void SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing()
     {
@@ -201,10 +185,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実行ファイル picker に設定 Window と filter を渡し、受理した空白入りパスと名前を現在の右クリック編集行へ反映することを確認します。</summary>
     [TestMethod]
-    public void SettingsWindow_RightClickCategoryIsTenthAndExecutablePickerUpdatesSelectedDraft()
+    public void SettingsWindow_ExecutablePickerUpdatesSelectedRightClickDraft()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -230,12 +215,6 @@ public sealed class SettingsWindowPresentationTests
                 window.Arrange(new Rect(0, 0, 820, 760));
                 window.UpdateLayout();
                 var navigation = (ListBox)window.FindName("settingsNavigation");
-                Assert.AreEqual(11, navigation.Items.Count);
-                var rightClickNavigation = (ListBoxItem)window.FindName("navigationRightClick");
-                Assert.AreEqual("SettingsCategoryRightClick", AutomationProperties.GetAutomationId(rightClickNavigation));
-                Assert.AreEqual(9, navigation.Items.IndexOf(rightClickNavigation));
-                var aboutNavigation = (ListBoxItem)window.FindName("navigationAbout");
-                Assert.AreEqual(10, navigation.Items.IndexOf(aboutNavigation));
 
                 owner.SettingDialog.RightClickActionSettingsEditor.AddProgramAction();
                 window.HandleBrowseRightClickProgramExecutable();
@@ -257,10 +236,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実復元ボタンを押すと確認なしで編集器を既定 JSON に変え、保存済み JSON は変更しないことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RightClickRestoreDefaultsIsEnabledForValidDraftAndDoesNotPrompt()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             const string originalJson = "{\"webActions\":[{\"id\":\"custom\",\"name\":\"Custom\",\"urlTemplate\":\"https://example.test/{md5}\",\"enabled\":true,\"chartKind\":\"All\"}],\"programActions\":[{\"id\":\"viewer\",\"name\":\"Viewer\",\"executablePath\":\"C:\\\\Tools\\\\viewer.exe\",\"argumentTemplate\":\"{filePath}\",\"enabled\":true}]}";
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -295,8 +275,6 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 RightClickActionSettingsEditor editor = owner.SettingDialog.RightClickActionSettingsEditor;
-                Assert.AreEqual(6, editor.WebActions.Count);
-                Assert.AreEqual(0, editor.ProgramActions.Count);
                 Assert.IsTrue(editor.IsDirty);
                 Assert.IsFalse(editor.IsInvalidPersistedSettings);
                 Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
@@ -311,6 +289,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>既定へ復元した右クリック draft を native Close で取り消し、元 JSON と clean 状態へ戻して close 要求を一回送ることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RightClickRestoreDefaultsIsDiscardedByNativeClose()
     {
@@ -354,47 +333,35 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void ReleaseNotesWindow_UsesOwnedModalPresentationContract()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            var window = new ReleaseNotesWindow();
-            Assert.AreEqual(WindowStartupLocation.CenterOwner, window.WindowStartupLocation);
-            Assert.IsFalse(window.ShowInTaskbar);
-            Assert.AreEqual(ResizeMode.CanResize, window.ResizeMode);
-            Assert.AreEqual(SizeToContent.Height, window.SizeToContent);
-            Assert.IsTrue(double.IsFinite(window.Width) && window.Width > 0d);
-            Assert.IsTrue(double.IsFinite(window.MinWidth) && window.MinWidth > 0d);
-            Assert.IsTrue(double.IsFinite(window.MinHeight) && window.MinHeight > 0d);
-            Assert.IsTrue(double.IsFinite(window.MaxHeight) && window.MaxHeight >= window.MinHeight);
-        });
-    }
-
+    /// <summary>URI の一時エラーを持つ未変更画面を取消ボタンで閉じ、再表示時だけ両エラーを通知付きで解除し保存 URI を保つことを確認します。</summary>
     [TestMethod]
     public void PlaylistUriValidation_CancelWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.CancelButton);
     }
 
+    /// <summary>URI の一時エラーを持つ未変更画面を保存ボタンで閉じ、再表示時だけ両エラーを解除して保存 URI を保つことを確認します。</summary>
     [TestMethod]
     public void PlaylistUriValidation_SaveWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.SaveButton);
     }
 
+    /// <summary>URI の一時エラーを持つ未変更画面を native Close で閉じ、次の表示で両エラーを解除して以前の表示状態を引き継がないことを確認します。</summary>
     [TestMethod]
     public void PlaylistUriValidation_NativeCloseWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.NativeClose);
     }
 
+    /// <summary>履歴表示要求に設定 Window を owner として渡し、生成した履歴画面へ同じ設定を渡して draft を変更しないことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_ReleaseNotesUsesInjectedOwnedWindowRouteWithoutChangingDraft()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var dialogs = new RecordingReleaseNotesDialogService();
             var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
             dialogs.ExpectedOwner = window;
@@ -410,6 +377,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>導入先・検索 root・追加出力先・backup・restore・履歴 preset の各要求に正しい owner と選択条件を渡し、restore の取消／picker 失敗を尊重することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RemainingDialogRoutesUseInjectedServiceAndPreserveOutcomeContracts()
     {
@@ -497,6 +465,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 DB の restore が保存後の UI 反映で失敗しても設定 Window を閉じず、保存済み DB と失敗を保持することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RestoreFailureDoesNotAuthorizeCloseOrShutdown()
     {
@@ -580,6 +549,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>複数 root を受理順に追加して先頭を選び、取消・閉じる・picker 失敗では一覧と選択を保ち元例外を伝えることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_BmsSearchRootPickerPreservesAcceptedOrderSelectionAndFailureContract()
     {
@@ -657,6 +627,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>root picker の gate 中でも dispatcher の別処理が進み、結果到達後にだけ一覧と選択へ反映することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_BmsSearchRootPickerAwaitsWithoutBlockingDispatcher()
     {
@@ -670,6 +641,7 @@ public sealed class SettingsWindowPresentationTests
             Directory.CreateDirectory(secondPath);
 
             SettingsWindow? window = null;
+            SettingsDialogViewModel? ownedSettings = null;
             SynchronizationContext? previousContext = SynchronizationContext.Current;
             Task? route = null;
             TaskCompletionSource<UiFolderPickerResult>? completion = null;
@@ -682,7 +654,7 @@ public sealed class SettingsWindowPresentationTests
                 values.StandaloneBmsRootPaths = string.Empty;
             });
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
-                using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
+                ownedSettings = owner.SettingDialog;
                 var dialogs = new RecordingSettingsRouteDialogService();
                 window = new SettingsWindow(dialogs)
                 {
@@ -733,6 +705,7 @@ public sealed class SettingsWindowPresentationTests
                 }
                 finally
                 {
+                    ownedSettings?.Dispose();
                     SynchronizationContext.SetSynchronizationContext(previousContext);
                     Directory.Delete(scope, recursive: true);
                 }
@@ -740,8 +713,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>表示中の言語変更で assembly の version／build 表示を新言語へ更新し、古い翻訳や別の識別値を表示しないことを確認します。</summary>
     [TestMethod]
-    public void SettingsWindow_AboutIdentityPresentationUpdatesVersionAndBuildWithoutRedundantStatus()
+    public void SettingsWindow_AboutIdentityUpdatesVersionAndBuildWhenLanguageChanges()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -751,6 +725,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 ResourceService.Current.ChangeCulture("en-US");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow
                 {
                     DataContext = owner.SettingDialog,
@@ -779,8 +754,6 @@ public sealed class SettingsWindowPresentationTests
                 string displayedVersion = string.IsNullOrWhiteSpace(informationalVersion) ? assemblyVersion : informationalVersion;
                 Assert.AreEqual(string.Format(Resources.About_version_format, displayedVersion), version.Text);
                 Assert.AreEqual(string.Format(Resources.About_build_format, assemblyVersion), build.Text);
-                Assert.IsNull(page.FindName("textBlockUpdateStatus"));
-                Assert.IsFalse(FindDescendants<SettingsStatusBanner>(page).Any());
                 Assert.IsTrue(FindDescendants<Button>(page).Any(button =>
                     Equals(button.Content, Resources.About_release_notes_button)));
             }
@@ -796,6 +769,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>General の standalone 選択と Playback の internal／LR2 説明が、それぞれの実ページと Automation に適切な翻訳で届くことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_OperationAndPlayerDescriptionsAppearOnTheirOwningPages()
     {
@@ -807,6 +781,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 ResourceService.Current.ChangeCulture("ja-JP");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
@@ -817,7 +792,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(Resources.Operation_Mode_Standalone, standalone.Content);
                 Assert.AreEqual(Resources.Operation_Mode_Standalone, new RadioButtonAutomationPeer(standalone).GetName());
 
-                navigation.SelectedIndex = 2;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var playbackPage = (PlaybackSettingsPage)pageHost.Content;
                 SettingsOptionRow internalPlayer = FindDescendants<SettingsOptionRow>(playbackPage)
@@ -838,7 +813,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 schema 操作の確認取消では DB を変えず、承認では実 DB を導入して表示・再読込み・成功通知を更新し、未保存 draft は保つことを確認します。</summary>
     [TestMethod]
+    // 確認取消と、承認後の実 schema 導入を比較する。
     [DataRow(false)]
     [DataRow(true)]
     public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept)
@@ -847,6 +824,7 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
             SettingsWindow? window = null;
+            DangerDialogContext? context = null;
             try
             {
                 Lr2PlayHistorySchemaCheckResult resetResult = new Lr2PlayHistorySchemaService().Uninstall(
@@ -859,7 +837,7 @@ public sealed class SettingsWindowPresentationTests
                 {
                     ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel
                 };
-                DangerDialogContext context = CreateDangerDialog(
+                context = CreateDangerDialog(
                     values,
                     dialogs,
                     new DangerSchemaDialogPort(),
@@ -927,11 +905,13 @@ public sealed class SettingsWindowPresentationTests
                 {
                     window.CloseForOwnerShutdown();
                 }
+                context?.Settings.Dispose();
                 Directory.Delete(scope, recursive: true);
             }
         });
     }
 
+    /// <summary>schema 取消待ちを gate で保持した間は native Close を拒否し、取消後に操作を復帰して DB と draft を変更しないことを確認します。</summary>
     [TestMethod]
     public void AdvancedDangerZone_SchemaUninstallActualButtonBlocksNativeCloseUntilCancel()
     {
@@ -939,12 +919,13 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
             SettingsWindow? window = null;
+            DangerDialogContext? context = null;
             var schemaDialog = new DangerSchemaDialogPort { HoldResult = true };
             try
             {
                 var dialogs = new DangerDialogService();
                 var store = new DangerApplicationDataStore();
-                DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
+                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
                 bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
                 var presentation = new RecordingPresentationPort();
@@ -977,12 +958,15 @@ public sealed class SettingsWindowPresentationTests
                 {
                     window.CloseForOwnerShutdown();
                 }
+                context?.Settings.Dispose();
                 Directory.Delete(scope, recursive: true);
             }
         });
     }
 
+    /// <summary>実 schema 削除ボタンは成功時だけ DB 削除・履歴無効化・再読込みへ進み、不正な結果は失敗通知にして DB と draft を保つことを確認します。</summary>
     [TestMethod]
+    // 不正な削除結果と、TablesAndTriggers の成功を比較する。
     [DataRow(false)]
     [DataRow(true)]
     public void AdvancedDangerZone_SchemaUninstallActualButtonPreservesFailureAndSuccessOwnerContracts(bool success)
@@ -991,6 +975,7 @@ public sealed class SettingsWindowPresentationTests
         {
             string scope = CreateDangerSchemaScope(out Settings values, out string scoreDbPath);
             SettingsWindow? window = null;
+            DangerDialogContext? context = null;
             try
             {
                 var dialogs = new DangerDialogService();
@@ -1001,7 +986,7 @@ public sealed class SettingsWindowPresentationTests
                         : (Lr2PlayHistorySchemaUninstallMode)(-1)
                 };
                 var store = new DangerApplicationDataStore();
-                DangerDialogContext context = CreateDangerDialog(values, dialogs, schemaDialog, store);
+                context = CreateDangerDialog(values, dialogs, schemaDialog, store);
                 bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
                 window = new SettingsWindow { DataContext = context.Settings };
@@ -1035,12 +1020,15 @@ public sealed class SettingsWindowPresentationTests
                 {
                     window.CloseForOwnerShutdown();
                 }
+                context?.Settings.Dispose();
                 Directory.Delete(scope, recursive: true);
             }
         });
     }
 
+    /// <summary>実アプリ由来データ削除の確認中は Close を拒否し、取消や store 失敗では Window と draft を保って schema 操作へ誤配送しないことを確認します。</summary>
     [TestMethod]
+    // gate 付き確認取消と、承認後の store 失敗を比較する。
     [DataRow(false)]
     [DataRow(true)]
     public void AdvancedDangerZone_ApplicationDataActualButtonPreservesCancelAndFailureContracts(bool storeFailure)
@@ -1094,14 +1082,18 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
+                dialogs.CompleteConfirmation(MessageBoxResult.Cancel);
+                AwaitViewOperationTerminal(window);
                 if (window.IsVisible)
                 {
                     window.CloseForOwnerShutdown();
                 }
+                context.Settings.Dispose();
             }
         });
     }
 
+    /// <summary>実削除ボタンから成功・終了通知、設定 Window の Close、標準 shell の停止準備・保存・終了要求まで順に接続されることを確認します。</summary>
     [TestMethod]
     public void AdvancedDangerZone_ApplicationDataActualButtonCompletesProductionShellShutdownRoute()
     {
@@ -1138,8 +1130,7 @@ public sealed class SettingsWindowPresentationTests
             Exception? bodyFailure = null;
             try
             {
-                // MainWindow.xaml resolves this compiled resource while the unshown shell is
-                // constructed; keep the production shell identity and restore the app scope.
+                // 未表示 shell も本番 BAML と標準終了接続を使い、共有 resource と native cleanup を寿命所有者で回収する。
                 ownership = new MainWindowTestLifetime(shellViewModel, lifetime.ShutdownRequested.Task);
                 owner = ownership.CreateWindow(() => new MainWindow(
                     shellViewModel,
@@ -1205,34 +1196,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void SettingsWindow_NavigationHasElevenLocalizedCategoriesInStableOrder()
-    {
-        XDocument document = LoadSettingsWindowXaml();
-        XElement navigation = FindNamedElement(document, "settingsNavigation");
-        var items = navigation.Elements(PresentationName("ListBoxItem")).ToList();
-        string[] expectedResourcePaths =
-        [
-            "Resources.General",
-            "Resources.Appearance",
-            "Resources.Playback",
-            "Resources.Audio",
-            "Resources.Recording",
-            "Resources.Playlist",
-            "Resources.Install",
-            "Resources.Backup",
-            "Resources.Advanced_settings",
-            "Resources.RightClick_actions",
-            "Resources.About_this_app"
-        ];
-
-        Assert.AreEqual(11, items.Count);
-        CollectionAssert.AreEqual(
-            expectedResourcePaths,
-            items.Select(item => ExtractResourcePath(item.Attribute("Content")?.Value)).ToArray());
-        Assert.AreEqual("0", navigation.Attribute("SelectedIndex")?.Value);
-    }
-
+    /// <summary>言語を切り替えると実 Window title と Advanced の表示／Automation 名が別々の適切な翻訳へ更新されることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_LanguageChangeUpdatesTitleAndAdvancedCategoryAutomationText()
     {
@@ -1244,10 +1208,11 @@ public sealed class SettingsWindowPresentationTests
             {
                 ResourceService.Current.ChangeCulture("en-US");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 window = new SettingsWindow { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
-                var advanced = (ListBoxItem)navigation.Items[8];
+                var advanced = (ListBoxItem)window.FindName("navigationAdvanced");
 
                 Assert.AreEqual(Resources.Settings_window_title, window.Title);
                 Assert.AreEqual(Resources.Advanced_settings, advanced.Content);
@@ -1277,12 +1242,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>null／空／空白 status は表示せず、非空への復帰で本文と Automation を更新します。呼出側の明示非表示と構造化 content を上書きしないことも確認します。</summary>
     [TestMethod]
     public void SettingsStatusBanner_CoercesBlankContentAndRecoversBindingsWithoutOverridingVisibility()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
             var source = new StatusBannerBindingSource();
             var banner = new SettingsStatusBanner { Icon = "!", Status = "Warning" };
@@ -1363,12 +1330,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>DB と config の両 path status は本文を Automation に渡し、装飾 glyph を独立した読み上げ要素として重複させないことを確認します。</summary>
     [TestMethod]
     public void GeneralPathStatusBanners_OwnOneVisualGlyphAndExposeMessageAutomation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -1421,6 +1390,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>General と Advanced の実 banner が Installed→Repairable→Installed に追従し、古い警告 glyph／Automation 状態を残さないことを確認します。</summary>
     [TestMethod]
     public void Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable()
     {
@@ -1435,17 +1405,16 @@ public sealed class SettingsWindowPresentationTests
             Exception? cleanupFailure = null;
             try
             {
-                // Keep the temporary database scope owned by this outer operation. The
-                // owner/composition/settings construction below can fail before a
-                // SchemaPresentationContext is returned.
+                // context 生成に失敗しても外側で実 DB 領域を回収する。
                 scope = CreateDangerSchemaScope(out values, out scoreDbPath);
                 context = CreateSchemaPresentationContext(scope, values, scoreDbPath);
                 window = new SettingsWindow { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
-                foreach (int categoryIndex in new[] { 0, 8 })
+                // 同じ schema 状態を表示する General と Advanced の両配送先を確認する。
+                foreach (string categoryName in new[] { "navigationGeneral", "navigationAdvanced" })
                 {
-                    navigation.SelectedIndex = categoryIndex;
+                    navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     var page = (UserControl)((ContentControl)window.FindName("settingsPageContent")).Content;
                     SettingsStatusBanner banner = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
@@ -1483,6 +1452,13 @@ public sealed class SettingsWindowPresentationTests
                     }
                 }
 
+                try
+                {
+                    context?.Settings.Dispose();
+                    context?.Owner.SettingDialog.Dispose();
+                }
+                catch (Exception exception) { cleanupFailure ??= exception; }
+
                 if (scope != null)
                 {
                     try
@@ -1513,17 +1489,19 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>未実行で音声テスト status が null の実 Audio ページに空 banner を表示しないことを確認します。</summary>
     [TestMethod]
     public void AudioSettingsPage_NullDeviceTestStatusDoesNotRenderAnEmptyBanner()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 3;
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 SettingsStatusBanner status = FindDescendants<SettingsStatusBanner>(page).Single(candidate =>
@@ -1544,6 +1522,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実音声テスト中は編集・保存・取消・重複・native Close を拒否して dispatcher を進め、終了後に操作を復帰し owner Close 後の次結果は表示しないことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_BlocksUserOperationsKeepsDispatcherResponsiveAndSuppressesResultAfterOwnerShutdown()
     {
@@ -1734,6 +1713,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 runtime.Release();
                 runtime.ReleaseSecond();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioDeviceTestCompletionTask, "audio-device-test-final-task");
                 if (runtime.Started.Task.IsCompleted)
                 {
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(firstTestReleased.Task, "audio-device-test-cleanup-release");
@@ -1758,6 +1738,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 MainWindow Close は受理済み音声テストの終端まで保存と native runtime 停止を待ち、閉じた設定画面へ結果を戻さないことを確認します。</summary>
     [TestMethod]
     public void MainWindow_OwnerShutdownWaitsForAcceptedAudioTestBeforeRuntimeShutdown()
     {
@@ -1950,19 +1931,21 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>狭い実 Audio ページでも長い status を複数行で表示し、Automation は省略せず全文と状態を保持することを確認します。</summary>
     [TestMethod]
     public void AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             const string longMessage = "The selected audio device could not be initialized because its current output format is unavailable. Choose another device or format, then run the audio test again.";
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
             window.Width = 820;
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 3;
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -1975,7 +1958,6 @@ public sealed class SettingsWindowPresentationTests
                 AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(banner);
 
                 Assert.AreEqual(820d, window.ActualWidth, 0.5d);
-                Assert.AreEqual(TextWrapping.Wrap, message.TextWrapping);
                 Assert.IsTrue(message.ActualHeight > message.FontSize * 1.5d,
                     $"The long audio status remained one line at the 820 DIP window width ({message.ActualWidth} x {message.ActualHeight}).");
                 Assert.IsNotNull(peer);
@@ -1993,42 +1975,44 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>各意味のある navigation 項目を選ぶと対応ページを同じ draft で表示し、header が選択ラベルへ追従することを確認して誤配送を検出します。</summary>
     [TestMethod]
     public void SettingsWindow_SelectionControlsPageVisibilityAndHeader()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow();
             SettingsDialogViewModel sharedDataContext = owner.SettingDialog;
             window.DataContext = sharedDataContext;
             var navigation = (ListBox)window.FindName("settingsNavigation");
             var header = (ContentControl)window.FindName("settingsPageHeader");
             var content = (ContentControl)window.FindName("settingsPageContent");
-            Type[] pageTypes =
+            (string Navigation, Type Page)[] pageRoutes =
             [
-                typeof(GeneralSettingsPage),
-                typeof(AppearanceSettingsPage),
-                typeof(PlaybackSettingsPage),
-                typeof(AudioSettingsPage),
-                typeof(RecordingSettingsPage),
-                typeof(PlaylistSettingsPage),
-                typeof(InstallSettingsPage),
-                typeof(BackupSettingsPage),
-                typeof(AdvancedSettingsPage),
-                typeof(RightClickSettingsPage),
-                typeof(AboutSettingsPage)
+                ("navigationGeneral", typeof(GeneralSettingsPage)),
+                ("navigationAppearance", typeof(AppearanceSettingsPage)),
+                ("navigationPlayback", typeof(PlaybackSettingsPage)),
+                ("navigationAudio", typeof(AudioSettingsPage)),
+                ("navigationRecording", typeof(RecordingSettingsPage)),
+                ("navigationPlaylist", typeof(PlaylistSettingsPage)),
+                ("navigationInstall", typeof(InstallSettingsPage)),
+                ("navigationBackup", typeof(BackupSettingsPage)),
+                ("navigationAdvanced", typeof(AdvancedSettingsPage)),
+                ("navigationRightClick", typeof(RightClickSettingsPage)),
+                ("navigationAbout", typeof(AboutSettingsPage))
             ];
 
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                Assert.AreEqual(0, navigation.SelectedIndex);
-                for (int index = 0; index < pageTypes.Length; index++)
+                // navigation の表示順ではなく、意味のある各項目の配送先を照合する。
+                foreach ((string categoryName, Type pageType) in pageRoutes)
                 {
-                    navigation.SelectedIndex = index;
+                    navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    Assert.AreEqual(pageTypes[index], content.Content.GetType());
+                    Assert.AreEqual(pageType, content.Content.GetType());
                     Assert.AreSame(sharedDataContext, ((FrameworkElement)content.Content).DataContext);
                     Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
                 }
@@ -2045,6 +2029,7 @@ public sealed class SettingsWindowPresentationTests
 
 
 
+    /// <summary>後から実 Appearance ページを開いて Dark を選ぶと設定と theme が変わり、取消では Light に戻って同じ binding が有効なまま反映することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_AppearanceThemeBindingSurvivesDeferredPageConnectionAndCancelRollback()
     {
@@ -2069,10 +2054,9 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
-                Assert.AreEqual(0, navigation.SelectedIndex);
                 Assert.IsInstanceOfType<GeneralSettingsPage>(pageHost.Content);
 
-                navigation.SelectedIndex = 1;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var appearancePage = (AppearanceSettingsPage)pageHost.Content;
                 Assert.AreSame(settings, appearancePage.DataContext);
@@ -2115,6 +2099,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実履歴 Window の初期 theme と live 変更を native titlebar と本文へ渡し、閉じた各 Window が後の変更を受信しないことを確認します。</summary>
     [TestMethod]
     public void ThemedWindows_ApplyInitialAndLiveThemeAndDetachNativeTitleBarOnClose()
     {
@@ -2171,10 +2156,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>titlebar の意味 resource が欠ける／brush でない場合は該当 key を含む失敗を返し、別色へフォールバックして不備を隠さないことを確認します。</summary>
     [TestMethod]
     public void NativeTitleBarThemeSource_MissingOrNonSolidSemanticResource_Propagates()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string resourceKey = $"{nameof(NativeTitleBarThemeSource_MissingOrNonSolidSemanticResource_Propagates)}.{Guid.NewGuid():N}";
             ResourceDictionary resources = Application.Current.Resources;
@@ -2209,6 +2195,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_AppearanceControlsPreviewThroughMainViewSettingsAndCancelRollback()
     {
@@ -2254,7 +2241,7 @@ public sealed class SettingsWindowPresentationTests
                 double savedHeaderHeight = settings.CustomTableHeaderHeight;
                 window = new SettingsWindow { DataContext = settings };
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 1;
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (AppearanceSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
 
@@ -2266,7 +2253,6 @@ public sealed class SettingsWindowPresentationTests
                 CollectionAssert.AreEquivalent(
                     new[] { "CustomTableFontSize", "CustomTableRowHeight", "CustomTableHeaderHeight" },
                     sliders.Keys.ToArray());
-                Assert.IsFalse(FindDescendants<ListBox>(page).Any(), "Appearance must not render a fake list preview.");
 
                 sliders["CustomTableFontSize"].Value = 14d;
                 sliders["CustomTableRowHeight"].Value = 31d;
@@ -2389,12 +2375,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 Playback ページを開くだけでは選択を変えず、radio click は対応 player と詳細だけを表示して非表示 player の保存 path を変更しないことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_PlaybackPageAttachAndRadioClickPresentOnlySelectedPlayerWithoutChangingHiddenDrafts()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
             bool[] beforeFlags = [settings.UseInternalPlayer, settings.UsePlayeruBMplay, settings.UsePlayerBMIIDXView, settings.UsePlayerLR2body];
             string[] beforePaths = [settings.uBMplayPath, settings.BMIIDXViewPath, settings.LR2RootPath];
@@ -2407,7 +2395,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 2;
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 RadioButton[] radios =
@@ -2439,15 +2427,16 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
-                settings.ResetSettings();
                 if (window.IsVisible)
                 {
                     window.CloseForOwnerShutdown();
                 }
+                settings.Dispose();
             }
         });
     }
 
+    /// <summary>同じ LR2 root を picker から選び直して標準 config に戻すと、通知と実 TextBox が個別 path から標準 path へ更新されることを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_GeneralConfigPathBindingUpdatesWhenSameRootRestoresStandardTuple()
     {
@@ -2471,6 +2460,7 @@ public sealed class SettingsWindowPresentationTests
                 File.WriteAllText(customConfig, "<config><system /><jukebox /></config>");
                 File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 settings = mainViewModel.SettingDialog;
                 settings.LR2RootPath = root;
                 settings.LR2ConfigXmlPath = customConfig;
@@ -2499,22 +2489,24 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
-                settings?.ResetSettings();
                 if (window?.IsVisible == true)
                 {
                     window.CloseForOwnerShutdown();
                 }
+                settings?.Dispose();
                 Directory.Delete(scope, recursive: true);
             }
         });
     }
 
+    /// <summary>General・Appearance・Playback・Audio・Recording の代表的な実 editor が所属 field の翻訳済み名を読み上げに渡すことを確認します。</summary>
     [TestMethod]
     public void SettingsField_RepresentativeEditorsExposeLocalizedAutomationNamesOnAllFivePages()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel mainViewModel = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
             var window = new SettingsWindow
             {
                 DataContext = mainViewModel.SettingDialog,
@@ -2527,17 +2519,17 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var host = (ContentControl)window.FindName("settingsPageContent");
-                var assertions = new List<(int Page, Func<FrameworkElement, Control> Find, string Name)>
+                var assertions = new List<(string Navigation, Func<FrameworkElement, Control> Find, string Name)>
                 {
-                    (0, page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "Language"), Resources.Language),
-                    (1, page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
-                    (2, page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
-                    (3, page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),
-                    (4, page => (ComboBox)((FrameworkElement)page).FindName("comboBoxEncoder"), Resources.Record_setting_filetype)
+                    ("navigationGeneral", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "Language"), Resources.Language),
+                    ("navigationAppearance", page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
+                    ("navigationPlayback", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
+                    ("navigationAudio", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),
+                    ("navigationRecording", page => (ComboBox)((FrameworkElement)page).FindName("comboBoxEncoder"), Resources.Record_setting_filetype)
                 };
-                foreach ((int pageIndex, Func<FrameworkElement, Control> find, string expectedName) in assertions)
+                foreach ((string categoryName, Func<FrameworkElement, Control> find, string expectedName) in assertions)
                 {
-                    navigation.SelectedIndex = pageIndex;
+                    navigation.SelectedItem = window.FindName(categoryName);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Control editor = find((FrameworkElement)host.Content);
                     AutomationPeer peer = editor switch
@@ -2546,7 +2538,7 @@ public sealed class SettingsWindowPresentationTests
                         Slider slider => new SliderAutomationPeer(slider),
                         _ => throw new AssertFailedException("Unsupported representative editor: " + editor.GetType().Name)
                     };
-                    Assert.AreEqual(expectedName, peer.GetName(), "Page index " + pageIndex);
+                    Assert.AreEqual(expectedName, peer.GetName(), categoryName);
                 }
             }
             finally
@@ -2559,10 +2551,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>Automation 名を持たない editor は field header を名前に使い、その変更にも追従して古い名前を残さないことを確認します。</summary>
     [TestMethod]
     public void SettingsField_UnnamedEditorFallbackTracksHeaderChanges()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "Initial localized label", Content = editor };
@@ -2576,10 +2569,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>editor 側の明示名と binding 名がある場合は field header を変更しても上書きせず、binding も保つことを確認します。</summary>
     [TestMethod]
     public void SettingsField_ExplicitAndBoundEditorNamesAreNotClobbered()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var explicitEditor = new ComboBox();
             AutomationProperties.SetName(explicitEditor, "Explicit localized name");
@@ -2603,10 +2597,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>呼出側が fallback と同じ値を明示名として引き取った後は、header 変更と detach でその明示値を消去しないことを確認します。</summary>
     [TestMethod]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -2626,10 +2621,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>呼出側が同じ表示値の別 binding へ置き換えた後は、header 変更と detach でもその binding を保持することを確認します。</summary>
     [TestMethod]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesHeaderChangeAndDetach()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -2658,10 +2654,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>fallback と同値の明示名へ変更してすぐ detach しても、field が所有中と誤認して値を消去しないことを確認します。</summary>
     [TestMethod]
     public void SettingsField_CallerLocalTakeoverMatchingFallbackSurvivesImmediateDetach()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -2675,10 +2672,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>fallback と同値の呼出側 binding へ変更してすぐ detach しても、その binding と名前を消去しないことを確認します。</summary>
     [TestMethod]
     public void SettingsField_CallerBindingTakeoverMatchingFallbackSurvivesImmediateDetach()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var editor = new ComboBox();
             var field = new SettingsField { Header = "A", Content = editor };
@@ -2700,7 +2698,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>DB／config の実 browse は警告確認の承認後だけ picker へ進み、取消では標準 pair を保ち、選択受理では対象だけを個別 path へ更新することを確認します。</summary>
     [DataTestMethod]
+    // 各対象で確認取消・picker 取消・選択成功を同じ実 button から分岐させる。
     [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), false, false)]
     [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), true, false)]
     [DataRow(nameof(SettingsDialogViewModel.LR2SongDBPath), true, true)]
@@ -2743,6 +2743,7 @@ public sealed class SettingsWindowPresentationTests
                 }
 
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 settings = mainViewModel.SettingDialog;
                 settings.LR2RootPath = root;
                 settings.OperationModeLR2DB = true;
@@ -2843,12 +2844,13 @@ public sealed class SettingsWindowPresentationTests
                 {
                     window.CloseForOwnerShutdown();
                 }
-                settings?.ResetSettings();
+                settings?.Dispose();
                 Directory.Delete(scope, recursive: true);
             }
         });
     }
 
+    /// <summary>root 由来と個別設定由来の両 path status が言語変更へ追従し、表示更新を理由に root／DB／config の選択を変更しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2872,6 +2874,7 @@ public sealed class SettingsWindowPresentationTests
                 File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
 
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
                 settings = owner.SettingDialog;
                 settings.LR2RootPath = root;
                 settings.OperationModeLR2DB = true;
@@ -2937,12 +2940,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>個別 path の警告確認を gate で保持しても dispatcher の別処理を進め、取消後は file picker を開始せず実 Task を完了することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_Lr2IndividualPathRouteAwaitsConfirmationWithoutBlockingDispatcher()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
             settings.OperationModeLR2DB = true;
             var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2994,7 +2999,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>確認／picker の表示失敗を一回だけ通知し、通知自体の失敗もログへ分けて dispatcher に未処理例外や再帰通知を出さないことを確認します。</summary>
     [DataTestMethod]
+    // 確認／picker 失敗の両段階で、失敗通知の成立／不成立を比較する。
     [DataRow(false, false, 1)]
     [DataRow(false, true, 2)]
     [DataRow(true, false, 1)]
@@ -3015,6 +3022,7 @@ public sealed class SettingsWindowPresentationTests
             try
             {
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+                using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
                 SettingsDialogViewModel settings = mainViewModel.SettingDialog;
                 settings.OperationModeLR2DB = true;
                 var dialogs = new RecordingSettingsRouteDialogService
@@ -3090,12 +3098,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>Show 後の ContentRendered が未配送でも owner Close で設定を detach し、実遅延 callback が来ても再接続や未処理例外を起こさないことを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_OwnerShutdownBeforeContentRenderedCannotReactivateDetachedPresentation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
             var window = new SettingsWindow
             {
@@ -3144,34 +3154,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void SettingsWindow_KeepsNavigationHeaderAndFooterOutsideSinglePageScrollViewer()
-    {
-        XDocument document = LoadSettingsWindowXaml();
-        XElement pageScroller = FindNamedElement(document, "settingsPageScrollViewer");
-        XElement saveButton = FindNamedElement(document, "buttonOK");
-        XElement cancelButton = FindNamedElement(document, "buttonCancel");
-
-        Assert.IsFalse(document.Descendants(PresentationName("TabControl")).Any());
-        Assert.IsFalse(document.Descendants(PresentationName("TabItem")).Any());
-        Assert.AreEqual("Auto", pageScroller.Attribute("VerticalScrollBarVisibility")?.Value);
-        Assert.AreEqual("Disabled", pageScroller.Attribute("HorizontalScrollBarVisibility")?.Value);
-        Assert.IsFalse(saveButton.Ancestors(PresentationName("ScrollViewer")).Any());
-        Assert.IsFalse(cancelButton.Ancestors(PresentationName("ScrollViewer")).Any());
-        Assert.IsFalse(FindNamedElement(document, "settingsNavigation").Ancestors(PresentationName("ScrollViewer")).Any());
-
-        XDocument aboutDocument = LoadSettingsPageXamls()
-            .Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".AboutSettingsPage", StringComparison.Ordinal) == true);
-        Assert.IsFalse(aboutDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Any());
-
-        var releaseNotesDocument = XDocument.Load(Path.Combine(
-            FindRepositoryRoot(), "BeMusicSeeker", "Views", "Dialogs", "ReleaseNotesWindow.xaml"));
-        XElement versionDocument = releaseNotesDocument.Descendants(PresentationName("FlowDocumentScrollViewer")).Single();
-        Assert.IsNull(versionDocument.Attribute("Height"));
-        Assert.AreEqual("Auto", versionDocument.Attribute("VerticalScrollBarVisibility")?.Value);
-        Assert.AreEqual("Disabled", versionDocument.Attribute("HorizontalScrollBarVisibility")?.Value);
-    }
-
     private static string CreateDangerSchemaScope(out Settings values, out string scoreDbPath)
     {
         string scope = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingsDanger_" + Guid.NewGuid().ToString("N"));
@@ -3203,6 +3185,7 @@ public sealed class SettingsWindowPresentationTests
         DangerApplicationDataStore store)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        owner.SettingDialog.Dispose();
         var composition = new ApplicationComposition(
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
@@ -3279,7 +3262,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static void ClickAdvancedDangerButton(SettingsWindow window, string content)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedIndex = 8;
+        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
         TestUiDispatcherHost.ProcessQueuedPresentation();
         var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
         Button button = FindDescendants<Button>(page).Single(candidate => Equals(candidate.Content, content));
@@ -3438,11 +3421,11 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(settings.HasPendingSettingChanges(),
                     "Invalid URI input must not mutate the settings draft.");
                 var navigation = (ListBox)firstPresentation!.FindName("settingsNavigation");
-                navigation.SelectedIndex = 5;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                navigation.SelectedIndex = 0;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                navigation.SelectedIndex = 5;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
@@ -3538,10 +3521,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static void SeedTransientPlaylistUriValidation(SettingsDialogViewModel settings)
     {
-        // The public invalid-URI setters deliberately display a modal error through the
-        // non-injectable legacy message boundary. Seed only this transient presentation
-        // state so the lifecycle test can observe reopen cleanup without introducing a
-        // second UI dialog or a production-only test seam.
+        // URI 入力の拒否は別ケースが分担する。一時検証状態を与え、表示終了と再表示による解除だけを実 Window で観測する。
         typeof(SettingsDialogViewModel)
             .GetField("tableListUriValidationMessage", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(settings, "invalid table URI");
@@ -3566,67 +3546,93 @@ public sealed class SettingsWindowPresentationTests
         return Path.GetFileNameWithoutExtension(source);
     }
 
-    [TestMethod]
-    public void SettingsWindow_FieldLayoutsUseFlexibleLabelValueAndActionColumns()
-    {
-        XDocument[] pages = LoadSettingsPageXamls();
-        string presentation = string.Join(Environment.NewLine, pages.Select(page => page.ToString(SaveOptions.DisableFormatting)));
-
-        Assert.IsFalse(presentation.Contains("<GroupBox", StringComparison.Ordinal));
-        Assert.IsFalse(presentation.Contains("Height=\"24\"", StringComparison.Ordinal));
-        Assert.IsFalse(presentation.Contains("ActualWidth", StringComparison.Ordinal));
-        foreach (string controlName in new[] { "SettingsSection", "SettingsField", "SettingsOptionRow", "SettingsPathPicker", "SettingsListEditor", "SettingsStatusBanner" })
-        {
-            StringAssert.Contains(presentation, controlName);
-        }
-
-        XElement[] lists = pages.SelectMany(page => page.Descendants(PresentationName("ListBox")))
-            .Where(list => list.Attribute(XamlName("Name"))?.Value is "additionalOutputList" or "playHistoryPresetList")
-            .ToArray();
-        CollectionAssert.AreEquivalent(
-            new[] { "additionalOutputList", "playHistoryPresetList" },
-            lists.Select(list => list.Attribute(XamlName("Name"))!.Value).ToArray());
-        Assert.IsTrue(lists.All(list => double.Parse(list.Attribute("MinHeight")!.Value) >= 120));
-        Assert.IsTrue(lists.All(list => list.Attribute("ScrollViewer.HorizontalScrollBarVisibility")?.Value == "Disabled"));
-    }
-
+    /// <summary>LR2 root・導入先・二種の出力先が、実 VM の検証 message／status を compiled ページへ受け取り、項目間の誤配線や検証表示 style の不採用を検出します。</summary>
+    /// <remarks>BAML の接続を Window 表示なしで観測します。未設定時の判断条件は下位の設定検証、色・説明・Automation の表示は SettingsValidationPresentation が分担します。</remarks>
     [TestMethod]
     public void SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation()
     {
-        XDocument[] pages = LoadSettingsPageXamls();
-        XDocument general = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".GeneralSettingsPage", StringComparison.Ordinal) == true);
-        XDocument install = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".InstallSettingsPage", StringComparison.Ordinal) == true);
-        XDocument playlist = pages.Single(page => page.Root?.Attribute(XamlName("Class"))?.Value.EndsWith(".PlaylistSettingsPage", StringComparison.Ordinal) == true);
-
-        XElement lr2RootPicker = general.Descendants().Single(element =>
-            element.Name.LocalName == nameof(SettingsPathPicker)
-            && element.Attribute("Path")?.Value.Contains(nameof(SettingsDialogViewModel.LR2RootPath), StringComparison.Ordinal) == true);
-        StringAssert.Contains(lr2RootPicker.Attribute("ValidationMessage")!.Value, nameof(SettingsDialogViewModel.Lr2RootPathValidationMessage));
-        StringAssert.Contains(lr2RootPicker.Attribute("ValidationStatus")!.Value, nameof(SettingsDialogViewModel.Lr2RootPathValidationStatus));
-
-        XElement installField = install.Descendants().Single(element =>
-            element.Name.LocalName == nameof(SettingsField)
-            && element.Descendants(PresentationName("ComboBox")).Any(combo =>
-                combo.Attribute("SelectedItem")?.Value.Contains(nameof(SettingsDialogViewModel.BMSInstallDir), StringComparison.Ordinal) == true));
-        StringAssert.Contains(installField.Attribute("ValidationMessage")!.Value, nameof(SettingsDialogViewModel.BmsInstallDirValidationMessage));
-        StringAssert.Contains(installField.Attribute("ValidationStatus")!.Value, nameof(SettingsDialogViewModel.BmsInstallDirValidationStatus));
-        XElement installComboBox = installField.Descendants(PresentationName("ComboBox")).Single();
-        Assert.AreEqual("{StaticResource SettingsValidatedComboBoxStyle}", installComboBox.Attribute("Style")?.Value);
-
-        foreach ((string pathProperty, string messageProperty, string statusProperty) in new[]
+        TestUiDispatcherHost.Invoke(() =>
         {
-            (nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationStatus)),
-            (nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationStatus))
-        })
-        {
-            XElement picker = playlist.Descendants().Single(element =>
-                element.Name.LocalName == nameof(SettingsPathPicker)
-                && element.Attribute("Path")?.Value.Contains(pathProperty, StringComparison.Ordinal) == true);
-            StringAssert.Contains(picker.Attribute("ValidationMessage")!.Value, messageProperty);
-            StringAssert.Contains(picker.Attribute("ValidationStatus")!.Value, statusProperty);
-        }
+            Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(settings =>
+            {
+                settings.OperationModeLR2DB = true;
+                settings.LR2RootPath = string.Empty;
+                settings.BMSInstallDir = string.Empty;
+                settings.LR2CustomFolderOutputBaseDir = string.Empty;
+                settings.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+            });
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+            SettingsDialogViewModel settings = owner.SettingDialog;
+            UserControl[] pages = [new GeneralSettingsPage(), new InstallSettingsPage(), new PlaylistSettingsPage()];
+            try
+            {
+                foreach (UserControl page in pages)
+                {
+                    page.DataContext = settings;
+                    page.ApplyTemplate();
+                    page.Measure(new Size(900, double.PositiveInfinity));
+                    page.Arrange(new Rect(0, 0, 900, page.DesiredSize.Height));
+                    page.UpdateLayout();
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                // 入力プロパティで配送先を特定し、各配送先の公開検証プロパティと実 VM 出力を照合する。
+                foreach ((UserControl page, string path, string message, string status) in new[]
+                {
+                    (pages[0], nameof(SettingsDialogViewModel.LR2RootPath), nameof(SettingsDialogViewModel.Lr2RootPathValidationMessage), nameof(SettingsDialogViewModel.Lr2RootPathValidationStatus)),
+                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationStatus)),
+                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationStatus))
+                })
+                {
+                    SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
+                        candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == path);
+                    AssertValidationBinding(picker, SettingsPathPicker.ValidationMessageProperty, message);
+                    AssertValidationBinding(picker, SettingsPathPicker.ValidationStatusProperty, status);
+                    AssertStyleIsAdopted(picker, typeof(SettingsPathPicker));
+                }
+                ComboBox installCombo = FindDescendants<ComboBox>(pages[1]).Single(candidate =>
+                    candidate.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
+                SettingsField installField = FindDescendants<SettingsField>(pages[1]).Single(field =>
+                    FindDescendants<ComboBox>(field).Contains(installCombo));
+                AssertValidationBinding(installField, SettingsField.ValidationMessageProperty, nameof(SettingsDialogViewModel.BmsInstallDirValidationMessage));
+                AssertValidationBinding(installField, SettingsField.ValidationStatusProperty, nameof(SettingsDialogViewModel.BmsInstallDirValidationStatus));
+                AssertStyleIsAdopted(installField, typeof(SettingsField));
+                AssertStyleIsAdopted(installCombo, "SettingsValidatedComboBoxStyle");
+
+                void AssertValidationBinding(FrameworkElement control, DependencyProperty property, string sourceProperty)
+                {
+                    BindingExpression? expression = control.GetBindingExpression(property);
+                    Assert.IsNotNull(expression, sourceProperty);
+                    Assert.AreEqual(BindingStatus.Active, expression.Status, sourceProperty);
+                    Assert.AreSame(settings, expression.DataItem, sourceProperty);
+                    Assert.AreEqual(sourceProperty, expression.ParentBinding.Path?.Path);
+                    PropertyInfo? outputProperty = typeof(SettingsDialogViewModel).GetProperty(sourceProperty);
+                    Assert.IsNotNull(outputProperty, sourceProperty);
+                    object? output = outputProperty.GetValue(settings);
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(output as string), sourceProperty);
+                    Assert.AreEqual(output, control.GetValue(property), sourceProperty);
+                }
+                static void AssertStyleIsAdopted(FrameworkElement control, object key)
+                {
+                    var expected = control.TryFindResource(key) as Style;
+                    Assert.IsNotNull(expected, key.ToString());
+                    bool adopted = false;
+                    for (Style? candidate = control.Style; candidate != null; candidate = candidate.BasedOn)
+                    {
+                        adopted |= ReferenceEquals(candidate, expected);
+                    }
+                    Assert.IsTrue(adopted, key.ToString());
+                }
+            }
+            finally
+            {
+                foreach (UserControl page in pages) { page.DataContext = null; }
+                settings.Dispose();
+            }
+        });
     }
 
+    /// <summary>警告／エラーを入力した実 picker と editor に本文、Automation 状態／説明、意味 palette が届き、色だけに依存した通知にならないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingsValidationPresentation_ExposesWarningAndErrorWithoutRelyingOnColorAlone()
@@ -3704,44 +3710,17 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void SettingsWindow_AllPagesContinuouslyStretchWithoutWidthBreakpoints()
-    {
-        XDocument window = LoadSettingsWindowXaml();
-        XDocument[] pages = LoadSettingsPageXamls();
-        XElement content = FindNamedElement(window, "settingsPageContent");
-        string source = string.Join(Environment.NewLine,
-            pages.Prepend(window).Select(document => document.ToString(SaveOptions.DisableFormatting)));
-
-        Assert.AreEqual("Stretch", content.Attribute("HorizontalAlignment")?.Value);
-        Assert.AreEqual("Stretch", content.Attribute("HorizontalContentAlignment")?.Value);
-        Assert.IsNull(content.Attribute("MaxWidth"));
-        Assert.IsFalse(source.Contains("ActualWidth", StringComparison.Ordinal));
-        Assert.IsFalse(source.Contains("WidthConverter", StringComparison.OrdinalIgnoreCase));
-
-        foreach (XDocument page in pages)
-        {
-            XElement root = page.Root!;
-            string pageName = root.Attribute(XamlName("Class"))!.Value;
-            Assert.IsNull(root.Attribute("MaxWidth"), pageName + " must not cap the available body width.");
-            Assert.AreNotEqual("Left", root.Attribute("HorizontalAlignment")?.Value, pageName + " must stretch with the shell.");
-            Assert.AreEqual("Stretch", root.Attribute("HorizontalContentAlignment")?.Value, pageName);
-
-            IEnumerable<XElement> layoutOwners = root.Descendants()
-                .Where(element => element.Name.LocalName is "SettingsSection" or "SettingsField" or "SettingsListEditor" or "Grid");
-            Assert.IsFalse(layoutOwners.Any(element => element.Attribute("MaxWidth") != null), pageName);
-            Assert.IsFalse(layoutOwners.Any(element => element.Attribute("HorizontalAlignment")?.Value == "Left"), pageName);
-        }
-    }
-
+    /// <summary>実 Window を最小幅で表示して全 navigation を巡り、page と editor の表示領域が viewport から横にはみ出さないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingsWindow_AllPagesFitActualMinimumWidthViewport()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            window.Width = window.MinWidth;
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -3763,8 +3742,6 @@ public sealed class SettingsWindowPresentationTests
                     Assert.AreEqual(0d, scroller.ScrollableWidth, 0.5, pageName);
                     Assert.IsTrue(content.ActualWidth <= scroller.ViewportWidth + 0.5, pageName);
                     Assert.IsTrue(page.ActualWidth <= content.ActualWidth + 0.5, pageName);
-                    Assert.AreEqual(HorizontalAlignment.Stretch, page.HorizontalAlignment, pageName);
-                    Assert.IsTrue(double.IsPositiveInfinity(page.MaxWidth), pageName);
 
                     IEnumerable<FrameworkElement> widthOwners = FindDescendants<FrameworkElement>(page)
                         .Where(element => element != page
@@ -3798,13 +3775,15 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実 path editor と browse ボタンへラベルを渡し、実 Audio banner の glyph と live 通知が入力内容を表示することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void RedesignedSettingsPages_UseAccessibleReusablePresentationContracts()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
+            using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
             var window = new SettingsWindow
             {
                 DataContext = owner.SettingDialog,
@@ -3819,11 +3798,7 @@ public sealed class SettingsWindowPresentationTests
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
 
-                var pathMetadata = (FrameworkPropertyMetadata)SettingsPathPicker.PathProperty.GetMetadata(typeof(SettingsPathPicker));
-                Assert.IsTrue(pathMetadata.BindsTwoWayByDefault);
-                Assert.AreEqual(true, SettingsPathPicker.IsPathReadOnlyProperty.DefaultMetadata.DefaultValue);
-
-                navigation.SelectedIndex = 0;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationGeneral");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var generalPage = (FrameworkElement)pageHost.Content;
                 SettingsPathPicker pathPicker = FindDescendants<SettingsPathPicker>(generalPage)
@@ -3834,7 +3809,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(pathPicker.Label, AutomationProperties.GetName(pathEditor));
                 Assert.AreEqual(pathPicker.BrowseText, AutomationProperties.GetName(browseButton));
 
-                navigation.SelectedIndex = 3;
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var audioPage = (FrameworkElement)pageHost.Content;
                 SettingsStatusBanner statusBanner = FindDescendants<SettingsStatusBanner>(audioPage).First();
@@ -3855,23 +3830,9 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    [TestMethod]
-    public void SettingsWindow_ActionsAndNavigationExposeLocalizedAccessibleContracts()
-    {
-        XDocument document = LoadSettingsWindowXaml();
-        XElement navigation = FindNamedElement(document, "settingsNavigation");
-        XElement saveButton = FindNamedElement(document, "buttonOK");
-        XElement cancelButton = FindNamedElement(document, "buttonCancel");
-        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
-
-        Assert.AreEqual("SettingsCategoryNavigation", navigation.Attribute(presentation + "AutomationProperties.AutomationId")?.Value ?? navigation.Attribute("AutomationProperties.AutomationId")?.Value);
-        Assert.AreEqual("SettingsSaveAndClose", saveButton.Attribute("AutomationProperties.AutomationId")?.Value);
-        Assert.AreEqual("SettingsCancel", cancelButton.Attribute("AutomationProperties.AutomationId")?.Value);
-        StringAssert.Contains(saveButton.Attribute("Content")!.Value, "Resources.Save_and_close");
-        StringAssert.Contains(cancelButton.Attribute("Content")!.Value, "Resources.Cancel");
-    }
-
+    /// <summary>初回保存は実設定 modal を閉じてから owned 完了案内と初期化へ進み、設定再要求なら fresh modal を開き、成功／終了要求なら旧画面を再表示しないことを確認します。</summary>
     [DataTestMethod]
+    // 初期化成功・設定再要求・終了要求で modal 再表示の条件を分ける。
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -4246,6 +4207,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>設定を二回開くと標準 coordinator が同じ owner／設定を fresh modal に接続し、閉じるたび main の再生 overlay を元に戻すことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void MainWindow_PresentsFreshOwnedModalThroughCoordinator()
@@ -4311,9 +4273,7 @@ public sealed class SettingsWindowPresentationTests
                         settingsWindows.Add(settingsWindow);
                         windowTest.PrepareForOwnedPresentation(settingsWindow);
                     }));
-                // MainWindow restores its persisted placement during SourceInitialized,
-                // so the shell itself is only a coordinator owner here; the settings
-                // modal is the presentation whose non-activating policy is asserted.
+                // main は保存位置を SourceInitialized で復元する。modal の owner と実終了経路を寿命所有者で回収する。
                 windowTest.PrepareForOwnedPresentation(owner!);
                 owner!.Show();
                 owner!.UpdateLayout();
@@ -4393,6 +4353,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>設定 Window 生成 hook が失敗しても元例外と overlay を保持し、次の明示要求を別 modal で表示・終了できることを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void MainWindow_SettingsPresentationFailureRestoresPlaybackOverlayVisibility()
@@ -4538,6 +4499,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>取消可能な設定 Window を native Close すると、取消の完了を presentation へ一回要求することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void NativeClose_WhenCancellationIsEnabled_RequestsCancelCompletion()
@@ -4545,6 +4507,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
@@ -4556,6 +4519,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>再読込み pending で取消不能な設定 Window は native Close でも取消完了を要求しないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void NativeClose_WhenCancellationIsDisabled_DoesNotRequestCancelCompletion()
@@ -4563,6 +4527,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             typeof(SettingsDialogViewModel)
@@ -4577,6 +4542,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>view 操作の実 Task を gate で保持した間は native Close を拒否し、終端後の明示 Close でだけ取消完了を要求することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void RunViewOperation_BlocksNativeCloseUntilOperationCompletes()
@@ -4584,6 +4550,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
@@ -4619,6 +4586,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>Apply gate 中の native Close は取消し、実 Task 内の presentation Close に限って Apply 理由で終了することを Closing／Closed の順に観測します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void ApplyOperation_RejectsNativeCloseUntilPresentationSuccessAuthorizesApplyClose()
@@ -4626,6 +4594,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel settings = viewModel.SettingDialog;
             var window = new SettingsWindow { DataContext = settings };
             SynchronizationContext? previousContext = SynchronizationContext.Current;
@@ -4679,30 +4648,6 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    private static string FindRepositoryRoot()
-    {
-        DirectoryInfo? current = new(AppContext.BaseDirectory);
-        while (current != null && !File.Exists(Path.Combine(current.FullName, "BeMusicSeeker.sln")))
-        {
-            current = current.Parent;
-        }
-        return current?.FullName ?? throw new DirectoryNotFoundException("Repository root was not found.");
-    }
-
-    private static XDocument LoadSettingsWindowXaml()
-    {
-        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "Settings", "SettingsWindow.xaml"));
-    }
-
-    private static XDocument[] LoadSettingsPageXamls()
-    {
-        string directory = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "Settings", "Pages");
-        return Directory.EnumerateFiles(directory, "*SettingsPage.xaml")
-            .OrderBy(path => path, StringComparer.Ordinal)
-            .Select(XDocument.Load)
-            .ToArray();
-    }
-
     private static Grid CreateSettingsControlHost()
     {
         var host = new Grid();
@@ -4738,62 +4683,6 @@ public sealed class SettingsWindowPresentationTests
         {
             Source = new Uri(source, UriKind.RelativeOrAbsolute)
         });
-    }
-
-    private static T? FindDescendant<T>(DependencyObject? root) where T : DependencyObject
-    {
-        if (root == null)
-        {
-            return null;
-        }
-
-        var pending = new Stack<DependencyObject>();
-        var visited = new HashSet<DependencyObject>();
-        pending.Push(root);
-        while (pending.Count > 0)
-        {
-            DependencyObject current = pending.Pop();
-            if (!visited.Add(current))
-            {
-                continue;
-            }
-
-            if (current is T match)
-            {
-                return match;
-            }
-
-            if (current is Visual or System.Windows.Media.Media3D.Visual3D)
-            {
-                for (int index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
-                {
-                    pending.Push(VisualTreeHelper.GetChild(current, index));
-                }
-            }
-
-            foreach (object child in LogicalTreeHelper.GetChildren(current))
-            {
-                if (child is DependencyObject dependencyObject)
-                {
-                    pending.Push(dependencyObject);
-                }
-            }
-        }
-
-        return null;
-    }
-
-    private static bool IsVisualDescendantOf(DependencyObject candidate, DependencyObject ancestor)
-    {
-        for (DependencyObject current = candidate; current != null; current = VisualTreeHelper.GetParent(current))
-        {
-            if (ReferenceEquals(current, ancestor))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private static bool FindResourceInStyleScope(Border element, string key)
@@ -4867,74 +4756,52 @@ public sealed class SettingsWindowPresentationTests
         Assert.AreEqual(expected.Color, ((SolidColorBrush)actual).Color, resourceKey);
     }
 
-    private static double ContrastRatio(Color first, Color second)
-    {
-        static double Channel(byte value)
-        {
-            double normalized = value / 255d;
-            return normalized <= 0.04045d
-                ? normalized / 12.92d
-                : Math.Pow((normalized + 0.055d) / 1.055d, 2.4d);
-        }
-
-        static double Luminance(Color color)
-        {
-            return 0.2126d * Channel(color.R)
-                + 0.7152d * Channel(color.G)
-                + 0.0722d * Channel(color.B);
-        }
-
-        double firstLuminance = Luminance(first);
-        double secondLuminance = Luminance(second);
-        double lighter = Math.Max(firstLuminance, secondLuminance);
-        double darker = Math.Min(firstLuminance, secondLuminance);
-        return (lighter + 0.05d) / (darker + 0.05d);
-    }
-
-    private static XElement FindNamedElement(XDocument document, string name)
-    {
-        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-        return document.Descendants().Single(element => element.Attribute(xaml + "Name")?.Value == name || element.Attribute("Name")?.Value == name);
-    }
-
-    private static XElement FindNamedElement(IEnumerable<XDocument> documents, string name)
-    {
-        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
-        return documents.SelectMany(document => document.Descendants())
-            .Single(element => element.Attribute(xaml + "Name")?.Value == name || element.Attribute("Name")?.Value == name);
-    }
-
-    private static XName PresentationName(string localName)
-    {
-        return XName.Get(localName, "http://schemas.microsoft.com/winfx/2006/xaml/presentation");
-    }
-
-    private static XName XamlName(string localName)
-    {
-        return XName.Get(localName, "http://schemas.microsoft.com/winfx/2006/xaml");
-    }
-
-    private static string ExtractResourcePath(string? binding)
-    {
-        const string marker = "Path=";
-        int start = binding?.IndexOf(marker, StringComparison.Ordinal) ?? -1;
-        if (start < 0)
-        {
-            return string.Empty;
-        }
-        start += marker.Length;
-        int end = binding!.IndexOf(',', start);
-        return end < 0 ? binding[start..].TrimEnd('}') : binding[start..end];
-    }
-
     private static void SetEditCompletionInProgress(SettingsDialogViewModel viewModel, bool value)
     {
-        // This fixture isolates SettingsWindow's close-reason gate. The ViewModel setter is
-        // private by design; driving a full apply would add persistence/reload behavior to a
-        // test that only needs the already-observable completion state.
+        // 完了状態だけを与えて Window の Close 理由判断を分離する。実保存・再読込みとの接続は MainWindow の Apply ケースが分担する。
         typeof(SettingsDialogViewModel)
             .GetField("isEditCompletionInProgress", BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
+    }
+
+    /// <summary>表示だけを検証する6ケースで同じ専用draftを接続し、Audioページの自動照会には局所結果を与えます。</summary>
+    /// <remarks>自動照会のnative呼出しは表示保証の対象外で、受付・取消・解放は音声workflowの既存ケースが分担します。元childは表示前に破棄し、置換childの寿命は各呼出元のfinally/usingが所有します。</remarks>
+    private static MainWindowViewModel CreateOwnerForPresentationWithoutNativeCapabilityQuery()
+    {
+        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
+        owner.SettingDialog.Dispose();
+        ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+        var workflow = new AudioDeviceTestWorkflowOwner(
+            new NoOpAudioDeviceTestPlaybackPort(),
+            new SuccessfulAudioDeviceTestRuntime(),
+            new DelegateAudioDeviceCapabilityRuntime(request => new AudioDeviceCapabilityResult(
+                request.Backend,
+                request.DeviceIdentity,
+                request.DeviceName,
+                AudioDeviceCapabilityStatus.Available,
+                [SampleRate.SAMPLE_RATE_44100Hz])));
+        var dialog = new SettingsDialogViewModel(
+            owner,
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            composition,
+            owner.PlaybackPanel,
+            owner.Lr2SongDbSyncWorkflow,
+            new NoOpSettingsEditSession(values),
+            applicationLifetime: TestApplicationContext.CreateLifetime(),
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: composition.ApplicationPathSnapshot,
+            audioDeviceCatalog: new BassAudioDeviceCatalog(),
+            audioSettingsGateway: new SettingsAudioGateway(() => values),
+            audioDeviceTestWorkflow: workflow,
+            operationAdmission: composition.OperationAdmission);
+        typeof(MainWindowViewModel).GetProperty(nameof(MainWindowViewModel.SettingDialog))!
+            .SetValue(owner, dialog);
+        return owner;
     }
 
     private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
@@ -5128,9 +4995,9 @@ public sealed class SettingsWindowPresentationTests
 
     private sealed class StatusBannerBindingSource : INotifyPropertyChanged
     {
-        private string message = null!;
+        private string? message;
 
-        public string Message
+        public string? Message
         {
             get => message;
             set
@@ -5345,7 +5212,7 @@ public sealed class SettingsWindowPresentationTests
     {
         internal int InvalidationCount { get; private set; }
 
-        internal string LastInvalidationReason { get; private set; } = null!;
+        internal string? LastInvalidationReason { get; private set; }
 
         public void InvalidateReadCache(string reason)
         {

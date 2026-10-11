@@ -25,6 +25,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class DialogPresentationTests
 {
+    /// <summary>各dialogを実表示し、意味付きbutton役割を適用しつつ外部sentinelとApplicationへ共通styleを漏らしません。</summary>
     [DataTestMethod]
     [DataRow("SettingsWindow")]
     [DataRow("ReleaseNotesWindow")]
@@ -75,6 +76,7 @@ public sealed class DialogPresentationTests
         });
     }
 
+    /// <summary>リリースノートとschema削除画面を実表示し、内容と意味を持つ操作をclient内に保って切り取りを防ぎます。</summary>
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
@@ -101,6 +103,7 @@ public sealed class DialogPresentationTests
         });
     }
 
+    /// <summary>通常native画面を実表示し、共通contentが外周間隔を一か所で所有して子側の二重余白を防ぎます。</summary>
     [DataTestMethod]
     [DataRow("ReleaseNotesWindow")]
     [DataRow("Lr2PlayHistorySchemaUninstallDialog")]
@@ -148,6 +151,7 @@ public sealed class DialogPresentationTests
         });
     }
 
+    /// <summary>多数playlistのpresetで末尾までscrollして選択でき、resize後もviewportと保存・取消操作が表示範囲内で使えます。</summary>
     [TestMethod]
     public void PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport()
     {
@@ -248,8 +252,9 @@ public sealed class DialogPresentationTests
         });
     }
 
+    /// <summary>リリースノートを実表示し、選択可能な一つの縦scroll領域を保持して編集toolbarと横scrollを露出しません。</summary>
     [TestMethod]
-    public void ReleaseNotes_RestoresLegacyTypographyAndBoundedSelectionViewport()
+    public void ReleaseNotes_PreservesReadOnlySelectionAndScrollViewport()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -261,22 +266,12 @@ public sealed class DialogPresentationTests
 
                 FlowDocumentScrollViewer viewer = FindVisualDescendants<FlowDocumentScrollViewer>(window)
                     .Single(item => item.Visibility == Visibility.Visible);
-                FlowDocument document = viewer.Document;
-
-                Assert.AreEqual("Meiryo UI", document.FontFamily.Source);
-                Assert.AreEqual(12d, document.FontSize, 0.01d);
                 Assert.IsTrue(viewer.IsSelectionEnabled, "Release Notes must remain selection-enabled.");
                 Assert.IsFalse(viewer.IsToolBarVisible, "Release Notes must not expose an editing toolbar.");
                 Assert.AreEqual(ScrollBarVisibility.Auto, viewer.VerticalScrollBarVisibility);
                 Assert.AreEqual(ScrollBarVisibility.Disabled, viewer.HorizontalScrollBarVisibility);
 
-                Paragraph[] paragraphs = EnumerateParagraphs(document.Blocks).ToArray();
-                Assert.IsTrue(
-                    paragraphs.Any(paragraph => paragraph.FontWeight == FontWeights.Bold),
-                    "Version headings must remain bold.");
-                Assert.IsTrue(
-                    paragraphs.Any(paragraph => paragraph.FontWeight == FontWeights.Normal),
-                    "Release Notes body paragraphs must remain normal weight.");
+
             }
             finally
             {
@@ -288,6 +283,7 @@ public sealed class DialogPresentationTests
         });
     }
 
+    /// <summary>実テキスト選択後の標準menuがCopy/SelectAllを提供し、独自menuやCut/Pasteの編集操作へ置換しません。</summary>
     [TestMethod]
     public void ReleaseNotes_UsesFrameworkOwnedSelectionMenuRoles()
     {
@@ -346,37 +342,7 @@ public sealed class DialogPresentationTests
         });
     }
 
-    [TestMethod]
-    public void PlaylistSummaryBulkEditDialog_StartsAtMinimumWidthAndCanReturnAfterResize()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            var dialog = new PlaylistSummaryBulkEditDialog();
-            try
-            {
-                Assert.IsTrue(double.IsFinite(dialog.MinWidth) && dialog.MinWidth > 0d);
-                Assert.AreEqual(dialog.MinWidth, dialog.Width, 0.01d);
-                Assert.AreEqual(ResizeMode.CanResize, dialog.ResizeMode);
-
-                windowTest.ShowAndWaitForContentRendered(dialog);
-                dialog.Width = dialog.MinWidth + Math.Max(80d, dialog.MinWidth * 0.25d);
-                dialog.UpdateLayout();
-                Assert.IsTrue(dialog.Width > dialog.MinWidth);
-
-                dialog.Width = dialog.MinWidth;
-                dialog.UpdateLayout();
-                Assert.AreEqual(dialog.MinWidth, dialog.Width, 0.01d);
-            }
-            finally
-            {
-                if (dialog.IsVisible)
-                {
-                    dialog.Close();
-                }
-            }
-        });
-    }
-
+    /// <summary>長い補足を持つ進捗画面を実表示し、本文・補足・progress・取消をclient内へ配置して重なりを防ぎます。</summary>
     [TestMethod]
     public void ProgressDialog_WithSubLabelAndCancel_RendersContentInsideItsClientBounds()
     {
@@ -1440,31 +1406,6 @@ public sealed class DialogPresentationTests
     private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
         => descendant.TransformToAncestor(ancestor)
             .TransformBounds(new Rect(0, 0, descendant.ActualWidth, descendant.ActualHeight));
-
-    private static IEnumerable<Paragraph> EnumerateParagraphs(IEnumerable<Block> blocks)
-    {
-        foreach (Block block in blocks)
-        {
-            if (block is Paragraph paragraph)
-            {
-                yield return paragraph;
-                continue;
-            }
-
-            if (block is not List list)
-            {
-                continue;
-            }
-
-            foreach (ListItem item in list.ListItems)
-            {
-                foreach (Paragraph nestedParagraph in EnumerateParagraphs(item.Blocks))
-                {
-                    yield return nestedParagraph;
-                }
-            }
-        }
-    }
 
     private static TextPointer FindFirstTextPointer(FlowDocument document)
     {

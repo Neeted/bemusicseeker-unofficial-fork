@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LibraryDirectoryWarningFormatterTests
 {
+    /// <summary>起動前のBMS root欠損は対象パス・欠損原因・BMS用の対処を示し、LR2出力用の対処へ誤分類しません。</summary>
     [TestMethod]
     public void Format_EarlyBmsFailureIncludesRolePathCauseAndBmsGuidance()
     {
@@ -32,6 +33,7 @@ public sealed class LibraryDirectoryWarningFormatterTests
         Assert.IsFalse(message.Contains(Resources.LibraryDirectoryPreflightLr2Guidance, StringComparison.Ordinal));
     }
 
+    /// <summary>起動後の追加出力先書込み失敗は対象パスと追加出力の役割、後片付け失敗とplaylist用の対処を同じ通知へ保持します。</summary>
     [TestMethod]
     public void Format_LateAdditionalOutputFailureUsesPlaylistGuidanceAndCleanupCause()
     {

@@ -9,6 +9,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbSyncStatusServiceTests
 {
+    /// <summary>
+    /// LR2同期を無効にした入力では同期不要と判定し、設定に反する作業の受付を検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNotNeededWhenFeatureIsDisabled()
     {
@@ -26,6 +30,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.IsFalse(snapshot.IsNeeded);
     }
 
+    /// <summary>
+    /// 保存状態がない場合は指定署名の同期が必要と判定し、未実施を完了扱いにする誤りを検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNeededWhenStatusRowIsMissing()
     {
@@ -44,6 +52,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.AreEqual("sig1", snapshot.Signature);
     }
 
+    /// <summary>
+    /// 実保存した完了署名が一致する場合だけ完了を再利用し、署名変更時は旧保存状態を残して再同期へ戻すことを確認します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsCompletedOnlyForMatchingCompletedSignature()
     {
@@ -71,6 +83,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, changedSignature.StoredStatus);
     }
 
+    /// <summary>
+    /// 保存された失敗・旧取消・未完了を再同期が必要な状態として読み、元終端種別を取り違えて完了扱いにする誤りを検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void Evaluate_ReturnsNeededForRestartableTerminalStates()
     {
@@ -98,6 +114,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         AssertNeededWithStoredStatus(songDb, Lr2SongDbSyncStatusKind.Incomplete);
     }
 
+    /// <summary>
+    /// 中断位置は診断として保持し、新しい実行開始は保存カーソル0へ戻して途中からの無断再開を検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void NonCompletedStatusAndRunningMarkAlwaysStartAtZero()
     {
@@ -139,6 +159,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.AreEqual(0, running.processed_cursor);
     }
 
+    /// <summary>
+    /// 実行中の署名・実行識別・工程・位置・総数を実DBへ保存し、完了時刻を付ける誤りや更新漏れを検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void UpdateCursor_PersistsProgress()
     {
@@ -159,6 +183,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.IsNull(row.completed_at);
     }
 
+    /// <summary>
+    /// 同じ実行の失敗に位置指定がなければ直前の保存位置と総数を保持し、失敗記録で診断位置を消す誤りを検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void MarkFailed_PreservesSameRunCursorWhenNoCursorIsProvided()
     {
@@ -177,6 +205,10 @@ public sealed class Lr2SongDbSyncStatusServiceTests
         Assert.AreEqual("failed", row.stage);
     }
 
+    /// <summary>
+    /// アプリ所有スキーマの初期化後に同期状態を実挿入・読戻しでき、状態表の生成漏れを検出します。
+    /// </summary>
+    /// <remarks>状態表の生成と保存署名・状態の読戻しを実SQLiteで接続して確認します。</remarks>
     [TestMethod]
     public void EnsureAppOwnedSchema_CreatesStatusTable()
     {

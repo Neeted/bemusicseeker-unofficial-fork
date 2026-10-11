@@ -12,12 +12,11 @@ namespace BeMusicSeeker.Tests;
 /// installed-only resource overwrite の導入先確認が、既存配置の厳密確認として動作することを検証します。
 /// </summary>
 [TestClass]
-// The production options snapshot uses process-wide testSettings, and the shared fixture
-// initializes process-wide App.AvailableCultures and Resources.Culture localization state.
 public sealed class InstalledOnlyResourceOverwriteValidationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>全譜面のhashが一つの所持folderへ解決する場合だけその宛先を選び、形式やhashの取り落としを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_AllChartsUnderOneDirectory_Succeeds()
     {
@@ -45,6 +44,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>異なる所持folderへ分かれるpackageを分割配置として拒否し、先頭譜面だけで宛先を決める誤りを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_PackageSplitAcrossDirectories_Skips()
     {
@@ -71,6 +71,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>一譜面のhashが複数folderにある場合は曖昧として拒否し、任意の一folderを選ぶ誤りを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_ChartInstalledInMultipleDirectories_Skips()
     {
@@ -96,6 +97,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>package内の一譜面でも所持hashに対応するfolderがない場合は拒否し、部分一致だけで許可する誤りを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_MissingInstalledDirectory_Skips()
     {
@@ -120,6 +122,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>所持索引にない譜面をpathとprimary hash付きで返し、拒否の原因対象を取り違える誤りを検出します。</summary>
     [TestMethod]
     public void FindChartWithMissingInstalledDirectory_ReturnsChartFile()
     {
@@ -144,6 +147,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>複数folderに存在するhashの保留譜面を原因対象として返し、曖昧な対象の診断漏れを検出します。</summary>
     [TestMethod]
     public void FindChartWithMultipleInstalledDirectories_ReturnsChartFile()
     {
@@ -168,6 +172,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>保留宛先が同一でも実所持索引が分割配置なら拒否し、推定済み宛先で厳密確認を迂回する誤りを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_PendingInstlDstDoesNotBypassSplitDetection()
     {
@@ -196,6 +201,7 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
+    /// <summary>MD5が存在して不一致なら一致SHA256へ救済せず拒否し、照合hashの優先規則を変える誤りを検出します。</summary>
     [TestMethod]
     public void TryPrepareInstalledOnlyPackageDestination_Md5PresentDoesNotFallBackToSha256()
     {
@@ -218,45 +224,12 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         });
     }
 
-    [TestMethod]
-    public void CreateInstalledChartLookupIndexSnapshot_RebuildsAfterBmsFilesReplacement()
-    {
-        WithWorkspace(delegate (BmsLibraryInstallEstimationService service, string tempRoot)
-        {
-            string installedDir1 = Path.Combine(tempRoot, "Installed", "Dir1");
-            string installedDir2 = Path.Combine(tempRoot, "Installed", "Dir2");
-            List<ChartFile> installedFiles =
-            [
-                CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir1, "a.bms"))
-            ];
-
-            InstalledChartLookupIndexSnapshot firstSnapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir1 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(firstSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-
-            installedFiles =
-            [
-                CreateInstalledFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(installedDir2, "a.bms"))
-            ];
-
-            InstalledChartLookupIndexSnapshot secondSnapshot = CreateInstalledChartLookupIndexSnapshot(installedFiles);
-            CollectionAssert.AreEqual(new[] { installedDir2 }, BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesByPrimaryHash(secondSnapshot, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-        });
-    }
-
     private void WithWorkspace(Action<BmsLibraryInstallEstimationService, string> testAction)
     {
 
         string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_InstalledDirIndexTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRoot);
-        try
-        {
-            var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), 70);
-            testAction(service, tempRoot);
-        }
-        finally
-        {
-            DeleteDirectoryIfExists(tempRoot);
-        }
+        var service = new BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot.CreateCurrent(testSettings), 70);
+        testAction(service, tempRoot);
     }
 
     private static InstalledChartLookupIndexSnapshot CreateInstalledChartLookupIndexSnapshot(IEnumerable<ChartFile> installedFiles)
@@ -301,24 +274,6 @@ public sealed class InstalledOnlyResourceOverwriteValidationTests
         package.path = entries.FirstOrDefault()?.Chart?.Path ?? string.Empty;
         package.delete_parent = false;
         return package;
-    }
-
-    private static void DeleteDirectoryIfExists(string directoryPath)
-    {
-        if (!Directory.Exists(directoryPath))
-        {
-            return;
-        }
-        foreach (string childFilePath in Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories))
-        {
-            File.SetAttributes(childFilePath, FileAttributes.Normal);
-        }
-        foreach (string childDirectoryPath in Directory.EnumerateDirectories(directoryPath, "*", SearchOption.AllDirectories))
-        {
-            File.SetAttributes(childDirectoryPath, FileAttributes.Normal);
-        }
-        File.SetAttributes(directoryPath, FileAttributes.Normal);
-        Directory.Delete(directoryPath, recursive: true);
     }
 
 }

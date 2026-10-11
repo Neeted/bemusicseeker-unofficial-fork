@@ -19,8 +19,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>通常一覧の実ownerへ隔離した入力・実SQLite・通知gateを接続する既存fixtureをまとめます。</summary>
 internal static class RegularChartListOwnerTestSupport
 {
+    /// <summary>画面更新を既定では直実行し、一覧の構築・受付を実ownerで検査するための既存依存を揃えます。</summary>
     internal static RegularChartListOwner CreateOwner(
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace)
@@ -28,6 +30,7 @@ internal static class RegularChartListOwnerTestSupport
         return CreateOwner(table, workspace, action => action());
     }
 
+    /// <summary>画面更新を既定では直実行し、一覧の構築・受付を実ownerで検査するための既存依存を揃えます。</summary>
     internal static RegularChartListOwner CreateOwner(
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace,
@@ -54,6 +57,7 @@ internal static class RegularChartListOwnerTestSupport
             mutationDialogs);
     }
 
+    /// <summary>実snapshot readerと同じcatalog writerを保持し、通知生産側のUI同期待ちを検出するために使います。</summary>
     internal static ReaderWriterLockSlimWrapper GetCatalogStorageRowsWriteGate(BMSLibrary library)
     {
         FieldInfo storageOwnerField = typeof(BMSLibrary).GetField(
@@ -72,7 +76,6 @@ internal static class RegularChartListOwnerTestSupport
     /// UI subscriber の非同期スケジューリングを確認するために通知だけを発行します。
     /// 現行の具象 <see cref="BMSLibrary" /> には typed attach source の注入経路がないため、
     /// owner フィールドだけを反射で取得し、既存の typed internal publication method を呼び出します。
-    /// production 側の typed attach source が注入をサポートした時点で、この helper は退役させます。
     /// </remarks>
     internal static void PublishNormalLibraryRefreshResetNotification(
         BMSLibrary library,
@@ -88,6 +91,7 @@ internal static class RegularChartListOwnerTestSupport
             notifiesBmsonSongs);
     }
 
+    /// <summary>一覧編集の接続先として実pending ownerを用意し、libraryに到達しないcaseでは空の入力窓口を渡します。</summary>
     internal static PendingPackageWorkflowOwner CreatePendingPackageWorkflowOwner()
     {
         return new PendingPackageWorkflowOwner(
@@ -102,6 +106,7 @@ internal static class RegularChartListOwnerTestSupport
               ExternalShellGatewayPolicy.Current);
     }
 
+    /// <summary>通常一覧終端でdetail退役と関連列公開を実行するworkspaceを、外部通信を開始しない既存portで用意します。</summary>
     internal static PlaylistWorkspaceViewModel CreateWorkspaceForOwner(
         MainChartListViewModel? table = null,
         PlaylistDetailBuildState? buildState = null,
@@ -147,6 +152,7 @@ internal static class RegularChartListOwnerTestSupport
             (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
+    /// <summary>実FSとDBへ接続するcaseに同じ譜面識別値を渡し、pathだけを各専用領域に置きます。</summary>
     internal static ChartFile CreateTestableBmsFile(string path)
     {
         ChartFile file = (ChartTestValues.Empty() with { Path = path });
@@ -154,6 +160,7 @@ internal static class RegularChartListOwnerTestSupport
         return file;
     }
 
+    /// <summary>所持library譜面を実rename要求へ変換し、テスト準備時の対象拒否を見逃さないようにします。</summary>
     internal static RenameChartFolderRequest CreateRenameRequest(ChartFile file)
     {
         ChartFile chart = (file);
@@ -169,6 +176,7 @@ internal static class RegularChartListOwnerTestSupport
         return request;
     }
 
+    /// <summary>専用SQLiteへsong・folder・maintenance表を作り、処理後は専用領域全体を回収します。</summary>
     internal static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RegularOwner_" + Guid.NewGuid().ToString("N"));
@@ -195,6 +203,7 @@ internal static class RegularChartListOwnerTestSupport
     }
 
 
+    /// <summary>明示した画面・keyword・modeを一覧入口へ渡し、既定の外部設定を読まない要求を用意します。</summary>
     internal static RegularChartListEntryRequest CreateEntryRequest(
         MainViewUpdateMode mode,
         string keywordFilter = "",
@@ -211,6 +220,7 @@ internal static class RegularChartListOwnerTestSupport
         };
     }
 
+    /// <summary>sortとfolder絞込みを識別できるpath・タイトル・modeを持つ保存行不要のsourceを用意します。</summary>
     internal static ChartListSourceRow CreateSourceRow(string folder, string fileName, int? mode = null)
     {
         string path = string.IsNullOrEmpty(folder)
@@ -220,6 +230,7 @@ internal static class RegularChartListOwnerTestSupport
         return ChartListSourceRow.FromChartFile(chart);
     }
 
+    /// <summary>detail退役前の参照元と表示行を組み立てるため、同じ譜面とplaylist項目を持つsourceを用意します。</summary>
     internal static PlaylistDetailSourceRow CreatePlaylistSourceRow(string md5)
     {
         ChartFile chart = CreateSourceRow("Playlist", md5).Chart;
@@ -228,6 +239,7 @@ internal static class RegularChartListOwnerTestSupport
             chart);
     }
 
+    /// <summary>sourceから実タイトル昇順orderを構築し、構築失敗をfixture段階で検出します。</summary>
     internal static ChartListOrder CreateOrder(params ChartListSourceRow[] sourceRows)
     {
         Assert.IsTrue(ChartListOrder.TryCreate(
@@ -238,6 +250,7 @@ internal static class RegularChartListOwnerTestSupport
         return order;
     }
 
+    /// <summary>指定した行を実体一覧の実構築へ渡し、終端とcache採用の検査に使う候補を得ます。</summary>
     internal static RegularChartListBuildResult Build(
         RegularChartListOwner owner,
         RegularChartListRequestLease lease,
@@ -265,6 +278,7 @@ internal static class RegularChartListOwnerTestSupport
         });
     }
 
+    /// <summary>実体行sortから通常一覧終端までの要求を、捕捉した画面modeと列選択で用意します。</summary>
     internal static RegularMaterializedChartListApplyRequest CreateMaterializedApplyRequest(
         IEnumerable<LibraryChartRow> rows,
         MainViewUpdateMode appliedMode = MainViewUpdateMode.FolderFilterSelected)
@@ -299,6 +313,7 @@ internal static class RegularChartListOwnerTestSupport
         };
     }
 
+    /// <summary>実構築で得た行だけを実体終端へ渡し、関連列とsummary公開の条件を揃えます。</summary>
     internal static RegularChartListPresentationResult CreateTerminalInput(
         RegularChartListBuildResult build,
         MainViewUpdateMode mode = MainViewUpdateMode.UpdatedNone,
@@ -328,6 +343,7 @@ internal static class RegularChartListOwnerTestSupport
             stopwatch);
     }
 
+    /// <summary>仮想終端へ行参照を渡し、未知folder数のsummaryから非同期集計への遷移を用意します。</summary>
     internal static RegularChartListPresentationResult CreateVirtualTerminalInput(IList rows)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -352,6 +368,7 @@ internal static class RegularChartListOwnerTestSupport
             stopwatch);
     }
 
+    /// <summary>lockとgateの競合をThreadPool枯渇に依存させず観測する専用workerを開始します。</summary>
     internal static Task StartLongRunning(Action action)
     {
         return Task.Factory.StartNew(
@@ -361,6 +378,7 @@ internal static class RegularChartListOwnerTestSupport
             TaskScheduler.Default);
     }
 
+    /// <summary>停止収束を専用workerから開始し、内側の非同期終端まで一つのTaskで回収します。</summary>
     internal static Task StartLongRunningAsync(Func<Task> action)
     {
         return Task.Factory.StartNew(
@@ -371,6 +389,7 @@ internal static class RegularChartListOwnerTestSupport
             .Unwrap();
     }
 
+    /// <summary>受付したUI処理を手動実行待ちにし、予約中の停止と遅い公開を観測します。</summary>
     internal sealed class ActionQueueUiScheduler : IUiScheduler
     {
         private readonly Action<Action> enqueue;
@@ -420,6 +439,7 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
+    /// <summary>手動実行の成功・失敗を実ownerが待つCompletionへ返します。</summary>
     internal sealed class ActionQueueUiScheduledOperation : IUiScheduledOperation
     {
         private readonly TaskCompletionSource<bool> completion =
@@ -454,6 +474,7 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
+    /// <summary>処理を受付した後に取消済み終端を返し、未開始処理の停止回収を観測します。</summary>
     internal sealed class AbortingUiScheduler : IUiScheduler
     {
         public bool IsAvailable => true;
@@ -494,6 +515,7 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
+    /// <summary>受付済みかつ取消済みのUI終端を返すfixtureです。</summary>
     internal sealed class AbortedUiScheduledOperation : IUiScheduledOperation
     {
         private static readonly Task AbortedCompletion = Task.FromCanceled(
@@ -514,6 +536,7 @@ internal static class RegularChartListOwnerTestSupport
         }
     }
 
+    /// <summary>実summary走査の添字読取りだけをgateで止め、共有走査回数と取消・停止の収束を観測します。</summary>
     internal sealed class BlockingIndexedSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable
     {
         private readonly IReadOnlyList<ChartListSourceRow> rows;

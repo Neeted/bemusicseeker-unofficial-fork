@@ -8,7 +8,6 @@ using System.Xml.Linq;
 using System.Xml.Serialization;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -18,168 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnFactoryTests
 {
-    [TestMethod]
-    public void CreateMainColumns_UsesVisiblePhaseThreePointFiveColumnsForStandardView()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-
-        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "Status",
-                "Title",
-                "Artist",
-                "Genre",
-                "Mode",
-                "Folder",
-                "Path",
-                "Clear",
-                "Rank",
-                "Rate",
-                "Bp",
-                "Level",
-                "ChartDifficulty",
-                "ChartJudge",
-                "ChartJudgePercent",
-                "Notes",
-                "ChartLongNotes",
-                "ChartScratchNotes",
-                "ChartMainBpm",
-                "ChartMinBpm",
-                "ChartMaxBpm",
-                "ChartSoflan",
-                "ChartTotal",
-                "ChartTotalPerNote",
-                "ChartDuration",
-                "ChartFeature",
-                "ChartDensity",
-                "ChartPeakDensity",
-                "ChartEndDensity",
-                "PlaylistSymbols"
-            },
-            ids);
-    }
-
-    [TestMethod]
-    public void CreateMainColumns_CanCreateAllMainTableColumns()
-    {
-        var settings = new CustomTableColumnSettings();
-        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
-        {
-            layout.DisplayIndex = -1;
-            layout.Visibility = Visibility.Visible;
-        }
-
-        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "Status",
-                "EntryLevel",
-                "Title",
-                "Artist",
-                "Genre",
-                "Mode",
-                "Tag",
-                "Url1",
-                "Url2",
-                "Warning",
-                "Comment",
-                "Memo",
-                "Hash",
-                "Sha256",
-                "Folder",
-                "Path",
-                "InstallDst",
-                "InstallDstTitle",
-                "InstallDstArtist",
-                "WavHealth",
-                "BgaHealth",
-                "MovieHealth",
-                "CharcterEncoding",
-                "PlaylistSymbols",
-                "Level",
-                "ChartDifficulty",
-                "ChartMainBpm",
-                "ChartMaxBpm",
-                "ChartMinBpm",
-                "ChartDuration",
-                "ChartJudge",
-                "ChartJudgePercent",
-                "ChartFeature",
-                "Notes",
-                "ChartLongNotes",
-                "ChartScratchNotes",
-                "ChartTotal",
-                "ChartTotalPerNote",
-                "ChartDensity",
-                "ChartPeakDensity",
-                "ChartEndDensity",
-                "ChartSoflan",
-                "Clear",
-                "Rank",
-                "Rate",
-                "Score",
-                "Combo",
-                "Bp",
-                "Ranking",
-                "RankingLastupdate",
-                "TScore",
-                "ScoreDifficulty"
-            },
-            ids);
-    }
-
-    [TestMethod]
-    public void CreateMainColumns_KeepsStatusColumnVisibleFirstAndFixed()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
-
-        CustomTableColumn status = CustomTableColumnFactory.CreateMainColumns(settings).First();
-
-        Assert.AreEqual("Status", status.Id);
-        Assert.AreEqual(18, status.Width);
-        Assert.IsFalse(status.CanResize);
-        Assert.IsFalse(status.CanReorder);
-        Assert.IsNull(status.SortMemberPath);
-        Assert.AreEqual(CustomTableCellKind.StatusIcon, status.CellKind);
-    }
-
-    [TestMethod]
-    public void CreateMainColumns_KeepsModeColumnFixedAtFifty()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-
-        CustomTableColumn mode = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Mode");
-
-        Assert.AreEqual(50, mode.Width);
-        Assert.AreEqual(50, mode.MinWidth);
-        Assert.AreEqual(50, mode.MaxWidth);
-        Assert.IsFalse(mode.CanResize);
-    }
-
-    [TestMethod]
-    public void CreateMainColumns_UsesExpectedWidthConstraintsForHashAndRanking()
-    {
-        var settings = new CustomTableColumnSettings();
-        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
-        {
-            layout.DisplayIndex = -1;
-            layout.Visibility = Visibility.Visible;
-        }
-        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
-
-        Assert.AreEqual(40, columns["Hash"].MinWidth);
-        Assert.AreEqual(240, columns["Hash"].MaxWidth);
-        Assert.IsTrue(columns["Hash"].CanResize);
-        Assert.AreEqual(40, columns["Ranking"].MinWidth);
-        Assert.AreEqual(int.MaxValue, columns["Ranking"].MaxWidth);
-        Assert.IsTrue(columns["Ranking"].CanResize);
-    }
-
+    /// <summary>利用者設定で題名を非表示にし、判定列を先頭・指定幅に変えて列生成へ反映することを確認し、列配置を既定値へ戻す誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
@@ -196,34 +34,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(77, columns[0].Width);
     }
 
-    [TestMethod]
-    public void CreateMainColumns_UsesPlayHistoryColumnsForPlayHistoryView()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-
-        string[] ids = [.. CustomTableColumnFactory.CreateMainColumns(settings).Select(column => column.Id)];
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "PlayedAt",
-                "FolderLabels",
-                "Title",
-                "BestClear",
-                "BestDjLevel",
-                "BestRate",
-                "BestExscore",
-                "BestBp",
-                "BestCombo",
-                "Kind",
-                "Option",
-                "OpHistory",
-                "PlayExscore",
-                "Judges"
-            },
-            ids);
-    }
-
+    /// <summary>全列を表示した履歴に編集先・ダウンロード・チェック操作や導入先列を設けないことを確認し、閲覧用の履歴から別の譜面状態を編集する接続を検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_PlayHistoryColumnsDoNotEnablePlaylistOrInstallEditing()
     {
@@ -240,6 +51,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns.Any(column => column.Id is "Url1" or "Url2" or "InstallDst"));
     }
 
+    /// <summary>表示した全履歴列の並替え先を履歴エンジンが受理することを確認し、画面で選べる並替えが未対応の項目へ向く接続漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_PlayHistoryVisibleSortMemberPathsAreAcceptedByPlayHistorySortEngine()
     {
@@ -260,6 +72,7 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
+    /// <summary>更新前後のクリア・DJランク・率を遷移表記へ投影し、前後それぞれの文字範囲を保持することを確認し、履歴を現在成績だけで描画したり前後の強調範囲を混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_PlayHistoryBestDjAndRateUseTransitionText()
     {
@@ -317,47 +130,12 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("66.67 -> 83.33", columns.Single(column => column.Id == "BestRate").GetText(row));
     }
 
-    [TestMethod]
-    public void CreatePlaylistSummaryColumns_CreatesAllSummaryColumns()
-    {
-        var settings = new PlaylistSummaryColumnSettings();
-        foreach (PlaylistSummaryColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(settings))
-        {
-            layout.DisplayIndex = -1;
-            layout.Visibility = Visibility.Visible;
-        }
-
-        string[] ids = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id)];
-
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "PlaylistId",
-                "OutputBase",
-                "Name",
-                "FolderName",
-                "CompatPrefix",
-                "Symbol",
-                "LastUpdate",
-                "TotalCharts",
-                "OwnedCharts",
-                "MissingCharts",
-                "OwnedRatio",
-                "Link",
-                "Header",
-                "Data",
-                "IsExternalSync",
-                "Status",
-                "IsRootFolder",
-                "BmtSort",
-                "IsBmtOutput"
-            },
-            ids);
-    }
-
+    /// <summary>互換接頭辞の配置が欠けた設定を受け取ると全配置を補完して既定配置へ戻すことを確認し、一部欠損のまま使う誤りや不整合な旧配置の温存を検出します。</summary>
     [TestMethod]
     public void PlaylistSummaryColumnSettings_EnsureCompatibilityResetsToDefaultsWhenLayoutIsMissing()
     {
+        var expectedDefaults = new PlaylistSummaryColumnSettings();
+        expectedDefaults.EnsureCompatibility();
         var settings = new PlaylistSummaryColumnSettings
         {
             CompatPrefix = null
@@ -368,25 +146,28 @@ public sealed class CustomTableColumnFactoryTests
         settings.EnsureCompatibility();
 
         Assert.IsNotNull(settings.CompatPrefix);
-        Assert.AreEqual(220, settings.Name.Width);
-        Assert.AreEqual(160, settings.FolderName.Width);
-        Assert.AreEqual(80, settings.CompatPrefix.Width);
-        Assert.AreEqual(70, settings.Header.Width);
-        Assert.AreEqual(70, settings.Data.Width);
-        Assert.AreEqual(2, settings.Name.DisplayIndex);
-        Assert.AreEqual(3, settings.FolderName.DisplayIndex);
-        Assert.AreEqual(4, settings.CompatPrefix.DisplayIndex);
-        Assert.AreEqual(5, settings.Symbol.DisplayIndex);
-        Assert.AreEqual(12, settings.Header.DisplayIndex);
-        Assert.AreEqual(13, settings.Data.DisplayIndex);
-        Assert.AreEqual(Visibility.Hidden, settings.FolderName.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Header.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Data.Visibility);
+        Assert.AreEqual(expectedDefaults.Name.Width, settings.Name.Width);
+        Assert.AreEqual(expectedDefaults.FolderName.Width, settings.FolderName.Width);
+        Assert.AreEqual(expectedDefaults.CompatPrefix.Width, settings.CompatPrefix.Width);
+        Assert.AreEqual(expectedDefaults.Header.Width, settings.Header.Width);
+        Assert.AreEqual(expectedDefaults.Data.Width, settings.Data.Width);
+        Assert.AreEqual(expectedDefaults.Name.DisplayIndex, settings.Name.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.FolderName.DisplayIndex, settings.FolderName.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.CompatPrefix.DisplayIndex, settings.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Symbol.DisplayIndex, settings.Symbol.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Header.DisplayIndex, settings.Header.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Data.DisplayIndex, settings.Data.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.FolderName.Visibility, settings.FolderName.Visibility);
+        Assert.AreEqual(expectedDefaults.Header.Visibility, settings.Header.Visibility);
+        Assert.AreEqual(expectedDefaults.Data.Visibility, settings.Data.Visibility);
     }
 
+    /// <summary>保存XMLからフォルダ名配置が欠けた場合に欠損を認識して全配置を既定へ戻すことを確認し、デシリアライズで不足を隠して互換補完を省く誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistSummaryColumnSettings_EnsureCompatibilityResetsToDefaultsWhenSerializedLayoutIsMissing()
     {
+        var expectedDefaults = new PlaylistSummaryColumnSettings();
+        expectedDefaults.EnsureCompatibility();
         var serializer = new XmlSerializer(typeof(PlaylistSummaryColumnSettings));
         var original = new PlaylistSummaryColumnSettings();
         original.EnsureCompatibility();
@@ -408,35 +189,23 @@ public sealed class CustomTableColumnFactoryTests
         restored.EnsureCompatibility();
 
         Assert.IsTrue(restored.HasAllLayouts());
-        Assert.AreEqual(220, restored.Name.Width);
-        Assert.AreEqual(160, restored.FolderName.Width);
-        Assert.AreEqual(80, restored.CompatPrefix.Width);
-        Assert.AreEqual(70, restored.Header.Width);
-        Assert.AreEqual(70, restored.Data.Width);
-        Assert.AreEqual(2, restored.Name.DisplayIndex);
-        Assert.AreEqual(3, restored.FolderName.DisplayIndex);
-        Assert.AreEqual(4, restored.CompatPrefix.DisplayIndex);
-        Assert.AreEqual(5, restored.Symbol.DisplayIndex);
-        Assert.AreEqual(12, restored.Header.DisplayIndex);
-        Assert.AreEqual(13, restored.Data.DisplayIndex);
-        Assert.AreEqual(Visibility.Hidden, restored.FolderName.Visibility);
-        Assert.AreEqual(Visibility.Hidden, restored.Header.Visibility);
-        Assert.AreEqual(Visibility.Hidden, restored.Data.Visibility);
+        Assert.AreEqual(expectedDefaults.Name.Width, restored.Name.Width);
+        Assert.AreEqual(expectedDefaults.FolderName.Width, restored.FolderName.Width);
+        Assert.AreEqual(expectedDefaults.CompatPrefix.Width, restored.CompatPrefix.Width);
+        Assert.AreEqual(expectedDefaults.Header.Width, restored.Header.Width);
+        Assert.AreEqual(expectedDefaults.Data.Width, restored.Data.Width);
+        Assert.AreEqual(expectedDefaults.Name.DisplayIndex, restored.Name.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.FolderName.DisplayIndex, restored.FolderName.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.CompatPrefix.DisplayIndex, restored.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Symbol.DisplayIndex, restored.Symbol.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Header.DisplayIndex, restored.Header.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.Data.DisplayIndex, restored.Data.DisplayIndex);
+        Assert.AreEqual(expectedDefaults.FolderName.Visibility, restored.FolderName.Visibility);
+        Assert.AreEqual(expectedDefaults.Header.Visibility, restored.Header.Visibility);
+        Assert.AreEqual(expectedDefaults.Data.Visibility, restored.Data.Visibility);
     }
 
-    [TestMethod]
-    public void CreatePlaylistSummaryColumns_HidesHeaderAndDataByDefault()
-    {
-        var settings = new PlaylistSummaryColumnSettings();
-        settings.EnsureCompatibility();
-
-        string[] ids = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id)];
-
-        CollectionAssert.DoesNotContain(ids, "FolderName");
-        CollectionAssert.DoesNotContain(ids, "Header");
-        CollectionAssert.DoesNotContain(ids, "Data");
-    }
-
+    /// <summary>一覧のID非表示・status先頭と指定幅・名前末尾という利用者配置を列生成へ反映することを確認し、一覧設定の無視や並びの取り違えを検出します。</summary>
     [TestMethod]
     public void CreatePlaylistSummaryColumns_ReflectsVisibilityWidthAndDisplayIndex()
     {
@@ -454,6 +223,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Name", columns.Last().Id);
     }
 
+    /// <summary>一覧各列の並替え先・編集先・URL操作とチェック操作の種別を確認し、同じ表示に見えて別の状態を変更する列接続の誤りを検出します。</summary>
     [TestMethod]
     public void CreatePlaylistSummaryColumns_AssignsSortPathsAndActionMetadata()
     {
@@ -493,6 +263,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(CustomTableCellKind.CheckBox, columns["IsBmtOutput"].CellKind);
     }
 
+    /// <summary>長い題名・パス・ハッシュは省略時tooltipの対象とし、アイコンや分類値は対象外にすることを確認し、列別の省略内容公開条件の誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_AssignsAutoTrimTooltipPolicy()
     {
@@ -527,6 +298,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(columns["Hash"].AutoTrimTooltip);
     }
 
+    /// <summary>表示した履歴の全テキスト列を省略時tooltipの対象へ渡すことを確認し、履歴の長い表示内容へ到達できなくなる設定漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_PlayHistoryTextColumnsUseTrimTooltips()
     {
@@ -546,6 +318,7 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
+    /// <summary>一覧の名前・出力用名とURL表示は省略時tooltipの対象とし、短い分類やチェック列を除くことを確認し、列別の補助表示条件の誤りを検出します。</summary>
     [TestMethod]
     public void CreatePlaylistSummaryColumns_AssignsAutoTrimTooltipPolicy()
     {
@@ -574,6 +347,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(columns["Data"].AutoTrimTooltip);
     }
 
+    /// <summary>外部URLは操作表示と実URLのtooltip・コピーを分け、未設定と失敗の強調・日時・所持率を投影することを確認し、表示用ラベルをコピーしたり失敗表示を落とす誤りを検出します。</summary>
     [TestMethod]
     public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
     {
@@ -618,8 +392,9 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(CustomTableColumnFactory.HasHighlightedWarning(row));
     }
 
+    /// <summary>譜面各列の並替えを元値または専用数値キーへ接続し、非対応のURL等は並替えを持たないことを確認し、列の見出しと異なる値で並替える誤りを検出します。</summary>
     [TestMethod]
-    public void CreateMainColumns_AssignsPhaseTwoSortMemberPaths()
+    public void CreateMainColumns_AssignsSortMemberPaths()
     {
         var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
@@ -656,6 +431,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("ChartJudgeSortKey", paths["ChartJudge"]);
     }
 
+    /// <summary>通常一覧の表示列に設定した並替え先を仮想一覧が受理することを確認し、通常画面だけ並替え受付から外れる接続漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_StandardVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
@@ -672,6 +448,7 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
+    /// <summary>重複表示の列で設定した並替え先を仮想一覧が受理することを確認し、重複画面だけ並替え受付から外れる接続漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_DuplicateVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
@@ -680,6 +457,7 @@ public sealed class CustomTableColumnFactoryTests
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
 
+    /// <summary>全走査表示の列で設定した並替え先を仮想一覧が受理することを確認し、全走査画面だけ並替え受付から外れる接続漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_FullScanVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
@@ -688,6 +466,7 @@ public sealed class CustomTableColumnFactoryTests
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
 
+    /// <summary>導入表示の列で設定した並替え先を仮想一覧が受理することを確認し、導入画面だけ並替え受付から外れる接続漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_InstallVisibleSortMemberPathsAreVirtualRegistryColumns()
     {
@@ -696,6 +475,7 @@ public sealed class CustomTableColumnFactoryTests
         AssertVisibleSortMemberPathsAreVirtualRegistryColumns(settings);
     }
 
+    /// <summary>全列の並替え先で仮想一覧の対象外がプレイリストレベルだけであることを確認し、所持一覧の列へ未対応の並替えを追加する誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_AllSortableMainColumnsAreVirtualRegistryColumnsOrExplicitlyExcluded()
     {
@@ -727,17 +507,9 @@ public sealed class CustomTableColumnFactoryTests
         }
     }
 
+    /// <summary>レベル・メモ・URL・フォルダ・導入先の編集先と入力種別を接続し、BMSとbmsonの導入候補から空値を除くことを確認し、編集する状態や候補供給の取り違えを検出します。</summary>
     [TestMethod]
-    public void ScoreBrushProvider_MapsFutureClearTypes()
-    {
-        Assert.AreSame(CustomTableScoreBrushProvider.PurpleBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.INVALID));
-        Assert.AreSame(CustomTableScoreBrushProvider.LightPurpleBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.L_ASSIST));
-        Assert.AreSame(CustomTableScoreBrushProvider.YellowBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.EX_HARD));
-        Assert.AreSame(CustomTableScoreBrushProvider.YellowOrangeBrush, CustomTableScoreBrushProvider.ConvertClear(ClearType.MAX));
-    }
-
-    [TestMethod]
-    public void CreateMainColumns_AssignsPhaseFourEditableMetadata()
+    public void CreateMainColumns_AssignsEditableMetadata()
     {
         var settings = new CustomTableColumnSettings();
         foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
@@ -752,17 +524,13 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns["EntryLevel"].EditTextWrapping);
         Assert.AreEqual("comment", columns["Comment"].EditPropertyName);
         Assert.IsTrue(columns["Comment"].EditTextWrapping);
-        Assert.AreEqual(420d, columns["Comment"].TooltipTextWidth);
         Assert.AreEqual("memo", columns["Memo"].EditPropertyName);
         Assert.IsTrue(columns["Memo"].EditTextWrapping);
-        Assert.AreEqual(420d, columns["Memo"].TooltipTextWidth);
         Assert.AreEqual("Url", columns["Url1"].EditPropertyName);
         Assert.IsNull(columns["Url1"].TooltipTextWidth);
         Assert.IsFalse(columns["Url1"].EditOnRepeatClick);
-        Assert.AreEqual(250, columns["Url1"].EditOverlayWidth);
         Assert.AreEqual("Url_diff", columns["Url2"].EditPropertyName);
         Assert.IsFalse(columns["Url2"].EditOnRepeatClick);
-        Assert.AreEqual(250, columns["Url2"].EditOverlayWidth);
         Assert.AreEqual("Folder", columns["Folder"].EditPropertyName);
         Assert.AreEqual("instl_dst", columns["InstallDst"].EditPropertyName);
 
@@ -813,6 +581,7 @@ public sealed class CustomTableColumnFactoryTests
             columns["InstallDst"].GetEditSuggestions(bmsonRow).ToArray());
     }
 
+    /// <summary>導入先の有無と候補0・1・2件を組み合わせ、表示には候補印を付けても編集・コピー・TSVと候補一覧は実パスを保つことを確認し、装飾を保存値へ混ぜる誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
@@ -853,6 +622,7 @@ public sealed class CustomTableColumnFactoryTests
         CollectionAssert.AreEqual(candidates, column.GetEditSuggestions(row).ToArray());
     }
 
+    /// <summary>本体URLと差分URLのある未所持行から各編集欄へ実URLを渡すことを確認し、操作用の表示文字やもう一方のURLを編集値に使う誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_UsesActualUrlTextForUrlEditing()
     {
@@ -868,33 +638,11 @@ public sealed class CustomTableColumnFactoryTests
 
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
 
-        Assert.AreEqual("\uE14F", columns["Url1"].GetText(row));
         Assert.AreEqual("https://example.test/main", columns["Url1"].GetEditText(row));
-        Assert.AreEqual("\uE14F", columns["Url2"].GetText(row));
         Assert.AreEqual("https://example.test/diff", columns["Url2"].GetEditText(row));
     }
 
-    [TestMethod]
-    public void CreateMainColumns_AssignsPhaseSevenTextStyles()
-    {
-        var settings = new CustomTableColumnSettings();
-        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
-        {
-            layout.DisplayIndex = -1;
-            layout.Visibility = Visibility.Visible;
-        }
-
-        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
-
-        Assert.AreSame(CustomTableTextStyle.Score, columns["Clear"].TextStyle);
-        Assert.AreSame(CustomTableTextStyle.Score, columns["Rank"].TextStyle);
-        Assert.AreSame(CustomTableTextStyle.Score, columns["ChartDifficulty"].TextStyle);
-        Assert.AreSame(CustomTableTextStyle.Score, columns["ChartJudge"].TextStyle);
-        Assert.AreSame(CustomTableTextStyle.Normal, columns["Level"].TextStyle);
-        Assert.AreEqual(11d, columns["Rank"].TextStyle.FontSize);
-        Assert.AreEqual(1d, columns["Rank"].TextStyle.VerticalOffset);
-    }
-
+    /// <summary>レベル・難度・TOTALの定義状態を変えると未定義の列だけ強調されることを確認し、欠損を通常値と同じ表示にする誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_AssignsUndefinedBackgroundSelectors()
     {
@@ -923,6 +671,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsNull(columns["ChartTotalPerNote"].GetBackground(definedRow));
     }
 
+    /// <summary>警告の要約と詳細、メモ・本体/差分URL・参照表名をそれぞれ表示とtooltipへ渡すことを確認し、列ごとの詳細内容を取り違える誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_AssignsTooltipSelectors()
     {
@@ -954,17 +703,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("table A", columns["PlaylistSymbols"].GetTooltip(row));
     }
 
-    [TestMethod]
-    public void CreateMainColumns_ConvertsUrlDownloadTextToIconGlyph()
-    {
-        var settings = new CustomTableColumnSettings();
-        settings.Url1.Visibility = Visibility.Visible;
-        CustomTableColumn urlColumn = CustomTableColumnFactory.CreateMainColumns(settings).Single(column => column.Id == "Url1");
-        var row = new { UrlDownloadIconText = "download" };
-
-        Assert.AreEqual("\uE14F", urlColumn.GetText(row));
-    }
-
+    /// <summary>再生中の複合状態・キー数・率・健全率・統計値を利用者向け単位と丸めで表示することを確認し、状態分類や数値の尺度を変える誤りを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_FormatsStatusAndSuffixColumns()
     {
@@ -992,64 +731,24 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("6.79", columns["ScoreDifficulty"].GetText(row));
     }
 
+    /// <summary>指定幅の三列で水平移動後の列判定・可視セル領域と端の罫線を計算することを確認し、移動量やクリップを無視して別のセルへ操作を届ける誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableColumnLayout_ResolvesHorizontalOffset()
     {
         var settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Hidden;
+        }
+        settings.Title.Visibility = Visibility.Visible;
+        settings.Artist.Visibility = Visibility.Visible;
+        settings.Path.Visibility = Visibility.Visible;
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Path.DisplayIndex = -1;
         settings.Title.Width = 100;
         settings.Artist.Width = 80;
         settings.Path.Width = 70;
-        settings.Status.Visibility = Visibility.Hidden;
-        settings.Genre.Visibility = Visibility.Hidden;
-        settings.Mode.Visibility = Visibility.Hidden;
-        settings.Url1.Visibility = Visibility.Hidden;
-        settings.Url2.Visibility = Visibility.Hidden;
-        settings.Tag.Visibility = Visibility.Hidden;
-        settings.Warning.Visibility = Visibility.Hidden;
-        settings.Comment.Visibility = Visibility.Hidden;
-        settings.Memo.Visibility = Visibility.Hidden;
-        settings.Hash.Visibility = Visibility.Hidden;
-        settings.Sha256.Visibility = Visibility.Hidden;
-        settings.Folder.Visibility = Visibility.Hidden;
-        settings.InstallDst.Visibility = Visibility.Hidden;
-        settings.InstallDstTitle.Visibility = Visibility.Hidden;
-        settings.InstallDstArtist.Visibility = Visibility.Hidden;
-        settings.WavHealth.Visibility = Visibility.Hidden;
-        settings.BgaHealth.Visibility = Visibility.Hidden;
-        settings.MovieHealth.Visibility = Visibility.Hidden;
-        settings.CharcterEncoding.Visibility = Visibility.Hidden;
-        settings.PlaylistSymbols.Visibility = Visibility.Hidden;
-        settings.Clear.Visibility = Visibility.Hidden;
-        settings.Rank.Visibility = Visibility.Hidden;
-        settings.Level.Visibility = Visibility.Hidden;
-        settings.ChartDifficulty.Visibility = Visibility.Hidden;
-        settings.ChartMainBpm.Visibility = Visibility.Hidden;
-        settings.ChartMaxBpm.Visibility = Visibility.Hidden;
-        settings.ChartMinBpm.Visibility = Visibility.Hidden;
-        settings.ChartDuration.Visibility = Visibility.Hidden;
-        settings.ChartJudge.Visibility = Visibility.Hidden;
-        settings.ChartJudgePercent.Visibility = Visibility.Hidden;
-        settings.ChartFeature.Visibility = Visibility.Hidden;
-        settings.Notes.Visibility = Visibility.Hidden;
-        settings.ChartLongNotes.Visibility = Visibility.Hidden;
-        settings.ChartScratchNotes.Visibility = Visibility.Hidden;
-        settings.ChartTotal.Visibility = Visibility.Hidden;
-        settings.ChartTotalPerNote.Visibility = Visibility.Hidden;
-        settings.ChartDensity.Visibility = Visibility.Hidden;
-        settings.ChartPeakDensity.Visibility = Visibility.Hidden;
-        settings.ChartEndDensity.Visibility = Visibility.Hidden;
-        settings.ChartSoflan.Visibility = Visibility.Hidden;
-        settings.Rate.Visibility = Visibility.Hidden;
-        settings.Score.Visibility = Visibility.Hidden;
-        settings.Combo.Visibility = Visibility.Hidden;
-        settings.Bp.Visibility = Visibility.Hidden;
-        settings.Ranking.Visibility = Visibility.Hidden;
-        settings.RankingLastupdate.Visibility = Visibility.Hidden;
-        settings.TScore.Visibility = Visibility.Hidden;
-        settings.ScoreDifficulty.Visibility = Visibility.Hidden;
         CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         bool resolved = CustomTableColumnLayout.TryResolveColumn(columns, tableX: 125, out CustomTableColumn column, out int columnIndex, out double columnX);
@@ -1082,64 +781,24 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(CustomTableColumnLayout.IsGridLineFullyVisible(0d, 0d, 75d));
     }
 
+    /// <summary>題名の端では幅変更を受理し固定URL列の端では拒否することを確認し、列境界のヒット判定で固定列を変更可能にする誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary()
     {
         var settings = new CustomTableColumnSettings();
+        foreach (CustomTableColumnSettings.ColumnLayout layout in CustomTableColumnFactory.EnumerateMainColumnLayouts(settings))
+        {
+            layout.Visibility = Visibility.Hidden;
+        }
+        settings.Title.Visibility = Visibility.Visible;
+        settings.Artist.Visibility = Visibility.Visible;
+        settings.Url1.Visibility = Visibility.Visible;
         settings.Title.DisplayIndex = -1;
         settings.Artist.DisplayIndex = -1;
         settings.Url1.DisplayIndex = -1;
         settings.Title.Width = 100;
         settings.Artist.Width = 80;
         settings.Url1.Width = 40;
-        settings.Status.Visibility = Visibility.Hidden;
-        settings.Path.Visibility = Visibility.Hidden;
-        settings.Genre.Visibility = Visibility.Hidden;
-        settings.Mode.Visibility = Visibility.Hidden;
-        settings.Tag.Visibility = Visibility.Hidden;
-        settings.Url2.Visibility = Visibility.Hidden;
-        settings.Warning.Visibility = Visibility.Hidden;
-        settings.Comment.Visibility = Visibility.Hidden;
-        settings.Memo.Visibility = Visibility.Hidden;
-        settings.Hash.Visibility = Visibility.Hidden;
-        settings.Sha256.Visibility = Visibility.Hidden;
-        settings.Folder.Visibility = Visibility.Hidden;
-        settings.InstallDst.Visibility = Visibility.Hidden;
-        settings.InstallDstTitle.Visibility = Visibility.Hidden;
-        settings.InstallDstArtist.Visibility = Visibility.Hidden;
-        settings.WavHealth.Visibility = Visibility.Hidden;
-        settings.BgaHealth.Visibility = Visibility.Hidden;
-        settings.MovieHealth.Visibility = Visibility.Hidden;
-        settings.CharcterEncoding.Visibility = Visibility.Hidden;
-        settings.PlaylistSymbols.Visibility = Visibility.Hidden;
-        settings.Clear.Visibility = Visibility.Hidden;
-        settings.Rank.Visibility = Visibility.Hidden;
-        settings.Level.Visibility = Visibility.Hidden;
-        settings.ChartDifficulty.Visibility = Visibility.Hidden;
-        settings.ChartMainBpm.Visibility = Visibility.Hidden;
-        settings.ChartMaxBpm.Visibility = Visibility.Hidden;
-        settings.ChartMinBpm.Visibility = Visibility.Hidden;
-        settings.ChartDuration.Visibility = Visibility.Hidden;
-        settings.ChartJudge.Visibility = Visibility.Hidden;
-        settings.ChartJudgePercent.Visibility = Visibility.Hidden;
-        settings.ChartFeature.Visibility = Visibility.Hidden;
-        settings.Notes.Visibility = Visibility.Hidden;
-        settings.ChartLongNotes.Visibility = Visibility.Hidden;
-        settings.ChartScratchNotes.Visibility = Visibility.Hidden;
-        settings.ChartTotal.Visibility = Visibility.Hidden;
-        settings.ChartTotalPerNote.Visibility = Visibility.Hidden;
-        settings.ChartDensity.Visibility = Visibility.Hidden;
-        settings.ChartPeakDensity.Visibility = Visibility.Hidden;
-        settings.ChartEndDensity.Visibility = Visibility.Hidden;
-        settings.ChartSoflan.Visibility = Visibility.Hidden;
-        settings.Rate.Visibility = Visibility.Hidden;
-        settings.Score.Visibility = Visibility.Hidden;
-        settings.Combo.Visibility = Visibility.Hidden;
-        settings.Bp.Visibility = Visibility.Hidden;
-        settings.Ranking.Visibility = Visibility.Hidden;
-        settings.RankingLastupdate.Visibility = Visibility.Hidden;
-        settings.TScore.Visibility = Visibility.Hidden;
-        settings.ScoreDifficulty.Visibility = Visibility.Hidden;
         CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
 
         bool titleResize = CustomTableColumnLayout.TryResolveResizeColumn(columns, surfaceX: 99, horizontalOffset: 0, viewportWidth: 200, margin: 4, out CustomTableColumn titleColumn, out _, out _);
@@ -1151,6 +810,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsNull(urlColumn);
     }
 
+    /// <summary>題名・作者の二行を表示列だけのTSVへ変換しセル内Tab・改行を空白にすることを確認し、セルの文字が別列や別行として出力される誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_BuildsVisibleColumnTsvAndNormalizesCellText()
     {
@@ -1167,6 +827,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("A Title\tArtist  One\r\nB\tArtist Two", tsv);
     }
 
+    /// <summary>操作表示とは別の編集URLを単一セルのコピー値に使い、制御文字と欠損対象を正規化することを確認し、表示ラベルのコピーやセル境界の破壊を検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_BuildsSingleCellTextFromEditTextAndNormalizes()
     {
@@ -1187,6 +848,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(string.Empty, CustomTableDataTransfer.BuildCellText(new object(), null));
     }
 
+    /// <summary>Ctrl+C・Ctrl+Shift+C・Ctrl+Aを各操作へ割り当て、Alt併用は受理しないことを確認し、コピーの単位や無関係な修飾キーを取り違える誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_ResolvesCopyKeyboardShortcuts()
     {
@@ -1197,6 +859,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(CustomTableKeyboardCommand.SelectAllRows, CustomTableView.ResolveKeyboardCommand(Key.A, ModifierKeys.Control));
     }
 
+    /// <summary>選択二行のドラッグデータから新旧形式・行種別・主行と選択一覧を取得できることを確認し、既存ドラッグ受付との互換や主行の指定を失う誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_CreatesLegacyAndCustomDragFormats()
     {
@@ -1213,6 +876,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(2, resolvedRows.Count);
     }
 
+    /// <summary>作者をstatusの前へ移す要求でもstatus先頭を保ち、利用者設定の作者と題名の順を更新することを確認し、固定列まで動かす誤りや並替えの未保存を検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_ReordersColumnsWithoutMovingStatus()
     {

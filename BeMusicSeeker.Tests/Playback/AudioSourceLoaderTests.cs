@@ -33,6 +33,8 @@ public sealed class AudioSourceLoaderTests
         BassAudioRuntime.Shutdown();
     }
 
+    /// <summary>実float Waveのレート・配置・frame数と過大／微小PCMをbit単位で保ち、読込み時のクリップや変換誤差を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadFloatWave_PreservesOverRangeAndLowLevelSamples()
     {
@@ -56,6 +58,8 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>ogg拡張子のWaveをcontainer署名で選別し、拡張子だけでVorbisへ誤配送せず元PCMを復号する。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadWaveWithOggExtension_UsesContainerSignature()
     {
@@ -78,6 +82,8 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>8／16／24／32bit整数Waveの最小・ゼロ・最大値を独立float期待へ照合し、符号とscaleを取り違えない。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadPcmWave_PreservesIntegerBoundaryScaling()
     {
@@ -104,6 +110,8 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>64bit floatと32bit容器内の有効24bitを一度だけfloatへ変換し、過大値と有効bitの音量を維持する。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadPcmWave_ConvertsFloat64AndValidBitsIn32Once()
     {
@@ -144,20 +152,8 @@ public sealed class AudioSourceLoaderTests
             Enumerable.Range(0, 3).Select(index => BitConverter.SingleToInt32Bits(extensibleAudio.GetSample(index))).ToArray());
     }
 
-    [TestMethod]
-    public void LoadWave_UsesTheBASSDecoderForPcm()
-    {
-        float[] expected = [0.125f, -0.375f];
-        using var wave = new TemporaryWave(BuildWave(3, 1, 32000, 32, FloatBytes(expected)));
-
-        DecodedAudio actual = AudioSourceLoader.Load(wave.Path);
-
-        Assert.AreEqual(32000, actual.SampleRate);
-        Assert.AreEqual(2L, actual.FrameCount);
-        Assert.AreEqual(BitConverter.SingleToInt32Bits(expected[0]), BitConverter.SingleToInt32Bits(actual.GetSample(0)));
-        Assert.AreEqual(BitConverter.SingleToInt32Bits(expected[1]), BitConverter.SingleToInt32Bits(actual.GetSample(1)));
-    }
-
+    /// <summary>非有限PCMと非対応9チャンネルを入力復号失敗として拒否し、破損音声を正常sourceへ通さない。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadWave_RejectsNonFiniteSamplesAndUnsupportedChannels()
     {
@@ -181,6 +177,7 @@ public sealed class AudioSourceLoaderTests
         Assert.AreEqual(AudioSourceLoadStage.DecodeWithBass, nineChannels.Stage);
     }
 
+    /// <summary>一回読み込んだnative入力を複数の読取専用viewから独立位置で読み、cursor共有による相互干渉を防ぐ。</summary>
     [TestMethod]
     public void AudioInputFile_ReadOnlyViewsShareOneNativeBufferAndUseIndependentPositions()
     {
@@ -199,6 +196,7 @@ public sealed class AudioSourceLoaderTests
         Assert.AreEqual(1L, second.Position);
     }
 
+    /// <summary>入力ownerのDispose後は新viewを拒否し、既存viewには確保済みnative bufferを保持して使用中解放を防ぐ。</summary>
     [TestMethod]
     public void AudioInputFile_ReadOnlyViewRetainsNativeBufferAfterOwnerDispose()
     {
@@ -218,6 +216,7 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>存在しない入力を元IO原因付きのInspect失敗にし、負長・nativeに表現不能な入力長を確保前に拒否する。</summary>
     [TestMethod]
     public void AudioInputFile_ReportsReadFailureAtInspectStageAndChecksNativeLengthWithoutAllocation()
     {
@@ -240,6 +239,7 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>分割readでOgg署名を確認した巨大入力をnative確保前に拒否し、正規化path・読取り一回・入力解放を維持する。</summary>
     [TestMethod]
     public void AudioInputFile_RejectsOversizedOggBeforeNativeAllocationAfterSplitSignatureRead()
     {
@@ -275,6 +275,7 @@ public sealed class AudioSourceLoaderTests
         Assert.AreEqual(0, allocationCount, "An oversized Ogg input must be rejected before native allocation.");
     }
 
+    /// <summary>巨大Wave署名にはVorbis固有の配列上限を流用せずnative確保へ進み、その境界失敗と入力解放を保持する。</summary>
     [TestMethod]
     public void AudioInputFile_DoesNotApplyOggInputLimitToWaveSignature()
     {
@@ -308,6 +309,7 @@ public sealed class AudioSourceLoaderTests
         Assert.AreEqual(1, allocationCount, "A non-Ogg input should reach native allocation without the Vorbis array limit.");
     }
 
+    /// <summary>入力read途中のIO故障を元例外付きInspect失敗として返し、decoder由来の故障へ取り違えない。</summary>
     [TestMethod]
     public void AudioInputFile_MidReadIoFailureKeepsInspectStageAndOriginalException()
     {
@@ -322,6 +324,8 @@ public sealed class AudioSourceLoaderTests
         Assert.AreSame(originalFailure, failure.InnerException);
     }
 
+    /// <summary>署名と復号に同じ一回の入力readを使い、一時decoderの解放失敗ではbuffer所有を残して明示解放後に閉じる。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void LoadWithSession_UsesOneOpenedInputAndRetainsItUntilFatalTemporaryDecoderReleaseFailure()
     {
@@ -357,6 +361,8 @@ public sealed class AudioSourceLoaderTests
         Assert.ThrowsException<ObjectDisposedException>(() => input.OpenReadView());
     }
 
+    /// <summary>入力read中のsession交換では新sessionへ復号せず元session不一致を返し、新sessionにstreamを残さない。</summary>
+    /// <remarks>実NULL_DEVICEのdecodeと入力buffer所有を接続し、復号結果またはnative解放の実保証を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public async Task LoadWithSession_SessionReplacementDuringReadCannotDecodeOnReplacementSession()
     {
@@ -454,6 +460,7 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>共有PCMの有限viewは独立した終端とcursorを持ち、全長viewの末尾サンプルと元PCMを壊さない。</summary>
     [TestMethod]
     public void FloatWaveSourceFiniteViewKeepsSharedPcmAndIndependentEofAndCursor()
     {
@@ -471,6 +478,7 @@ public sealed class AudioSourceLoaderTests
         Assert.AreEqual(0.3f, audio.GetSample(2));
     }
 
+    /// <summary>仮想Waveが元float PCMと外部互換headerを保持し、非整列byte read・独立cursor・EOFを正しく処理する。</summary>
     [TestMethod]
     public void FloatWaveSource_PresentsTheSamePcmWithIndependentByteCursors()
     {
@@ -506,6 +514,7 @@ public sealed class AudioSourceLoaderTests
         }
     }
 
+    /// <summary>Vorbisのspeaker順をWave／BASS順へ並べ替え、channel maskと非整列PCM区間を一致させる。</summary>
     [TestMethod]
     public void FloatWaveSource_ReordersVorbisSamplesToWaveAndBassSpeakerOrder()
     {

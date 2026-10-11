@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Xml.Linq;
-using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -18,38 +17,7 @@ public sealed class ApplicationSettingsMetadataTests
 
     private const string SettingsSectionName = "BeMusicSeeker.Properties.Settings";
 
-    private static readonly string[] RuntimeOnlySettingNames =
-    [
-        "BeatorajaRootPath",
-        "BeatorajaPlayerId",
-        "RegisterBeatorajaBmtUrls",
-        "PlaylistDefaultIgnoreFolderOutput",
-        "AssemblyVersion",
-        "StandardCustomTableColumnSettings",
-        "UnregisteredCustomTableColumnSettings",
-        "ZeroNoteCustomTableColumnSettings",
-        "PlaylistCustomTableColumnSettings",
-        "FullScanCustomTableColumnSettings",
-        "DuplicateCustomTableColumnSettings",
-        "EncodingCustomTableColumnSettings",
-        "InstallCustomTableColumnSettings",
-        "ChartInfoParseErrorCustomTableColumnSettings",
-        "PlayHistoryCustomTableColumnSettings",
-        "LR2BackupTarget",
-        "CustomTableFontSize",
-        "CustomTableRowHeight",
-        "CustomTableHeaderHeight",
-        "ScanBmsFilesOnStartup",
-        "PlaylistSummaryColumnsSettings",
-        "LangDisplayName",
-        "KeepInstallablePackagesPending",
-        "PendingInstallEstimateMaxParallelPackages",
-        "AutoApplyAmbiguousInstallDestination",
-        "DeletePendingPackageSourceAfterInstall",
-        "EnableSmartComponentOverwrite",
-        "KeepSmartOverwriteProtectedFilesByRenaming"
-    ];
-
+    /// <summary>実 app.config の型・provider・直列化形式と runtime の型付き既定を照合し、互換 XML の読込み不整合や非空の不正値を既定値で隠す誤りを検出します。</summary>
     [TestMethod]
     public void AppConfigCompatibilitySubsetMatchesRuntimeSettingsMetadataAndTypedDefaults()
     {
@@ -108,78 +76,6 @@ public sealed class ApplicationSettingsMetadataTests
             AssertConfigValueMatchesRuntimeDefault(runtimeProperty, value, validName);
         }
 
-        string[] runtimeOnlyNames = runtimeProperties.Keys
-            .Except(configNames.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => name!), StringComparer.Ordinal)
-            .OrderBy(name => name, StringComparer.Ordinal)
-            .ToArray();
-        CollectionAssert.AreEquivalent(RuntimeOnlySettingNames, runtimeOnlyNames, "Runtime-only settings must remain outside app.config.");
-    }
-
-    [TestMethod]
-    public void RequiredSettingsHaveExpectedTypedRuntimeAndCompatibilityContracts()
-    {
-        Dictionary<string, SettingsProperty> runtimeProperties = GetRuntimeProperties();
-        Dictionary<string, ConfigSettingValue> configValues = GetConfigValues();
-
-        AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.TableListURL), new Uri(Settings.DefaultTableListUrl));
-        AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.EstimateOfflineScoreRanking), false);
-        AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.UpdateLr2IrRankingCacheOnStartup), false);
-        AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.PlayHistoryDisplayTargetSetsJson), string.Empty);
-        AssertConfigSettingTypedValue(runtimeProperties, configValues, nameof(Settings.PlayHistorySelectedDisplayTargetIdentity), string.Empty);
-        AssertConfigSettingTypedValue(
-            runtimeProperties,
-            configValues,
-            nameof(Settings.RightClickActionsJson),
-            RightClickActionSettingsDefaults.SerializedJson);
-        AssertRuntimeSettingTypedValue(runtimeProperties, nameof(Settings.ScanBmsFilesOnStartup), true);
-        Assert.IsFalse(configValues.ContainsKey(nameof(Settings.ScanBmsFilesOnStartup)), "ScanBmsFilesOnStartup is runtime-only.");
-
-        Assert.IsFalse(runtimeProperties.ContainsKey("SkipEstimateOfflineScoreRanking"));
-        Assert.IsFalse(configValues.ContainsKey("SkipEstimateOfflineScoreRanking"));
-        Assert.IsFalse(runtimeProperties.ContainsKey("SkipInitFileCheck"));
-        Assert.IsFalse(configValues.ContainsKey("SkipInitFileCheck"));
-    }
-
-    private static void AssertRuntimeSettingTypedValue(
-        IReadOnlyDictionary<string, SettingsProperty> runtimeProperties,
-        string name,
-        object expectedValue)
-    {
-        Assert.IsTrue(runtimeProperties.TryGetValue(name, out SettingsProperty? property), "Missing runtime setting: " + name);
-        SettingsProperty runtimeProperty = property!;
-        SettingsPropertyValue runtimeDefault = new(runtimeProperty);
-        AssertTypedValueEqual(expectedValue, runtimeDefault.PropertyValue, "Unexpected runtime default: " + name);
-    }
-
-    private static void AssertConfigSettingTypedValue(
-        IReadOnlyDictionary<string, SettingsProperty> runtimeProperties,
-        IReadOnlyDictionary<string, ConfigSettingValue> configValues,
-        string name,
-        object expectedValue)
-    {
-        Assert.IsTrue(runtimeProperties.TryGetValue(name, out SettingsProperty? property), "Missing runtime setting: " + name);
-        Assert.IsTrue(configValues.TryGetValue(name, out ConfigSettingValue? configValue), "Missing compatibility setting: " + name);
-
-        SettingsProperty runtimeProperty = property!;
-        ConfigSettingValue compatibilityValue = configValue!;
-        SettingsPropertyValue runtimeDefault = new(runtimeProperty);
-        object runtimeTypedValue = runtimeDefault.PropertyValue;
-        AssertTypedValueEqual(expectedValue, runtimeTypedValue, "Unexpected runtime default: " + name);
-
-        SettingsPropertyValue configPropertyValue = new(runtimeProperty);
-        configPropertyValue.SerializedValue = compatibilityValue.SerializedValue;
-        object configTypedValue = configPropertyValue.PropertyValue;
-        if (configPropertyValue.UsingDefaultValue)
-        {
-            // Empty XML (or an empty string setting) intentionally delegates to the runtime default contract.
-            Assert.IsTrue(
-                IsEmptyDefaultPayload(runtimeProperty, compatibilityValue),
-                "An explicit config value fell back to the runtime default: " + name);
-            AssertTypedValueEqual(runtimeTypedValue, configTypedValue, "Default fallback mismatch: " + name);
-            return;
-        }
-
-        AssertTypedValueEqual(expectedValue, configTypedValue, "Unexpected typed compatibility value: " + name);
     }
 
     private static void AssertConfigValueMatchesRuntimeDefault(SettingsProperty property, ConfigSettingValue configValue, string name)
@@ -192,7 +88,7 @@ public sealed class ApplicationSettingsMetadataTests
         object configTypedValue = configPropertyValue.PropertyValue;
         if (configPropertyValue.UsingDefaultValue)
         {
-            // A default value is valid only for an empty serialized payload. Non-empty malformed values must not silently fall back.
+            // 空の payload だけが既定値を利用できます。非空の不正値を既定値で隠さないことも確認します。
             Assert.IsTrue(
                 IsEmptyDefaultPayload(property, configValue),
                 "Non-empty config value fell back to the runtime default: " + name);

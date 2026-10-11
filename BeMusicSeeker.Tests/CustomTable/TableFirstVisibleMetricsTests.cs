@@ -6,12 +6,14 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class TableFirstVisibleMetricsTests
 {
+    /// <summary>可視行100件と50列から可視セル5000件を求めることを確認し、比較ログの作業量を行数だけで報告する誤りを検出します。</summary>
     [TestMethod]
     public void CalculateVisibleCellCount_ReturnsProduct()
     {
         Assert.AreEqual(5000, TableFirstVisibleMetrics.CalculateVisibleCellCount(100, 50));
     }
 
+    /// <summary>行数または列数が未知ならセル数も未知とすることを確認し、未測定をゼロや負の作業量として報告する誤りを検出します。</summary>
     [TestMethod]
     public void CalculateVisibleCellCount_ReturnsMinusOneForUnknown()
     {
@@ -19,6 +21,7 @@ public sealed class TableFirstVisibleMetricsTests
         Assert.AreEqual(-1, TableFirstVisibleMetrics.CalculateVisibleCellCount(100, -1));
     }
 
+    /// <summary>初回表示の時間・世代・可視作業量とキャッシュ率を指定した測定値からログへ出すことを確認し、実測値の取違えや比較に必要な項目の欠落を検出します。</summary>
     [TestMethod]
     public void Format_IncludesComparableFields()
     {
@@ -58,6 +61,7 @@ public sealed class TableFirstVisibleMetricsTests
         StringAssert.Contains(message, "stateLogMs=1");
     }
 
+    /// <summary>準備描画として記録した測定に準備フラグを出すことを確認し、空の準備描画を通常の初回表示と混同する誤りを検出します。</summary>
     [TestMethod]
     public void Format_CanMarkPreparationRender()
     {

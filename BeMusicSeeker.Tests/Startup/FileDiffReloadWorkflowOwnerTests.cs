@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FileDiffReloadWorkflowOwnerTests
 {
+    /// <summary>
+    /// 差分再読込み・LR2反映・playlist再受付の順を保ち、LR2実Taskの終端まで後段を開始せず受付capabilityと要求IDを引き継ぐ。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_SuccessPreservesRequestIdentityAcrossOrderedStages()
     {
@@ -68,6 +71,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.IsNotNull(runtime.LastInitializationResult);
     }
 
+    /// <summary>
+    /// LR2モードが無効なら型付きの未利用結果を返し、LR2へ要求せず同じ操作tokenでplaylist反映へ進む。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_Lr2UnavailableReturnsTypedSkipAndContinuesPlaylistQueue()
     {
@@ -103,6 +109,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         Assert.AreEqual(42L, completedPlaylistRequest.OperationToken);
     }
 
+    /// <summary>
+    /// 差分再読込みが失敗したとき元例外を返し、LR2反映とplaylist再受付を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_ReloadFailureStopsLaterStagesAndPreservesException()
     {
@@ -125,6 +134,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "reload" }, events);
     }
 
+    /// <summary>
+    /// LR2反映が失敗したとき受理capabilityを維持して元例外を返し、playlist再受付を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_Lr2FailureStopsPlaylistAndPreservesException()
     {
@@ -163,6 +175,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// playlist再受付が失敗しても先行する再読込みとLR2反映の順を保ち、元例外を呼出元へ返す。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_PlaylistFailureFollowsPriorStagesAndPreservesException()
     {
@@ -190,6 +205,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "reload", "lr2", "playlist" }, events);
     }
 
+    /// <summary>
+    /// 差分再読込みが取消になれば同じ取消例外を返し、後段のLR2・playlistを開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ReloadAsync_CancellationStopsLaterStagesAndPreservesException()
     {
@@ -214,6 +232,9 @@ public sealed class FileDiffReloadWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "reload" }, events);
     }
 
+    /// <summary>
+    /// 再読込み・LR2・playlistの依存が欠落した構築を拒否し、部分的な処理系を成立させない。
+    /// </summary>
     [TestMethod]
     public void Constructor_RejectsMissingStageDependencies()
     {
@@ -226,12 +247,6 @@ public sealed class FileDiffReloadWorkflowOwnerTests
             () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), null, _ => Task.CompletedTask));
         Assert.ThrowsException<ArgumentNullException>(
             () => new FileDiffReloadWorkflowOwner(_ => Task.FromResult(new LibraryFileInitializationResult()), syncOwner, null));
-    }
-
-    private static async Task<LibraryFileInitializationResult> CompleteAfterGateAsync(Task gate)
-    {
-        await gate;
-        return new();
     }
 
     private static Lr2SongDbSyncWorkflowOwner CreateSyncOwner(
@@ -301,8 +316,4 @@ public sealed class FileDiffReloadWorkflowOwnerTests
 
     }
 
-    private sealed class InitializedStatePort : IMainWindowInitializationStatePort
-    {
-        public bool IsInitializationCompleted => true;
-    }
 }

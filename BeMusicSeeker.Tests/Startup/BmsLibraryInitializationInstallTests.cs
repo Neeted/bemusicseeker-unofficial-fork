@@ -21,6 +21,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationInstallTests
 {
+    /// <summary>
+    /// 保存済みpending packageを起動で復元しても自動推定せず、手動要求では実ライブラリの導入先へ推定できる。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [TestMethod]
     public async Task Initialize_RestoresPendingWithoutAutomaticEstimationAndAllowsManualEstimation()
     {
@@ -114,6 +118,9 @@ public sealed class BmsLibraryInitializationInstallTests
         }
     }
 
+    /// <summary>
+    /// 導入BMSの保存でLR2のfolder・parent hashを生成し、immutable入力を変えず表示folderをdirectory名から復元する。
+    /// </summary>
     [TestMethod]
     public void UpsertSongs_FillsLr2FolderAndParentForInstalledBmsRows()
     {
@@ -151,6 +158,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// CP932不能な導入pathもDBへ保存し、旧入力を書き換えず現在所持集合へpath互換警告を公開する。
+    /// </summary>
     [TestMethod]
     public void UpsertSongs_PreservesShiftJisUnsupportedInstalledBmsRowsWithWarning()
     {
@@ -192,6 +202,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 導入BMSの生成列だけを更新してtitle・hash・日時を反映し、favorite・txt・adddate・tagの利用者指定値を維持する。
+    /// </summary>
     [TestMethod]
     public void UpsertSongs_UpdatesGeneratedColumnsWithoutOverwritingUserSongColumns()
     {
@@ -203,18 +216,21 @@ public sealed class BmsLibraryInitializationInstallTests
             File.WriteAllText(bmsPath, CreateValidBmsText("Updated Title"), Encoding.ASCII);
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                ChartFile existing = ChartTestValues.Empty() with
+                songDbConnection.RunInTransaction(() =>
                 {
-                    Path = bmsPath,
-                    Date = 100,
-                    AddDate = 12345,
-                    Tag = "user-tag"
-                };
-                existing = existing with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                existing = existing with { Favorite = 7 };
-                existing = existing with { Txt = 1 };
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    ChartFile existing = ChartTestValues.Empty() with
+                    {
+                        Path = bmsPath,
+                        Date = 100,
+                        AddDate = 12345,
+                        Tag = "user-tag"
+                    };
+                    existing = existing with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                    existing = existing with { Favorite = 7 };
+                    existing = existing with { Txt = 1 };
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song));
+                });
             }
 
             ChartFile updated = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsPath));
@@ -235,6 +251,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// directoryと単独BMSのpendingを復元して既導入・単独警告を各譜面へ付け、存在しないpackageだけを退役する。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_InitializesPendingWarningsAndCounts()
     {
@@ -253,22 +272,25 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = directoryPackagePath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage
-                {
-                    path = singleFileChartPath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage
-                {
-                    path = Path.Combine(lr2RootPath, "MissingPkg"),
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = directoryPackagePath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = singleFileChartPath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = Path.Combine(lr2RootPath, "MissingPkg"),
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             string installedHash = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(directoryChartPath)).Md5;
@@ -295,9 +317,7 @@ public sealed class BmsLibraryInitializationInstallTests
     }
 
     /// <summary>
-    /// Legacy install rows under registered roots are pruned before publication,
-    /// without deleting physical sources or catalog rows. A later explicit reload
-    /// applies a newly registered root to the entire pending collection.
+    /// 登録root内の旧pendingを公開前に退役し、後のroot追加も反映しながら物理sourceとcatalog行を維持する。
     /// </summary>
     [TestMethod]
     public void ReloadInstallTable_ExcludesRegisteredRootsBeforePendingPublicationAndPreservesSources()
@@ -324,18 +344,21 @@ public sealed class BmsLibraryInitializationInstallTests
             string[] protectedRows = [registeredRoot, nestedDirectory, nestedChartPath, nestedAlias];
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.InsertOrReplace(new LR2SongDB.song
+                songDb.RunInTransaction(() =>
                 {
-                    path = nestedChartPath,
-                    hash = "11111111111111111111111111111111",
-                    title = "Keep catalog"
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.InsertOrReplace(new LR2SongDB.song
+                    {
+                        path = nestedChartPath,
+                        hash = "11111111111111111111111111111111",
+                        title = "Keep catalog"
+                    });
+                    foreach (string sourcePath in protectedRows.Concat(new[] { outsideDirectory, remainingDirectory }))
+                    {
+                        songDb.InsertOrReplace(new ChartPackage { path = sourcePath }, typeof(LR2SongDBExtended.install));
+                    }
                 });
-                foreach (string sourcePath in protectedRows.Concat(new[] { outsideDirectory, remainingDirectory }))
-                {
-                    songDb.InsertOrReplace(new ChartPackage { path = sourcePath }, typeof(LR2SongDBExtended.install));
-                }
             }
             var dbGateway = new BmsLibraryDbGateway(songDbPath);
             var owner = new PackageLifecycleOwner(
@@ -384,6 +407,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 同一正規pathのpendingは先頭を採用し、重複alias・譜面なし・不存在の保存行を除いてDBと公開集合を一致させる。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_CanonicalPathFirstWinsAndStartupCleanupConvergesDatabase()
     {
@@ -403,11 +429,14 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage { path = validPackagePath }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage { path = duplicateAliasPath }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage { path = noChartPackagePath }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage { path = missingPackagePath }, typeof(LR2SongDBExtended.install));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage { path = validPackagePath }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage { path = duplicateAliasPath }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage { path = noChartPackagePath }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage { path = missingPackagePath }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var dbGateway = new BmsLibraryDbGateway(songDbPath);
@@ -449,6 +478,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 非正規aliasだけが残るpendingを正規化してdelete_parentを保ち、case違いの別キーと後続package追加もDB・公開集合で維持する。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_SoleNonCanonicalSurvivorConvergesDatabaseBeforePendingPublication()
     {
@@ -469,20 +501,23 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = rawAliasPath,
-                    delete_parent = true
-                }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage
-                {
-                    path = caseOnlyPackagePath
-                }, typeof(LR2SongDBExtended.install));
-                songDb.InsertOrReplace(new ChartPackage
-                {
-                    path = caseOnlyAliasPath
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = rawAliasPath,
+                        delete_parent = true
+                    }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = caseOnlyPackagePath
+                    }, typeof(LR2SongDBExtended.install));
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = caseOnlyAliasPath
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var dbGateway = new BmsLibraryDbGateway(songDbPath);
@@ -552,6 +587,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// pending DBを開けない場合は元のSQLite失敗を伝播し、空の復元結果へ読み替えない。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_DatabaseFailureIsPropagated()
     {
@@ -561,6 +599,9 @@ public sealed class BmsLibraryInitializationInstallTests
         Assert.ThrowsException<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath), []));
     }
 
+    /// <summary>
+    /// bmsonの既導入判定を各entryに反映し、未一致entryもBMS互換adapterを作らずに維持する。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
     {
@@ -575,12 +616,15 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = directoryPackagePath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = directoryPackagePath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -600,6 +644,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// bmsonのWAV不足を復元時に警告し、BMS互換adapterの生成を前提にしない。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_AddsBmsonResourceWarningWithoutMaterializingCompatibilityAdapter()
     {
@@ -613,12 +660,15 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = directoryPackagePath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = directoryPackagePath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -637,6 +687,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 同一pending内のWAV不足と正常bmsonへそれぞれのhealth・警告を投影し、一件目だけの結果を共有しない。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_ProjectsResourceHealthForAllPackageEntries()
     {
@@ -653,12 +706,15 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = directoryPackagePath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = directoryPackagePath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -678,6 +734,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// pendingのnested BMSも復元してnested・WAV不足の両警告を残し、表示digestとtooltipへ優先順で接続する。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_RestoresNestedChartsAndPrioritizesNestedWarning()
     {
@@ -692,12 +751,15 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = directoryPackagePath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = directoryPackagePath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -717,7 +779,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    /// <summary>通常カタログloadから限定読取へ検出保証を移し、過去の閏年も候補の保存行・mtimeとして捕捉します。</summary>
+    /// <summary>
+    /// 過去の閏日の異常folderを修復候補として捕捉し、捕捉段階では物理日時を変更しない。
+    /// </summary>
     [TestMethod]
     public void LeapYearCandidateCapture_DetectsFolderTimestampInAnyLeapYear()
     {
@@ -730,18 +794,21 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "LeapYearFolder",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "LeapYearFolder",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var fileMutationService = new RecordingFileMutationService();
@@ -756,6 +823,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 承認済みで日時が変わらないfolderを修復して実日時を更新した後にDBの異常日時列を退役する。
+    /// </summary>
     [TestMethod]
     public void LeapYearFolderRepair_RevalidatesApprovedCandidateAndPersistsAfterTimestampMutation()
     {
@@ -768,17 +838,20 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "LeapYearRepair",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "LeapYearRepair",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -810,6 +883,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 候補捕捉後に日時が別の対象日時へ変わったfolderには修復を適用せず、旧保存状態も変更しない。
+    /// </summary>
     [TestMethod]
     public void LeapYearFolderRepair_SkipsCandidateWhenTimestampChangesAfterCapture()
     {
@@ -822,26 +898,27 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "LeapYearReplacement",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "LeapYearReplacement",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
             IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(songDbPath), out _);
             Assert.AreEqual(1, candidates.Count);
 
-            // March 1 is still inside the legacy leap-year sentinel window,
-            // so checking only the current predicate would incorrectly repair
-            // this replacement.
+            // 3月1日も旧不具合の対象範囲なので、現在日時の条件だけでは置換後のfolderを誤修復する。
             Directory.SetLastWriteTime(folderPath, new DateTime(2024, 3, 1, 12, 0, 0));
             var fileMutationService = new RecordingFileMutationService();
             LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
@@ -861,6 +938,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 日時変更serviceがない修復は対象path付き失敗を返し、DBだけを修復済みに更新しない。
+    /// </summary>
     [TestMethod]
     public void LeapYearFolderRepair_MissingMutationServiceFailsWithoutPersistingCatalogUpdate()
     {
@@ -873,17 +953,20 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "LeapYearMissingMutationService",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "LeapYearMissingMutationService",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -906,6 +989,10 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 修復確認中にcatalogの候補識別が変わると起動で日時変更を行わず、置換後の保存行を維持する。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [TestMethod]
     public void Initialize_SkipsApprovedLeapYearFolderWhenCatalogIdentityChangesBeforeAdmission()
     {
@@ -918,17 +1005,20 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "PublicReplacement",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "PublicReplacement",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var dialogService = new RecordingDialogService
@@ -966,12 +1056,15 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 起動と全再初期化で両受付中に安定候補だけを修復し、受付解放後の通知再入を許し、確認中の終了では物理・DBを変更しない。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [DataTestMethod]
-    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, false)]
-    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, false)]
-    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, true)]
-    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, true)]
-    /// <summary>公開起動・全再初期化の修復と通知再入を保ち、確認内の終了では日時・保存行を変えずBusy通知も追加しません。</summary>
+    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, false)] // 通常起動で修復
+    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, false)] // 全再初期化で修復
+    [DataRow(BMSLibrary.LibraryInitializeMode.Startup, true)] // 通常起動の確認中に終了
+    [DataRow(BMSLibrary.LibraryInitializeMode.FullReinitialize, true)] // 全再初期化の確認中に終了
     public void Initialize_RepairsStableLeapYearFolderBeforeDeferredDialogAndAllowsReentry(BMSLibrary.LibraryInitializeMode mode, bool shutdownDuringConfirmation)
     {
 
@@ -983,17 +1076,20 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "PublicStable",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "PublicStable",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var dialogService = new RecordingDialogService
@@ -1067,6 +1163,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
+    /// <summary>
+    /// 単独bmsonとして保存されたpendingには形式に対応した単独警告を公開する。
+    /// </summary>
     [TestMethod]
     public void LoadInstallTable_AssignsBmsonSingleFileWarning()
     {
@@ -1080,12 +1179,15 @@ public sealed class BmsLibraryInitializationInstallTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDBExtended.install>();
-                songDb.InsertOrReplace(new ChartPackage
+                songDb.RunInTransaction(() =>
                 {
-                    path = singleFileChartPath,
-                    delete_parent = false
-                }, typeof(LR2SongDBExtended.install));
+                    songDb.CreateTable<LR2SongDBExtended.install>();
+                    songDb.InsertOrReplace(new ChartPackage
+                    {
+                        path = singleFileChartPath,
+                        delete_parent = false
+                    }, typeof(LR2SongDBExtended.install));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -1100,7 +1202,9 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    /// <summary>song表もschemaもないDBを使い、folder限定の読取りとDB/物理日時の非変更を区別します。</summary>
+    /// <summary>
+    /// 対象folderの条件だけを読取り候補を限定し、検査中のDB・実日時・schemaを変えず不存在DBも作らない。
+    /// </summary>
     [TestMethod]
     public void LeapYearCandidateCapture_ReadsOnlyEligibleFoldersAndDoesNotCreateDatabaseOrSchema()
     {
@@ -1112,13 +1216,16 @@ public sealed class BmsLibraryInitializationInstallTests
             Directory.SetLastWriteTime(folder, sentinel);
             using (var db = new LR2SongDBExtended(dbPath))
             {
-                db.CreateTable<LR2SongDB.folder>();
-                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = -1, adddate = 0, title = "eligible" });
-                db.Insert(new LR2SongDB.folder { path = folder, type = 1, date = null, adddate = -1, title = "abnormal adddate" });
-                db.Insert(new LR2SongDB.folder { path = "Songs\\Candidate", type = 1, date = null, adddate = 0, title = "relative" });
-                db.Insert(new LR2SongDB.folder { path = folder + "\\.", type = 2, date = null, adddate = 0, title = "other type" });
-                db.Insert(new LR2SongDB.folder { path = Path.Combine(lr2Root, "missing"), type = 1, date = null, adddate = 0, title = "missing" });
-                db.Insert(new LR2SongDB.folder { path = folder + "\\..\\Candidate", type = 1, date = 123, adddate = 0, title = "ordinary date" });
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = -1, adddate = 0, title = "eligible" });
+                    db.Insert(new LR2SongDB.folder { path = folder, type = 1, date = null, adddate = -1, title = "abnormal adddate" });
+                    db.Insert(new LR2SongDB.folder { path = "Songs\\Candidate", type = 1, date = null, adddate = 0, title = "relative" });
+                    db.Insert(new LR2SongDB.folder { path = folder + "\\.", type = 2, date = null, adddate = 0, title = "other type" });
+                    db.Insert(new LR2SongDB.folder { path = Path.Combine(lr2Root, "missing"), type = 1, date = null, adddate = 0, title = "missing" });
+                    db.Insert(new LR2SongDB.folder { path = folder + "\\..\\Candidate", type = 1, date = 123, adddate = 0, title = "ordinary date" });
+                });
             }
             byte[] saved = File.ReadAllBytes(dbPath);
             var service = new BmsLibraryInitializationService();
@@ -1140,7 +1247,10 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    /// <summary>Noと閉じた確認は非承認として初期化を継続し、元の日時・保存列と検出警告を保持します。</summary>
+    /// <summary>
+    /// No・Cancel・未選択の修復確認は非承認として続行し、日時と保存列を保って両受付解放後に検出警告を通知する。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [DataTestMethod]
     [DataRow((int)MessageBoxResult.No)]
     [DataRow((int)MessageBoxResult.Cancel)]
@@ -1155,9 +1265,12 @@ public sealed class BmsLibraryInitializationInstallTests
             Directory.SetLastWriteTime(folder, sentinel);
             using (var db = new LR2SongDBExtended(dbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                db.CreateTable<LR2SongDB.folder>();
-                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = "declined" });
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = "declined" });
+                });
             }
             var dialogs = new RecordingDialogService { ResultToReturn = (MessageBoxResult)choice };
             var mutation = new RecordingFileMutationService();
@@ -1178,7 +1291,10 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    /// <summary>一部失敗では兄弟成功を保持し、全失敗では検出だけを成功警告へ変えず、受付外で元対象・原因を通知します。</summary>
+    /// <summary>
+    /// 一部と全件の日時修復失敗を区別し、成功対象だけを保存して元対象・原因を両受付解放後に通知する。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1192,9 +1308,12 @@ public sealed class BmsLibraryInitializationInstallTests
             foreach (string folder in new[] { first, second }) { Directory.CreateDirectory(folder); Directory.SetLastWriteTime(folder, sentinel); }
             using (var db = new LR2SongDBExtended(dbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                db.CreateTable<LR2SongDB.folder>();
-                foreach (string folder in new[] { first, second }) { db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = folder }); }
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    foreach (string folder in new[] { first, second }) { db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = folder }); }
+                });
             }
             var original = new IOException("partial repair failure");
             var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
@@ -1228,7 +1347,10 @@ public sealed class BmsLibraryInitializationInstallTests
         });
     }
 
-    /// <summary>実修復後の通常DB読込みが失敗しても、保存済み補正と受付外警告を保持し、元の失敗を伝播します。</summary>
+    /// <summary>
+    /// 日時修復後のcatalog読込みが失敗しても修復の確定と警告を保ち、元のSQLite失敗を成功初期化へ読み替えない。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・DB・物理入力・通知を接続し、処理段階を跨ぐ確定と受付の保証を確認する。</remarks>
     [TestMethod]
     public void Initialize_LeapYearRepairFollowedByCatalogFailureRetainsRepairAndDoesNotBecomeSuccess()
     {
@@ -1240,9 +1362,12 @@ public sealed class BmsLibraryInitializationInstallTests
             Directory.SetLastWriteTime(folder, sentinel);
             using (var db = new LR2SongDBExtended(dbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                db.CreateTable<LR2SongDB.folder>();
-                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0 });
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0 });
+                });
             }
             var dialogs = new RecordingDialogService { ResultToReturn = MessageBoxResult.Yes };
             var mutation = new RecordingFileMutationService();

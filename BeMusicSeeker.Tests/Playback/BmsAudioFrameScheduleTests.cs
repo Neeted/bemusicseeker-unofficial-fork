@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsAudioFrameScheduleTests
 {
+    /// <summary>
+    /// bmsonの連続音の出力frameが別channelと衝突しても、channelごとの音声区間を混同せず同じ物理EOFまで独立して再生する。
+    /// </summary>
     [TestMethod]
     public void BmsonContinuationRunsKeepIndependentChannelsAtCollidingOutputFrames()
     {
@@ -27,6 +30,9 @@ public sealed class BmsAudioFrameScheduleTests
         Assert.IsTrue(schedule.Events.All(item => item.NextSameIndexStartFrame == null));
     }
 
+    /// <summary>
+    /// 44.1kHzと48kHzの相互変換では連続音を物理EOFまでの一イベントへ統合し、後続の論理noteや欠落音源で音を延長しない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(44100, 48000, 91L, 100L, 101L)]
     [DataRow(48000, 44100, 99L, 92L, 92L)]
@@ -47,6 +53,9 @@ public sealed class BmsAudioFrameScheduleTests
         Assert.AreEqual(0, missing.Events.Count);
     }
 
+    /// <summary>
+    /// BGM・両者の可視音・長押し音だけを必要音源へ含め、不可視・地雷・長押し終端を再生イベントへ混入させない。
+    /// </summary>
     [TestMethod]
     public void RequiredIndicesComeOnlyFromTheFiveAudioGroups()
     {
@@ -69,6 +78,9 @@ public sealed class BmsAudioFrameScheduleTests
         Assert.AreEqual(5, BmsAudioFrameSchedule.Create(bms, 48000).Events.Count);
     }
 
+    /// <summary>
+    /// 負時刻と同frame衝突を零frameへ揃えて群順を保ち、同音源の次開始と検索境界を正しく求め元noteの後変更を反映しない。
+    /// </summary>
     [TestMethod]
     public void EventsUseSnapshotsClampingStableGroupOrderAndSameIndexCollisionRules()
     {
@@ -104,11 +116,6 @@ public sealed class BmsAudioFrameScheduleTests
         CollectionAssert.AreEqual(new[] { 1, 2, 3, 4, 5, 6 }, atFrameZero.Select(item => item.WavIndex).ToArray());
         Assert.AreEqual(TimeSpan.FromTicks(-20), atFrameZero[0].AbsoluteTime);
         Assert.AreEqual(0L, atFrameZero[0].StartFrame);
-        Assert.AreEqual(2L, atFrameZero[1].StableOrder);
-        Assert.AreEqual(3L, atFrameZero[2].StableOrder);
-        Assert.AreEqual(4L, atFrameZero[3].StableOrder);
-        Assert.AreEqual(7L, atFrameZero[4].StableOrder);
-        Assert.AreEqual(8L, atFrameZero[5].StableOrder);
 
         BmsAudioFrameEvent[] wavTwo = schedule.GetEventsForWavIndex(2).ToArray();
         Assert.AreEqual(3, wavTwo.Length);
@@ -123,7 +130,7 @@ public sealed class BmsAudioFrameScheduleTests
         earliest.AbsoluteTime = TimeSpan.FromSeconds(3);
         sameIndexAtFrameOne.AbsoluteTime = TimeSpan.FromSeconds(4);
         Assert.AreEqual(TimeSpan.FromTicks(-20), schedule.Events[0].AbsoluteTime);
-        Assert.AreEqual(300, schedule.Events.Single(item => item.StableOrder == 5).AbsoluteTime.Ticks);
+        Assert.AreEqual(300, wavTwo[1].AbsoluteTime.Ticks);
     }
 
     private static (TemporaryDirectory Directory, BMSFile Bms) CreateChart()

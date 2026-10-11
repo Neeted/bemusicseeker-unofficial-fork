@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.Globalization;
@@ -20,11 +19,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>設定 draft の検証・保存・適用と、後続処理への配送を検証します。</summary>
+/// <remarks>実 XML／LR2 config の失敗と境界差替えを併用し、保存済み値と draft の分離を確認します。実 Window は presentation、実 mode 保存と終了の構成接続は Admission／Shell が分担します。取消・Reset・適用が共有 theme／culture を変更するケースは非並列です。</remarks>
 [TestClass]
 public sealed class SettingsDialogBehaviorTests
 {
-    // P07/P08d-S: real user-config failure, separate user Cancel and user retry paths.
+    /// <summary>実 XML の置換失敗後も draft と実行値／元 XML を保ち、取消では saved 値へ戻し、明示再保存では変更と捕捉位置を保存することを確認します。</summary>
     [DataTestMethod]
+    // 保存失敗後の利用者取消と明示再保存を分ける。
     [DataRow(true)]
     [DataRow(false)]
     [DoNotParallelize]
@@ -119,8 +121,9 @@ public sealed class SettingsDialogBehaviorTests
         CollectionAssert.Contains(presentation.Requests, "close");
     }
 
-    // P08c: same provider core atomically saves the subset; failed publication retains drafts.
+    /// <summary>mode 最小保存の置換失敗では draft と XML を保ち、成功では mode／履歴選択／捕捉位置を保存して無関係 draft を混入させないことを確認します。</summary>
     [DataTestMethod]
+    // 実ファイルの置換拒否と同じ保存要求の成功を比較する。
     [DataRow(true)]
     [DataRow(false)]
     public void ModeOnlyPersistencePreservesUnrelatedDraftOnFailureAndRuntimePlacementOnSuccess(bool fail)
@@ -157,6 +160,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(capture), settings.LR2bodyWindowPlacement);
     }
 
+    /// <summary>user.config 保存後の LR2 config 失敗を部分保存として報告し、既保存 XML を巻き戻さず draft を残して検索対象適用を始めないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void Lr2SaveFailureReportsAlreadySavedUserConfigurationWithoutRollback()
@@ -222,7 +226,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(path).ScanBmsFilesOnStartup);
     }
 
-    // P08c: a persistence failure must not enter the actual restart-failure shutdown route.
+    /// <summary>mode 保存が失敗した場合は元 mode と他の draft を保ち、再起動・終了・画面 close を開始せず失敗を一回報告することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void OperationModeSaveFailureKeepsActiveModeAndOtherDraftsWithoutShutdown()
@@ -256,7 +260,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.AreEqual(1, failures.Count);
     }
 
-    // P08d-S: normal Save must flush captured placement even when there are no dialog edits.
+    /// <summary>項目が未編集でも実行中に捕捉した位置を一回保存して画面を閉じ、再読込みした XML の位置が更新されることを確認します。</summary>
     [TestMethod]
     public async Task NormalSaveWithoutDialogEditsPersistsCapturedPlacement()
     {
@@ -285,6 +289,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.AreEqual(Win32WindowPlacementAdapter.ToNative(captured), PortableSettingsPersistenceTests.OpenSettings(path).LR2bodyWindowPlacement);
     }
 
+    /// <summary>null の URL draft は getter で既定 URL として読めても draft を書き換えず、保存や変更判定を発生させないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void TableListUrlGetterUsesCurrentDefaultWithoutMutatingInvalidDraft()
@@ -304,6 +309,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsFalse(harness.Dialog.HasPendingSettingChanges());
     }
 
+    /// <summary>右クリック設定の既定復元は編集器だけへ反映し、取消では元 JSON を保ち、明示保存でだけ復元 JSON を確定することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void RightClickRestoreDefaultsIsDraftOnlyUntilSave()
@@ -353,6 +359,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>ファイル引数を欠く外部プログラム編集は保存を拒否し、引数を修正した明示保存でだけ JSON を確定して dirty を解除することを確認します。</summary>
     [TestMethod]
     public async Task InvalidProgramDraftBlocksSaveUntilItsFieldsAreCorrected()
     {
@@ -377,6 +384,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsFalse(harness.Dialog.RightClickActionSettingsEditor.IsDirty);
     }
 
+    /// <summary>未稼働では mode を draft に留め、稼働中は確認後の要求へ配送します。取消と要求失敗では元 mode を保ち、報告 callback の有無で通知経路を選ぶことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingDialogOperationModeChange_ConfirmsAndRoutesThroughShellRequest()
@@ -489,6 +497,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>standalone は設定、LR2 は config の保存を先行させ、検索対象適用→差分再読込み→LR2 同期の順で追加 root を配送することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task SearchRootChanges_UpdateRuntimeSearchTargetsBeforeFileDiffReload()
@@ -586,6 +595,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>standalone 保存・検索対象適用・LR2 config 保存の各失敗を呼出元へ返し、失敗した段階より後の適用／再読込みを始めないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task SearchRootChanges_SaveAndApplyFailuresDoNotReload()
@@ -677,6 +687,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>config を一時書換えする preview の前後で検索 root を保存し、preview 中に生成した draft が元の表示・音量値と両方の追加 root を保持することを確認します。</summary>
     [TestMethod]
     public async Task Lr2SettingsDraftCreatedDuringPreviewRemainsSavedAfterPreviewEnds()
     {
@@ -771,6 +782,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>差分再読込み失敗では同期を呼ばず、同期失敗も元例外で返して file reload pending を残し、後段へ成功扱いで進まないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task SearchRootChanges_ReloadAndLr2SyncFailuresPropagateWithoutLaterQueue()
@@ -846,6 +858,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>standalone でも利用者が LR2body を選べば指定実行ファイルの player を生成し、ライブラリ mode を理由に既定 player へ置き換えないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void Lr2PlaybackPlayer_IsIndependentFromLibraryOperationMode()
@@ -881,6 +894,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>standalone でも LR2body 実行ファイル／root が不正なら設定エラーを示し、保存・player 作成・反映を始めないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandaloneLr2bodyValidationRejectsInvalidExecutableAndConfigBeforeApply()
@@ -918,6 +932,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>選択済み LR2 config の XML が壊れていれば選択と draft を保って config エラーを示し、保存や player 作成へ進まないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandaloneLr2bodyValidationRejectsMalformedExistingConfigBeforeApply()
@@ -960,7 +975,9 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>両 mode で出力先と導入先を参照しても利用者の保存パスを消去せず、保存や再読込み pending を発生させないことを確認します。</summary>
     [DataTestMethod]
+    // mode で参照対象から外れる値も、保存済みなら消去しない。
     [DataRow(false)]
     [DataRow(true)]
     [DoNotParallelize]
@@ -982,8 +999,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.AreEqual(@"C:\settings-behavior\custom-root-output", dialog.LR2CustomFolderAsRootOutputDir);
         Assert.AreEqual(@"C:\settings-behavior\install", dialog.BMSInstallDir);
 
-        // A validation-oriented read may not rewrite the session, even when the
-        // selected operation mode does not use one of these paths.
+        // 選択中 mode で未使用のパスも、検証向け参照を理由に保存値を消さない。
         _ = dialog.LR2CustomFolderOutputDir;
         _ = dialog.LR2CustomFolderAsRootOutputDir;
         _ = dialog.BMSInstallDir;
@@ -997,145 +1013,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsFalse(dialog.HasPendingSettingChanges());
     }
 
-    [TestMethod]
-    [DoNotParallelize]
-    public void SettingDialogOperationModeRestartSave_SavesOnlyOperationMode()
-    {
-        using TemporaryDirectory beatorajaFixture = new("settings-restart-beatoraja");
-        string persistedBeatorajaRoot = beatorajaFixture.Path;
-        const string persistedBeatorajaPlayer = "persisted-player";
-        string persistedBeatorajaScoreDb = Path.Combine(
-            persistedBeatorajaRoot,
-            "player",
-            persistedBeatorajaPlayer,
-            "score.db");
-        Directory.CreateDirectory(Path.GetDirectoryName(persistedBeatorajaScoreDb)!);
-        File.WriteAllText(Path.Combine(persistedBeatorajaRoot, "beatoraja.jar"), string.Empty);
-        File.WriteAllText(Path.Combine(persistedBeatorajaRoot, "config_sys.json"), "{}");
-        File.WriteAllText(persistedBeatorajaScoreDb, string.Empty);
-
-        const string persistedBmsRoot = @"C:\settings-behavior\persisted-bms-root";
-        string persistedStandaloneRoots = string.Join(
-            Environment.NewLine,
-            @"C:\settings-behavior\persisted-bms-root",
-            @"C:\settings-behavior\persisted-bms-root-2");
-        const string persistedInstallDirectory = @"C:\settings-behavior\persisted-install";
-        const string persistedCustomOutput = @"C:\settings-behavior\persisted-custom-output";
-        const string persistedCustomRootOutput = @"C:\settings-behavior\persisted-custom-root-output";
-        const string persistedAdditionalOutput = @"C:\settings-behavior\persisted-additional-output";
-        const string persistedLr2Root = @"C:\settings-behavior\persisted-lr2-root";
-        const string persistedSongDb = @"C:\settings-behavior\persisted-song.db";
-        const string persistedConfig = @"C:\settings-behavior\persisted-config.xml";
-        const string persistedFolderNameFormat = "persisted-%TITLE%";
-        Uri persistedTableListUrl = new("http://127.0.0.1:2/persisted-table.json");
-
-        Settings persisted = CreateStandaloneSettings(
-            root: persistedBmsRoot,
-            installDirectory: persistedInstallDirectory);
-        persisted.OperationModeLR2DB = false;
-        persisted.BMSRootPath = persistedBmsRoot;
-        persisted.StandaloneBmsRootPaths = persistedStandaloneRoots;
-        persisted.BMSInstallDir = persistedInstallDirectory;
-        persisted.LR2CustomFolderOutputBaseDir = persistedCustomOutput;
-        persisted.LR2CustomFolderOutputBaseDirRootType = persistedCustomRootOutput;
-        persisted.LR2CustomFolderAdditionalOutputBaseDirs = persistedAdditionalOutput;
-        persisted.LR2RootPath = persistedLr2Root;
-        persisted.LR2SongDBPath = persistedSongDb;
-        persisted.LR2ConfigXmlPath = persistedConfig;
-        persisted.BeatorajaRootPath = persistedBeatorajaRoot;
-        persisted.BeatorajaPlayerId = persistedBeatorajaPlayer;
-        persisted.BeatorajaScoreDbPath = persistedBeatorajaScoreDb;
-        persisted.UseBeatorajaScoreDb = false;
-        persisted.EnableBeatorajaBmtOutput = false;
-        persisted.FolderNameFormat = persistedFolderNameFormat;
-        persisted.TableListURL = persistedTableListUrl;
-        persisted.PlayHistorySelectedDisplayTargetIdentity = "saved-identity";
-
-        Settings draft = CreateStandaloneSettings(
-            root: @"C:\settings-behavior\draft-bms-root",
-            installDirectory: @"C:\settings-behavior\draft-install");
-        draft.OperationModeLR2DB = false;
-        draft.BMSRootPath = @"C:\settings-behavior\draft-bms-root";
-        draft.StandaloneBmsRootPaths = string.Join(
-            Environment.NewLine,
-            @"C:\settings-behavior\draft-bms-root",
-            @"C:\settings-behavior\draft-bms-root-2");
-        draft.BMSInstallDir = @"C:\settings-behavior\draft-install";
-        draft.LR2CustomFolderOutputBaseDir = @"C:\settings-behavior\draft-custom-output";
-        draft.LR2CustomFolderOutputBaseDirRootType = @"C:\settings-behavior\draft-custom-root-output";
-        draft.LR2CustomFolderAdditionalOutputBaseDirs = @"C:\settings-behavior\draft-additional-output";
-        draft.LR2RootPath = @"C:\settings-behavior\draft-lr2-root";
-        draft.LR2SongDBPath = @"C:\settings-behavior\draft-song.db";
-        draft.LR2ConfigXmlPath = @"C:\settings-behavior\draft-config.xml";
-        draft.BeatorajaRootPath = @"C:\settings-behavior\draft-beatoraja";
-        draft.BeatorajaPlayerId = "draft-player";
-        draft.BeatorajaScoreDbPath = @"C:\settings-behavior\draft-score.db";
-        draft.UseBeatorajaScoreDb = true;
-        draft.EnableBeatorajaBmtOutput = true;
-        draft.FolderNameFormat = "draft-%TITLE%";
-        draft.TableListURL = new Uri("http://127.0.0.1:3/draft-table.json");
-        draft.PlayHistorySelectedDisplayTargetIdentity = "current-identity";
-
-        using var harness = SettingsDialogHarness.Create(
-            persisted,
-            session: new RecordingSettingsEditSession(persisted, draft));
-        var persistedSnapshot = SettingsSemanticSnapshot.Capture(harness.Session.Values);
-        harness.Session.SetDraft(draft);
-        harness.Session.ClearCalls();
-        harness.RuntimeCalls.BeginCapture();
-
-        harness.Dialog.SaveOperationModeForRestart(operationMode: true);
-
-        CollectionAssert.AreEqual(new[] { "save", "reload" }, harness.Session.Calls);
-        Assert.AreEqual(0, harness.RuntimeCalls.Calls.Count);
-        Assert.AreEqual(1, harness.Session.SaveCount);
-        Assert.AreEqual(1, harness.Session.ReloadCount);
-        Assert.IsTrue(harness.Session.Values.OperationModeLR2DB);
-        Assert.AreEqual(persistedBmsRoot, harness.Session.Values.BMSRootPath);
-        Assert.AreEqual(persistedStandaloneRoots, harness.Session.Values.StandaloneBmsRootPaths);
-        Assert.AreEqual(persistedInstallDirectory, harness.Session.Values.BMSInstallDir);
-        Assert.AreEqual(persistedCustomOutput, harness.Session.Values.LR2CustomFolderOutputBaseDir);
-        Assert.AreEqual(persistedCustomRootOutput, harness.Session.Values.LR2CustomFolderOutputBaseDirRootType);
-        Assert.AreEqual(persistedAdditionalOutput, harness.Session.Values.LR2CustomFolderAdditionalOutputBaseDirs);
-        Assert.AreEqual(persistedLr2Root, harness.Session.Values.LR2RootPath);
-        Assert.AreEqual(persistedSongDb, harness.Session.Values.LR2SongDBPath);
-        Assert.AreEqual(persistedConfig, harness.Session.Values.LR2ConfigXmlPath);
-        Assert.AreEqual(persistedBeatorajaRoot, harness.Session.Values.BeatorajaRootPath);
-        Assert.AreEqual(persistedBeatorajaPlayer, harness.Session.Values.BeatorajaPlayerId);
-        Assert.AreEqual(persistedBeatorajaScoreDb, harness.Session.Values.BeatorajaScoreDbPath);
-        Assert.IsFalse(harness.Session.Values.UseBeatorajaScoreDb);
-        Assert.IsFalse(harness.Session.Values.EnableBeatorajaBmtOutput);
-        Assert.AreEqual(persistedFolderNameFormat, harness.Session.Values.FolderNameFormat);
-        Assert.AreEqual(persistedTableListUrl, harness.Session.Values.TableListURL);
-        Assert.AreEqual("current-identity", harness.Session.Values.PlayHistorySelectedDisplayTargetIdentity);
-        Assert.AreEqual(0, harness.State.InitializeCount);
-        Assert.AreEqual(0, harness.State.ScoreReloadCount);
-        Assert.AreEqual(0, harness.State.FileDiffReloadCount);
-        Assert.AreEqual(0, harness.Lifetime.RestartCount);
-        Assert.AreEqual(0, harness.Dialogs.MessageCount);
-        Assert.AreEqual(0, harness.Dialogs.ConfirmationCount);
-
-        Assert.IsNotNull(harness.Session.SaveSnapshot);
-        SettingsSemanticSnapshot saveSnapshot = harness.Session.SaveSnapshot!;
-        CollectionAssert.AreEquivalent(
-            new[]
-            {
-                nameof(Settings.OperationModeLR2DB),
-                nameof(Settings.PlayHistorySelectedDisplayTargetIdentity)
-            },
-            saveSnapshot.GetDifferingPropertyNames(persistedSnapshot).ToArray(),
-            "Unexpected save-time differences: "
-                + string.Join(", ", saveSnapshot.GetDifferingPropertyNames(persistedSnapshot)));
-        saveSnapshot.AssertSemanticallyEqualExcept(
-            persistedSnapshot,
-            nameof(Settings.OperationModeLR2DB),
-            nameof(Settings.PlayHistorySelectedDisplayTargetIdentity));
-        saveSnapshot.AssertPropertySemanticValue(nameof(Settings.OperationModeLR2DB), true);
-        saveSnapshot.AssertPropertySemanticValue(
-            nameof(Settings.PlayHistorySelectedDisplayTargetIdentity),
-            "current-identity");
-    }
-
+    /// <summary>mode／score／検索 root／LR2 DB／出力先の変更で必要な再読込みだけを選び、Reset と保存後の解除、score 失敗後の再試行が再保存なしで完了することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingDialogReloadDecision_UsesExplicitSettingDiffs()
@@ -1311,6 +1189,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>両 mode で導入先が空なら導入先エラーを示し、有効な導入先を選ぶと他のエラーを残さず検証を通すことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingDialogValidation_RequiresInstallDestinationInAllOperationModes()
@@ -1354,6 +1233,7 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
+    /// <summary>beatoraja root と player が有効でも score DB が欠ければ DB エラーを返し、root 不正と誤案内しないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void BeatorajaScoreDbValidationUsesScoreDbErrorWhenRootAndPlayerAreValid()
@@ -1382,6 +1262,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsFalse(error.Contains(Resources.Error_InvalidBeatorajaRootPath, StringComparison.Ordinal));
     }
 
+    /// <summary>standalone root 一覧が空ならその設定の翻訳済みエラーを返し、無関係な beatoraja エラーを出さないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void StandaloneValidationReportsLocalizedRootErrorForEmptyRootList()
@@ -1398,6 +1279,7 @@ public sealed class SettingsDialogBehaviorTests
         Assert.IsFalse(error.Contains(Resources.Error_InvalidBeatorajaRootPath, StringComparison.Ordinal));
     }
 
+    /// <summary>大小文字・末尾区切りの重複だけを除き親子 root と追加導入先を残して draft 選択へ反映し、旧単一 root の保存値を変更しないことを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void StandaloneRootNormalization_PreservesExistingRootsWhenAddingInstallDestination()
@@ -1568,151 +1450,6 @@ public sealed class SettingsDialogBehaviorTests
         }
     }
 
-    private sealed class SettingsSemanticSnapshot
-    {
-        private readonly IReadOnlyDictionary<string, string> values;
-
-        private SettingsSemanticSnapshot(IReadOnlyDictionary<string, string> values)
-        {
-            this.values = values;
-        }
-
-        internal static SettingsSemanticSnapshot Capture(Settings settings)
-        {
-            var values = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (SettingsProperty property in settings.Properties)
-            {
-                if (property.Attributes[typeof(UserScopedSettingAttribute)] is null)
-                {
-                    continue;
-                }
-
-                _ = settings[property.Name];
-                SettingsPropertyValue propertyValue = settings.PropertyValues[property.Name];
-                object? serializedValue = propertyValue?.SerializedValue;
-                values.Add(property.Name, Canonicalize(serializedValue ?? propertyValue?.PropertyValue));
-            }
-
-            return new SettingsSemanticSnapshot(
-                new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(values));
-        }
-
-        internal IEnumerable<string> GetDifferingPropertyNames(SettingsSemanticSnapshot other)
-        {
-            ArgumentNullException.ThrowIfNull(other);
-            return values.Keys
-                .Union(other.values.Keys, StringComparer.Ordinal)
-                .Where(propertyName => !values.TryGetValue(propertyName, out string? value)
-                    || !other.values.TryGetValue(propertyName, out string? otherValue)
-                    || !string.Equals(value, otherValue, StringComparison.Ordinal))
-                .OrderBy(propertyName => propertyName, StringComparer.Ordinal);
-        }
-
-        internal void AssertSemanticallyEqualExcept(SettingsSemanticSnapshot expected, params string[] excludedPropertyNames)
-        {
-            ArgumentNullException.ThrowIfNull(expected);
-            HashSet<string> excluded = new(excludedPropertyNames, StringComparer.Ordinal);
-            CollectionAssert.AreEquivalent(expected.values.Keys.ToArray(), values.Keys.ToArray());
-            foreach (string propertyName in values.Keys)
-            {
-                if (excluded.Contains(propertyName))
-                {
-                    continue;
-                }
-
-                Assert.AreEqual(
-                    expected.values[propertyName],
-                    values[propertyName],
-                    "Unexpected save-time change for user-scoped setting " + propertyName);
-            }
-        }
-
-        internal void AssertPropertySemanticValue(string propertyName, object expectedValue)
-        {
-            Assert.IsTrue(values.TryGetValue(propertyName, out string? actualValue), propertyName);
-            Assert.AreEqual(Canonicalize(expectedValue), actualValue, propertyName);
-        }
-
-        private static string Canonicalize(object? value)
-        {
-            if (value is null)
-            {
-                return "<null>";
-            }
-
-            if (value is byte[] bytes)
-            {
-                return "byte[]:" + Convert.ToBase64String(bytes);
-            }
-
-            if (value is string text)
-            {
-                return text;
-            }
-
-            if (value is IDictionary dictionary)
-            {
-                List<(string Key, string Value)> entries = [];
-                foreach (DictionaryEntry entry in dictionary)
-                {
-                    entries.Add((Canonicalize(entry.Key), Canonicalize(entry.Value)));
-                }
-
-                entries.Sort((left, right) => string.CompareOrdinal(left.Key, right.Key));
-                return "dictionary:["
-                    + string.Join(",", entries.Select(entry => entry.Key + "=" + entry.Value))
-                    + "]";
-            }
-
-            if (value is IEnumerable sequence && value is not string)
-            {
-                return "sequence:["
-                    + string.Join(",", sequence.Cast<object>().Select(Canonicalize))
-                    + "]";
-            }
-
-            if (value is Uri uri)
-            {
-                return "Uri:" + uri.ToString();
-            }
-
-            if (value is IConvertible convertible)
-            {
-                return convertible.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            if (value is IFormattable formattable)
-            {
-                return formattable.ToString(null, System.Globalization.CultureInfo.InvariantCulture);
-            }
-
-            return value.ToString() ?? string.Empty;
-        }
-    }
-
-    private sealed class SettingsDialogRuntimeCallLedger
-    {
-        private bool captureUnexpectedCalls;
-
-        internal List<string> Calls { get; } = [];
-
-        internal void BeginCapture()
-        {
-            captureUnexpectedCalls = true;
-        }
-
-        internal void ThrowIfUnexpected(string route)
-        {
-            if (!captureUnexpectedCalls)
-            {
-                return;
-            }
-
-            Calls.Add(route);
-            throw new InvalidOperationException("Unexpected settings dialog runtime call: " + route);
-        }
-    }
-
     private sealed class SettingsDialogHarness : IDisposable
     {
         private SettingsDialogHarness(
@@ -1726,8 +1463,7 @@ public sealed class SettingsDialogBehaviorTests
             RecordingPlaybackRuntimePort playbackRuntime,
             NoOpLr2SongDbSyncRuntime syncRuntime,
             Lr2SongDbSyncWorkflowOwner syncWorkflow,
-            RecordingOperationModeRestartPort operationModeRestart,
-            SettingsDialogRuntimeCallLedger runtimeCalls)
+            RecordingOperationModeRestartPort operationModeRestart)
         {
             Dialog = dialog;
             Session = session;
@@ -1740,7 +1476,6 @@ public sealed class SettingsDialogBehaviorTests
             SyncRuntime = syncRuntime;
             SyncWorkflow = syncWorkflow;
             OperationModeRestart = operationModeRestart;
-            RuntimeCalls = runtimeCalls;
         }
 
         internal SettingsDialogViewModel Dialog { get; }
@@ -1765,7 +1500,6 @@ public sealed class SettingsDialogBehaviorTests
 
         internal RecordingOperationModeRestartPort OperationModeRestart { get; }
 
-        internal SettingsDialogRuntimeCallLedger RuntimeCalls { get; }
 
         internal static SettingsDialogHarness Create(
             Settings values,
@@ -1778,21 +1512,19 @@ public sealed class SettingsDialogBehaviorTests
             ApplicationComposition? composition = null)
         {
             session ??= new RecordingSettingsEditSession(values);
-            var runtimeCalls = new SettingsDialogRuntimeCallLedger();
-            var state = new RecordingSettingsStatePort(activeLibraryProfile, runtimeCalls);
+            var state = new RecordingSettingsStatePort(activeLibraryProfile);
             state.ReloadFileDiffHandler = reloadFileDiff;
-            var lifetime = new RecordingApplicationLifetime(runtimeCalls);
-            var dialogs = new RecordingDialogService(runtimeCalls);
-            var workspace = new RecordingWorkspacePort(runtimeCalls);
+            var lifetime = new RecordingApplicationLifetime();
+            var dialogs = new RecordingDialogService();
+            var workspace = new RecordingWorkspacePort();
             var customFolder = new RecordingCustomFolderOutputPort(
-                () => composition?.CustomFolderOutputSettingsProvider() ?? CustomFolderOutputSettingsSnapshot.CreateCurrent(session.Values),
-                runtimeCalls);
-            var playHistory = new RecordingPlayHistoryPort(runtimeCalls);
-            var searchRoots = new RecordingSearchRootRuntimePort(runtimeCalls);
+                () => composition?.CustomFolderOutputSettingsProvider() ?? CustomFolderOutputSettingsSnapshot.CreateCurrent(session.Values));
+            var playHistory = new RecordingPlayHistoryPort();
+            var searchRoots = new RecordingSearchRootRuntimePort();
             searchRoots.IsLibraryAttachedValue = libraryAttached;
-            var playerFactory = new ThrowingPlayerFactoryPort(runtimeCalls);
-            var playbackRuntime = new RecordingPlaybackRuntimePort(runtimeCalls);
-            var syncRuntime = new NoOpLr2SongDbSyncRuntime(runtimeCalls);
+            var playerFactory = new ThrowingPlayerFactoryPort();
+            var playbackRuntime = new RecordingPlaybackRuntimePort();
+            var syncRuntime = new NoOpLr2SongDbSyncRuntime();
             var syncWorkflow = new Lr2SongDbSyncWorkflowOwner(syncRuntime);
             var operationModeRestart = new RecordingOperationModeRestartPort(session);
             SettingsDialogViewModel dialog = composition != null
@@ -1844,8 +1576,7 @@ public sealed class SettingsDialogBehaviorTests
                 playbackRuntime,
                 syncRuntime,
                 syncWorkflow,
-                operationModeRestart,
-                runtimeCalls);
+                operationModeRestart);
         }
 
         internal void AttachSequence(IList<string> sequence)
@@ -1941,7 +1672,6 @@ public sealed class SettingsDialogBehaviorTests
                 persistedValues.OperationModeLR2DB = operationMode;
                 persistedValues.PlayHistorySelectedDisplayTargetIdentity = historyIdentity;
             }
-            SaveSnapshot = SettingsSemanticSnapshot.Capture(persistedValues);
             Reload();
         }
         private readonly ISettingsEditSession? persistence;
@@ -1968,7 +1698,6 @@ public sealed class SettingsDialogBehaviorTests
 
         internal int ReloadCount { get; private set; }
 
-        internal SettingsSemanticSnapshot? SaveSnapshot { get; private set; }
 
         internal List<string> Calls { get; } = [];
 
@@ -1986,7 +1715,6 @@ public sealed class SettingsDialogBehaviorTests
             Calls.Clear();
             SaveCount = 0;
             ReloadCount = 0;
-            SaveSnapshot = null;
         }
 
         public void Reload()
@@ -2006,7 +1734,6 @@ public sealed class SettingsDialogBehaviorTests
             SaveCount++;
             Calls.Add("save");
             Sequence?.Add("save");
-            SaveSnapshot = SettingsSemanticSnapshot.Capture(Values);
             if (SaveFailure != null)
             {
                 throw SaveFailure;
@@ -2024,19 +1751,16 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingSettingsStatePort : ISettingsDialogStatePort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
 
-        internal RecordingSettingsStatePort(bool hasActiveLibraryProfile, SettingsDialogRuntimeCallLedger runtimeCalls)
+        internal RecordingSettingsStatePort(bool hasActiveLibraryProfile)
         {
             this.hasActiveLibraryProfile = hasActiveLibraryProfile;
-            this.runtimeCalls = runtimeCalls;
         }
 
         public bool HasActiveLibraryProfile
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(HasActiveLibraryProfile));
                 return hasActiveLibraryProfile;
             }
         }
@@ -2047,7 +1771,6 @@ public sealed class SettingsDialogBehaviorTests
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(IsLibraryOperationInProgress));
                 return isLibraryOperationInProgress;
             }
             set => isLibraryOperationInProgress = value;
@@ -2080,14 +1803,12 @@ public sealed class SettingsDialogBehaviorTests
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
             LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(InitializeLibraryAsync));
             InitializeCount++;
             return Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
         }
 
         public async Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ReloadScoresOnlyAsync));
             ScoreReloadCount++;
             if (ThrowOnScoreReload)
             {
@@ -2102,7 +1823,6 @@ public sealed class SettingsDialogBehaviorTests
 
         public async Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability? capability = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ReloadFileDiffAsync));
             FileDiffReloadCount++;
             if (ReloadFileDiffWorkflowOwner != null)
             {
@@ -2123,18 +1843,11 @@ public sealed class SettingsDialogBehaviorTests
 
     private sealed class RecordingApplicationLifetime : IApplicationLifetimePort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingApplicationLifetime(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         public bool IsFirstStartup
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(IsFirstStartup));
                 return false;
             }
         }
@@ -2145,48 +1858,30 @@ public sealed class SettingsDialogBehaviorTests
 
         internal IList<string>? Sequence { get; set; }
 
-        internal Exception? RestartFailure { get; set; }
-
-        internal TaskCompletionSource<bool> ShutdownObserved { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
         public void CompleteFirstStartup()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(CompleteFirstStartup));
         }
 
         public void MarkCoordinatedShutdownStarted(string reason)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(MarkCoordinatedShutdownStarted));
         }
 
         public void RequestShutdown()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RequestShutdown));
             ShutdownCount++;
             Sequence?.Add("shutdown");
-            ShutdownObserved.TrySetResult(true);
         }
 
         public Task RestartApplicationAsync()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RestartApplicationAsync));
             RestartCount++;
             Sequence?.Add("restart");
-            return RestartFailure == null
-                ? Task.CompletedTask
-                : Task.FromException(RestartFailure);
+            return Task.CompletedTask;
         }
     }
 
     private sealed class RecordingDialogService : IUiDialogService
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingDialogService(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         internal int MessageCount { get; private set; }
 
@@ -2197,12 +1892,6 @@ public sealed class SettingsDialogBehaviorTests
         internal UiDialogResult MessageResult { get; set; }
             = UiDialogResult.Failed(new InvalidOperationException("unexpected settings behavior message"));
 
-        internal Exception? MessageFailure { get; set; }
-
-        internal TaskCompletionSource<UiDialogResult>? MessageCompletionSource { get; set; }
-
-        internal UiConfirmationRequest? LastConfirmationRequest { get; private set; }
-
         internal string? LastMessageText { get; private set; }
 
         internal UiDialogResult ConfirmationResult { get; set; }
@@ -2210,26 +1899,15 @@ public sealed class SettingsDialogBehaviorTests
 
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ShowMessageAsync));
             MessageCount++;
             LastMessageText = request.MessageBoxText;
             Sequence?.Add("notify");
-            if (MessageFailure != null)
-            {
-                return Task.FromException<UiDialogResult>(MessageFailure);
-            }
-            if (MessageCompletionSource != null)
-            {
-                return MessageCompletionSource.Task;
-            }
             return Task.FromResult(MessageResult);
         }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ConfirmAsync));
             ConfirmationCount++;
-            LastConfirmationRequest = request;
             Sequence?.Add("confirm");
             return Task.FromResult(ConfirmationResult);
         }
@@ -2239,25 +1917,21 @@ public sealed class SettingsDialogBehaviorTests
             CancellationToken cancellationToken = default)
             where TWindow : Window
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ShowWindowAsync));
             return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior window")));
         }
 
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(PickFileAsync));
             return Task.FromResult(new UiFilePickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior file picker")));
         }
 
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(PickFolderAsync));
             return Task.FromResult(new UiFolderPickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior folder picker")));
         }
 
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(PickSaveFileAsync));
             return Task.FromResult(new UiSaveFilePickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior save picker")));
         }
 
@@ -2266,25 +1940,17 @@ public sealed class SettingsDialogBehaviorTests
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RunWithProgressAsync));
             return Task.FromResult(new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior progress")));
         }
     }
 
     private sealed class RecordingWorkspacePort : ISettingsDialogWorkspacePort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingWorkspacePort(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         public bool HasPlaylistTables
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(HasPlaylistTables));
                 return false;
             }
         }
@@ -2293,37 +1959,31 @@ public sealed class SettingsDialogBehaviorTests
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(PlaylistCatalogVersion));
                 return 0;
             }
         }
 
         public IReadOnlyList<PlaylistTablePresentationSnapshot> CapturePlaylistPresentationSnapshots()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(CapturePlaylistPresentationSnapshots));
             return [];
         }
 
         public bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string beatorajaRootPath)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(HasUnimportedBeatorajaTableUrlsForBmtOutputGuide));
             return false;
         }
 
         public void SchedulePlaylistUrlCompletionRefresh(string reason)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(SchedulePlaylistUrlCompletionRefresh));
         }
 
         public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ExportBeatorajaBmtAsync));
             return Task.CompletedTask;
         }
 
         public Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RunWithPlaylistOperationNotificationsAsync));
             return operation();
         }
 
@@ -2342,21 +2002,17 @@ public sealed class SettingsDialogBehaviorTests
             => outputAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease : null;
 
         private readonly Func<CustomFolderOutputSettingsSnapshot> settingsProvider;
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
 
         internal RecordingCustomFolderOutputPort(
-            Func<CustomFolderOutputSettingsSnapshot> settingsProvider,
-            SettingsDialogRuntimeCallLedger runtimeCalls)
+            Func<CustomFolderOutputSettingsSnapshot> settingsProvider)
         {
             this.settingsProvider = settingsProvider;
-            this.runtimeCalls = runtimeCalls;
         }
 
         public CustomFolderOutputSettingsSnapshot CustomFolderOutputSettings
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(CustomFolderOutputSettings));
                 return settingsProvider();
             }
         }
@@ -2368,7 +2024,6 @@ public sealed class SettingsDialogBehaviorTests
             string additionalOutputBaseDirsAfter,
             CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ChangeCustomFolderBaseDirectoryWithSettings));
         }
 
         public void ChangeCustomFolderBaseDirectoryRootWithSettings(
@@ -2376,14 +2031,12 @@ public sealed class SettingsDialogBehaviorTests
             string outputDirBaseAfter,
             CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ChangeCustomFolderBaseDirectoryRootWithSettings));
         }
 
         public bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             string previousRootOutputBaseDirectory,
             CustomFolderOutputSettingsSnapshot settings)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings));
             return false;
         }
 
@@ -2392,44 +2045,28 @@ public sealed class SettingsDialogBehaviorTests
             IReadOnlyDictionary<string, string> pendingRenames,
             CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability? capability = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ApplyCustomFolderAdditionalOutputBaseRegistrationChanges));
             return 0;
         }
     }
 
     private sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingPlayHistoryPort(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         public void InvalidateReadCache(string reason)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(InvalidateReadCache));
         }
 
         public void RefreshDisplayTargetCatalog(bool queueRefreshWhenSelectionChanges = true)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RefreshDisplayTargetCatalog));
         }
 
         public void RefreshDisplayTargetSetsFromSettings(string serializedDisplayTargetSets, bool queueRefreshWhenSelectionChanges)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(RefreshDisplayTargetSetsFromSettings));
         }
     }
 
     private sealed class RecordingSearchRootRuntimePort : ISettingsDialogSearchRootRuntimePort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingSearchRootRuntimePort(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         internal bool IsLibraryAttachedValue { get; set; }
 
@@ -2447,20 +2084,17 @@ public sealed class SettingsDialogBehaviorTests
         {
             get
             {
-                runtimeCalls.ThrowIfUnexpected(nameof(IsLibraryAttached));
                 return IsLibraryAttachedValue;
             }
         }
 
         public bool HasOwnedChartUnderRealPath(string directoryPath)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(HasOwnedChartUnderRealPath));
             return false;
         }
 
         public void ApplySearchTargets(IReadOnlyList<string> searchTargets)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(ApplySearchTargets));
             ApplyCount++;
             LastSearchTargets = [.. searchTargets];
             Sequence?.Add("apply");
@@ -2473,19 +2107,12 @@ public sealed class SettingsDialogBehaviorTests
 
         public void InvalidateLibraryFolderCache()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(InvalidateLibraryFolderCache));
             Sequence?.Add("invalidate");
         }
     }
 
     private sealed class ThrowingPlayerFactoryPort : ISettingsDialogPlayerFactoryPort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal ThrowingPlayerFactoryPort(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         internal int DefaultCreateCount { get; private set; }
 
@@ -2494,26 +2121,18 @@ public sealed class SettingsDialogBehaviorTests
         public IBMSPlayer CreateDefaultBmsPlayer()
         {
             DefaultCreateCount++;
-            runtimeCalls.ThrowIfUnexpected(nameof(CreateDefaultBmsPlayer));
             throw new InvalidOperationException("player creation is outside this settings behavior unit");
         }
 
         public IBMSPlayer CreateBmsPlayerForSettings(StartupSettingsSnapshot settings)
         {
             ConfiguredCreateCount++;
-            runtimeCalls.ThrowIfUnexpected(nameof(CreateBmsPlayerForSettings));
             throw new InvalidOperationException("player creation is outside this settings behavior unit");
         }
     }
 
     private sealed class RecordingPlaybackRuntimePort : ISettingsDialogPlaybackRuntimePort
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal RecordingPlaybackRuntimePort(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         internal int ApplyCount { get; private set; }
 
@@ -2522,31 +2141,22 @@ public sealed class SettingsDialogBehaviorTests
         public Task ApplyPlayerSettingsAsync(IBMSPlayer replacementPlayer)
         {
             ApplyCount++;
-            runtimeCalls.ThrowIfUnexpected(nameof(ApplyPlayerSettingsAsync));
             return Task.CompletedTask;
         }
 
         public void NotifySettingsChanged()
         {
             NotifyCount++;
-            runtimeCalls.ThrowIfUnexpected(nameof(NotifySettingsChanged));
         }
 
         public Task StopPlayback()
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(StopPlayback));
             return Task.CompletedTask;
         }
     }
 
     private sealed class NoOpLr2SongDbSyncRuntime : ILr2SongDbSyncWorkflowRuntime
     {
-        private readonly SettingsDialogRuntimeCallLedger runtimeCalls;
-
-        internal NoOpLr2SongDbSyncRuntime(SettingsDialogRuntimeCallLedger runtimeCalls)
-        {
-            this.runtimeCalls = runtimeCalls;
-        }
 
         internal bool IsLr2ModeEnabledValue { get; set; }
 
@@ -2583,13 +2193,11 @@ public sealed class SettingsDialogBehaviorTests
 
         public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability? capability = null, LibraryFileMutationCapability? playlistCapability = null)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync));
             return Task.CompletedTask;
         }
 
         public bool Cancel(string reason)
         {
-            runtimeCalls.ThrowIfUnexpected(nameof(Cancel));
             return false;
         }
 

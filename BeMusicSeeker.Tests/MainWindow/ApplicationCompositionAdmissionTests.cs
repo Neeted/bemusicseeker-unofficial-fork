@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class ApplicationCompositionTests
 {
-    /// <summary>実初期化と必須表示を終えた標準構成で、Busyは新規受付の副作用を起こさずdraftと選択を保持します。</summary>
+    /// <summary>実初期化後の共有受付がBusyならカタログ変更・再読込・再生開始・設定保存を開始せずdraftと選択を保ち、解放後は明示操作を通すことを確認し、構成された各入口の受付迂回を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_RejectsCatalogPlaybackAndSettingsBeforeSideEffectsWhileKeepingDraftAndSelection()
@@ -121,7 +121,147 @@ public sealed partial class ApplicationCompositionTests
             finally { viewModel.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
         }
     }
-    /// <summary>設定編集のValues共有を維持し、編集後のBusy保存・適用で追加変更と永続化を始めず、draftを保持します。</summary>
+    /// <summary>
+    /// 稼働profileでLまたはPがBusyならmode選択と保存を未開始で終え、draft・XML・稼働値を保ちます。
+    /// 解放後も拒否要求を再実行せず、次の明示保存だけを一回保存し、受付迂回やdraftの混入を検出します。
+    /// </summary>
+    /// <remarks>実初期化で稼働profileへ到達し、標準構成の受付共有を確認します。実Closeと確認競合はMainWindowViewHostTestsが分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("library")]
+    [DataRow("playlist")]
+    [DoNotParallelize]
+    public async Task StandardComposition_OperationModeBusyPreservesDraftUntilNextExplicitSave(string admission)
+    {
+        string root = StartupLibraryConstructionTestSupport.CreateTemporaryRoot();
+        string path = Path.Combine(root, "admission.bms");
+        File.WriteAllText(path, "#PLAYER 1\n#TITLE Admission\n#BPM 120\n#00111:01\n");
+        BeMusicSeeker.Properties.Settings values = PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config"));
+        values.OperationModeLR2DB = false;
+        values.BMSRootPath = root;
+        values.StandaloneBmsRootPaths = root;
+        values.BMSInstallDir = root;
+        values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        values.EnablePlaylistUrlCompletion = false;
+        values.ScanBmsFilesOnStartup = true;
+        values.StartupSelectInstallPending = false;
+        values.SkipInitPlaylistLoad = true;
+        values.UseBeatorajaScoreDb = false;
+        values.EnableBeatorajaBmtOutput = false;
+        values.UseExternalPanelImage = false;
+        values.UsePlayeruBMplay = false;
+        values.UsePlayerLR2body = false;
+        values.UsePlayerBMIIDXView = false;
+        values.IsLR2BackupEnabled = false;
+        values.ShowScoreViewerRegisterConfirmMsg = true;
+        values.Save();
+        var session = new AdmissionModeSettingsSession(values);
+        var player = new PlaybackPanelViewModelTests.FakeBmsPlayer();
+        var dialogs = new PlaylistWorkspaceTestPorts.PlaylistWorkspaceDialogService();
+        var lifetime = new AdmissionModeLifetime();
+        var composition = new ApplicationComposition(settingsEditSession: session,
+            defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+            applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+            chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
+            rootFileEnumerator: new FastRootFileEnumerator(),
+            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+        var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [root] };
+        MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
+        IDisposable? lease = null;
+        try
+        {
+            Task<bool> initialize = TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.InitializeAsync());
+            Assert.IsTrue(await initialize);
+            Assert.IsTrue(viewModel.IsInitializationCompleted);
+            Assert.IsTrue(viewModel.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Admission"), "予約だけでなく今回の必須表示が反映されています。");
+
+            // 独立後続の終了はBusy検証の準備だけに使い、必須成功の条件にはしません。
+            StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
+                .GetField("startupBackgroundTaskScheduler", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(viewModel)
+                as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
+            var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void BackgroundChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { backgroundTerminal.TrySetResult(); }
+            }
+            viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
+            try
+            {
+                if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle) { await backgroundTerminal.Task; }
+            }
+            finally { viewModel.ProgressHub.PropertyChanged -= BackgroundChanged; }
+            byte[] before = File.ReadAllBytes(Path.Combine(root, "user.config"));
+            bool appliedMode = composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB;
+            values.ShowScoreViewerRegisterConfirmMsg = false;
+            ChartFileOperationSynchronizer blocker = admission == "library"
+                ? composition.OperationAdmission : composition.PlaylistOperationAdmission;
+            Assert.IsTrue(blocker.TryEnter(out lease));
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                viewModel.SettingDialog.OperationModeLR2DB = true;
+                Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, dialogs.LastMessageRequest.MessageBoxText);
+                viewModel.SettingDialog.SaveOperationModeForRestart(true);
+            });
+            Assert.IsFalse(values.OperationModeLR2DB);
+            Assert.AreEqual(appliedMode, composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB);
+            Assert.IsFalse(viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg);
+            Assert.IsNull(dialogs.LastConfirmationRequest);
+            Assert.AreEqual(0, session.ModeSaveCount);
+            Assert.AreEqual(0, session.SaveCount);
+            Assert.AreEqual(0, lifetime.RestartCount);
+            Assert.AreEqual(0, lifetime.MarkCount);
+            Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
+            Assert.IsFalse(viewModel.SettingDialog.IsEditCompletionInProgress);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(root, "user.config")));
+            if (admission == "playlist") { Assert.IsFalse(composition.OperationAdmission.IsActive); }
+            lease?.Dispose();
+            lease = null;
+            Assert.AreEqual(0, session.ModeSaveCount, "受付解放後に拒否要求を自動再実行しません。");
+            TestUiDispatcherHost.Invoke(() => viewModel.SettingDialog.SaveOperationModeForRestart(true));
+            Assert.AreEqual(1, session.ModeSaveCount);
+            Assert.AreEqual(0, session.SaveCount);
+            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).OperationModeLR2DB);
+            Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")).ShowScoreViewerRegisterConfirmMsg,
+                "modeだけの明示保存は未保存の別draftをXMLへ混ぜません。");
+        }
+        finally
+        {
+            lease?.Dispose();
+            try { await TestUiDispatcherHost.Dispatcher.Invoke(() => viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync()); }
+            finally { viewModel.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    private sealed class AdmissionModeLifetime : IApplicationLifetimePort
+    {
+        internal int RestartCount { get; private set; }
+        internal int MarkCount { get; private set; }
+        public bool IsFirstStartup => false;
+        public void CompleteFirstStartup() { }
+        public void MarkCoordinatedShutdownStarted(string reason) => MarkCount++;
+        public void RequestShutdown() { }
+        public Task RestartApplicationAsync() { RestartCount++; return Task.CompletedTask; }
+    }
+
+    /// <summary>mode保存を実設定sessionへ委譲し、通常保存とmode専用保存の受付回数を区別します。</summary>
+    private sealed class AdmissionModeSettingsSession : ISettingsEditSession
+    {
+        private readonly SettingsEditSession inner;
+        internal AdmissionModeSettingsSession(BeMusicSeeker.Properties.Settings values) => inner = new(values);
+        internal int ModeSaveCount { get; private set; }
+        internal int SaveCount { get; private set; }
+        public BeMusicSeeker.Properties.Settings Values => inner.Values;
+        public void Reload() => inner.Reload();
+        public void Save() { SaveCount++; inner.Save(); }
+        public void SaveOperationModeForRestart(bool mode, string historyIdentity)
+        {
+            ModeSaveCount++;
+            inner.SaveOperationModeForRestart(mode, historyIdentity);
+        }
+    }
+
+    /// <summary>実LR2同期の受付保持中は既存の試聴を止めず新規再生・保存・適用を拒否し、XMLとdraftを保って次の明示保存だけを通すことを確認し、同期受付の共有漏れや拒否時の編集破棄を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_ActualLr2KeepsExistingPlaybackAndRejectsNewStartsAndSavesWithoutDiscardingDraft()
@@ -216,7 +356,7 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
-    /// <summary>標準構成の生存権限を実playlist生成とLR2同期へ渡し、生成ファイルとfolder保存結果を確認します。</summary>
+    /// <summary>受理済み権限を標準構成の実表出力とLR2同期へ貸し、題名・区分・categoryをファイルとfolderへ保存して外側受付を保つことを確認し、継続権限や出力連携の欠落を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_PlaylistBindingGeneratesFileAndPersistsFolderUnderAcceptedLr2Capability()
@@ -279,7 +419,7 @@ public sealed partial class ApplicationCompositionTests
     }
 
 
-    /// <summary>同要求では捕捉した生成フラグAを実UNSENT出力へ消費し、次要求でBを捕捉して管理定義・行を除去します。両要求の実Completedを確認します。</summary>
+    /// <summary>生成設定を捕捉した後でdraftを変えても今回のUNSENTファイルと行を保持し、次の明示同期で除去して両完了を保存することを確認し、実行途中の設定再読込や旧定義残留を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_Lr2UsesCapturedGenerationOptionAndAdoptsDraftOnNextExplicitRequest()
@@ -383,11 +523,11 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
-    /// <summary>実FileDiffのL保持中にも非交差の実正本登録・管理出力が確定し、whole開始P競合は確定済み差分を保持して見送ります。</summary>
+    /// <summary>実差分走査の受付保持中でも独立した表登録と対応出力を確定し、LR2全体同期が競合する条件では確定差分を保って見送ることを確認し、非交差操作の過剰排他や確定結果の破棄を検出します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
+    [DataRow(false, false)] // standalone: 表正本を登録しLR2出力は行いません。
+    [DataRow(true, false)] // LR2: 表出力と差分後の全体同期まで確定します。
+    [DataRow(true, true)] // LR2: 表受付が競合する全体同期だけ見送り、確定済み結果は残します。
     public async Task DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently(bool lr2Mode, bool skipWhole)
     {
 

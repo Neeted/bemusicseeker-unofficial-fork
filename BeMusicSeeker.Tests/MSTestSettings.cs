@@ -37,6 +37,7 @@ public sealed class MSTestSettings
         }
     }
 
+    /// <summary>全テストの終端後に共有Applicationを終了し、所有STA threadと画面資源を回収する。</summary>
     [AssemblyCleanup]
     public static void Cleanup()
     {

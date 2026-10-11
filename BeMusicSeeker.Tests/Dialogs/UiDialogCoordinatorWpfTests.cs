@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class UiDialogCoordinatorWpfTests
 {
+    /// <summary>実modalへ解決ownerを渡し、肯定結果・戻り値と表示終了を保持して所有者の取り違えを防ぎます。</summary>
     [TestMethod]
     public void ShowWindowAsyncAssignsOwnerAndMapsDialogResult()
     {
@@ -45,6 +46,7 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>factory未生成・別owner指定・owner不在を区別して失敗し、owner不在ではfactoryも開始しません。</summary>
     [TestMethod]
     public void ShowWindowAsyncPreservesFactoryAndOwnerFailures()
     {
@@ -87,6 +89,7 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>実modal表示中はそのwindowを親として優先し、閉鎖後は元ownerへ戻って閉じた親を残しません。</summary>
     [TestMethod]
     public void ActiveModalOwnerTakesPrecedenceAndIsReleasedAfterScope()
     {
@@ -120,6 +123,7 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>実進捗dialogから本体へ明示contextを渡し、報告を通した成功完了をAcceptedとして返します。</summary>
     [TestMethod]
     public void RunWithProgressAsyncPassesExplicitContextAndCompletesAccepted()
     {
@@ -147,10 +151,11 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>owner不在の通知・確認・進捗要求をOwnerUnavailableで終え、利用者による取消や正常完了へ置換しません。</summary>
     [TestMethod]
     public void MessageAndProgressRoutesPreserveOwnerUnavailableStatus()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var coordinator = new UiDialogCoordinator(new UiDialogOwnerResolver(() => null));
             UiDialogResult message = coordinator.ShowMessageAsync(
@@ -167,6 +172,7 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>実ownerを解決してUI所属presenterへ正確な要求を渡し、肯定・否定・選択なし閉鎖の結果を区別します。</summary>
     [TestMethod]
     public void MessagePresenterReceivesResolvedOwnerAndExactRequestsAndMapsOutcomes()
     {
@@ -229,6 +235,7 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>実ownerを解決したpresenterの元例外をFailedへ渡し、別表示や正常応答で失敗を隠しません。</summary>
     [TestMethod]
     public void MessagePresenterExceptionBecomesFailedWithoutFallback()
     {

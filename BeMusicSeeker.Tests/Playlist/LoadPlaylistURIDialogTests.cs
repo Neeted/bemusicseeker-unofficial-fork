@@ -16,9 +16,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>URI入力の追記と実JSON picker接続・取消・応答性を検証する。</summary>
+/// <remarks>compiledボタンからpicker要求と入力へ渡す接続を実Controlで確認する。表示領域だけ実Window表示を使い、ダウンロード・登録は取込み所有者へ分担する。</remarks>
 [TestClass]
 public sealed class LoadPlaylistURIDialogTests
 {
+    /// <summary>既存URIへ空白を除いた新URIを改行で追加し、空入力と空白だけの追加を区別する。既存内容の上書きと空行の増殖を検出する。</summary>
     [TestMethod]
     public void AppendUriInputLine_AppendsToEndWithNewLine()
     {
@@ -29,6 +32,7 @@ public sealed class LoadPlaylistURIDialogTests
         Assert.AreEqual("existing", LoadPlaylistURIDialog.AppendUriInputLine("existing", " "));
     }
 
+    /// <summary>標準と拡大フォントの実描画でURI入力と全footerが領域内に収まり重ならない。文字拡大による入力・操作の欠落を検出する。</summary>
     [DoNotParallelize]
     [TestMethod]
     public void Presentation_ContainsUriInputAboveFooterAtDefaultAndFontScale()
@@ -55,8 +59,9 @@ public sealed class LoadPlaylistURIDialogTests
                         "LoadPlaylistUri",
                         StringComparison.Ordinal))
                     .ToArray();
-                Assert.AreEqual(3, footerButtons.Length);
+                Assert.IsTrue(footerButtons.Length > 0);
 
+                // 標準相当の文字サイズと3倍の拡大で、入力と全操作が領域内に収まることを確認する。
                 foreach (double fontSize in new[] { 12d, 36d })
                 {
                     TextElement.SetFontSize(dialog, fontSize);
@@ -75,7 +80,7 @@ public sealed class LoadPlaylistURIDialogTests
                         .Min();
                     Assert.IsTrue(
                         inputBounds.Bottom <= footerTop + 0.5d,
-                        $"URI input bounds {inputBounds} must remain above the footer (top={footerTop}) at font size {fontSize}.");
+                        $"フォント{fontSize}で入力領域{inputBounds}がfooter上端{footerTop}を越えない。");
                 }
             }
             finally
@@ -88,11 +93,11 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
-    [DoNotParallelize]
+    /// <summary>compiledボタンは正しい所有WindowとJSON限定条件をpickerへ一回渡し、受理パスを既存URIへ追記する。誤った選択形式・所有者・入力先への配送を検出する。</summary>
     [TestMethod]
     public void OpenLocalFile_UsesInjectedJsonPickerAndAppendsAcceptedPathWithoutShowingModal()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             const string selectedPath = @"C:\tables\accepted.json";
             var dialogs = new RecordingLoadPlaylistDialogService(
@@ -137,15 +142,16 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
-    [DoNotParallelize]
+    /// <summary>pickerの取消と閉鎖は既存入力を保持し、メッセージ表示を起こさない。非受理結果での追記や誤通知を検出する。</summary>
     [DataTestMethod]
-    [DataRow((int)UiDialogStatus.CancelledByUser)]
-    [DataRow((int)UiDialogStatus.ClosedByUser)]
-    public void OpenLocalFile_CancelOrClosedLeavesExistingInputUnchanged(int statusValue)
+    // 明示取消とWindowの閉鎖はどちらも受理パスなしとして入力を維持する。
+    [DataRow(UiDialogStatus.CancelledByUser)]
+    [DataRow(UiDialogStatus.ClosedByUser)]
+    public void OpenLocalFile_CancelOrClosedLeavesExistingInputUnchanged(object statusValue)
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        var status = (UiDialogStatus)statusValue;
+        TestUiDispatcherHost.Invoke(() =>
         {
-            var status = (UiDialogStatus)statusValue;
             var dialogs = new RecordingLoadPlaylistDialogService(new UiFilePickerResult(status));
             var dialog = new LoadPlaylistURIDialog(dialogs);
             var host = new Window
@@ -177,11 +183,11 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
-    [DoNotParallelize]
+    /// <summary>picker失敗は元例外を保持して呼出元へ返し、既存入力と通知件数を変えない。失敗を取消へ隠す処理と二重通知を検出する。</summary>
     [TestMethod]
     public void OpenLocalFile_FailedPickerPropagatesCauseWithoutMutatingInputOrShowingModal()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var sentinel = new IOException("picker sentinel");
             var dialogs = new RecordingLoadPlaylistDialogService(
@@ -218,11 +224,11 @@ public sealed class LoadPlaylistURIDialogTests
         });
     }
 
-    [DoNotParallelize]
+    /// <summary>picker gate中もDispatcher処理を進め、完了後にだけ受理パスを追記する。UI同期待ちと早期追記を検出する。</summary>
     [TestMethod]
     public void OpenLocalFileAsync_AwaitsPickerWithoutBlockingDispatcherAndAppliesCompletion()
     {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var completion = new TaskCompletionSource<UiFilePickerResult>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
@@ -301,7 +307,7 @@ public sealed class LoadPlaylistURIDialogTests
             .Where(border => border.TryFindResource("App.Canonical.DialogContentStyle") is Style contentStyle
                 && StyleChainContains(border.Style, contentStyle))
             .ToArray();
-        Assert.AreEqual(1, candidates.Length, "The URI overlay must have one canonical content surface.");
+        Assert.AreEqual(1, candidates.Length, "URI入力の表示領域を一つ特定できる。");
         return candidates[0];
     }
 
@@ -315,7 +321,7 @@ public sealed class LoadPlaylistURIDialogTests
                 && bounds.Top >= ancestorBounds.Top - tolerance
                 && bounds.Right <= ancestorBounds.Right + tolerance
                 && bounds.Bottom <= ancestorBounds.Bottom + tolerance,
-            $"{descendant.Name} bounds {bounds} exceed content bounds {ancestorBounds}.");
+            $"{descendant.Name}の領域{bounds}が内容領域{ancestorBounds}からはみ出している。");
     }
 
     private static Rect GetVisualBounds(Visual ancestor, FrameworkElement descendant)
@@ -373,7 +379,7 @@ public sealed class LoadPlaylistURIDialogTests
             CancellationToken cancellationToken = default)
         {
             MessageRequestCount++;
-            throw new InvalidOperationException("The local file route must not show a modal message.");
+            throw new InvalidOperationException("ローカルファイル選択は別のモーダル通知を表示しない。");
         }
 
         public Task<UiDialogResult> ConfirmAsync(

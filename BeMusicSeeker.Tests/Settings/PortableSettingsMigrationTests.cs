@@ -8,9 +8,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>旧保存値の互換変換を小さい XML で確認します。ルート補完のみ実標準配置を使い、実ファイルの保存・回復は persistence/lifecycle 側が分担します。</remarks>
 [TestClass]
 public sealed class PortableSettingsMigrationTests
 {
+    /// <summary>旧キーを実 XML から削除し、現行列設定と未知キーまで削除する誤りを検出します。</summary>
     [TestMethod]
     public void RemoveObsoleteSettings_RemovesOnlyKnownDeprecatedUserSettings()
     {
@@ -43,6 +45,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.IsNotNull(FindSetting(section, "UnknownFutureSetting"));
     }
 
+    /// <summary>旧 MOVIE bit を BMS bit へ移し、単独・他 bit 併用・既存 BMS 併用の入力で無関係な bit を失う誤りを検出します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_RewritesLegacyMovieBitToBmsBitAndPreservesOtherBits()
     {
@@ -55,6 +58,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.AreEqual("2", GetSettingValue(section, "PlayerPanelState"));
         Assert.AreEqual("keep", GetSettingValue(section, "UnknownFutureSetting"));
 
+        // 他 bit 併用と既存 BMS bit 併用でも、MOVIE bit だけを置換します。
         foreach ((string legacyValue, string expectedValue) in new[]
         {
             ("5", "3"),
@@ -69,6 +73,7 @@ public sealed class PortableSettingsMigrationTests
         }
     }
 
+    /// <summary>旧シンボルを変換して他シンボルを保ち、再適用と対象外値で余分な変更をしないことを確認します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_RewritesLegacyMovieSymbolAndIsIdempotent()
     {
@@ -85,6 +90,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.AreEqual("1", GetSettingValue(section, "PlayerPanelState"));
     }
 
+    /// <summary>既知の旧 URL と旧設定キーを移行し、現行列設定を残すことを変換済み XML で確認します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_RewritesLegacyUrlAndRemovesDeprecatedColumnSettings()
     {
@@ -110,6 +116,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.IsNotNull(FindSetting(section, "StandardCustomTableColumnSettings"));
     }
 
+    /// <summary>旧版の保存言語をコピー時に現在の対応文化へ移行し、旧互換の言語選択を取り逃す誤りを検出します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_MovesLegacyCultureMigrationToCopyTime()
     {
@@ -126,6 +133,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.AreEqual("ko-KR", GetSettingValue(GetSettingsSection(doc), "Lang"));
     }
 
+    /// <summary>旧版で現在文化が未対応の場合、互換上の英語選択へ移すことを XML 値で確認します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_LegacyCultureFallsBackToEnglishWhenCurrentCultureIsUnavailable()
     {
@@ -142,6 +150,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.AreEqual("en-US", GetSettingValue(GetSettingsSection(doc), "Lang"));
     }
 
+    /// <summary>移行対象より新しい旧版では、利用者の保存言語を書き換えないことを確認します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_DoesNotRewriteCultureForNewerLegacyVersions()
     {
@@ -158,6 +167,7 @@ public sealed class PortableSettingsMigrationTests
         Assert.AreEqual("ja-JP", GetSettingValue(GetSettingsSection(doc), "Lang"));
     }
 
+    /// <summary>実標準配置の旧 song/config パスと実行ファイルから欠損 LR2 ルートだけを補い、互換移行で元の LR2 構成を失う誤りを検出します。</summary>
     [TestMethod]
     public void NormalizeMigratedConfig_InferLR2RootPathFromLegacySongDbAndConfigPaths()
     {

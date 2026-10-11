@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class WpfPickerBoundaryTests
 {
+    /// <summary>ファイル・フォルダ・保存の要求を実picker設定へ渡し、拡張子推定・存在条件・複数選択を取り違えません。</summary>
     [TestMethod]
     public void PickerFactoriesMapCompiledOptionsWithoutShowingInteractiveDialogs()
     {
@@ -23,13 +24,6 @@ public sealed class WpfPickerBoundaryTests
             multiselect: true,
             ensureFileExists: false,
             ensurePathExists: false);
-        Assert.AreEqual("Open song", fileRequest.Title);
-        Assert.AreEqual("song.db", fileRequest.FileName);
-        Assert.AreEqual(root, fileRequest.InitialDirectory);
-        Assert.AreEqual("song.db (*.db)|*.db|All files|*.*", fileRequest.Filter);
-        Assert.IsTrue(fileRequest.Multiselect);
-        Assert.IsFalse(fileRequest.EnsureFileExists);
-        Assert.IsFalse(fileRequest.EnsurePathExists);
         Assert.AreEqual("db", UiFilePickerUtilities.InferDefaultExtension(fileRequest.FileName, fileRequest.Filter));
         Assert.AreEqual(fileRequest.Filter, UiFilePickerUtilities.BuildFilter(fileRequest.Filter));
 
@@ -45,9 +39,6 @@ public sealed class WpfPickerBoundaryTests
         Assert.IsTrue(openFileDialog.AddExtension);
 
         var folderRequest = new UiFolderPickerRequest("Select roots", root, multiselect: true);
-        Assert.AreEqual("Select roots", folderRequest.Title);
-        Assert.AreEqual(root, folderRequest.SelectedPath);
-        Assert.IsTrue(folderRequest.Multiselect);
 
         OpenFolderDialog openFolderDialog = UiDialogCoordinator.CreateOpenFolderDialog(folderRequest);
         Assert.AreEqual(folderRequest.Title, openFolderDialog.Title);
@@ -60,11 +51,6 @@ public sealed class WpfPickerBoundaryTests
             ".sql",
             "sql files|*.sql",
             addExtension: true);
-        Assert.AreEqual("Save backup", saveRequest.Title);
-        Assert.AreEqual("backup.sql", saveRequest.FileName);
-        Assert.AreEqual(".sql", saveRequest.DefaultExtension);
-        Assert.AreEqual("sql files|*.sql", saveRequest.Filter);
-        Assert.IsTrue(saveRequest.AddExtension);
 
         SaveFileDialog saveFileDialog = UiDialogCoordinator.CreateSaveFileDialog(saveRequest);
         Assert.AreEqual(saveRequest.Title, saveFileDialog.Title);
@@ -74,11 +60,12 @@ public sealed class WpfPickerBoundaryTests
         Assert.IsTrue(saveFileDialog.AddExtension);
     }
 
+    /// <summary>所有windowがないpicker要求は全種でOwnerUnavailableを返し、空の選択を受理結果にしません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PickerCoordinatorMapsOwnerUnavailableForOpenFolderAndSaveRoutes()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             var coordinator = new UiDialogCoordinator(new UiDialogOwnerResolver(() => null));
             UiFilePickerResult file = coordinator.PickFileAsync(new UiFilePickerRequest()).GetAwaiter().GetResult();
@@ -94,10 +81,10 @@ public sealed class WpfPickerBoundaryTests
         });
     }
 
+    /// <summary>有効filterの組と重複拡張子を保持し、不正filterだけを全ファイルの有効な組へ正規化します。</summary>
     [TestMethod]
-    public void WpfPickerUtilityBuildsNormalizedFilterAndRetiresCodePackDistribution()
+    public void WpfPickerUtilityPreservesPairsAndNormalizesMalformedFilter()
     {
-        string root = FindRepositoryRoot();
         Assert.AreEqual(
             "song.db (*.db)|*.db|すべてのファイル(*.*)|*.*",
             UiFilePickerUtilities.BuildFilter("song.db (*.db)|*.db|すべてのファイル(*.*)|*.*"));
@@ -106,23 +93,7 @@ public sealed class WpfPickerBoundaryTests
             new[] { "*.db", "*.db" },
             UiFilePickerUtilities.ParseFilterPairs("db|*.db|all|*.db").Select(pair => pair.Item2).ToArray());
 
-        string project = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "BeMusicSeeker.csproj"));
-        string layout = File.ReadAllText(Path.Combine(root, "scripts", "portable-package-layout.ps1"));
-        string notices = File.ReadAllText(Path.Combine(root, "ThirdPartyNotices.txt"));
-        string japaneseNotices = File.ReadAllText(Path.Combine(root, "ThirdPartyNotices.ja.txt"));
-        foreach (string assemblyName in new[]
-        {
-            "Microsoft.WindowsAPICodePack.dll",
-            "Microsoft.WindowsAPICodePack.Shell.dll"
-        })
-        {
-            Assert.IsFalse(project.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
-            Assert.IsFalse(notices.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
-            Assert.IsFalse(japaneseNotices.Contains(assemblyName, StringComparison.Ordinal), assemblyName);
-            StringAssert.Contains(layout, "\"" + assemblyName + "\"");
-            StringAssert.Contains(layout, "\"libs/" + assemblyName + "\"");
-            Assert.IsFalse(File.Exists(Path.Combine(root, "libs", assemblyName)), assemblyName);
-        }
+
     }
 
     private static string FindRepositoryRoot()

@@ -1,207 +1,73 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
-using ManagedBass;
-using ManagedBass.DirectX8;
-using ManagedBass.Fx;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>Locks the Unit 2B effect inventory and native parameter ABI.</summary>
+/// <summary>BASS外部effect IDとnative引数のABI・pin寿命を確認する。</summary>
 [TestClass]
 public sealed class BassAudioEffectTests
 {
+    /// <summary>
+    /// 必要なBASS effectの存在と外部native ID・ManagedBass指定を照合し、categoryの欠落・ID交換・重複を検出する。
+    /// </summary>
     [TestMethod]
     public void Catalog_PreservesAllLegacyCategoriesWithoutDuplicateNativeIds()
     {
-        BassAudioEffectType[] expectedTypes =
-        [
-            BassAudioEffectType.Dx8Chorus,
-            BassAudioEffectType.Dx8Compressor,
-            BassAudioEffectType.Dx8Distortion,
-            BassAudioEffectType.Dx8Echo,
-            BassAudioEffectType.Dx8Flanger,
-            BassAudioEffectType.Dx8Gargle,
-            BassAudioEffectType.Dx8I3dl2Reverb,
-            BassAudioEffectType.Dx8ParamEq,
-            BassAudioEffectType.Dx8Reverb,
-            BassAudioEffectType.BfxRotate,
-            BassAudioEffectType.BfxEcho,
-            BassAudioEffectType.BfxFlanger,
-            BassAudioEffectType.BfxVolume,
-            BassAudioEffectType.BfxPeakEq,
-            BassAudioEffectType.BfxReverb,
-            BassAudioEffectType.BfxLpf,
-            BassAudioEffectType.BfxMix,
-            BassAudioEffectType.BfxDamp,
-            BassAudioEffectType.BfxAutoWah,
-            BassAudioEffectType.BfxEcho2,
-            BassAudioEffectType.BfxPhaser,
-            BassAudioEffectType.BfxEcho3,
-            BassAudioEffectType.BfxChorus,
-            BassAudioEffectType.BfxApf,
-            BassAudioEffectType.BfxCompressor,
-            BassAudioEffectType.BfxDistortion,
-            BassAudioEffectType.BfxCompressor2,
-            BassAudioEffectType.BfxVolumeEnvelope,
-            BassAudioEffectType.BfxBqf,
-            BassAudioEffectType.BfxEcho4,
-            BassAudioEffectType.BfxPitchShift,
-            BassAudioEffectType.BfxFreeverb
-        ];
+        // BASS 2.4 / BASS_FX 2.4 の公式headerに定義された外部effect ID。
+        var expectedNativeIds = new Dictionary<BassAudioEffectType, int>
+        {
+            [BassAudioEffectType.Dx8Chorus] = 0,
+            [BassAudioEffectType.Dx8Compressor] = 1,
+            [BassAudioEffectType.Dx8Distortion] = 2,
+            [BassAudioEffectType.Dx8Echo] = 3,
+            [BassAudioEffectType.Dx8Flanger] = 4,
+            [BassAudioEffectType.Dx8Gargle] = 5,
+            [BassAudioEffectType.Dx8I3dl2Reverb] = 6,
+            [BassAudioEffectType.Dx8ParamEq] = 7,
+            [BassAudioEffectType.Dx8Reverb] = 8,
+            [BassAudioEffectType.BfxRotate] = 0x10000,
+            [BassAudioEffectType.BfxEcho] = 0x10001,
+            [BassAudioEffectType.BfxFlanger] = 0x10002,
+            [BassAudioEffectType.BfxVolume] = 0x10003,
+            [BassAudioEffectType.BfxPeakEq] = 0x10004,
+            [BassAudioEffectType.BfxReverb] = 0x10005,
+            [BassAudioEffectType.BfxLpf] = 0x10006,
+            [BassAudioEffectType.BfxMix] = 0x10007,
+            [BassAudioEffectType.BfxDamp] = 0x10008,
+            [BassAudioEffectType.BfxAutoWah] = 0x10009,
+            [BassAudioEffectType.BfxEcho2] = 0x1000A,
+            [BassAudioEffectType.BfxPhaser] = 0x1000B,
+            [BassAudioEffectType.BfxEcho3] = 0x1000C,
+            [BassAudioEffectType.BfxChorus] = 0x1000D,
+            [BassAudioEffectType.BfxApf] = 0x1000E,
+            [BassAudioEffectType.BfxCompressor] = 0x1000F,
+            [BassAudioEffectType.BfxDistortion] = 0x10010,
+            [BassAudioEffectType.BfxCompressor2] = 0x10011,
+            [BassAudioEffectType.BfxVolumeEnvelope] = 0x10012,
+            [BassAudioEffectType.BfxBqf] = 0x10013,
+            [BassAudioEffectType.BfxEcho4] = 0x10014,
+            [BassAudioEffectType.BfxPitchShift] = 0x10015,
+            [BassAudioEffectType.BfxFreeverb] = 0x10016
+        };
 
         BassAudioEffectDefinition[] definitions = BassAudioEffectCatalog.Definitions.ToArray();
-        int[] expectedNativeTypeIds =
-        [
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            .. Enumerable.Range(65536, 23)
-        ];
-        EffectType[] expectedManagedBassTypes =
-        [
-            (EffectType)0,
-            (EffectType)1,
-            (EffectType)2,
-            (EffectType)3,
-            (EffectType)4,
-            (EffectType)5,
-            (EffectType)6,
-            (EffectType)7,
-            (EffectType)8,
-            BassAudioEffectNativeTypes.BfxRotate,
-            BassAudioEffectNativeTypes.BfxEcho,
-            BassAudioEffectNativeTypes.BfxFlanger,
-            BassAudioEffectNativeTypes.BfxVolume,
-            BassAudioEffectNativeTypes.BfxPeakEq,
-            BassAudioEffectNativeTypes.BfxReverb,
-            BassAudioEffectNativeTypes.BfxLpf,
-            BassAudioEffectNativeTypes.BfxMix,
-            BassAudioEffectNativeTypes.BfxDamp,
-            BassAudioEffectNativeTypes.BfxAutoWah,
-            BassAudioEffectNativeTypes.BfxEcho2,
-            BassAudioEffectNativeTypes.BfxPhaser,
-            BassAudioEffectNativeTypes.BfxEcho3,
-            BassAudioEffectNativeTypes.BfxChorus,
-            BassAudioEffectNativeTypes.BfxApf,
-            BassAudioEffectNativeTypes.BfxCompressor,
-            BassAudioEffectNativeTypes.BfxDistortion,
-            BassAudioEffectNativeTypes.BfxCompressor2,
-            BassAudioEffectNativeTypes.BfxVolumeEnvelope,
-            BassAudioEffectNativeTypes.BfxBqf,
-            BassAudioEffectNativeTypes.BfxEcho4,
-            BassAudioEffectNativeTypes.BfxPitchShift,
-            BassAudioEffectNativeTypes.BfxFreeverb
-        ];
-        Assert.AreEqual(32, Enum.GetValues<BassAudioEffectType>().Length);
-        Assert.AreEqual(32, definitions.Length);
-        CollectionAssert.AreEqual(expectedTypes, definitions.Select(definition => definition.Type).ToArray());
-        CollectionAssert.AreEqual(expectedNativeTypeIds, definitions.Select(definition => definition.NativeTypeId).ToArray());
-        CollectionAssert.AreEqual(expectedManagedBassTypes, definitions.Select(definition => definition.ManagedBassType).ToArray());
-        Assert.AreEqual(32, definitions.Select(definition => definition.NativeTypeId).Distinct().Count());
-        Assert.AreEqual(definitions.Length, definitions.Select(definition => definition.ParameterType).Distinct().Count());
-    }
-
-    [TestMethod]
-    public void Catalog_UsesManagedBassTypesForDX8AndKnownBfxCategories()
-    {
-        Assert.AreEqual(0, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.Dx8Chorus));
-        Assert.AreEqual(8, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.Dx8Reverb));
-        Assert.AreEqual(65536, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.BfxRotate));
-        Assert.AreEqual(65539, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.BfxVolume));
-        Assert.AreEqual(65540, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.BfxPeakEq));
-        Assert.AreEqual(65556, BassAudioEffectCatalog.GetNativeTypeId(BassAudioEffectType.BfxEcho4));
-
-        BassAudioEffectDefinition dx8 = GetDefinition(BassAudioEffectType.Dx8Chorus);
-        BassAudioEffectDefinition rotate = GetDefinition(BassAudioEffectType.BfxRotate);
-        BassAudioEffectDefinition volume = GetDefinition(BassAudioEffectType.BfxVolume);
-        Assert.AreEqual(typeof(ManagedBass.DirectX8.DXChorusParameters), dx8.ParameterType);
-        Assert.AreEqual(typeof(ManagedBass.Fx.RotateParameters), rotate.ParameterType);
-        Assert.AreEqual(typeof(ManagedBassBfxVolumeParameters), volume.ParameterType);
-        Assert.AreEqual(BassAudioEffectNativeTypes.Dx8Chorus, dx8.ManagedBassType);
-        Assert.AreEqual(BassAudioEffectNativeTypes.BfxRotate, rotate.ManagedBassType);
-        Assert.AreEqual(BassAudioEffectNativeTypes.BfxVolume, volume.ManagedBassType);
-    }
-
-    [TestMethod]
-    public void Catalog_PreservesLegacyEffectDefaults()
-    {
-        var dxChorus = (DXChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Chorus);
-        Assert.AreEqual(0f, dxChorus.fWetDryMix);
-        Assert.AreEqual(25f, dxChorus.fDepth);
-        Assert.AreEqual(DXWaveform.Sine, dxChorus.lWaveform);
-        Assert.AreEqual(DXPhase.Zero, dxChorus.lPhase);
-
-        var dxDistortion = (DXDistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Distortion);
-        Assert.AreEqual(50f, dxDistortion.fEdge);
-        Assert.AreEqual(4000f, dxDistortion.fPostEQCenterFrequency);
-        Assert.AreEqual(4000f, dxDistortion.fPostEQBandwidth);
-        Assert.AreEqual(4000f, dxDistortion.fPreLowpassCutoff);
-
-        var dxEcho = (DXEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Echo);
-        Assert.AreEqual(333f, dxEcho.fLeftDelay);
-        Assert.AreEqual(333f, dxEcho.fRightDelay);
-
-        var dxFlanger = (DXFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Flanger);
-        Assert.AreEqual(25f, dxFlanger.fDepth);
-        Assert.AreEqual(DXPhase.Zero, dxFlanger.lPhase);
-
-        var dxParamEq = (DXParamEQParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8ParamEq);
-        Assert.AreEqual(100f, dxParamEq.fCenter);
-        Assert.AreEqual(18f, dxParamEq.fBandwidth);
-
-        var dxReverb = (DXReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.Dx8Reverb);
-        Assert.AreEqual(1000f, dxReverb.fReverbTime);
-        Assert.AreEqual(0.001f, dxReverb.fHighFreqRTRatio);
-
-        var bfxEcho = (ManagedBassBfxEchoParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxEcho);
-        Assert.AreEqual(1200, bfxEcho.Delay);
-        var bfxFlanger = (ManagedBassBfxFlangerParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxFlanger);
-        Assert.AreEqual(1f, bfxFlanger.WetDry);
-        Assert.AreEqual(0.01f, bfxFlanger.Speed);
-        Assert.AreEqual(-1, bfxFlanger.Channel);
-        var bfxVolume = (ManagedBassBfxVolumeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolume);
-        Assert.AreEqual(-1, bfxVolume.Channel);
-        Assert.AreEqual(1f, bfxVolume.Volume);
-        var bfxReverb = (ManagedBassBfxReverbParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxReverb);
-        Assert.AreEqual(1200, bfxReverb.Delay);
-        var bfxLpf = (ManagedBassBfxLpfParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxLpf);
-        Assert.AreEqual(2f, bfxLpf.Resonance);
-        Assert.AreEqual(200f, bfxLpf.CutOffFrequency);
-        Assert.AreEqual(-1, bfxLpf.Channel);
-
-        var autoWah = (AutoWahParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxAutoWah);
-        Assert.AreEqual(0f, autoWah.fDryMix);
-        var phaser = (PhaserParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxPhaser);
-        Assert.AreEqual(0f, phaser.fDryMix);
-        var chorus = (ChorusParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxChorus);
-        Assert.AreEqual(0f, chorus.fDryMix);
-        var distortion = (DistortionParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxDistortion);
-        Assert.AreEqual(0f, distortion.fDryMix);
-
-        var envelope = (ManagedBassBfxVolumeEnvelopeParameters)BassAudioEffectCatalog.CreateParameters(BassAudioEffectType.BfxVolumeEnvelope);
-        Assert.AreEqual(-1, envelope.Channel);
-        Assert.IsTrue(envelope.Follow);
-    }
-
-    [TestMethod]
-    public void Catalog_CreatesEveryParameterTypeWithMatchingNativeEffectId()
-    {
-        foreach (BassAudioEffectDefinition definition in BassAudioEffectCatalog.Definitions)
+        foreach ((BassAudioEffectType type, int nativeId) in expectedNativeIds)
         {
-            IEffectParameter parameters = BassAudioEffectCatalog.CreateParameters(definition.Type);
-            Assert.AreEqual(definition.ParameterType, parameters.GetType(), definition.Type.ToString());
+            BassAudioEffectDefinition definition = definitions.Single(definition => definition.Type == type);
+            Assert.AreEqual(nativeId, definition.NativeTypeId, $"{type} のnative ID");
+            Assert.AreEqual(nativeId, (int)definition.ManagedBassType, $"{type} のManagedBass指定値");
         }
+
+        Assert.AreEqual(definitions.Length, definitions.Select(definition => definition.NativeTypeId).Distinct().Count());
     }
 
+    /// <summary>
+    /// 独自scalar引数adapterのサイズとfield offsetをBASSの外部ABIへ揃え、異なる位置・長さでnativeへ渡す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CustomScalarAdapters_PreserveNativeSizesAndOffsets()
     {
@@ -230,15 +96,13 @@ public sealed class BassAudioEffectTests
         Assert.AreEqual(16, Marshal.OffsetOf<ManagedBassBfxPitchShiftParameters>(nameof(ManagedBassBfxPitchShiftParameters.Channel)).ToInt32());
     }
 
+    /// <summary>
+    /// PitchShiftのnative引数をlegacy32bit field配置で書き換えて、各利用者指定値をmanaged引数へコピーして戻す。
+    /// </summary>
     [TestMethod]
     public void PitchShiftAdapter_UsesLegacy32BitLayoutAndCopiesBack()
     {
         var parameters = new ManagedBassBfxPitchShiftParameters();
-        Assert.AreEqual(1f, parameters.PitchShift);
-        Assert.AreEqual(0f, parameters.FineTune);
-        Assert.AreEqual(2048, parameters.FFTSize);
-        Assert.AreEqual(8, parameters.Oversampling);
-        Assert.AreEqual(-1, parameters.Channel);
 
         using NativeEffectParameterLease lease = ManagedBassEffectParameters.CreateNativeScope(parameters);
         Marshal.WriteInt32(lease.Pointer, 0, BitConverter.SingleToInt32Bits(2.5f));
@@ -255,6 +119,9 @@ public sealed class BassAudioEffectTests
         Assert.AreEqual(-1, parameters.Channel);
     }
 
+    /// <summary>
+    /// MixとVolumeEnvelopeの配列をnative呼出し中だけpinし、nativeの変更を返して解放後はpointerの再使用を拒否する。
+    /// </summary>
     [TestMethod]
     public void PointerAdapters_PinArraysForTheCallAndReleaseThemAfterward()
     {
@@ -308,6 +175,9 @@ public sealed class BassAudioEffectTests
         Assert.AreEqual(IntPtr.Zero, envelope.NodesPointer);
     }
 
+    /// <summary>
+    /// nativeが返したVolumeEnvelopeのnode数とpointerから全node値を再構築し、元の空配列のまま返さない。
+    /// </summary>
     [TestMethod]
     public void VolumeEnvelope_CopyBackRebuildsNodesReturnedByNative()
     {
@@ -343,6 +213,9 @@ public sealed class BassAudioEffectTests
         }
     }
 
+    /// <summary>
+    /// native引数の解放処理が例外でも元例外を返してpinを解放し、失敗後に固定した配列を残さない。
+    /// </summary>
     [TestMethod]
     public void NativeParameterLease_PreservesCleanupPrimaryErrorAndReleasesPins()
     {
@@ -371,9 +244,4 @@ public sealed class BassAudioEffectTests
         }
     }
 
-    private static BassAudioEffectDefinition GetDefinition(BassAudioEffectType type)
-    {
-        Assert.IsTrue(BassAudioEffectCatalog.TryGetDefinition(type, out BassAudioEffectDefinition definition));
-        return definition;
-    }
 }

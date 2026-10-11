@@ -10,22 +10,22 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Provides stateless helpers and per-test filesystem resources shared by the LR2 song database sync fixtures.
+/// LR2同期の固定入力とケース専有のFS資源を準備します。
 /// </summary>
 internal static class Lr2SongDbSyncTestSupport
 {
     /// <summary>
-    /// Owns one GUID-named temporary directory and its initialized LR2 song database for a single test.
+    /// ケース専有の一時ディレクトリとLR2接続の準備を所有します。
     /// </summary>
     internal sealed class TestDatabaseScope : IDisposable
     {
         /// <summary>
-        /// Gets the temporary directory exclusively owned by this scope.
+        /// このscopeだけが所有する一時ディレクトリを返します。
         /// </summary>
         internal string DirectoryPath { get; }
 
         /// <summary>
-        /// Gets the song database path within the owned temporary directory.
+        /// 専有ディレクトリ内のsong.dbパスを返します。
         /// </summary>
         internal string SongDbPath { get; }
 
@@ -37,9 +37,9 @@ internal static class Lr2SongDbSyncTestSupport
         }
 
         /// <summary>
-        /// Creates an isolated database scope whose directory is unique to the calling test.
+        /// ケースごとに一意なディレクトリでDB準備を所有します。
         /// </summary>
-        /// <returns>The scope that owns the temporary directory and database.</returns>
+        /// <returns>一時ディレクトリとDBを所有するscope。</returns>
         internal static TestDatabaseScope Create()
         {
             string directoryPath = Path.Combine(Path.GetTempPath(), nameof(Lr2SongDbSyncTestSupport), Guid.NewGuid().ToString("N"));
@@ -48,7 +48,7 @@ internal static class Lr2SongDbSyncTestSupport
         }
 
         /// <summary>
-        /// Deletes the complete temporary resource tree owned by this scope.
+        /// 所有する一時資源を削除します。
         /// </summary>
         public void Dispose()
         {
@@ -60,7 +60,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Converts a directory path to the trailing-separator representation stored in LR2 folder rows.
+    /// LR2フォルダ行の末尾区切り付き保存パスへ変換します。
     /// </summary>
     internal static string ToFolderPath(string directoryPath)
     {
@@ -69,7 +69,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Creates a test song row whose digests match the supplied immutable chart snapshot.
+    /// 捕捉済みの譜面バイト列に合うダイジェストで共通譜面入力を作ります。
     /// </summary>
     internal static ChartFile CreateSyncTestFile(string path, ChartFileSnapshot snapshot)
     {
@@ -83,7 +83,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Writes the minimal deterministic BMS text used by direct synchronization tests.
+    /// 直接同期の入力となる最小BMSテキストを書きます。
     /// </summary>
     internal static void WriteBasicBms(string chartPath, string title, string resourcePath = "sound.wav")
     {
@@ -94,7 +94,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Creates an LR2-incompatible resource path for deterministic fallback coverage.
+    /// LR2の資源長を超える固定入力を作ります。
     /// </summary>
     internal static string CreateLr2TooLongResourcePath()
     {
@@ -102,7 +102,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Creates a successful, complete enumeration result from an immutable test entry surface.
+    /// 固定entry集合から成功した完全列挙の入力を作ります。
     /// </summary>
     internal static RootFileEnumerationResult CreateRootFileEnumerationResult(
         string groupName,
@@ -123,7 +123,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Captures file enumeration entries keyed with filesystem-compatible path comparison.
+    /// FS互換のパス比較でファイル列挙entryを捕捉します。
     /// </summary>
     internal static Dictionary<string, RootFileEnumerationEntry> CreateFileEntryMap(params string[] filePaths)
     {
@@ -142,7 +142,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Captures directory enumeration entries keyed with filesystem-compatible path comparison.
+    /// FS互換のパス比較でディレクトリ列挙entryを捕捉します。
     /// </summary>
     internal static Dictionary<string, RootFileEnumerationEntry> CreateDirectoryEntryMap(params string[] directoryPaths)
     {
@@ -161,7 +161,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Creates a chart-info row using the current parser contract unless a version is supplied explicitly.
+    /// 明示版または現行解析版の譜面情報入力を作ります。
     /// </summary>
     internal static BeMusicSeeker.Models.ChartDetails CreateChartInfo(string sha256, string md5, int level, int? parserVersion = null)
     {
@@ -175,7 +175,7 @@ internal static class Lr2SongDbSyncTestSupport
     }
 
     /// <summary>
-    /// Provides the direct catalog mutation adapter required by service-level song-row fixtures.
+    /// 直接同期の譜面情報書込みを実catalog保存入口へ接続します。
     /// </summary>
     internal static Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> CreateDirectChartInfoWriter(
         LR2SongDBExtended songDb)
@@ -201,9 +201,5 @@ internal static class Lr2SongDbSyncTestSupport
                 request.ParseFailureDeleteMd5s.Count);
         };
     }
-
-    /// <summary>
-    /// Exposes controlled mutation points needed to arrange inherited LR2 song-row fields in tests.
-    /// </summary>
 
 }

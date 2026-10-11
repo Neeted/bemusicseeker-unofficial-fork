@@ -9,11 +9,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-// PORTABLE-SETTINGS-FAILURE-20260905 P01-P04: explicit path, real filesystem faults,
-// user-owned input byte preservation. No process-global Settings or path changes.
+/// <remarks>原文保全・置換・退避の失敗境界は実ファイルの共有条件が必要です。独立した設定ファイルと provider を使って後片付けします。</remarks>
 [TestClass]
 public sealed class PortableSettingsPersistenceTests
 {
+    /// <summary>利用者の言語・音声品質・確認設定と全有効 thread 数を保存し新 wrapper で読み戻し、未知キー保持と一時ファイル回収を確認します。</summary>
     [TestMethod]
     public void SaveRoundTripsThroughFreshGeneratedSettingsAndPreservesUnknownKeys()
     {
@@ -23,6 +23,7 @@ public sealed class PortableSettingsPersistenceTests
         settings.Lang = "fr-FR";
         settings.PlayerResamplingQuality = 4;
         settings.ShowNewPackageInstallConfirmMsg = false;
+        // 有効な 1〜4 thread の利用者値をすべて保持し、同じ値への正規化で隠さないことを確認します。
         foreach (int threadCount in Enumerable.Range(1, 4))
         {
             settings.PlayerMixerThreadCount = threadCount;
@@ -40,6 +41,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
 
+    /// <summary>ファイルなしと旧ファイルの個別キー欠損で互換既定を利用し、確認設定や音声設定が未初期化になる誤りを検出します。</summary>
     [TestMethod]
     public void MissingFileAndIndividualKeyUseDefaults()
     {
@@ -54,6 +56,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(1, OpenSettings(files.Path).PlayerMixerThreadCount);
     }
 
+    /// <summary>不正 XML と必須構造の欠損を外部編集として置き、読込みと保存を Read 失敗にし元 bytes を既定値で上書きしないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("<configuration>")]
     [DataRow("<other><userSettings><BeMusicSeeker.Properties.Settings /></userSettings></other>")]
@@ -74,6 +77,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(1, Directory.GetFiles(files.Directory).Length);
     }
 
+    /// <summary>保存値に XML 不可文字を含め、直列化失敗を Save として返して既存内容と一時ファイル回収を保つことを確認します。</summary>
     [TestMethod]
     public void SupportedStringSerializationFailurePreservesOriginalBytes()
     {
@@ -87,6 +91,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
 
+    /// <summary>読取り専用の実ファイルへ保存し、対象と原因を伴う Save 失敗を返して元 bytes を保持することを確認します。</summary>
     [TestMethod]
     public void ReadOnlySaveFailsWithPathAndCauseAndPreservesBytes()
     {
@@ -102,6 +107,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
 
+    /// <summary>排他ロック下で読込みと保存を要求し、読取り失敗を空設定へ置き換えず元ファイルを保持することを確認します。</summary>
     [TestMethod]
     public void ReadSharingFailureDoesNotBecomeEmptySettingsOrOverwriteInput()
     {
@@ -118,6 +124,7 @@ public sealed class PortableSettingsPersistenceTests
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
     }
 
+    /// <summary>書込みは許して置換を拒否する共有条件で保存し、直接上書きによる入力破壊を検出し、一時ファイルの回収を確認します。</summary>
     [TestMethod]
     public void ReplacementFailurePreservesBytesAndCleansTemporaryFile()
     {
@@ -126,7 +133,7 @@ public sealed class PortableSettingsPersistenceTests
         Settings settings = OpenSettings(files.Path);
         settings.Lang = "fr-FR";
         byte[] before = File.ReadAllBytes(files.Path);
-        // Deny DELETE/replacement but permit WRITE so an incorrect direct-write implementation is distinguishable.
+        // 直接書込みはできるが置換できない条件にし、元ファイルを壊す実装を区別します。
         using (var blocker = new FileStream(files.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
         {
             AssertFailure(Assert.ThrowsException<PortableSettingsException>(() => settings.Save()), files.Path, "Save");
@@ -135,6 +142,7 @@ public sealed class PortableSettingsPersistenceTests
         }
     }
 
+    /// <summary>破損 XML の二回の起動で別々に原文を退避して新規作成前に警告し、旧設定再輸入や以前の退避上書きを防ぐことを確認します。</summary>
     [TestMethod]
     public void StartupCorruptionWarnsWithPreservedBackupBeforeCreatingDefaultsAndNeverImportsLegacy()
     {
@@ -166,6 +174,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(2, Directory.GetFiles(files.Directory, "user.config.broken-*").Length);
     }
 
+    /// <summary>XML として正常だが必須構造がない入力は Read 失敗とし、破損回復や旧設定輸入で元入力を置き換えないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("<configuration />")]
     [DataRow("<configuration><userSettings /></configuration>")]
@@ -183,6 +192,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(1, Directory.GetFiles(files.Directory).Length);
     }
 
+    /// <summary>共有条件による Read 失敗と退避 rename 失敗の双方で、輸入・警告・新規作成を開始せず元入力を保つことを確認します。</summary>
     [TestMethod]
     public void StartupReadAndQuarantineFailuresDoNotWarnOrCreate()
     {
@@ -203,6 +213,7 @@ public sealed class PortableSettingsPersistenceTests
         }
     }
 
+    /// <summary>退避警告中に作成先を占有し、退避内容を保って Create 失敗を返し、成功や一時ファイル残存へ進まないことを確認します。</summary>
     [TestMethod]
     public void StartupFreshCreateFailureIsFatalAfterBackupAndWarning()
     {
@@ -222,6 +233,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
 
+    /// <summary>回復警告中に別のファイルを公開し、後続の新規作成が競合内容を上書きせず Create 失敗になることを確認します。</summary>
     [TestMethod]
     public void FreshCreationDoesNotOverwriteAFilePublishedDuringRecoveryWarning()
     {
@@ -235,6 +247,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.AreEqual(0, Directory.GetFiles(files.Directory, "*.tmp").Length);
     }
 
+    /// <summary>設定ファイルなしでは輸入判断を一回行って有効な初回設定構造を作り、欠損を破損扱いする誤りを検出します。</summary>
     [TestMethod]
     public void StartupMissingFileCreatesValidFirstRunConfiguration()
     {
@@ -246,7 +259,7 @@ public sealed class PortableSettingsPersistenceTests
         Assert.IsNotNull(XDocument.Load(files.Path).Root!.Element("userSettings")!.Element(PortableSettingsProvider.SettingsSectionName));
     }
 
-    /// <summary>Uses the generated settings wrapper with an explicit instance-owned production provider.</summary>
+    /// <summary>専用パスの本番 provider を生成済み Settings wrapper に接続し、実保存・読戻しを確認できるようにします。</summary>
     internal static Settings OpenSettings(string path)
     {
         var settings = new Settings();

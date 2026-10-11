@@ -8,16 +8,17 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSyncStatusMapperTests
 {
+    /// <summary>未試行状態は未同期用リソースを選び失敗表示を出さず、未実施を警告扱いにする誤りを検出します。</summary>
     [TestMethod]
     public void CreateNone_ReturnsNonFailureDash()
     {
         PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.CreateNone();
 
-        Assert.AreEqual("-", status.StatusText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_none, status.StatusText);
         Assert.IsFalse(status.HasFailureStatus);
-        Assert.AreEqual(120, status.StatusSortOrder);
     }
 
+    /// <summary>更新成功は更新用リソースと検査時刻を詳細へ渡し失敗表示を出さず、成功を警告扱いにする誤りを検出します。</summary>
     [TestMethod]
     public void Create_SuccessUpdated_ReturnsUpdatedStatus()
     {
@@ -25,12 +26,12 @@ public sealed class PlaylistSyncStatusMapperTests
 
         PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 
-        Assert.AreEqual("UPDATED", status.StatusText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_updated, status.StatusText);
         Assert.IsFalse(status.HasFailureStatus);
-        Assert.AreEqual(100, status.StatusSortOrder);
         StringAssert.Contains(status.Detail, "2026/03/08 20:00:00");
     }
 
+    /// <summary>見出し解析失敗は見出し用リソースと対象URLを示して失敗表示を有効にし、原因のない正常表示へ丸める誤りを検出します。</summary>
     [TestMethod]
     public void Create_FailureHeaderParse_ReturnsWarningStatus()
     {
@@ -38,9 +39,8 @@ public sealed class PlaylistSyncStatusMapperTests
 
         PlaylistSyncRuntimeStatus status = PlaylistSyncStatusMapper.Create(result, new DateTime(2026, 3, 8, 20, 0, 0));
 
-        Assert.AreEqual("HEADER", status.StatusText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_sync_status_header, status.StatusText);
         Assert.IsTrue(status.HasFailureStatus);
-        Assert.AreEqual(20, status.StatusSortOrder);
         StringAssert.Contains(status.Detail, "https://example.com/header.json");
     }
 }

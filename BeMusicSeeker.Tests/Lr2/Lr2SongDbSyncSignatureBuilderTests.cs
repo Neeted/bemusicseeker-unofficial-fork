@@ -6,65 +6,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbSyncSignatureBuilderTests
 {
-    [TestMethod]
-    public void Build_DoesNotIncludeRuntimeRootSet()
-    {
-        var options = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-        };
 
-        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
-        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
-
-        Assert.AreEqual(first, second);
-        Assert.IsFalse(first.Contains("|roots="));
-    }
-
-    [TestMethod]
-    public void Build_DoesNotChangeWhenRootSetChanges()
-    {
-        var options = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-        };
-
-        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
-        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
-
-        Assert.AreEqual(first, second);
-    }
-
-    [TestMethod]
-    public void Build_DoesNotIncludeLr2FolderDiscoveryRootSet()
-    {
-        var options = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-        };
-
-        string first = Lr2SongDbSyncSignatureBuilder.Build(options);
-        string second = Lr2SongDbSyncSignatureBuilder.Build(options);
-
-        Assert.AreEqual(first, second);
-        Assert.IsFalse(first.Contains("|lr2folderRoots="));
-    }
-
-    [TestMethod]
-    public void Build_DoesNotIncludeMutableBuiltinCustomFolderSettings()
-    {
-        var options = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = true,
-        };
-
-        string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
-
-        Assert.IsFalse(signature.Contains("lr2CustomFolderMask"));
-        Assert.IsFalse(signature.Contains("lr2TitleFlashHours"));
-        Assert.IsFalse(signature.Contains("lr2IncludeNewSongFolder"));
-    }
-
+    /// <summary>
+    /// 保存署名にアプリ・譜面情報・解析・フォルダ生成・互換性の版を含め、異なる保存契約を同じ同期済み状態として再利用する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void Build_IncludesSchemaParserAndGeneratorVersions()
     {

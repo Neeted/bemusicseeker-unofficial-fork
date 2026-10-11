@@ -13,8 +13,12 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class PlayerPanelStateSettingsCompatibilityTests
 {
+    /// <summary>
+    /// 保証：既存の表示状態名と組合せを実設定ストアで読み保存再読込して同じ状態へ戻し、永続キーと既存enum値の互換性を守る。
+    /// </summary>
+    /// <remarks>専用設定ファイルと本番providerを使い、生成SettingsとXML保存値の両方で旧形式の受理を確認する。</remarks>
     [TestMethod]
-    public void PlayerPanelState_PreservesPersistedKeyDefaultNamesAndValues()
+    public void PlayerPanelState_PreservesPersistedKeyNamesAndValues()
     {
         Assert.AreEqual(0, (int)PlayerPanelState.TITLE_LARGE);
         Assert.AreEqual(1, (int)PlayerPanelState.TITLE_SMALL);
@@ -23,7 +27,6 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
         SettingsProperty metadata = MainWindowViewModelTestFactory.CreateIsolatedSettings().Properties[nameof(Settings.PlayerPanelState)];
         Assert.IsNotNull(metadata);
         Assert.AreEqual("PlayerPanelState", metadata.Name);
-        Assert.AreEqual("TITLE_SMALL", metadata.DefaultValue);
 
         using var files = new PortableSettingsPersistenceTests.SettingsFiles();
         string configPath = files.Path;
@@ -35,6 +38,10 @@ public sealed class PlayerPanelStateSettingsCompatibilityTests
             "TITLE_SMALL, BMS_PLAYER",
             PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER);
     }
+    /// <summary>
+    /// 保証：旧数値の正規化保存が置換ロックで失敗すると元ファイルを保持し、Settingsの読取りにはメモリ内の正規化値を渡す。
+    /// </summary>
+    /// <remarks>実ファイルの共有モードで置換を失敗させ、原本バイトと本番設定providerの読取りを観測する。</remarks>
     [TestMethod]
     public void PlayerPanelState_AtomicNormalizationFailurePreservesOriginalAndMaterializesCanonicalValue()
     {

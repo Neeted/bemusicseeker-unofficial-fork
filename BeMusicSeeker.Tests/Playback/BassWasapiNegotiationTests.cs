@@ -18,38 +18,7 @@ public sealed class BassWasapiNegotiationTests
 {
     private static readonly WasapiProcedure WasapiCallback = (buffer, length, user) => length;
 
-    [TestMethod]
-    public void WasapiCandidates_UseNativeDefaultsForSharedAndRetainExclusiveDegradation()
-    {
-        IReadOnlyList<BassWasapiInitializationCandidate> shared =
-            BassWasapiNegotiator.GetInitializationCandidates(
-                shared: true,
-                eventModeRequested: true,
-                requestedBufferSeconds: 0.02f,
-                requestedPeriodSeconds: 0.005f);
-
-        Assert.AreEqual(2, shared.Count);
-        Assert.IsTrue(shared[0].EventDriven);
-        Assert.IsFalse(shared[1].EventDriven);
-        Assert.IsTrue(shared.All(candidate => candidate.BufferSeconds == 0f));
-        Assert.IsTrue(shared.All(candidate => candidate.PeriodSeconds == 0f));
-
-        IReadOnlyList<BassWasapiInitializationCandidate> exclusive =
-            BassWasapiNegotiator.GetInitializationCandidates(
-                shared: false,
-                eventModeRequested: true,
-                requestedBufferSeconds: 0.02f,
-                requestedPeriodSeconds: 0.005f);
-
-        Assert.AreEqual(3, exclusive.Count);
-        Assert.IsTrue(exclusive[0].EventDriven);
-        Assert.IsFalse(exclusive[1].EventDriven);
-        Assert.AreEqual(0.02f, exclusive[1].BufferSeconds);
-        Assert.AreEqual(0.005f, exclusive[1].PeriodSeconds);
-        Assert.AreEqual(0f, exclusive[2].BufferSeconds);
-        Assert.AreEqual(0f, exclusive[2].PeriodSeconds);
-    }
-
+    /// <summary>排他のイベント・指定周期が失敗してnative既定で成功しても、試行順と両native原因を保持し指定並列数のfloat mixerへ接続する。</summary>
     [TestMethod]
     public void WasapiEventAndPeriodFailures_AreRetainedWhenNativeDefaultSucceeds()
     {
@@ -90,6 +59,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsTrue(session.WasapiInitialized);
     }
 
+    /// <summary>共有方式は選択機器のmix条件で開始し、GetInfoの実効rate・channel・形式からmixerとlatencyを構成して指定との差を報告する。</summary>
     [TestMethod]
     public void WasapiShared_UsesMixShapeAndGetInfoReadbackForResultMixerAndLatency()
     {
@@ -134,6 +104,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "endpoint mix rate 48000");
     }
 
+    /// <summary>選択した共有機器のmix形状だけを照会し、形式・有効bit・チャンネルを返して再生初期化やgraph構築をしない。</summary>
     [TestMethod]
     public void WasapiSharedCapabilityQuery_ReportsTheSelectedMixShape()
     {
@@ -171,6 +142,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(0, native.GraphCalls.Count);
     }
 
+    /// <summary>共有機器情報のread中に照会を取り消すと形式確認へ進まず、workflow受付を終端して解放を一回通知する。</summary>
     [TestMethod]
     public async Task WasapiSharedCapabilityQuery_CancellationDuringDeviceInfoReadSkipsFormatCheckAndReleasesWorkflow()
     {
@@ -222,6 +194,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(1, releaseNotifications);
     }
 
+    /// <summary>排他能力はrateと形式の完全一致だけを対応とし、mix・保存希望・高rate候補を照会して次回は最新mixを使う。</summary>
     [TestMethod]
     public void WasapiExclusiveCapabilityQuery_RecordsOnlyExactRateAndFormatReadbacks()
     {
@@ -286,6 +259,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsFalse(checkedRates.Contains(23456));
     }
 
+    /// <summary>照会先の欠落ではDefaultへ代替せず、native CheckFormat失敗では元段階・番号を保持して候補を成功扱いしない。</summary>
     [TestMethod]
     public void WasapiCapabilityQuery_FailsOnNativeCheckErrorAndDoesNotUseDefaultDeviceInstead()
     {
@@ -327,6 +301,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(1, checkCount);
     }
 
+    /// <summary>排他方式自体のNotAvailableと個別形式の拒否を分け、後者だけは他の対応候補を照会して結果に残す。</summary>
     [TestMethod]
     public void WasapiExclusiveCapabilityQuery_ClassifiesModeAndCandidateRejections()
     {
@@ -375,6 +350,7 @@ public sealed class BassWasapiNegotiationTests
             capability.Format == SampleFormat.SAMPLE_INT_16BIT && capability.IsSupported));
     }
 
+    /// <summary>共有開始で指定並列数1～4を設定・読戻しし、native Start時のcallback出力handleと初期化完了後の初期gain・rendererを確認する。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(2)]
@@ -411,6 +387,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(2, callbackRenderer.ChannelCount);
     }
 
+    /// <summary>並列数の設定失敗・読戻し失敗・不一致をそれぞれ初期化失敗へ伝え、未確認mixerを成功にしない。</summary>
     [DataTestMethod]
     [DataRow("set")]
     [DataRow("get")]
@@ -453,6 +430,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(failure == "set" ? 0 : 1, native.GraphCalls.Count(call => call == "GetMixerThreadCount"));
     }
 
+    /// <summary>利用者の音量scaleを変えず、開始時のmuteだけを実効gainゼロへ反映する。</summary>
     [TestMethod]
     public void WasapiInitialGain_UsesMuteStateWithoutChangingVolumeScale()
     {
@@ -464,6 +442,7 @@ public sealed class BassWasapiNegotiationTests
             BassAudioPlayer.GetEffectiveDeviceVolumeForInitialization(0.35f, isMuted: true));
     }
 
+    /// <summary>排他開始へ指定並列数と音量を渡し、整数endpointのdither flagを維持する。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(2)]
@@ -491,6 +470,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsTrue(native.InitializationCalls.Single().Flags.HasFlag(WasapiInitFlags.Dither));
     }
 
+    /// <summary>WASAPI初期化の全失敗では未取得WASAPI所有を立てず、最後の境界失敗を元番号付きで返す。</summary>
     [TestMethod]
     public void WasapiFailedInit_DoesNotClaimWasapiOwnershipAndCapturesWasapiError()
     {
@@ -516,6 +496,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual("BASS_WASAPI_Init", exception.Stage);
     }
 
+    /// <summary>WASAPI初期化成功直後に所有を捕捉し、後続GetInfoが失敗しても解放対象を失わない。</summary>
     [TestMethod]
     public void WasapiSuccessfulInit_ClaimsOwnershipBeforeGetInfoReadback()
     {
@@ -536,6 +517,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsTrue(native.GetInfoObserved);
     }
 
+    /// <summary>GetInfo失敗では取得済みcore・WASAPI所有を保持し、読戻し段階と元native番号を返す。</summary>
     [TestMethod]
     public void WasapiInfoFailure_ReportsBoundaryErrorAfterClaimingOwnership()
     {
@@ -562,6 +544,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(Errors.Init, exception.NativeErrorCode);
     }
 
+    /// <summary>共有イベント失敗は通常再生だけ非イベントへ代替し、明示テストと非イベント要求では失敗として要求条件を守る。</summary>
     [DataTestMethod]
     [DataRow(false, true)]
     [DataRow(true, true)]
@@ -609,6 +592,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "shared non-event native default");
     }
 
+    /// <summary>明示した機器をDefault flagの有無に依存せず選び、利用者の選択先を維持する。</summary>
     [TestMethod]
     public void WasapiExactSelection_DoesNotRequireDefaultFlag()
     {
@@ -634,6 +618,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual("Explicit WASAPI", result.ActualDevice.Name);
     }
 
+    /// <summary>安定IDが一致する共有機器では表示名の変更を追従し、別機器へのfallbackと誤診断しない。</summary>
     [TestMethod]
     public void WasapiStableIdentitySelection_IgnoresChangedDisplayName()
     {
@@ -666,6 +651,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.FallbackReason));
     }
 
+    /// <summary>消えた共有機器IDは同名の別endpointへ置換せず、Defaultへの代替と欠落理由を結果に残す。</summary>
     [TestMethod]
     public void WasapiStaleStableIdentity_DoesNotSelectSameNameOnAnotherEndpoint()
     {
@@ -698,6 +684,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "unavailable");
     }
 
+    /// <summary>IDを持たない旧共有設定だけは名前の互換解決を許し、選んだ実IDと互換理由を返す。</summary>
     [TestMethod]
     public void WasapiLegacyNameOnlySelection_UsesNameFallback()
     {
@@ -730,6 +717,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "no stable identity");
     }
 
+    /// <summary>排他方式の旧選択はID欠落時にも名前一致の互換解決を維持し、置換先IDと理由を返す。</summary>
     [TestMethod]
     public void WasapiExclusive_StaleIdentityRetainsCompatibleNameFallback()
     {
@@ -762,6 +750,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "compatible name match");
     }
 
+    /// <summary>Default要求にDefault機器がなければ方式・段階・境界付きで失敗し、任意機器を選ばない。</summary>
     [TestMethod]
     public void WasapiDefaultWithoutDefaultFlag_ThrowsContextualInitializationFailure()
     {
@@ -787,6 +776,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual("BASSWASAPI", exception.NativeErrorSource);
     }
 
+    /// <summary>明示デバイステストの選択機器が消えた場合は同名・Defaultへ代替せずnative開始前に失敗する。</summary>
     [TestMethod]
     public void DeviceTest_UnavailableDeviceDoesNotSelectCompatibleNameOrDefault()
     {
@@ -815,6 +805,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(0, native.InitializationCalls.Count);
     }
 
+    /// <summary>明示デバイステストのrate読戻し不一致を失敗にし、要求rateを変えたりmixerを構築しない。</summary>
     [TestMethod]
     public void DeviceTest_ExplicitRateReadbackMismatchFailsBeforeCreatingMixer()
     {
@@ -841,6 +832,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(0, native.MixerRate);
     }
 
+    /// <summary>明示デバイステストの形式読戻し不一致を失敗にし、AutoFormatやmixerで不一致を隠さない。</summary>
     [TestMethod]
     public void DeviceTest_ExplicitFormatReadbackMismatchFailsBeforeCreatingMixer()
     {
@@ -868,6 +860,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.AreEqual(0, native.MixerRate);
     }
 
+    /// <summary>排他の周期調整は用途とイベント要求を保持し、通常再生だけ許された非イベント／形式代替へ進んで原因を残す。</summary>
     [DataTestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
@@ -909,6 +902,7 @@ public sealed class BassWasapiNegotiationTests
         StringAssert.Contains(result.FallbackReason, "nativeErrorCode=BASS_ERROR_BUSY");
     }
 
+    /// <summary>Auto rateと明示24bit形式は照会済みを前提とせず最初の完全一致rateで開始し、低精度readbackを対応として受け入れない。</summary>
     [DataTestMethod]
     [DataRow(true, true)]
     [DataRow(true, false)]
@@ -951,6 +945,7 @@ public sealed class BassWasapiNegotiationTests
         Assert.IsNull(result.FallbackReason);
     }
 
+    /// <summary>Auto rateに要求形式の対応がなければ明示テストは開始せず失敗し、通常再生だけ形式代替を理由付きで行う。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]

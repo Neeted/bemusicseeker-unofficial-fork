@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryOptionsSnapshotTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>
+    /// 保証：追加出力先を捕捉した後の元リスト変更を反映せず、公開リストへの書込みも拒否して操作中の設定を固定する。
+    /// </summary>
     [TestMethod]
     public void AdditionalOutputDirectoriesAreCopiedWhenSnapshotIsCreated()
     {
@@ -29,6 +32,9 @@ public sealed class BmsLibraryOptionsSnapshotTests
             ((IList<string>)snapshot.LR2CustomFolderAdditionalOutputBaseDirs)[0] = "not allowed");
     }
 
+    /// <summary>
+    /// 保証：設定の並列上限を変更して再捕捉すると新しい値を取得し、先に捕捉した操作入力の値は保持する。
+    /// </summary>
     [TestMethod]
     public void CreateCurrentReturnsValuesFromTheCurrentSettingsEachTime()
     {
@@ -50,6 +56,9 @@ public sealed class BmsLibraryOptionsSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：追加出力先の保存文字列を捕捉時に保持し、存在しない出力先の記述を空設定へ読み替えない。
+    /// </summary>
     [TestMethod]
     public void CreateCurrentRetainsRawAdditionalOutputConfiguration()
     {

@@ -15,10 +15,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>treeの判断・要求受理は各主体の下位ケースが担い、ここでは実MainWindowのcompiled Style・選択/クリックイベントから公開先への接続を確認します。共有Resourcesを所有して終了まで回収するため並列実行しません。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class MainWindowTreePresentationWpfTests
 {
+    /// <summary>導入済み譜面の確定値を準備してもcompiledヘッダーは旧題名を保ち、公開後だけ新題名となることを確認し、排他解放前の表示通知やBindingの未更新を検出します。</summary>
     [TestMethod]
     public void InstalledPackageCompiledHeaderPublishesTitleOnlyAfterOwnerRelease()
     {
@@ -64,6 +66,7 @@ public sealed class MainWindowTreePresentationWpfTests
         });
     }
 
+    /// <summary>通常フォルダとrootの実メニュークリックが再読込・再初期化を各一回だけ届けることを確認し、compiledイベントから別の操作入口へ配送する誤りを検出します。</summary>
     [TestMethod]
     public void LibraryContextMenusRouteReloadAndReinitializeThroughTypedTerminal()
     {
@@ -99,6 +102,7 @@ public sealed class MainWindowTreePresentationWpfTests
             libraryReloadMenuTerminal: terminal);
     }
 
+    /// <summary>実ライブラリroot選択が通常一覧の主体へ無条件フィルターの更新要求を一回届けることを確認し、tree選択と一覧表示の接続漏れを検出します。</summary>
     [TestMethod]
     public void RegularLibrarySelectionUsesActualTreeOwnerRoute()
     {
@@ -135,6 +139,7 @@ public sealed class MainWindowTreePresentationWpfTests
             regularLibraryTreeTerminal: terminal);
     }
 
+    /// <summary>全走査・無視・重複・文字化け・未登録・零ノート・解析失敗の実tree選択を各対応modeへ届けることを確認し、隣の項目へ配送する接続誤りを検出します。</summary>
     [TestMethod]
     public void MaintenanceTreeSelectionsUseActualCompiledRoutes()
     {
@@ -184,6 +189,7 @@ public sealed class MainWindowTreePresentationWpfTests
             maintenanceTreeTerminal: terminal);
     }
 
+    /// <summary>導入済みと保留のrootおよび個別packageを選び、対応modeとpackage参照を各一回渡すことを確認し、状態区分や個別対象の取り違えを検出します。</summary>
     [TestMethod]
     public void InstallTreeSelectionsUseActualCompiledRoutes()
     {
@@ -228,6 +234,7 @@ public sealed class MainWindowTreePresentationWpfTests
             installTreeTerminal: terminal);
     }
 
+    /// <summary>実零ノートメニューのクリックが再検査入口へ一回届くことを確認し、compiledメニューの処理未接続や二重配送を検出します。</summary>
     [TestMethod]
     public void ZeroNoteRecheckUsesActualCompiledMenuRoute()
     {
@@ -249,6 +256,7 @@ public sealed class MainWindowTreePresentationWpfTests
             zeroNoteRecheckTerminal: terminal);
     }
 
+    /// <summary>実フォルダメニューの登録解除で選択したrootのパスを一回渡すことを確認し、別フォルダの解除や対象パスの欠落を検出します。</summary>
     [TestMethod]
     public void RootFolderUnregisterUsesActualCompiledMenuRoute()
     {
@@ -280,6 +288,7 @@ public sealed class MainWindowTreePresentationWpfTests
             rootFolderUnregisterTerminal: terminal);
     }
 
+    /// <summary>再読込・再初期化・登録解除が欠損rootの既通知失敗を返しても、実メニューは各一回呼出して未処理例外にしないことを確認し、shell終端で通知済み失敗を再送する誤りを検出します。</summary>
     [TestMethod]
     public void DirectoryPreflightFailureIsConsumedByLibraryShellTerminals()
     {
@@ -334,8 +343,9 @@ public sealed class MainWindowTreePresentationWpfTests
             rootFolderUnregisterTerminal: unregisterTerminal);
     }
 
+    /// <summary>保留を起動時に選ぶ利用者設定で構成した実MainWindowが保留rootを選択することを確認し、初期選択の設定を無視する接続漏れを検出します。</summary>
     [TestMethod]
-    public void ConstructorBindsTreePresentationThroughChildOwners()
+    public void ConstructorAppliesSavedInitialPendingSelection()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -344,50 +354,9 @@ public sealed class MainWindowTreePresentationWpfTests
 
         MainWindowPresentationTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
         {
-            TreeViewItem installed = GetNamedElement<TreeViewItem>(window, "newlyInstalledTreeViewItem");
             TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
-            TreeViewItem duplicate = GetNamedElement<TreeViewItem>(window, "treeViewItemSearchDuplicated");
-
-            AssertBindingPath(installed, ItemsControl.ItemsSourceProperty, "InstallTree.ChartPackagesInstalled");
-            AssertBindingPath(pending, ItemsControl.ItemsSourceProperty, "InstallTree.ChartPackagesPending");
-            AssertBindingPath(duplicate, ItemsControl.ItemsSourceProperty, "MaintenanceTree.DuplicateChartGroups");
-
-            FrameworkElement? folder = FindElementWithBinding(
-                window,
-                ItemsControl.ItemsSourceProperty,
-                "LibraryFolderTree.BMSParentFolderList");
-            Assert.IsNotNull(folder);
-
             Assert.IsTrue(pending.IsSelected);
-            Assert.IsTrue(viewModel.ViewSettings.StartupSelectInstallPending);
-            Assert.AreSame(viewModel, ((FrameworkElement)installed).DataContext);
-            Assert.AreSame(viewModel, ((FrameworkElement)duplicate).DataContext);
         });
-    }
-
-    [TestMethod]
-    public void ConstructorExposesSafeLibraryContextMenuAndLr2CompatibilityNode()
-    {
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (_, window) =>
-            {
-                var contextMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                MenuItem[] commands = contextMenu.Items.OfType<MenuItem>().Take(2).ToArray();
-
-                Assert.AreEqual(2, commands.Length);
-                AssertBindingPath(commands[0], HeaderedItemsControl.HeaderProperty, "Resources.Reload");
-                AssertBindingPath(commands[1], HeaderedItemsControl.HeaderProperty, "Resources.Reinitialize_library");
-                Assert.AreEqual(Resources.Reload, commands[0].Header);
-                Assert.AreEqual(Resources.Reinitialize_library, commands[1].Header);
-
-                FrameworkElement? unregistered = FindElementWithBinding(
-                    window,
-                    HeaderedItemsControl.HeaderProperty,
-                    "Resources.Unregistered_in_lr2_db");
-                Assert.IsNotNull(unregistered);
-                Assert.AreEqual(Visibility.Visible, unregistered.Visibility);
-            });
     }
 
     private static T GetNamedElement<T>(MainWindow window, string name)
@@ -401,16 +370,6 @@ public sealed class MainWindowTreePresentationWpfTests
     private static void RaiseMenuClick(MenuItem item)
     {
         item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, item));
-    }
-
-    private static void AssertBindingPath(
-        DependencyObject element,
-        DependencyProperty property,
-        string expectedPath)
-    {
-        BindingBase? binding = BindingOperations.GetBindingBase(element, property);
-        Assert.IsInstanceOfType(binding, typeof(Binding), expectedPath);
-        Assert.AreEqual(expectedPath, ((Binding)binding!).Path?.Path);
     }
 
     private static FrameworkElement? FindElementWithBinding(

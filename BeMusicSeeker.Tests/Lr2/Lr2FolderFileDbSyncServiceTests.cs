@@ -14,6 +14,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileDbSyncServiceTests
 {
+    /// <summary>
+    /// 現在の定義を保存し既存追加時刻を保持して、範囲内の旧定義だけを削除し通常行と別範囲行を残す。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_UpsertsCurrentRowsAndPrunesStaleRowsInScope()
     {
@@ -90,6 +94,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 相対保存パスの明示保護行を残して同範囲の旧行だけを削除し、絶対パス前提で保護を失う誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneExcludedPathsProtectsRelativeLr2FolderRows()
     {
@@ -127,6 +135,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 広い範囲でも管理対象ディレクトリを読取り・削除から除外し、接頭辞が似た隣接先を誤って保護しない。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneExcludedDirectoriesAreNotReadOrDeletedFromBroadScope()
     {
@@ -138,9 +150,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string externalDirectory = Path.Combine(root, "External");
             string managedDirectory = Path.Combine(root, "Table");
             string managedPrefixSiblingDirectory = Path.Combine(root, "TableOther");
-            Directory.CreateDirectory(externalDirectory);
-            Directory.CreateDirectory(managedDirectory);
-            Directory.CreateDirectory(managedPrefixSiblingDirectory);
             string externalPath = Path.Combine(externalDirectory, "External.lr2folder");
             string managedPath = Path.Combine(managedDirectory, "Managed.lr2folder");
             string siblingPath = Path.Combine(managedPrefixSiblingDirectory, "Sibling.lr2folder");
@@ -166,6 +175,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 管理表の新旧行を保護しつつ隣接する外部表の現在行は保持・旧行は削除して、除外範囲の混同を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneExcludedDirectoriesKeepUnmanagedOutputSiblingsInScope()
     {
@@ -176,8 +189,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string outputBase = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Output");
             string managedDirectory = Path.Combine(outputBase, "ManagedTable");
             string unmanagedDirectory = Path.Combine(outputBase, "ExternalTable");
-            Directory.CreateDirectory(managedDirectory);
-            Directory.CreateDirectory(unmanagedDirectory);
             string managedCurrentPath = Path.Combine(managedDirectory, "Current.lr2folder");
             string managedStalePath = Path.Combine(managedDirectory, "Stale.lr2folder");
             string unmanagedCurrentPath = Path.Combine(unmanagedDirectory, "Current.lr2folder");
@@ -216,6 +227,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 日本語・全角・アクセント付き管理先を保護して類似接頭辞の外部先は削除し、SQLの比較順との不一致による範囲誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneExcludedDirectoriesUseSQLiteNoCaseOrderingForUnicodeSiblings()
     {
@@ -232,11 +247,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string unmanagedAccentDirectory = Path.Combine(outputBase, "Éclair外");
             string[] managedDirectories = [managedJapaneseDirectory, managedFullwidthDirectory, managedAccentDirectory];
             string[] unmanagedDirectories = [unmanagedJapaneseDirectory, unmanagedFullwidthDirectory, unmanagedAccentDirectory];
-            foreach (string directory in managedDirectories.Concat(unmanagedDirectories))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
             foreach (string directory in managedDirectories)
             {
                 songDb.InsertOrReplace(new LR2SongDB.folder
@@ -280,6 +290,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 完全一致と削除範囲の二行だけを読んで現在行を保持・旧行を削除し、別範囲25行の全読取り・削除を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ReadsOnlyExactAndPruneScopeRows()
     {
@@ -338,6 +352,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 定義行限定の同期では同範囲の通常行を読まず残し、別種別行の過剰取得・削除を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ScopeReadLr2FolderRowsOnlySkipsNormalFolderRowsInPruneScope()
     {
@@ -396,6 +414,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 削除無効時は完全一致行だけを読んで保持し旧行を残して、不要な範囲読取りや削除を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneDisabledReadsOnlyExactRows()
     {
@@ -445,6 +467,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 広い登録ルート内でも生成出力先を除外して外部旧行だけを削除し、他管理主体の行を削除する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PruneExcludedDirectoriesProtectRowsInsideBroadScope()
     {
@@ -496,6 +522,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// NOCASE範囲取得用索引を実DBへ作り索引指定の範囲クエリを成立させ、必要索引の欠落を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void EnsureFolderLookupIndexes_AddsFolderNocaseIndexForPrefixScopedSync()
     {
@@ -526,6 +556,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 通常行の時刻確認はパス・種別・時刻だけを取得し、タイトル・条件・最大数の不要な読取りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void QueryExactPathsForNormalFolderMtime_ReturnsOnlyPathTypeAndDate()
     {
@@ -557,6 +591,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 定義再解析を要しない既存行はタイトル・追加時刻を保持して更新せず、別の旧行だけを削除する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PreservesUnchangedRowsWithoutDefinitionParse()
     {
@@ -613,6 +651,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 削除許可のない空入力では既存定義を残し、走査が空という理由で削除する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotPruneRowsUnlessAllowed()
     {
@@ -639,6 +681,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 大文字小文字がずれた実保存キーを削除して現在キーへ置換し、追加時刻を保持して別名行の残留を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ReplacesCaseDriftedExistingPath()
     {
@@ -681,6 +727,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 未対応文字と時刻未取得を別々に診断しどちらも保存せず、不完全行の書込みを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ReportsUnsupportedAndMissingRowsWithoutWriting()
     {
@@ -717,6 +767,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 明示された新曲・ライバル・コースのLR2保存種別3・4・6を維持して、通常カスタム種別への読み替えを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [DataTestMethod]
     [DataRow(3)]
     [DataRow(4)]
@@ -750,6 +804,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 削除許可時は時刻欠落・未対応パスで生成できない旧行も除去し、無効入力の保存行残留を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PrunesRowsForInputsThatCannotGenerateRows()
     {
@@ -800,6 +858,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 定義と同パスの予約通常行をタイトル・種別ごと保持し、別種別の保存行を上書きする誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotReplaceReservedNormalDirectoryRow()
     {
@@ -840,6 +902,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 組込み定義の相対保存キーへタイトルを更新して追加時刻・ROOT親を保持し、物理絶対パスの別行を作る誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_MatchesExistingKnownRelativeLr2FolderRow()
     {
@@ -882,6 +948,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 旧絶対キーの組込み行を相対キーへ移し、追加時刻を保持して旧行を削除し、二重行や履歴消失を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_MigratesExistingAbsoluteBuiltinRowToRelativePath()
     {
@@ -926,6 +996,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 組込み定義の親分類行に提供されたタイトル・ディレクトリ時刻・ROOT親を保存し、子定義の情報との混同を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_UsesDirectoryMetadataForBuiltinCustomFolderParentRow()
     {
@@ -935,7 +1009,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             songDb.CreateTable<LR2SongDB.folder>();
             string customFolderRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "LR2files", "CustomFolder");
             string randomDirectory = Path.Combine(customFolderRoot, "RANDOM");
-            Directory.CreateDirectory(randomDirectory);
             string filePath = Path.Combine(randomDirectory, "select.lr2folder");
             string databasePath = @"LR2files\CustomFolder\RANDOM\select.lr2folder";
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
@@ -970,6 +1043,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 親情報窓口が未取得を返した場合は実在フォルダでも親行を作らず子定義だけを保存し、無断の追加読取りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotFallbackToDirectoryInfoWhenDirectoryMetadataResolverMisses()
     {
@@ -1006,6 +1083,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 要求で捕捉したfolderinfoを実読取りして組込み分類タイトルへ採用し、提供された定義面の無視を検出する。
+    /// </summary>
+    /// <remarks>捕捉済み情報と実フォルダ情報を異ならせ、要求入力を優先する読取り境界を確認する。</remarks>
     [TestMethod]
     public void CreateLr2FolderParentDirectoryMetadataSnapshot_UsesRequestFolderInfoSurfaceForBuiltinFolderInfo()
     {
@@ -1055,6 +1136,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 実フォルダ時刻が変わっても要求に捕捉した時刻を親情報へ保持し、現在時刻の再取得を防ぐ。
+    /// </summary>
+    /// <remarks>捕捉済み情報と実フォルダ情報を異ならせ、要求入力を優先する読取り境界を確認する。</remarks>
     [TestMethod]
     public void CreateLr2FolderParentDirectoryMetadataSnapshot_UsesRequestDirectoryEntryTimestamp()
     {
@@ -1099,6 +1184,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 要求に時刻がない実在フォルダは未取得と扱い、実folderinfoの存在で時刻を追加取得する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>捕捉済み情報と実フォルダ情報を異ならせ、要求入力を優先する読取り境界を確認する。</remarks>
     [TestMethod]
     public void CreateLr2FolderParentDirectoryMetadataSnapshot_DoesNotReadMissingDirectoryTimestamp()
     {
@@ -1138,6 +1227,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 全同期を通して実組込みfolderinfoのタイトルを相対分類行へ保存し、準備と保存の接続漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Lr2SongDbSyncRun_UsesBuiltinFolderInfoForCategoryRow()
     {
@@ -1192,6 +1285,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// ルート出力の表親と子定義を正しい種別・親CRCで保存し、隣接表の行を削除しない。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_GeneratesRootOutputDirectoryRowWithoutPruningSiblingTables()
     {
@@ -1202,8 +1299,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
             string siblingDirectory = Path.Combine(baseDirectory, "Sibling");
-            Directory.CreateDirectory(tableDirectory);
-            Directory.CreateDirectory(siblingDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
             string siblingFolderPath = Lr2FolderPath.ToFolderPath(siblingDirectory);
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
@@ -1247,6 +1342,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 通常出力先・表ディレクトリ・子定義の三階層を保存し、各親CRCと種別を区別して階層欠落を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_GeneratesNormalOutputBaseAndTableDirectoryRows()
     {
@@ -1257,7 +1356,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             string bmsRoot = Path.Combine(Path.GetDirectoryName(songDbPath)!, "BMS");
             string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
             string tableDirectory = Path.Combine(outputBase, "Table");
-            Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
 
@@ -1294,6 +1392,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 既存子定義を更新しない場合も欠落した親行を生成し、子保持によって必要な親補修まで省く誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PreserveExistingChildStillCreatesMissingParentDirectoryRow()
     {
@@ -1303,7 +1405,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
-            Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -1343,6 +1444,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 親更新を無効指定した場合は既存子だけを保持して親行を作らず、呼出元の指定を無視する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PreserveExistingChildCanSkipParentDirectoryRows()
     {
@@ -1352,7 +1457,6 @@ public sealed class Lr2FolderFileDbSyncServiceTests
             songDb.CreateTable<LR2SongDB.folder>();
             string baseDirectory = Path.Combine(Path.GetDirectoryName(songDbPath)!, "ROOT");
             string tableDirectory = Path.Combine(baseDirectory, "Table");
-            Directory.CreateDirectory(tableDirectory);
             string filePath = Path.Combine(tableDirectory, "0000.lr2folder");
             DateTime timestamp = new(2026, 6, 10, 1, 2, 3, DateTimeKind.Utc);
             songDb.InsertOrReplace(new LR2SongDB.folder
@@ -1391,6 +1495,10 @@ public sealed class Lr2FolderFileDbSyncServiceTests
         });
     }
 
+    /// <summary>
+    /// 親情報窓口がない場合は実在フォルダも親生成に使わず子だけを保存し、暗黙のファイルシステム読取りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの行・索引・反映件数を観測し、取得範囲と保存・削除の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotFallbackToDirectoryInfoWhenDirectoryMetadataResolverMissing()
     {

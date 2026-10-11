@@ -11,6 +11,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderFileDiscoveryServiceTests
 {
+    /// <summary>
+    /// 実在するLR2のCustomFolderだけを組込み探索元へ含め、正常な外部フォルダの探索漏れを検出します。
+    /// </summary>
+    /// <remarks>探索元の存在確認を観測するため専用の実フォルダを使います。</remarks>
     [TestMethod]
     public void CreateBuiltinFolderSourceDirectories_IncludesPhysicalLr2CustomFolder()
     {
@@ -24,6 +28,10 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         CollectionAssert.AreEqual(new[] { Path.GetFullPath(customFolder) }, directories);
     }
 
+    /// <summary>
+    /// LR2ルートだけが実在する場合は未存在のCustomFolderを探索元へ含めず、存在確認を飛ばす誤りを検出します。
+    /// </summary>
+    /// <remarks>探索元の存在確認を観測するため専用の実フォルダを使います。</remarks>
     [TestMethod]
     public void CreateBuiltinFolderSourceDirectories_IgnoresMissingLr2CustomFolder()
     {
@@ -36,6 +44,9 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         Assert.AreEqual(0, directories.Count);
     }
 
+    /// <summary>
+    /// 組込み表示と新曲表示を無効にしてもコース定義は残し、無効な表示の混入とコースの誤除外を検出します。
+    /// </summary>
     [TestMethod]
     public void ShouldIncludeCustomFolderFile_ExcludesDisabledBuiltinsButKeepsCourses()
     {
@@ -57,6 +68,10 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
             lr2Root));
     }
 
+    /// <summary>
+    /// 実在するBMS・通常出力・組込み元を探索し、未存在のルート出力先を追加する誤りを検出します。
+    /// </summary>
+    /// <remarks>探索元の存在確認を観測するため専用の実フォルダを使います。</remarks>
     [TestMethod]
     public void CreateDiscoveryDirectories_IncludesExistingBuiltinSourceAndOutputScopes()
     {
@@ -81,14 +96,17 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         CollectionAssert.DoesNotContain(directories, Path.GetFullPath(rootOutput));
     }
 
+    /// <summary>
+    /// 準備済みの出力範囲だけを再列挙から外し、名前の似た兄弟範囲や別ルートまで除く誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void CreateDiscoveryDirectoriesForEnumeration_ExcludesPreparedOutputScopes()
     {
-        using var scope = TestDirectoryScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string outputBase = Path.Combine(scope.DirectoryPath, "Output");
-        string outputBasePrefixSibling = Path.Combine(scope.DirectoryPath, "OutputOther");
-        string rootOutputBase = Path.Combine(scope.DirectoryPath, "RootOutput");
+        string testDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), Guid.NewGuid().ToString("N"));
+        string rootDirectory = Path.Combine(testDirectory, "BMS");
+        string outputBase = Path.Combine(testDirectory, "Output");
+        string outputBasePrefixSibling = Path.Combine(testDirectory, "OutputOther");
+        string rootOutputBase = Path.Combine(testDirectory, "RootOutput");
         var preparedSurface = new Lr2SongDbSyncPreparedDataSurface(
             [outputBase],
             [],
@@ -105,11 +123,14 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         CollectionAssert.DoesNotContain(directories, outputBase);
     }
 
+    /// <summary>
+    /// 準備済み範囲の古い候補だけを新出力へ置換し、同じ基点の外部ファイルや似た名前の兄弟対象を失う誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void MergeCandidateSurface_ReplacesOnlyPreparedScopeCandidates()
     {
-        using var scope = TestDirectoryScope.Create();
-        string outputBase = Path.Combine(scope.DirectoryPath, "Output");
+        string testDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), Guid.NewGuid().ToString("N"));
+        string outputBase = Path.Combine(testDirectory, "Output");
         string preparedDirectory = Path.Combine(outputBase, "Table");
         string preparedPrefixSibling = Path.Combine(outputBase, "TableOther");
         string oldManagedPath = Path.Combine(preparedDirectory, "old.lr2folder");
@@ -146,11 +167,14 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         Assert.IsTrue(merged.DiscoveryComplete);
     }
 
+    /// <summary>
+    /// 管理表ディレクトリの列挙済み・未登録ファイルだけを除き、基点直下の外部候補と兄弟範囲を保持することを確認します。
+    /// </summary>
     [TestMethod]
     public void ExcludeAppManagedOutputCandidates_RemovesManagedOutputDirectoryFilesOnly()
     {
-        using var scope = TestDirectoryScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string testDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), Guid.NewGuid().ToString("N"));
+        string rootDirectory = Path.Combine(testDirectory, "BMS");
         string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
         string managedDirectory = Path.Combine(outputBase, "Table");
         string managedPath = Path.Combine(managedDirectory, "managed.lr2folder");
@@ -186,11 +210,14 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         Assert.IsTrue(filtered.DiscoveryComplete);
     }
 
+    /// <summary>
+    /// パス一覧にない外部entryも候補に含め、管理範囲のentryだけを除いて捕捉入口の違いによる探索漏れを検出します。
+    /// </summary>
     [TestMethod]
     public void ExcludeAppManagedOutputCandidates_IncludesEntryOnlyExternalCandidates()
     {
-        using var scope = TestDirectoryScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+        string testDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), Guid.NewGuid().ToString("N"));
+        string rootDirectory = Path.Combine(testDirectory, "BMS");
         string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
         string managedDirectory = Path.Combine(outputBase, "Table");
         string managedEntryOnlyPath = Path.Combine(managedDirectory, "managed.lr2folder");
@@ -217,12 +244,15 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
         CollectionAssert.DoesNotContain(filtered.Paths.ToList(), Path.GetFullPath(managedEntryOnlyPath));
     }
 
+    /// <summary>
+    /// 組込み探索元があるときだけLR2相対の削除範囲を加え、探索していない組込み行を誤削除する範囲指定を検出します。
+    /// </summary>
     [TestMethod]
     public void CreatePruneDirectories_AddsRelativeBuiltinScopeOnlyWhenBuiltinSourceExists()
     {
-        using var scope = TestDirectoryScope.Create();
-        string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
-        string builtinSource = Path.Combine(scope.DirectoryPath, "LR2", "LR2files", "CustomFolder");
+        string testDirectory = Path.Combine(Path.GetTempPath(), nameof(Lr2FolderFileDiscoveryServiceTests), Guid.NewGuid().ToString("N"));
+        string bmsRoot = Path.Combine(testDirectory, "BMS");
+        string builtinSource = Path.Combine(testDirectory, "LR2", "LR2files", "CustomFolder");
 
         List<string> withBuiltin = Lr2FolderFileDiscoveryService.CreatePruneDirectories(
             [bmsRoot],
@@ -256,18 +286,9 @@ public sealed class Lr2FolderFileDiscoveryServiceTests
 
         public void Dispose()
         {
-            try
+            if (Directory.Exists(DirectoryPath))
             {
-                if (Directory.Exists(DirectoryPath))
-                {
-                    Directory.Delete(DirectoryPath, recursive: true);
-                }
-            }
-            catch (IOException)
-            {
-            }
-            catch (UnauthorizedAccessException)
-            {
+                Directory.Delete(DirectoryPath, recursive: true);
             }
         }
     }

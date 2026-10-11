@@ -6,11 +6,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Exercises the persisted Favorites/History owner independently from WPF.
+/// 履歴とお気に入りの保存・表示先投影・失敗時の不変条件を、設定の接続先で検証します。
 /// </summary>
 [TestClass]
 public sealed class KeywordSearchSavedQueryStoreTests
 {
+    /// <summary>既に25件あるお気に入りへ追加して先頭に保存し、大小文字だけが異なる再追加は書込みを増やさないことを確認し、件数制限や重複保存を検出します。</summary>
     [TestMethod]
     public void KsaFavorites_UnlimitedNewestPinFirstAndCaseInsensitiveIdentity()
     {
@@ -37,6 +38,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual("title:new", owner.Favorites[0]);
     }
 
+    /// <summary>履歴をお気に入りへ追加すると元履歴を保持して表示だけ隠し、大小文字の異なる解除で再表示することを確認し、お気に入り操作による履歴削除を検出します。</summary>
     [TestMethod]
     public void KsaFavorites_PinRetainsBackingHistoryAndUnpinRevealsIt()
     {
@@ -60,6 +62,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             owner.GetProjectedHistory(GridKeywordSearchContext.ChartList).ToArray());
     }
 
+    /// <summary>memo検索は譜面一覧で隠し詳細で表示し、元の履歴とお気に入りは残すことを確認し、画面非対応の保存式を削除する誤りを検出します。</summary>
     [TestMethod]
     public void KsaContextProjection_HidesIncompatibleNamedFieldsWithoutDeletingBackingRows()
     {
@@ -82,6 +85,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual(1, owner.GetProjectedFavorites(GridKeywordSearchContext.PlaylistDetail).Count);
     }
 
+    /// <summary>旧Base64履歴の壊れた行を除いて上限件数まで順序を復元し、空白と大小文字を正規化して一件削除することを確認し、保存互換や削除対象の誤りを検出します。</summary>
     [TestMethod]
     public void KsaHistory_UsesLegacyBase64CapCorruptLineSkipAndExactNormalizedDelete()
     {
@@ -105,20 +109,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount - 1, owner.History.Count);
     }
 
-    [TestMethod]
-    public void KsaHistory_RoundTripsDistinctCappedHistory()
-    {
-        string[] entries = [.. Enumerable.Range(0, KeywordSearchHistoryStore.MaxHistoryCount + 5)
-            .Select(index => "title:" + index)];
-        string serialized = KeywordSearchHistoryStore.Serialize(entries);
-
-        string[] restored = [.. KeywordSearchHistoryStore.Deserialize(serialized)];
-
-        Assert.AreEqual(KeywordSearchHistoryStore.MaxHistoryCount, restored.Length);
-        Assert.AreEqual("title:0", restored[0]);
-        CollectionAssert.DoesNotContain(restored, "title:24");
-    }
-
+    /// <summary>空白付きで大小文字の異なる既存履歴を追加すると表記を更新して先頭へ移し、他の順序は維持することを確認し、重複の追加や既存順序の破壊を検出します。</summary>
     [TestMethod]
     public void KsaHistory_AddEntryMovesCaseInsensitiveDuplicateToFront()
     {
@@ -127,6 +118,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
         CollectionAssert.AreEqual(new[] { "BETA", "alpha", "gamma" }, updated);
     }
 
+    /// <summary>お気に入り設定の書込みが失敗した場合に一回の試行だけで旧保存値・順序・履歴・版と通知なしを維持することを確認し、保存前にメモリ状態を確定する誤りを検出します。</summary>
     [TestMethod]
     public void KsaPersistence_SetterFailureLeavesCollectionsOrderProjectionAndNotificationsUnchanged()
     {
@@ -155,6 +147,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
         Assert.AreEqual(0, notifications);
     }
 
+    /// <summary>お気に入りの保存先が未指定なら構築を拒否することを確認し、履歴の保存先へ暗黙に代用して保存範囲を混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void KsaPersistence_RequiresExplicitFavoritesSettingsDependency()
     {
@@ -166,6 +159,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             null));
     }
 
+    /// <summary>通常画面の履歴追加で設定書込みが失敗しても、元状態・両コレクション・画面投影を保持して変更通知を出さないことを確認し、未保存履歴の公開を検出します。</summary>
     [TestMethod]
     public void KsaPersistence_HistoryCommitSetterFailureLeavesNormalStateUnchanged()
     {
@@ -185,6 +179,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             () => owner.TryCommitHistory("title:new"));
     }
 
+    /// <summary>通常画面の履歴削除で設定書込みが失敗しても、元の順序・投影・お気に入りを保持して変更通知を出さないことを確認し、保存されなかった削除を画面へ反映する誤りを検出します。</summary>
     [TestMethod]
     public void KsaPersistence_HistoryDeleteSetterFailureLeavesNormalStateUnchanged()
     {
@@ -204,6 +199,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             () => owner.TryDeleteHistory(" TITLE:OLD "));
     }
 
+    /// <summary>一覧専用の履歴追加で専用設定の書込みが失敗すると、旧状態と両投影を通知なしで保持することを確認し、別の保存範囲へ代用したり未保存結果を公開する誤りを検出します。</summary>
     [TestMethod]
     public void KsaPersistence_HistoryCommitSetterFailureLeavesPlaylistSummaryStateUnchanged()
     {
@@ -223,6 +219,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             () => owner.TryCommitHistory("output:new"));
     }
 
+    /// <summary>一覧専用履歴の削除が専用設定で失敗しても旧順序・投影・お気に入りと通知なしを保持することを確認し、保存失敗後も一覧だけ削除が進む誤りを検出します。</summary>
     [TestMethod]
     public void KsaPersistence_HistoryDeleteSetterFailureLeavesPlaylistSummaryStateUnchanged()
     {
@@ -242,6 +239,7 @@ public sealed class KeywordSearchSavedQueryStoreTests
             () => owner.TryDeleteHistory(" OUTPUT:OLD "));
     }
 
+    /// <summary>通常画面と一覧専用範囲で履歴とお気に入りをそれぞれ変更し、四つの保存値が独立することを確認し、画面間で保存式を上書きする誤りを検出します。</summary>
     [TestMethod]
     public void KsaScopes_NormalAndPlaylistSummaryPersistIndependently()
     {

@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SQLiteProviderRuntimeTests
 {
+    /// <summary>SQLite初期化を繰り返しても実メモリDBで問合せが成立し、二重初期化によるprovider破損を防ぎます。</summary>
     [TestMethod]
     public void RuntimeBootstrap_InitializesProviderIdempotently()
     {
@@ -21,6 +22,7 @@ public sealed class SQLiteProviderRuntimeTests
         Assert.AreEqual(1L, connection.ExecuteScalar<long>("SELECT 1;"));
     }
 
+    /// <summary>実SQLiteから日本語とNULLを生値で読取り、空文字化や文字化けで保存値を変えません。</summary>
     [TestMethod]
     public void SQLiteCommandExtended_PreservesRawTextAndNullValues()
     {
@@ -53,6 +55,7 @@ public sealed class SQLiteProviderRuntimeTests
         }
     }
 
+    /// <summary>実triggerによるstep失敗を一括生値読取りから返し、finalizeの後処理で元の診断を上書きしません。</summary>
     [TestMethod]
     public void SQLiteCommandExtended_GetRawValues_ThrowsStepErrorWithoutReplacingItDuringFinalize()
     {
@@ -87,6 +90,7 @@ public sealed class SQLiteProviderRuntimeTests
         }
     }
 
+    /// <summary>実triggerによるstep失敗を逐次生値読取りから返し、空の正常終了に置き換えません。</summary>
     [TestMethod]
     public void SQLiteCommandExtended_ForEachRawValue_ThrowsWhenStepReturnsError()
     {

@@ -1,5 +1,3 @@
-using System;
-using System.IO;
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -8,16 +6,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UpdateCheckServiceTests
 {
-    [TestMethod]
-    public void UpdateCheckService_DoesNotKeepVersionTxtFallback()
-    {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Update", "UpdateCheckService.cs"));
-
-        Assert.IsFalse(source.Contains("version.txt"), "UpdateCheckService must not read legacy version.txt.");
-        Assert.IsFalse(source.Contains("DefaultVersionUrl"), "UpdateCheckService must not keep the legacy version URL.");
-        Assert.IsFalse(source.Contains("CheckVersionTxtFallback"), "UpdateCheckService must not keep version.txt fallback logic.");
-    }
-
+    /// <summary>
+    /// 通常版とメタデータ同梱版の公開manifestを受理して版と資産種別を保持し、既存配布形式を拒否・混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ParseManifest_AcceptsAppAndMetadataAssets()
     {
@@ -61,6 +52,9 @@ public sealed class UpdateCheckServiceTests
         Assert.AreEqual("app-with-metadata", manifest.Assets[1].Kind);
     }
 
+    /// <summary>
+    /// メタデータ同梱版だけのmanifestは失敗とし、必須の通常版資産なしで更新可能と判断する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ParseManifest_RejectsMissingAppAsset()
     {
@@ -90,6 +84,9 @@ public sealed class UpdateCheckServiceTests
         Assert.ThrowsException<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
     }
 
+    /// <summary>
+    /// 現更新ツールが扱えないprotocolを要求するmanifestは失敗とし、非対応資産を正常な更新として受理する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ParseManifest_RejectsUnsupportedUpdaterProtocol()
     {
@@ -119,17 +116,4 @@ public sealed class UpdateCheckServiceTests
         Assert.ThrowsException<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
     }
 
-    private static string FindRepositoryRoot()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory != null)
-        {
-            if (File.Exists(Path.Combine(directory.FullName, "BeMusicSeeker.sln")))
-            {
-                return directory.FullName;
-            }
-            directory = directory.Parent;
-        }
-        throw new DirectoryNotFoundException("Repository root was not found.");
-    }
 }

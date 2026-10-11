@@ -50,8 +50,8 @@
         "fullyQualifiedName": "BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests.StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts"
       },
       {
-        "contractId": "START-DEFER",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests.PlaylistWorkspaceRecommendedImportAdmitsDuringInitializationAndDefersUntilReadiness"
+        "contractId": "START-READINESS",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspaceActionWorkflowTests.PlaylistWorkspaceRecommendedImportRejectsBeforeReadinessAndAcceptsNextExplicitRequest"
       },
       {
         "contractId": "START-SHUTDOWN",

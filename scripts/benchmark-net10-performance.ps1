@@ -1,9 +1,11 @@
+# 明示測定の入口：指定した規模でC#のNet10Performanceケースを実行する。
+# contractは診断出力、estimationは候補リソース評価、parserは同位置音符の次音なし境界を検査する。
+# この実行器の終了コードだけを、通常検証の成功や製品の速度保証として扱わない。
 param(
     [ValidateSet('all', 'contract', 'estimation', 'parser')]
     [string]$Corpus = 'all',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [int]$Seed = 0xBEE501,
     [string[]]$Scale = @('small', 'medium', 'large'),
     [string]$Output = 'artifacts/performance/net10-engineering'
 )
@@ -35,7 +37,6 @@ $filter = if ($Corpus -eq 'all') {
 $commandReceipt = [ordered]@{
     corpus = $Corpus
     configuration = $Configuration
-    seed = $Seed
     scale = @($normalizedScale)
     filter = $filter
     generatedAtUtc = [DateTime]::UtcNow.ToString('O')
@@ -43,10 +44,8 @@ $commandReceipt = [ordered]@{
 $commandReceipt | ConvertTo-Json -Depth 4 |
     Set-Content -LiteralPath (Join-Path $outputRoot 'command.json') -Encoding utf8NoBOM
 
-$previousSeed = $env:BMS_NET10_PERF_SEED
 $previousScales = $env:BMS_NET10_PERF_SCALES
 try {
-    $env:BMS_NET10_PERF_SEED = $Seed.ToString([Globalization.CultureInfo]::InvariantCulture)
     $env:BMS_NET10_PERF_SCALES = $normalizedScale -join ','
     & dotnet test (Join-Path $repositoryRoot 'BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj') `
         --no-restore `
@@ -60,6 +59,5 @@ try {
     }
 }
 finally {
-    $env:BMS_NET10_PERF_SEED = $previousSeed
     $env:BMS_NET10_PERF_SCALES = $previousScales
 }

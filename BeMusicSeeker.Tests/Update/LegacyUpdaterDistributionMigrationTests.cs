@@ -22,6 +22,10 @@ public sealed class LegacyUpdaterDistributionMigrationTests
     private const string ExecutionDeadlineEnvironmentVariable = "BMS_LEGACY_UPDATER_EXECUTION_DEADLINE_UTC";
     private const string CleanupDeadlineEnvironmentVariable = "BMS_LEGACY_UPDATER_CLEANUP_DEADLINE_UTC";
 
+    /// <summary>
+    /// 固定v2.1.6.0配布物の実ツールで現配布ZIPを適用し、全管理ファイルの内容・旧不要ファイルの削除・利用者ツリー保持を照合して移行退行を検出する。
+    /// </summary>
+    /// <remarks>旧ツールのバイナリ互換性を検査するため固定配布ZIPと実プロセスを使用する。Fullが渡す実行・回収の期限を守り、ソース再構築品へ置換しない。</remarks>
     [TestMethod]
     public async Task PublishedLegacyUpdater_MigratesManagedFilesAndPreservesUserFiles()
     {

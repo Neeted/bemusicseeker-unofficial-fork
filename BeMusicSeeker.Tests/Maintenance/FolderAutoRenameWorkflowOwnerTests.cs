@@ -18,14 +18,19 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FolderAutoRenameWorkflowOwnerTests
 {
-    /// <summary>計画生成から本番port・受付・実FS/SQLite・通知終端までを通し、診断交差と実交差の停止順序を確認します。正常二件の反映詳細は下位試験、予約なしと次要求の成立はここが担当します。</summary>
+    /// <summary>
+    /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めず、実交差のBusyではFS・DBを変更せず、解放後の新規要求で確定することで予約や交差誤判定を検出する。
+    /// </summary>
+    /// <remarks>実計画・本番port・共通受付からFS移動とSQLite保存、通知終端まで接続する。局所portでは実交差判定と保存の接続を代用できない。</remarks>
     [DataTestMethod]
+    // mixedは正常移動と管理範囲内の診断が混在、diagnosticsは診断のみ、intersectionは実移動が管理範囲へ交差する。
     [DataRow("mixed")]
     [DataRow("diagnostics")]
     [DataRow("intersection")]
     public async Task PreparedAutoRename_UsesPhysicalTargetsForAdmissionAndPlaybackStop(string scenario)
     {
         string root = CreateRoot();
+        Exception? testFailure = null;
         FolderAutoRenameWorkflowOwner? owner = null;
         IDisposable? held = null;
         try
@@ -129,22 +134,40 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsNotNull(finalDb.Find<LR2SongDB.song>(thirdDestination));
             Assert.IsFalse(library.OperationAdmission.IsActive);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            held?.Dispose();
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                held?.Dispose();
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
     private static ChartOperationTarget CreatePhysicalTarget(ChartFile chart) => new(chart, null, ChartOperationSourceScope.Library,
         isOwned: true, isPending: false, isPlaylistMissing: false, ChartOperationCapabilities.MoveInLibrary);
 
+    /// <summary>
+    /// 選択要求の同じ譜面を処理へ渡し、初期・途中・終端進捗から完了receipt・終端通知の順に公開して、対象差替えや終端順序の逆転を検出する。
+    /// </summary>
     [TestMethod]
     public async Task SelectedRequest_PublishesTerminalProgressBeforeCompletion()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
         FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
@@ -209,18 +232,37 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsFalse(completedReceipt.AllFolders);
             Assert.IsTrue(completedReceipt.RefreshRequired);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 途中進捗の購読例外を通知診断へ残してmutation callbackを続け、正常終端・完了receiptを公開してidleへ戻ることで、購読例外を処理失敗へ混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task SelectedRequest_IntermediateProgressSubscriberFailureStillCompletesAndReturnsIdle()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -236,7 +278,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var completion = new TaskCompletionSource<FolderAutoRenameCompletionReceipt>(TaskCreationOptions.RunContinuationsAsynchronously);
             var failurePublished = new TaskCompletionSource<FolderAutoRenameFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
             var terminalPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
                     mutationReachedProgress.TrySetResult(true);
@@ -292,12 +334,30 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsTrue(owner.IsIdle);
             Assert.IsTrue(completion.Task.Result.RefreshRequired);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 実処理中の64件進捗を最新一件のUI投稿へまとめ、排他中の再入を拒否し、終端seal後の古い進捗を捨てて、投稿増殖や完了後の状態上書きを検出する。
+    /// </summary>
     [TestMethod]
     public async Task ProgressWriter_BoundsSelectedDispatchAndDropsLateProgressAfterSeal()
     {
@@ -375,7 +435,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             DrainNotifications(notifications);
 
             Assert.IsTrue(owner.RequestStartSelected(targets));
-            mutationPort.Started.Wait();
+            Task batchIdle = owner.WaitForIdleAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(mutationPort.Started.Task, mutationTask!, "folder-progress.started");
             Assert.IsTrue(mutationPort.MutationIsBlocked);
             lock (notifications)
             {
@@ -388,7 +449,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             CollectionAssert.AreEqual(new[] { "progress:64" }, observations.ToArray());
 
             mutationPort.Release();
-            mutationPort.Returned.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(mutationPort.Returned.Task, mutationTask!, "folder-progress.returned");
             while (!terminalPublished.IsSet)
             {
                 DrainNotifications(notifications);
@@ -396,7 +457,25 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 {
                     break;
                 }
-                await notificationSignal.WaitAsync();
+                using var notificationCancellation = new CancellationTokenSource();
+                Task notification = notificationSignal.WaitAsync(notificationCancellation.Token);
+                try
+                {
+                    Task completed = await Task.WhenAny(notification, batchIdle);
+                    await completed;
+                    if (completed == batchIdle)
+                    {
+                        // 実終端までに投稿された通知を消費してから、必要な終端到達を判定する。
+                        DrainNotifications(notifications);
+                        Assert.IsTrue(terminalPublished.IsSet, "実処理の終端までに必要な終端通知が投稿されませんでした。");
+                    }
+                }
+                finally
+                {
+                    notificationCancellation.Cancel();
+                    try { await notification; }
+                    catch (OperationCanceledException) when (notificationCancellation.IsCancellationRequested) { }
+                }
             }
             Assert.IsTrue(terminalPublished.IsSet, "The terminal notification was not published.");
             await owner!.WaitForIdleAsync();
@@ -444,7 +523,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                         {
                             break;
                         }
-                        await notificationSignal.WaitAsync();
+                        using var notificationCancellation = new CancellationTokenSource();
+                        Task notification = notificationSignal.WaitAsync(notificationCancellation.Token);
+                        try
+                        {
+                            Task completed = await Task.WhenAny(notification, idle);
+                            await completed;
+                        }
+                        finally
+                        {
+                            notificationCancellation.Cancel();
+                            try { await notification; }
+                            catch (OperationCanceledException) when (notificationCancellation.IsCancellationRequested) { }
+                        }
                     }
                     await idle;
                     DrainNotifications(notifications);
@@ -471,6 +562,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             {
                 try
                 {
+                    if (owner is not null) { await owner.WaitForIdleAsync(); }
                     DeleteRoot(root);
                 }
                 catch (Exception exception)
@@ -497,11 +589,16 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 全フォルダ要求の対象判定は呼出し元と別threadで行い、実対象がなければ進捗・変更を始めず、UI上の重い判定や空実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task AllRequestWithoutActionableTargets_DoesNotStartProgressOrMutation()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -510,7 +607,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             int callerThreadId = Thread.CurrentThread.ManagedThreadId;
             int checkerThreadId = 0;
             var dialogs = new AcceptedFolderDialogService();
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -539,17 +636,37 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreNotEqual(callerThreadId, checkerThreadId);
             Assert.AreEqual(1, dialogs.ConfirmationCalls);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 承認した全フォルダ要求は指定親を一回だけworkerへ渡して完了を一回公開し、二重起動や親対象の差替えを検出する。
+    /// </summary>
     [TestMethod]
     public async Task AllRequestAccepted_ConfirmsAndSchedulesAllFoldersOnce()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -558,7 +675,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             int schedulerCalls = 0;
             int executorCalls = 0;
             string? observedParentDirectory = null;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -590,12 +707,31 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(1, executorCalls);
             Assert.AreEqual(root, observedParentDirectory);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 保存確定後の必須反映失敗では元receiptと片付け原因・回復パスを保ち、失敗通知終端まで受付を保持して、成功通知や早期受付解放を検出する。
+    /// </summary>
+    // falseは元の必須反映失敗、trueは表示抑制解除の失敗も加える。両方で保存確定事実を維持する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -603,6 +739,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -624,7 +762,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var mutationPort = new TerminalFolderAutoRenameMutationPort(mutationResult);
             var gate = new ChartFileOperationSynchronizer();
             var activity = new ChartMutationActivityOwner();
-            var owner = new FolderAutoRenameWorkflowOwner(
+            owner = new FolderAutoRenameWorkflowOwner(
                 gate,
                 activity,
                 mutationPort,
@@ -680,17 +818,37 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(0, completionCount);
             Assert.AreEqual(1, terminalCount);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 全フォルダの確認Cancelは確認だけで終えて変更workerを呼ばず、未承認の一括改名を検出する。
+    /// </summary>
     [TestMethod]
     public async Task AllRequestCancelled_DoesNotScheduleMutation()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -699,7 +857,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             };
             int executorCalls = 0;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -718,17 +876,37 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(0, executorCalls);
             await owner.WaitForIdleAsync();
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 全フォルダ確認の表示失敗は呼出し元へ伝え、変更workerを起動せず、確認できない要求の実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task AllRequestDialogFailure_IsPropagatedBeforeMutation()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -737,7 +915,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failed"))
             };
             int executorCalls = 0;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -756,28 +934,50 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(0, executorCalls);
             await owner.WaitForIdleAsync();
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 全フォルダ確認の待機中にライブラリを交換すると、旧要求は確認が承認されても変更を始めず、旧対象への遅延実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task AllRequestLibraryReplacementDuringConfirmation_DoesNotScheduleOldRun()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
         string firstRoot = Path.Combine(root, "first");
         string secondRoot = Path.Combine(root, "second");
         Directory.CreateDirectory(firstRoot);
         Directory.CreateDirectory(secondRoot);
+        FolderAutoRenameWorkflowOwner? owner = null;
+        AcceptedFolderDialogService? dialogs = null;
+        Task? requestTask = null;
         try
         {
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             BMSLibrary second = CreateLibrary(secondRoot, "song.db");
-            var dialogs = new AcceptedFolderDialogService { DeferConfirmation = true };
+            dialogs = new AcceptedFolderDialogService { DeferConfirmation = true };
             int executorCalls = 0;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, request, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) =>
                 {
@@ -790,8 +990,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: dialogs);
             owner.AttachLibrary(first);
 
-            Task requestTask = owner.RequestStartAllAsync(firstRoot);
-            await dialogs.ConfirmationStarted.Task;
+            requestTask = owner.RequestStartAllAsync(firstRoot);
+            await TestUiDispatcherHost.AwaitNotificationAsync(dialogs.ConfirmationStarted.Task, requestTask, "folder-all.confirmation-started");
             owner.AttachLibrary(second);
             dialogs.ReleaseConfirmation();
             await requestTask;
@@ -799,17 +999,43 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(0, executorCalls);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                dialogs?.ReleaseConfirmation();
+                try
+                {
+                    if (requestTask is not null) { await requestTask; }
+                    if (owner is not null) { await owner.WaitForIdleAsync(); }
+                }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 投稿済み終端が未受信の間はidleと次要求を止め、接続交換後は旧完了を捨て、受信後の新規要求だけを公開して早期終端や旧世代公開を検出する。
+    /// </summary>
     [TestMethod]
     public async Task NextRequestWaitsForQueuedTerminalPublication()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        var notifications = new Queue<Action>();
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
@@ -817,9 +1043,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Directory.CreateDirectory(replacementRoot);
             BMSLibrary replacement = CreateLibrary(replacementRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
-            var notifications = new Queue<Action>();
             int completionCount = 0;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, selectedRequest, progress) => new FolderAutoRenameExecutionResult { RefreshRequired = true },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
@@ -857,18 +1082,38 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                DrainNotifications(notifications);
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 到達済みの選択改名を保持中は二件目を拒否し、解放後に完了通知と実終端を回収して、同時変更を検出する。
+    /// </summary>
     [TestMethod]
     public async Task Start_RejectsDuplicateWhileSelectedRequestIsActive()
     {
 
         string root = CreateRoot();
-        var release = new ManualResetEventSlim(false);
+        Exception? testFailure = null;
+        using var release = new ManualResetEventSlim(false);
         FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
@@ -902,24 +1147,42 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.completed");
             await owner.WaitForIdleAsync();
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            release.Set();
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                release.Set();
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 実行中の選択改名で接続を交換して旧完了を公開せず、現在ライブラリの新規要求だけ一回完了して、世代混線や新規受付の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public async Task AttachLibrary_SuppressesStaleCompletionAndAllowsReplacement()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
         string firstRoot = Path.Combine(root, "first");
         string secondRoot = Path.Combine(root, "second");
         Directory.CreateDirectory(firstRoot);
         Directory.CreateDirectory(secondRoot);
-        var releaseFirst = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
         FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
@@ -973,19 +1236,38 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            releaseFirst.Set();
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                releaseFirst.Set();
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 共通譜面排他がBusyなら選択要求の変更を未開始で失敗通知し、解放後の新規要求だけ一回変更して、競合中の作用や自動再実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task SelectedRequest_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         string firstRoot = Path.Combine(root, "first");
         Directory.CreateDirectory(firstRoot);
         try
@@ -996,7 +1278,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
             Exception? observedFailure = null;
-            var owner = new FolderAutoRenameWorkflowOwner(
+            owner = new FolderAutoRenameWorkflowOwner(
                 chartFileOperations,
                 chartMutationActivity,
                 new DelegateFolderAutoRenameMutationPort(
@@ -1035,25 +1317,45 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, mutationCalls);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 接続交換時の表示リセットを保持し、旧workerの遅い完了で追加リセットを出さず、現在接続の表示初期化が失われる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task AttachLibraryResetSurvivesStaleRunCompletion()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
         string firstRoot = Path.Combine(root, "first");
         string secondRoot = Path.Combine(root, "second");
         Directory.CreateDirectory(firstRoot);
         Directory.CreateDirectory(secondRoot);
-        var releaseFirst = new ManualResetEventSlim(false);
+        using var releaseFirst = new ManualResetEventSlim(false);
         var firstStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var notifications = new Queue<Action>();
         FolderAutoRenameWorkflowOwner? owner = null;
+        Task? worker = null;
         try
         {
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
@@ -1072,11 +1374,15 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
-                action => Task.Factory.StartNew(
-                    action,
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default).Unwrap(),
+                action =>
+                {
+                    worker = Task.Factory.StartNew(
+                        action,
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default).Unwrap();
+                    return worker;
+                },
                 action =>
                 {
                     lock (notifications)
@@ -1104,20 +1410,43 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
             Assert.AreEqual(1, resetCount);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            releaseFirst.Set();
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                releaseFirst.Set();
+                try
+                {
+                    if (worker is not null) { await worker; }
+                    DrainNotifications(notifications);
+                    if (owner != null) { await owner.WaitForIdleAsync(); }
+                }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 到達済みの選択改名は終了要求後も実終端まで回収し、後続要求を拒否して終了後の受付残存を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RequestShutdown_DrainsActiveRequestAndRejectsLaterRequest()
     {
 
         string root = CreateRoot();
-        var release = new ManualResetEventSlim(false);
+        Exception? testFailure = null;
+        using var release = new ManualResetEventSlim(false);
         FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
@@ -1149,19 +1478,37 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             release.Set();
             await owner.WaitForIdleAsync();
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            release.Set();
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                release.Set();
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// 選択改名のexecutor例外を処理失敗として通知してidleへ戻し、失敗の隠蔽や受付の残存を検出する。
+    /// </summary>
     [TestMethod]
     public async Task ExecutorFailure_PublishesFailureAndLeavesOwnerIdle()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
         FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
@@ -1188,25 +1535,44 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
             await owner.WaitForIdleAsync();
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            if (owner != null) { await owner.WaitForIdleAsync(); }
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
+    /// <summary>
+    /// worker起動とUI投稿がともに失敗しても主処理失敗を一回、通知失敗を一回以上報告し、idle待機が終端する。
+    /// </summary>
     [TestMethod]
     public async Task SchedulerFailureAndNotificationFailure_DoNotLeaveOwnerActive()
     {
 
         string root = CreateRoot();
+        Exception? testFailure = null;
+        FolderAutoRenameWorkflowOwner? owner = null;
         try
         {
             BMSLibrary library = CreateLibrary(root, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int workflowFailures = 0;
             int notificationFailures = 0;
-            FolderAutoRenameWorkflowOwner owner = CreateOwner(
+            owner = CreateOwner(
                 (current, selectedRequest, progress) => throw new InvalidOperationException("selected route was not expected"),
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
                 (current, parentDirectory) => false,
@@ -1222,9 +1588,24 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
-            DeleteRoot(root);
+            try
+            {
+                try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+                finally { DeleteRoot(root); }
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+
         }
     }
 
@@ -1271,9 +1652,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     {
         string path = Path.Combine(root, fileName);
         File.WriteAllBytes(path, []);
-        using (var initialize = new LR2SongDBExtended(path))
-        {
-        }
         return new TestBmsLibrary(path, null, null, string.Empty);
     }
 
@@ -1336,11 +1714,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             this.progressCount = progressCount;
         }
 
-        internal ManualResetEventSlim Started { get; } = new(false);
+        internal TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal ManualResetEventSlim Returned { get; } = new(false);
+        internal TaskCompletionSource Returned { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        internal bool MutationIsBlocked => Started.IsSet && !release.IsSet;
+        internal bool MutationIsBlocked => Started.Task.IsCompleted && !release.IsSet;
 
         public bool HasTargets(BMSLibrary library, string parentDirectory) => false;
 
@@ -1357,9 +1735,9 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     index,
                     "source-" + index));
             }
-            Started.Set();
+            Started.TrySetResult();
             release.Wait();
-            Returned.Set();
+            Returned.TrySetResult();
             return new FolderAutoRenameExecutionResult { RefreshRequired = true };
         }
 
@@ -1383,8 +1761,6 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
 
         public void Dispose()
         {
-            Returned.Dispose();
-            Started.Dispose();
             release.Dispose();
         }
     }

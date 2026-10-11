@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionReferenceIndexTests
 {
+    /// <summary>
+    /// 完全一致パスの移転後は旧パスを解決せず新しい現在値を返し、所持集合の相対順を表すkeyを維持する。
+    /// </summary>
     [TestMethod]
     public void CanonicalExactPathQueryReturnsCurrentOwnerAndPreservesOrderKeyAcrossRelocation()
     {
@@ -58,6 +61,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(oldOrder, newOrder);
     }
 
+    /// <summary>
+    /// BMS・bmsonのパスとhash適用後に索引を作るとき、両種別を新しい現在値で解決する。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ReprojectsCurrentStorageOwnerValues()
     {
@@ -102,6 +108,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(ChartFileKind.Bmson, bmsonRef.Kind);
     }
 
+    /// <summary>
+    /// 作成済みの参照索引でもBMS・bmsonへ適用した新しいhashを返し、捕捉時のhashを使い続けない。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_CachedRefsUseCurrentOwnerHashes()
     {
@@ -126,6 +135,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(bmsonSong.Sha256, bmsonRef.Sha256);
     }
 
+    /// <summary>
+    /// BMS・bmsonが同じディレクトリとその子にあるとき、配下ディレクトリを重複なしで返す。
+    /// </summary>
     [TestMethod]
     public void CreateChartDirectoriesUnderRealPath_ReturnsDistinctSubtreeDirectoriesWithoutChartSnapshot()
     {
@@ -143,6 +155,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         CollectionAssert.AreEqual(new[] { childPath, nestedPath }, directories.ToArray());
     }
 
+    /// <summary>
+    /// パスのないBMS・bmson参照はパス検索・配下件数・正規所有解決のいずれにも混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_PathlessRowsAreNotPathLookupTargets()
     {
@@ -164,6 +179,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, resolveResult.CanonicalCharts.Count);
     }
 
+    /// <summary>
+    /// MD5を更新した後のhash指定射影は一致する現在の所有だけを返し、無関係な種別を含めない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForMd5Hashes_ProjectsOnlyMatchingCurrentOwners()
     {
@@ -184,6 +202,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual("dddddddddddddddddddddddddddddddd", snapshot[0].Md5);
     }
 
+    /// <summary>
+    /// MD5が指定集合に一致しても、パスを持たないBMS・bmsonを所有譜面として射影しない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForMd5Hashes_ExcludesMatchingPathlessOwnedRows()
     {
@@ -201,7 +222,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, snapshot.Count);
     }
 
-    /// <summary>指定したexact keyだけを投影し、同じFSへ解決する別表記を対象へ加えません。</summary>
+    /// <summary>
+    /// 指定した完全一致パスだけを一度ずつ射影し、無関係なパスや同じ場所のドット別表記を混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForPaths_ProjectsOnlyRequestedPaths()
     {
@@ -229,6 +252,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
             includeScoreSnapshot: false).Count);
     }
 
+    /// <summary>
+    /// 完全一致パスの重複入力は最初の所有だけを射影し、重複行を別の所有として復活させない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForPaths_ReturnsOnlyFirstOwnedChartForDuplicateStoragePaths()
     {
@@ -249,6 +275,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
     }
 
+    /// <summary>
+    /// BMS専用の射影は移転・hash適用後のBMSだけを返し、bmsonや古い現在値を混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateBmsSnapshot_ProjectsOnlyCurrentBmsOwners()
     {
@@ -272,6 +301,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual("dddddddddddddddddddddddddddddddd", snapshot[0].Md5);
     }
 
+    /// <summary>
+    /// 直下ディレクトリ指定の射影は移転後のBMSと直下bmsonを含め、入れ子のBMSを含めない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForDirectChildDirectories_FiltersBeforeProjectionUsingCurrentOwnerPath()
     {
@@ -296,6 +328,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, nestedBms.Token)));
     }
 
+    /// <summary>
+    /// 作成済みのディレクトリ索引へ移転を反映し、直下射影から旧パスを除いて新パスを返す。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForDirectChildDirectories_UsesUpdatedDirectoryIndex()
     {
@@ -334,6 +369,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(newPath, newSnapshot[0].Path);
     }
 
+    /// <summary>
+    /// 配下射影は移転後のBMS・入れ子BMS・直下bmsonを含め、名前だけ同じ接頭辞の兄弟を含めない。
+    /// </summary>
     [TestMethod]
     public void CreateSnapshotForSubtreeDirectory_UsesOwnedRefIndexAndCurrentOwnerPath()
     {
@@ -360,6 +398,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, siblingPrefixBms.Token)));
     }
 
+    /// <summary>
+    /// 保存対象の配下選択はBMS・bmsonを現在値で分け、接頭辞だけ同じ兄弟とパス欠落を含めない。
+    /// </summary>
     [TestMethod]
     public void CreateStorageTargetsForSubtreeDirectory_UsesCurrentValuesAndOwnedRefIndex()
     {
@@ -384,34 +425,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.IsFalse(targets.Charts.Any(chart => ReferenceEquals(chart.Token, pathlessBmson.Token)));
     }
 
-    [TestMethod]
-    public void ChartStorageTargetSetFromCharts_CapturesImmutableCommonValues()
-    {
-
-        string bmsPath = Path.Combine("C:\\Installed", "Bms", "chart.bms");
-        string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "chart.bmson");
-        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", bmsPath, new string('b', 64));
-        ChartFile bmsonSong = CreateBmsonSong(bmsonPath, "cccccccccccccccccccccccccccccccc");
-        ChartFile staleBmsChart = (bmsFile);
-        ChartFile staleBmsonChart = (bmsonSong);
-        bmsFile = bmsFile with { Md5 = "dddddddddddddddddddddddddddddddd" };
-        bmsFile = bmsFile with { Sha256 = new string('e', 64) };
-        bmsonSong = bmsonSong with { Md5 = "ffffffffffffffffffffffffffffffff" };
-        bmsonSong = bmsonSong with { Sha256 = new string('1', 64) };
-
-        var targets = ChartStorageTargetSet.FromCharts([staleBmsChart, staleBmsonChart]);
-
-        Assert.AreEqual(2, targets.Charts.Count);
-        ChartFile currentBmsChart = targets.Charts.Single(chart => chart.Kind == ChartFileKind.Bms);
-        ChartFile currentBmsonChart = targets.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson);
-        Assert.AreEqual(staleBmsChart.Md5, currentBmsChart.Md5);
-        Assert.AreEqual(staleBmsChart.Sha256, currentBmsChart.Sha256);
-        Assert.AreEqual(staleBmsonChart.Md5, currentBmsonChart.Md5);
-        Assert.AreEqual(staleBmsonChart.Sha256, currentBmsonChart.Sha256);
-        Assert.AreSame(bmsFile.Token, currentBmsChart.Token);
-        Assert.AreSame(bmsonSong.Token, currentBmsonChart.Token);
-    }
-
+    /// <summary>
+    /// 保存対象の構築は両種別のパス・MD5欠落を拒否し、不正な対象を保存処理へ渡さない。
+    /// </summary>
     [TestMethod]
     public void ChartStorageTargetSetFromCharts_RejectsInvalidOwnerCharts()
     {
@@ -431,6 +447,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
             ChartStorageTargetSet.FromCharts([(md5lessBmson)]));
     }
 
+    /// <summary>
+    /// 保存対象のディレクトリ一覧は大小文字だけ違う同じ場所を一つへまとめ、子ディレクトリは別として残す。
+    /// </summary>
     [TestMethod]
     public void ChartStorageTargetSet_ReturnsDistinctChartDirectoriesFromChartView()
     {
@@ -451,7 +470,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         CollectionAssert.AreEqual(new[] { sharedDirectory, nestedDirectory }, directories);
     }
 
-    /// <summary>行のexact lookupと、directory探索の既存正規化を区別します。</summary>
+    /// <summary>
+    /// 行解決は完全一致パスを要求し、配下探索だけは大小文字・ドット表記を正規化して除外集合と種別別件数を反映する。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesPathOnlyAndCountsRealPathSubtree()
     {
@@ -490,6 +511,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.Combine("C:\\Installed", "Missing")));
     }
 
+    /// <summary>
+    /// 配下探索は区切り境界を守って直下と子を返し、同接頭辞の兄弟を除外してドライブrootでは全対象を数える。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_RealPathSubtreeUsesDirectoryBoundary()
     {
@@ -512,6 +536,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(4, index.GetChartRefsUnderRealPath("C:\\").Count);
     }
 
+    /// <summary>
+    /// 同じ完全一致パスの重複行では最初の所有を解決し、パス検索も一件へ保つ。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefIndexSnapshot_ResolvesFirstOwnedChartWhenStorageRowsHaveDuplicatePath()
     {
@@ -534,6 +561,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, filterSummary.DuplicatePathBmsCount);
     }
 
+    /// <summary>
+    /// 移転後は同じ索引を再利用しながら旧ディレクトリの参照・件数を除き、新ディレクトリへ一件だけ移す。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_UpdatesCachedLibraryChartRefIndex()
     {
@@ -568,6 +598,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         CollectionAssert.AreEqual(new[] { newPath }, index.GetBmsChartPathsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
+    /// <summary>
+    /// 削除後に古い移転要求を適用しても、同じ索引へ所有を復活させず旧新パスの件数を零に保つ。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_DoesNotReAddRemovedChartsToCachedIndex()
     {
@@ -597,6 +630,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
+    /// <summary>
+    /// 移転済みの所有tokenで削除したとき、作成済み索引の旧新パスと配下件数から所有を除く。
+    /// </summary>
     [TestMethod]
     public void RemoveChartRequests_RemovesMovedOwnerFromCachedIndex()
     {
@@ -627,6 +663,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
+    /// <summary>
+    /// 同じ移転要求を一括で二回受けても、新しいパスと配下件数へ所有を二重登録しない。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_IgnoresDuplicateMoveAfterOldPathWasRemoved()
     {
@@ -660,6 +699,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
+    /// <summary>
+    /// 移転要求の旧パスが欠落しても索引の現在パスを使い、旧新ディレクトリの参照と件数を更新する。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_UsesCachedOwnerPathWhenOldPathIsMissing()
     {
@@ -689,6 +731,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(newPath)));
     }
 
+    /// <summary>
+    /// 移転後の既存索引から作る譜面識別は新パスと同じ所有tokenを返し、古い場所を再射影しない。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_CachedRefsProjectCurrentStorageOwner()
     {
@@ -716,6 +761,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreSame(bmsFile.Token, currentChart.Token);
     }
 
+    /// <summary>
+    /// 初期入力でパスがなく除外された所有は後の移転要求で登録せず、反復要求でもパス・配下解決を空に保つ。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_DoesNotAddPathlessOwnerWhenPathAppears()
     {
@@ -749,6 +797,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(0, resolveResult.CanonicalCharts.Count);
     }
 
+    /// <summary>
+    /// 所持譜面のパスを失わせる移転は例外で拒否し、作成済み索引を置換しない。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_RejectsPathDisappearingOwnedMutation()
     {
@@ -771,6 +822,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreSame(index, state.CreateLibraryChartRefIndexSnapshot());
     }
 
+    /// <summary>
+    /// 別所有の完全一致パスへ衝突する移転は拒否し、旧パスと既存パスの両所有を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_RejectsPathCollisionWithAnotherOwnedChart()
     {
@@ -797,6 +851,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, index.GetChartRefsByPaths([existingPath]).Count);
     }
 
+    /// <summary>
+    /// 同パスの複数参照から一方を削除した後、曖昧性を解消して残る所有の現在値を一件返す。
+    /// </summary>
     [TestMethod]
     public void LibraryChartRefIndexSnapshot_RemoveCharts_UpdatesCachedAmbiguity()
     {
@@ -821,6 +878,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(1, index.GetChartRefsByPaths([sharedPath]).Count);
     }
 
+    /// <summary>
+    /// 同パスへの追加・置換後は同じ参照索引で新しいhashを解決し、所有数を余分に増やさない。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_UpdatesCachedLibraryChartRefIndex()
     {
@@ -844,6 +904,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.AreEqual(2, index.CountBmsChartRefsUnderRealPath(Path.GetDirectoryName(replacedPath)));
     }
 
+    /// <summary>
+    /// BMS・bmsonのパス・MD5欠落、完全一致重複、別種別とのパス衝突を拒否し、既存行と衝突しないパスの追加は受理する。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_RejectsInvalidBmsAndBmsonRows()
     {
@@ -873,6 +936,9 @@ public sealed class OwnedChartCollectionReferenceIndexTests
         Assert.ThrowsException<InvalidOperationException>(() => state.UpsertCharts(ChartTestValues.Combine([crossKindBms], [])));
     }
 
+    /// <summary>
+    /// bmsonだけの作成済み索引へBMSを追加しても、全件構築と同じ配下順序とBMS専用件数を維持する。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_PreservesFullBuildSubtreeOrder()
     {

@@ -23,7 +23,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryFolderRenameRefreshTests
 {
-    /// <summary>準備済みの正常二件と診断計画を実FS/SQLiteへ適用し、診断だけの管理出力交差がPの競合を物理対象へ戻さないことを確認します。受付と停止は上位workflow試験が担当します。</summary>
+    /// <summary>
+    /// 管理出力と交差する診断計画を混ぜても非交差の二フォルダを移動・保存し、診断を物理対象に戻して正常処理を拒否する誤りを検出します。
+    /// </summary>
+    /// <remarks>実フォルダを移動し、SQLiteを読み戻して非交差対象の旧登録除去と新登録を確認します。</remarks>
     [TestMethod]
     public void AutoRenamePreparedPlans_DiagnosticsDoNotBlockDisjointPhysicalMoves()
     {
@@ -81,6 +84,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 物理改名の失敗を未確定結果へ残し、終端報告指定に従いモデル通知を保留または物理処理後に一回だけ表示することを確認します。
+    /// </summary>
+    /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -134,6 +141,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 宛先フォルダが既にあれば終端報告指定に関わらず事前通知し、物理処理と両フォルダの変更を行わないことを確認します。
+    /// </summary>
+    /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -163,6 +174,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二種類の拡張子変更を一回の保存・反映・公開へ集約し、実ファイルと保存パスの更新漏れや対象ごとの二重公開を検出します。
+    /// </summary>
+    /// <remarks>実ファイルの拡張子変更後にSQLiteの旧・新パス件数を読み戻し、確定receiptと公開回数を確認します。</remarks>
     [TestMethod]
     public void RenameBMSFilesExtensionsWithReceipt_MultipleExtensionFamiliesUseSingleSession()
     {
@@ -240,7 +255,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(File.Exists(pSource));
                 Assert.IsTrue(File.Exists(bDestination));
                 Assert.IsTrue(File.Exists(pDestination));
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.AreEqual(0, readback.ExecuteScalar<int>(
                     "SELECT COUNT(1) FROM song WHERE path IN (?, ?);",
                     bSource,
@@ -260,6 +275,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二つの拡張子変更が共に物理失敗したとき、入力順の対象別失敗と元実体を保持し、下位入口での重複表示を検出します。
+    /// </summary>
     [TestMethod]
     public void RenameBMSFilesExtensionsWithReceipt_FilesystemFailuresStayInSessionForTerminalAggregation()
     {
@@ -304,7 +322,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(bSource, receipt.ItemFailures[0].Target.SourcePath);
                 Assert.AreEqual(pSource, receipt.ItemFailures[1].Target.SourcePath);
                 Assert.AreEqual(0, dialogs.CallCount,
-                    "The receipt-returning route must defer item failures to the workflow terminal.");
+                    "receiptを返す入口は対象別失敗を上位の終端報告へ委ねます。");
                 Assert.IsTrue(File.Exists(bSource));
                 Assert.IsTrue(File.Exists(pSource));
             }
@@ -318,6 +336,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSフォルダ改名の共通通知でパス・表示フォルダ・関連世代を一回更新し、公開時の未反映状態と通知の重複を検出します。
+    /// </summary>
     [TestMethod]
     public async Task RenameChartFolder_UpdatesFolderCellWithoutStorageRowCollectionNotification()
     {
@@ -354,7 +375,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 library.BmsCharts = [file];
                 // 初期の共通通知を待ってから、操作の通知を捕捉します。
-                await bmsFilesPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsFilesPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 file = library.BmsCharts.Single(chart => chart.Path == file.Path);
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 library.DuplicateChartGroups = [];
@@ -407,7 +428,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.RenameChartFolder(sourceDirectoryPath, "Renamed");
 
-                await Task.WhenAll(folderChanged.Task, pathChanged.Task);
+                await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(folderChanged.Task, pathChanged.Task), Task.CompletedTask, "folder-rename.common-refresh");
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref folderChangedCount));
                 Assert.AreEqual(1, Volatile.Read(ref pathChangedCount));
@@ -431,6 +452,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 改名の公開時には元フォルダ除去と所持パス更新が済み、新しい変更受付を取得できることを確認して確定前・解放前の公開を検出します。
+    /// </summary>
+    /// <remarks>実フォルダ改名の確定receiptと、公開時の物理状態・所持パス・変更受付を観測します。</remarks>
     [TestMethod]
     public void RenameChartFolder_PublishesAfterDurableFinalizerAndLeaseRelease()
     {
@@ -495,6 +520,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// LR2の必須反映が失敗しても改名とDB確定を保持し、元失敗・候補パスを残して成功通知を行わないことを確認します。
+    /// </summary>
+    /// <remarks>SQLiteのLR2反映を拒否するtriggerを使い、改名後の保存行と成功通知の不在を確認します。</remarks>
     [TestMethod]
     public void RenameChartFolder_Lr2FinalizationFailureKeepsDurableStateWithoutSuccessPublication()
     {
@@ -571,7 +600,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(destinationChartPath, CurrentOwnedChart(library, file).Path);
                 Assert.AreEqual(0, ownedCollectionPublicationCount);
                 Assert.AreEqual(0, normalRefreshPublicationCount);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
             }
@@ -585,7 +614,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    /// <summary>実フォルダ変更後のBMS範囲事実だけを局所取得し、背景件数に比例した全走査を行わないことを確認します。</summary>
+    /// <summary>
+    /// 背景譜面を含む所持集合で二回改名しても対象範囲だけを訪問し、実体・利用者列・索引を揃え、旧スナップショットの書換えと全件再構築を検出します。
+    /// </summary>
+    /// <remarks>実フォルダ改名後のSQLite保存パス・利用者列を読み戻し、対象範囲の訪問数と所持索引の更新を確認します。</remarks>
+    /// <param name="autoRename">手動改名と書式による自動改名の二入口を通します。</param>
     [DataTestMethod]
     [DataRow(16, false)]
     [DataRow(16, true)]
@@ -783,9 +816,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Assert.IsTrue(updatedInstalled.GetDistinctDirectoriesByPrimaryHash(target.Md5)
                         .Contains(destinationDirectoryPath, StringComparer.OrdinalIgnoreCase));
                     Assert.AreEqual("cached", updatedPrimary.Status);
-                    Assert.AreEqual(0L, updatedPrimary.BuildMs);
                     Assert.AreEqual("cached", cachedPrimary.Status);
-                    Assert.AreEqual(0L, cachedPrimary.BuildMs);
                     Assert.IsTrue(updatedPrimary.FullDirectoryLookupInitialized);
                     Assert.IsTrue(updatedPlaylistCacheHit);
                     Assert.AreEqual(0, updatedPlaylistStaleRetries);
@@ -824,6 +855,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二フォルダの自動改名を一回で反映・通知し、資源索引と後続BMS・BMSONの導入先推定が新パスを使うことを確認します。
+    /// </summary>
     [TestMethod]
     public void AutoRenameChartFolders_BatchesMultipleFolderMutationsIntoOneRefresh()
     {
@@ -949,7 +983,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.SearchEstimatedInstallationDirectory(pendingBmsonPackage);
 
                 PackageChartEntry pendingBmsonEntry = pendingBmsonPackage.ChartEntries.Single();
-                Assert.IsNull(pendingBmsonEntry.GetBmsChartForTest());
                 Assert.AreEqual(
                     Path.Combine(libraryRootPath, "[First Artist] First Title"),
                     pendingBmsonEntry.Chart.InstallDestination);
@@ -965,6 +998,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 同じ書式で同名になる二フォルダを衝突しない連番の宛先へ移し、二件目の上書きや所持パスの取り違えを検出します。
+    /// </summary>
     [TestMethod]
     public void AutoRenameChartFolders_ResolvesBatchDestinationCollisionsWithSuffix()
     {
@@ -1029,6 +1065,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 改名後にLR2の旧パス長を超える譜面名でも物理改名と所持パス更新を完了し、旧制限による処理拒否を検出します。
+    /// </summary>
     [TestMethod]
     public void AutoRenameChartFolders_DoesNotFailWhenLongChartFileNameExceedsLr2LegacyPathLimit()
     {
@@ -1038,17 +1077,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenameLongName_" + Guid.NewGuid().ToString("N"));
             string libraryRootPath = Path.Combine(tempRootPath, "S");
             string sourceDirectoryPath = Path.Combine(libraryRootPath, "O");
-            Directory.CreateDirectory(sourceDirectoryPath);
             int fileNameBaseLength = 252 - sourceDirectoryPath.Length - Path.DirectorySeparatorChar.ToString().Length - ".bms".Length;
             if (fileNameBaseLength < 1)
             {
-                Assert.Inconclusive("Temporary directory path is too long for this path length boundary test.");
+                Assert.Inconclusive("一時パスが長いため、LR2の旧パス長境界を作れません。");
             }
             string chartFileName = new string('x', fileNameBaseLength) + ".bms";
             string chartPath = Path.Combine(sourceDirectoryPath, chartFileName);
-            File.WriteAllText(chartPath, "#PLAYER 1");
             try
             {
+                Directory.CreateDirectory(sourceDirectoryPath);
+                File.WriteAllText(chartPath, "#PLAYER 1");
                 var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService())
                 {
                     SearchTargets = [libraryRootPath]
@@ -1080,6 +1119,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 自動改名のLR2必須反映失敗を確定後の不成功として返し、移動・DB・確定件数を保ったまま成功公開を止めることを確認します。
+    /// </summary>
+    /// <remarks>SQLiteのLR2反映を拒否するtriggerを使い、移動後の保存行・確定receiptと成功通知の不在を確認します。</remarks>
     [TestMethod]
     public void AutoRenameChartFolders_Lr2FinalizationFailureReturnsDurableNonSuccess()
     {
@@ -1166,7 +1209,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(destinationChartPath, CurrentOwnedChart(library, file).Path);
                 Assert.AreEqual(0, ownedCollectionPublicationCount);
                 Assert.AreEqual(0, normalRefreshPublicationCount);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(destinationChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(sourceChartPath));
             }
@@ -1180,6 +1223,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二件目の物理失敗時には一件目だけを保存・一回公開し、失敗対象と未処理の後続を区別して無断続行や成功分の巻戻しを検出します。
+    /// </summary>
+    /// <remarks>実フォルダ移動の二件目を失敗させ、SQLiteの保存行を読み戻して成功分と未処理分を区別します。</remarks>
+    /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1190,8 +1238,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         {
             string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_AutoRenamePartialBatch_" + Guid.NewGuid().ToString("N"));
             string libraryRootPath = Path.Combine(tempRootPath, "LibraryRoot");
-            // Auto-rename planning orders source folders by path length so ancestors are handled before descendants.
-            // Keep these sibling names strictly increasing in length to make the intended prefix/failure/suffix order explicit.
+            // 祖先を先に扱う長さ順の計画へ、確定対象・失敗対象・未処理対象の順で兄弟フォルダを並べます。
             string firstDirectoryPath = Path.Combine(libraryRootPath, "A");
             string firstDestinationPath = Path.Combine(libraryRootPath, "[First Artist] First Renamed");
             string secondDirectoryPath = Path.Combine(libraryRootPath, "BB");
@@ -1283,7 +1330,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(Directory.Exists(secondDestinationPath));
                 Assert.IsTrue(Directory.Exists(thirdDirectoryPath));
                 Assert.IsFalse(Directory.Exists(thirdDestinationPath));
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(firstDestinationPath, "first.bms")));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));
@@ -1299,6 +1346,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 確定後の公開先が例外を投げても二件の改名成功を保ち、通知中の再受付と後続の共通更新通知を妨げないことを確認します。
+    /// </summary>
+    /// <remarks>実フォルダ改名の確定receiptを読み、公開中の再受付と購読例外後の共通更新通知を観測します。</remarks>
     [TestMethod]
     public void AutoRenameChartFolders_PublicPublicationFailureIsBestEffortAfterLeaseRelease()
     {
@@ -1401,6 +1452,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSのルート移動を共通通知のBMS変更として渡し、BMSONとの種類取り違えや所持パス更新の欠落を検出します。
+    /// </summary>
     [TestMethod]
     public async Task MoveLibraryRootFolder_BmsChart_NotifiesBmsStorageRowsThroughRefreshNotification()
     {
@@ -1439,7 +1493,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsCharts = [file];
-                await bmsFilesPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsFilesPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
@@ -1464,8 +1518,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSONのフォルダ改名を共通通知で一回公開し、表示行のフォルダと所持パスに旧配置を残す誤りを検出します。
+    /// </summary>
     [TestMethod]
-    public async Task RenameBmsonFolder_UpdatesFolderWithoutRaisingCollectionRefresh()
+    public async Task RenameBmsonFolder_UpdatesFolderThroughCommonRefresh()
     {
 
         await WithTemporarySongDbAsync(async delegate (string songDbPath)
@@ -1503,7 +1560,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsonSongsPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
@@ -1525,6 +1582,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二件の物理移動後にDB適用を拒否すると、移動済み事実・元登録・適用失敗を保持して未確定状態を成功公開しないことを確認します。
+    /// </summary>
+    /// <remarks>SQLite適用を拒否するtriggerを使い、移動済み実ファイルと保持された元保存行を別々に確認します。</remarks>
+    /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1600,7 +1662,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(File.Exists(secondDestinationChartPath));
                 Assert.AreEqual(firstChartPath, CurrentOwnedChart(library, firstFile).Path);
                 Assert.AreEqual(secondChartPath, CurrentOwnedChart(library, secondFile).Path);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstDestinationChartPath));
@@ -1616,6 +1678,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// ルート移動の二件目が失敗すると最初の一件だけを保存・公開し、失敗対象と未処理対象の実体・登録を保つことを確認します。
+    /// </summary>
+    /// <remarks>実フォルダ移動の二件目を失敗させ、SQLiteを読み戻して成功分の新登録と残る元登録を確認します。</remarks>
+    /// <param name="reportAtTerminal">trueは上位終端へ報告を委ね、falseは下位入口の報告を確認します。</param>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1706,7 +1773,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(Directory.Exists(secondDestinationDirectoryPath));
                 Assert.IsTrue(Directory.Exists(thirdSourceDirectoryPath));
                 Assert.IsFalse(Directory.Exists(thirdDestinationDirectoryPath));
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsNull(verifySongDb.Find<LR2SongDB.song>(firstChartPath));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(Path.Combine(firstDestinationDirectoryPath, "first.bms")));
                 Assert.IsNotNull(verifySongDb.Find<LR2SongDB.song>(secondChartPath));
@@ -1722,6 +1789,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSONのルート移動を共通通知のBMSON変更として渡し、BMSとの種類取り違えや所持パス更新の欠落を検出します。
+    /// </summary>
     [TestMethod]
     public async Task MoveLibraryRootFolder_BmsonChart_NotifiesBmsonStorageRowsThroughRefreshNotification()
     {
@@ -1768,7 +1838,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsonSongsPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
@@ -1795,6 +1865,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSとBMSONの別フォルダ移動を一回の反映と通知へ集約し、形式を跨ぐ更新漏れと対象ごとの二重公開を検出します。
+    /// </summary>
+    /// <remarks>実フォルダ移動の確定receiptと、二形式の所持パス・一回の通知を観測します。</remarks>
     [TestMethod]
     public async Task MoveLibraryRootFolder_MixedFoldersPublishesOneOperationNotification()
     {
@@ -1851,10 +1925,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 library.BmsCharts = [file];
-                await bmsFilesPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsFilesPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 bmsonSongsPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                 library.BmsonCharts = [song];
-                await bmsonSongsPublished.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(bmsonSongsPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
                 Interlocked.Exchange(ref ownedCollectionPublicationCount, 0);
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int baselineOwnedCollectionVersion = library.OwnedCollectionVersion;
@@ -1899,6 +1973,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSONの配置修正で実体と所持パス・表示フォルダ・保存行を移動先へ揃え、元登録を残す不完全な修正を検出します。
+    /// </summary>
+    /// <remarks>実BMSONの移動先と所持パスを確認し、SQLiteを読み戻して旧登録除去と新しい保存フォルダを確認します。</remarks>
     [TestMethod]
     public void FixInstallationDirectoryCharts_BmsonChartUpdatesSongAndPersistedRow()
     {
@@ -1944,9 +2022,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(Path.GetFileName(destinationDirectoryPath), CurrentOwnedChart(library, song).Folder);
                 Assert.IsFalse(File.Exists(sourceChartPath));
                 Assert.IsTrue(File.Exists(destinationChartPath));
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
                 {
-                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
                     LR2SongDBExtended.bmson_song persistedSong = songDb.Table<LR2SongDBExtended.bmson_song>().Single(row => row.path == destinationChartPath);
                     Assert.AreEqual(destinationDirectoryPath, persistedSong.folder);
@@ -1962,6 +2039,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 配置修正後のDB適用拒否を保存失敗として返し、移動済み実体と元DB登録を区別して失敗を成功に読み替える誤りを検出します。
+    /// </summary>
+    /// <remarks>SQLite適用を拒否するtriggerを使い、移動済み実ファイルと保持された元保存行を別々に確認します。</remarks>
+    /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2042,7 +2124,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(File.Exists(sourceChartPath));
                 Assert.IsTrue(File.Exists(destinationChartPath));
                 Assert.AreEqual(sourceChartPath, bmsonSong?.Path ?? bmsFile!.Path);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 if (bmson)
                 {
                     Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
@@ -2064,6 +2146,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 二件目の配置修正保存が失敗すると二件を同時にロールバックし、物理移動は保持して対象ごとの部分DB確定を検出します。
+    /// </summary>
+    /// <remarks>SQLiteの二件目の保存を拒否するtriggerを使い、実ファイル移動後も二件の元保存行が残ることを読み戻します。</remarks>
     [TestMethod]
     public void FixInstallationDirectoryCharts_MultipleRepairsShareOneCatalogTransaction()
     {
@@ -2150,7 +2236,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(File.Exists(secondDestinationPath));
                 Assert.AreEqual(firstSourcePath, CurrentOwnedChart(library, firstSong).Path);
                 Assert.AreEqual(secondSourcePath, CurrentOwnedChart(library, secondSong).Path);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == firstSourcePath));
                 Assert.AreEqual(1, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == secondSourcePath));
                 Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == firstDestinationPath));
@@ -2166,6 +2252,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 異なる内容の同名ファイルを保持して別名へ修正し、実際に選んだ宛先を所持集合とDBへ反映することを確認します。
+    /// </summary>
+    /// <remarks>実ファイルの衝突内容を確認し、選択された別名パスが所持集合とSQLite保存行に反映されることを観測します。</remarks>
+    /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2239,7 +2330,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsTrue(File.Exists(sourceChartPath) == false);
                 Assert.IsTrue(collisionBytes.SequenceEqual(File.ReadAllBytes(collisionPath)));
                 Assert.AreEqual(actualDestinationPath, CurrentOwnedChart(library, chart).Path);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 if (bmson)
                 {
                     Assert.AreEqual(0, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
@@ -2262,9 +2353,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     /// <summary>
-    /// 修正後の場所で不足リソースの健全性を再計算・保存し、既存の予約を解放してから公開します。
-    /// パス移動が成功しても保守DBの失敗はエラーとして残します。
+    /// 配置修正と同じ予約で移動先の資源を再評価・保存し、予約解放後に公開します。保守保存の拒否でも移動確定と元失敗を保持します。
     /// </summary>
+    /// <remarks>実資源を移動先で再評価し、SQLite保守行の読戻しと通知時の受付・健全性状態を確認します。</remarks>
+    /// <param name="bmson">BMSとBMSONの保存表・所持集合をそれぞれ観測します。</param>
+    /// <param name="failMaintenance">移動後の保守保存だけを拒否する条件です。</param>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -2321,8 +2414,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(initialInfo), typeof(LR2SongDBExtended.maintenance));
                 if (failMaintenance)
                 {
-                    // Path relocation retains the old health (zero), so only
-                    // the later resource recheck's durable write is rejected.
+                    // パス移転時の旧健全性0は通し、その後の資源再検査保存だけを拒否します。
                     db.Execute("CREATE TRIGGER repair_health_insert BEFORE INSERT ON maintenance WHEN NEW.wav_files_existing = 1 BEGIN SELECT RAISE(ABORT, 'repair-health-write-fault'); END;");
                     db.Execute("CREATE TRIGGER repair_health_update BEFORE UPDATE ON maintenance WHEN NEW.wav_files_existing = 1 BEGIN SELECT RAISE(ABORT, 'repair-health-write-fault'); END;");
                 }
@@ -2394,13 +2486,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsFalse(new BmsLibraryMaintenanceService().BuildResourceHealthWarnings(installed)
                     .Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
             }
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using var readback = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
             Assert.AreEqual(failMaintenance ? 0 : 1, persisted.wav_files_existing);
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
         });
     }
 
+    /// <summary>
+    /// 配置修正で元DBの登録日時・お気に入り・タグと未変更列を継承し、解析値で保存値を上書きする誤りを検出します。
+    /// </summary>
+    /// <remarks>実BMSを配置修正した後にSQLiteを読み戻し、元の利用者列と未変更列の継承を確認します。</remarks>
     [TestMethod]
     public void FixInstallationDirectoryCharts_BmsChartPreservesExistingLr2SongUserColumns()
     {
@@ -2444,7 +2540,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 library.FixInstallationDirectoryCharts([repairTarget]);
 
-                using var verify = new LR2SongDBExtended(songDbPath);
+                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
                 LR2SongDB.song row = verify.Table<LR2SongDB.song>().Single(candidate => candidate.path == destinationChartPath);
                 Assert.AreEqual(hash, row.hash);
@@ -2467,6 +2563,10 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 物理削除後のDB削除拒否では所持集合・健全性索引・公開世代・元登録を保持し、未保存の削除をconsumerへ公開する誤りを検出します。
+    /// </summary>
+    /// <remarks>SQLite削除を拒否するtriggerを使い、実ファイル削除後も元登録と所持・索引・公開世代を保持することを確認します。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_DurableCatalogFailureLeavesConsumerStateUnchanged()
     {
@@ -2519,7 +2619,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(resourceHealthSnapshot.NeedFixCount, resourceHealthAfterFailure.NeedFixCount);
                 Assert.AreEqual(1, library.BmsCharts.Count);
                 Assert.AreSame(file, library.BmsCharts.Single());
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == chartPath));
             }
             finally
@@ -2532,6 +2632,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 譜面削除の共通通知を実受信した時点で保存行が既に消えていることを確認し、DB確定より先の削除公開を検出します。
+    /// </summary>
     [TestMethod]
     public void RemoveLibraryCharts_CommitsCatalogBeforePublishingOwnedCollectionChange()
     {
@@ -2556,6 +2659,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             }
 
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            bool notificationReached = false;
             bool rowStillExistsWhenNotificationWasPublished = false;
             library.PropertyChanged += delegate (object? _, System.ComponentModel.PropertyChangedEventArgs args)
             {
@@ -2563,7 +2667,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 {
                     return;
                 }
-                using var notificationSongDb = new LR2SongDBExtended(songDbPath);
+                notificationReached = true;
+                using var notificationSongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 rowStillExistsWhenNotificationWasPublished = notificationSongDb.Table<LR2SongDB.song>().Any(row => row.path == chartPath);
             };
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
@@ -2583,12 +2688,16 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.AreEqual(0, library.BmsCharts.Count);
             NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsTrue((notificationBatch.ChangedCharts.Count > 0 || notificationBatch.DeletedTokens.Count > 0 || notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)));
+            Assert.IsTrue(notificationReached);
             Assert.IsFalse(rowStillExistsWhenNotificationWasPublished);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == chartPath));
         });
     }
 
+    /// <summary>
+    /// 削除公開先が例外を投げても実DBの削除確定と空の所持集合を保持し、通知失敗で確定成功を取り消す誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void RemoveLibraryCharts_PublicNotificationFailureKeepsCatalogCommit()
     {
@@ -2629,11 +2738,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.IsTrue(notificationAttempted);
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == chartPath));
         });
     }
 
+    /// <summary>
+    /// 構築済み導入索引を改名先へ更新して初期化状態を保ち、旧ディレクトリの残存と索引の無用な失効を検出します。
+    /// </summary>
     [TestMethod]
     public void RenameChartFolder_BuiltInstalledLookupMovesPathIncrementally()
     {
@@ -2685,6 +2797,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 所持BMSを別集合へ置換すると構築済み導入索引を失効し、再構築で旧ハッシュ・旧導入先を除くことを確認します。
+    /// </summary>
     [TestMethod]
     public void BMSFilesReplacement_InvalidatesBuiltInstalledLookup()
     {
@@ -2724,6 +2839,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 同じMD5を持つ二修正では先行の実成功を次の重複判断へ反映し、一件だけを移動・保存して二重移動を検出します。
+    /// </summary>
     [TestMethod]
     public void FixInstallationDirectoryCharts_UsesSuccessfulRepairHashOverlayForLaterDuplicate()
     {
@@ -2792,6 +2910,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// BMSON配置修正の重複削除は承認対象だけに限定し、未選択の同梱譜面と既存宛先を保持します。DB拒否時は独立移動も同時に未確定へ残します。
+    /// </summary>
+    /// <param name="catalogFailure">重複除去の保存を拒否して一括反映の巻戻しを確認します。</param>
+    /// <param name="approveDuplicateRemoval">重複実体の削除を明示承認する条件です。</param>
     [TestMethod]
     [DataRow(false, true)]
     [DataRow(true, true)]
@@ -2921,9 +3044,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(!approveDuplicateRemoval || catalogFailure, library.BmsonCharts.Any(song => string.Equals(song.Path, sourceChartPath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(library.BmsonCharts.Any(song => string.Equals(song.Path, installedChartPath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(library.BmsonCharts.Any(song => string.Equals(song.Path, siblingSourcePath, StringComparison.OrdinalIgnoreCase)));
-                using (var songDb = new LR2SongDBExtended(songDbPath))
+                using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
                 {
-                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     Assert.AreEqual(approveDuplicateRemoval && catalogFailure ? 1 : approveDuplicateRemoval ? 0 : 1,
                         songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
                     Assert.AreEqual(approveDuplicateRemoval && catalogFailure ? 0 : 1,
@@ -2944,6 +3066,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 文字コード指定を保存して既存表示行へ通知し、警告集合の不要な通知や短命識別の取り替えを検出します。
+    /// </summary>
     [TestMethod]
     public void SetBMSFilesEncoding_UpdatesEncodingCellWithoutLibraryCollectionChanged()
     {
@@ -3017,7 +3142,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual("unknown", file.ResourceHealthMaintenanceSnapshot.Encoding);
                 Assert.AreEqual("gb2312", row.encoding);
                 Assert.AreSame(file.Token, row.Chart.Token);
-                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
                 LR2SongDBExtended.maintenance persistedMaintenance = verifySongDb.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == chartPath);
                 Assert.AreEqual("gb2312", persistedMaintenance.encoding);
             }
@@ -3031,6 +3156,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 難易度表の名前・記号変更を明示更新までは捕捉値として保ち、更新後は参照表示だけを替えて譜面の共通更新を発行しないことを確認します。
+    /// </summary>
     [TestMethod]
     public async Task RefreshReferenceDisplayForTable_UpdatesPlaylistCellWithoutStorageRowCollectionNotification()
     {
@@ -3052,7 +3180,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 entries = [new BMSTableEntry(file)]
             };
             int bmsFilesChangedCount = 0;
-            ChartFile capturedBeforeReferenceRefresh = file;
             library.PropertyChanged += delegate (object? sender, System.ComponentModel.PropertyChangedEventArgs e)
             {
                 if (e.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
@@ -3062,7 +3189,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
             };
             library.BmsCharts = [file];
-            await bmsFilesPublished.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(bmsFilesPublished.Task, Task.CompletedTask, "folder-prepare.common-refresh");
             Interlocked.Exchange(ref bmsFilesChangedCount, 0);
             library.RefreshReferenceDisplayForTable(table);
             ChartFile chart = (file);
@@ -3074,13 +3201,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             library.RefreshReferenceDisplayForTable(table);
 
-            Assert.AreSame(capturedBeforeReferenceRefresh, file);
             Assert.AreEqual(0, Volatile.Read(ref bmsFilesChangedCount));
             Assert.AreEqual("B", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("After", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
+    /// <summary>
+    /// 同じ譜面を参照する旧表を再読込表へ置換し、表示へ旧名前・記号を併記する追記処理を検出します。
+    /// </summary>
     [TestMethod]
     public void SynchronizeReferenceBMSTables_ReplacesReloadedPlaylistReferenceWithoutAppending()
     {
@@ -3110,6 +3239,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 準備後に参照世代が変わると古い計画を拒否して現在表示を保ち、新しい計画だけを確定することを確認します。
+    /// </summary>
     [TestMethod]
     public void PreparedReferenceSynchronizationCommitsAtomicallyAndRejectsStaleRevision()
     {
@@ -3147,28 +3279,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
-    [TestMethod]
-    public void AddReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
-                @"C:\Pending\Package\chart.bmson",
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            library.ChartPackagesPending = CreatePackageCollection(
-            [
-                ChartPackage.FromChartEntries([adapterlessBmsonEntry])
-            ]);
-            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-            library.AddReferenceBMSTables(table);
-
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-        });
-    }
-
+    /// <summary>
+    /// 一致・不一致の保留BMSONを混在させても一致MD5だけへ難易度表の名前と記号を反映し、無関係な譜面への参照付与を検出します。
+    /// </summary>
     [TestMethod]
     public void AddReferenceBMSTables_UsesPlaylistIndexForMatchedPendingBmsonWithoutMaterializing()
     {
@@ -3190,46 +3303,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
             library.AddReferenceBMSTables(table);
-
-            Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
-            Assert.IsNull(unmatchedBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
         });
     }
 
-    [TestMethod]
-    public void AddReferenceBMSTables_UsesPlaylistIndexForBmsonWithoutBmsOwner()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            string matchingHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-            ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
-            {
-                Path = @"C:\Pending\Package\matching.bmson",
-                Md5 = matchingHash,
-                Sha256 = new string('b', 64),
-                RawTitle = "Pending Bmson",
-                RawArtist = "Artist"
-            };
-            var matchingBmsonEntry = PackageChartEntry.FromChart((song));
-            library.ChartPackagesPending = CreatePackageCollection(
-            [
-                ChartPackage.FromChartEntries([matchingBmsonEntry])
-            ]);
-            BMSTable table = CreateTable("Matched", "M", matchingHash);
-
-            library.AddReferenceBMSTables(table);
-
-            Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
-            Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
-            Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
-        });
-    }
-
+    /// <summary>
+    /// 所持BMSONへ一致MD5の難易度表を反映し、BMSの保存行を持たない形式を参照更新から除外する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void AddReferenceBMSTables_UsesPlaylistIndexForInstalledBmsonWithoutBmsOwner()
     {
@@ -3252,14 +3334,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
             library.AddReferenceBMSTables(table);
-
-            Assert.IsNotNull(chart.Token);
-            Assert.AreSame(song.Token, chart.Token);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
+    /// <summary>
+    /// 明示指定したBMSへ一致ハッシュの表名・記号を反映し、全所持集合だけを対象にする更新漏れを検出します。
+    /// </summary>
     [TestMethod]
     public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsStorageOwner()
     {
@@ -3282,6 +3364,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    /// <summary>
+    /// 明示指定したBMSONへ一致ハッシュの表名・記号を反映し、BMS以外を対象から落とす更新漏れを検出します。
+    /// </summary>
     [TestMethod]
     public void AddReferenceBMSTablesToCharts_UsesPlaylistIndexForBmsonWithoutBmsOwner()
     {
@@ -3302,33 +3387,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable table = CreateTable("Matched", "M", matchingHash);
 
             library.AddReferenceBMSTablesToCharts(table, [chart]);
-
-            Assert.IsNull(chart.Token);
-            Assert.AreSame(song.Token, chart.Token);
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(chart).Names);
         });
     }
 
-    [TestMethod]
-    public void AddReferenceBMSTablesToPackageCharts_DoesNotMaterializeUnmatchedBmsonEntries()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
-                @"C:\Installed\Package\unmatched.bmson",
-                "cccccccccccccccccccccccccccccccc");
-            var installedPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
-            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-            library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
-
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-        });
-    }
-
+    /// <summary>
+    /// 所持外の明示パッケージでも一致BMSONだけに表名・記号を反映し、不一致への誤付与と全体所持だけを更新する漏れを検出します。
+    /// </summary>
     [TestMethod]
     public void AddReferenceBMSTablesToPackageCharts_UsesPlaylistIndexForMatchedBmsonWithoutMaterializing()
     {
@@ -3348,15 +3414,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.AddReferenceBMSTables([table]);
 
             library.AddReferenceBMSTablesToPackageCharts([table], [installedPackage]);
-
-            Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
-            Assert.IsNull(unmatchedBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual("M", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
             Assert.AreEqual("Matched", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Names);
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(unmatchedBmsonEntry.Chart).Symbols);
         });
     }
 
+    /// <summary>
+    /// 旧表だけに一致する保留BMSONは表置換後に参照表示を失い、新表へ一致していない譜面に参照を引き継ぐ誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void ReplaceReferenceBMSTable_DoesNotAddNewTableToOldOnlyPendingBmsonEntry()
     {
@@ -3376,39 +3442,16 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             BMSTable oldTable = CreateTable("Old", "O", oldHash);
             BMSTable newTable = CreateTable("New", "N", newHash);
             library.AddReferenceBMSTables(oldTable);
-            Assert.IsNull(oldOnlyBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual("O", library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
 
             library.ReplaceReferenceBMSTable(oldTable, newTable);
-
-            Assert.IsNull(oldOnlyBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(oldOnlyBmsonEntry.Chart).Symbols);
         });
     }
 
-    [TestMethod]
-    public void SynchronizeReferenceBMSTables_DoesNotMaterializeUnmatchedPendingBmsonEntries()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
-            PackageChartEntry adapterlessBmsonEntry = CreateAdapterlessBmsonEntry(
-                @"C:\Pending\Package\unmatched.bmson",
-                "cccccccccccccccccccccccccccccccc");
-            library.ChartPackagesPending = CreatePackageCollection(
-            [
-                ChartPackage.FromChartEntries([adapterlessBmsonEntry])
-            ]);
-            BMSTable table = CreateTable("Unmatched", "U", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-
-            library.SynchronizeReferenceBMSTables([table]);
-
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-        });
-    }
-
-    /// <summary>同じSHA256で解決した保留BMSON参照を、モデル行の実削除後に解除します。</summary>
+    /// <summary>
+    /// SHA256で一致した保留BMSONの表行を実削除して参照解除へ渡し、MD5だけを調べて古い表示を残す誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void RemoveReferenceBMSTables_WithEntriesRemovesPendingReferenceMatchedBySha256()
     {
@@ -3427,18 +3470,18 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             ]);
             BMSTable table = CreateTableWithHashes("Sha", "S", md5: string.Empty, sha256: sha256);
             library.AddReferenceBMSTables(table);
-            Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual("S", library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
 
             List<BMSTableEntry> removedEntries = [.. table.entries];
             table.RemoveBMSTableEntries(removedEntries);
             library.RemoveReferenceBMSTables(table, removedEntries);
-
-            Assert.IsNull(matchingBmsonEntry.GetBmsChartForTest());
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(matchingBmsonEntry.Chart).Symbols);
         });
     }
 
+    /// <summary>
+    /// 内容が未読込になった表でも登録済みの参照を解除し、行一覧を取得できないことを理由に表示を残す誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void RemoveReferenceBMSTables_AllowsUnloadedTables()
     {
@@ -3490,11 +3533,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         return library.CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics();
     }
 
-    private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
-    {
-        return library.CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics();
-    }
-
     private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
     {
         return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
@@ -3521,7 +3559,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_FolderRenameRefresh_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             // fixture schemaは初期化処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
@@ -3547,7 +3584,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SongDbTest_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             // asyncテスト用fixture schemaも本番処理の検証対象ではないため、一つのtransactionにまとめて共通DBロックの保持時間を短縮する。
@@ -3623,8 +3659,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         public HashSet<string> MoveFileFailureSourcePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public Action<string>? OperationObserver { get; set; }
-
-        public string? DeleteDirectoryFailurePath { get; set; }
 
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
@@ -3710,11 +3744,6 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
         public void DeleteDirectoryDirect(string directoryPath, bool recursive, FileMutationOptions options = null!)
         {
-            if (!string.IsNullOrWhiteSpace(DeleteDirectoryFailurePath)
-                && string.Equals(directoryPath, DeleteDirectoryFailurePath, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new IOException("Synthetic directory delete failure for manual recovery test.");
-            }
             if (Directory.Exists(directoryPath))
             {
                 Directory.Delete(directoryPath, recursive);

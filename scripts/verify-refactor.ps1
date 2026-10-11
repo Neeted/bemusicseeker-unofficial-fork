@@ -1821,6 +1821,8 @@ try {
     }
 
     if ($Mode -eq 'Full') {
+        # 保証：生成した各ツールの--helpが実プロセスとして正常終了する。
+        # コマンドの起動不能を検出し、解析・出力の内容は各ツールのC#テストへ分担する。
         [void](Invoke-MonitoredVerificationPhase -Name 'tool-smoke' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             foreach ($toolExecutable in $toolExecutables) {
@@ -1869,6 +1871,7 @@ try {
         [Environment]::SetEnvironmentVariable('BMS_SCD_APP_PUBLISH_ROOT', [string]$artifactManifest.Current.appRoot, 'Process')
         [Environment]::SetEnvironmentVariable('BMS_SCD_UPDATER_PUBLISH_ROOT', [string]$artifactManifest.Current.updaterRoot, 'Process')
 
+        # 既存データの実起動と現行更新のシナリオは各acceptスクリプトが保証し、同じ配布物を渡す。
         [void](Invoke-MonitoredVerificationPhase -Name 'existing-data' -DiagnosticsRoot $testDiagnosticsDirectory -Action {
             param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
             Invoke-ExistingDataAcceptance `
@@ -1884,6 +1887,8 @@ try {
                 -DeadlinePolicy $deadlinePolicy
         })
 
+        # 実OSプロセスとの接続、旧protocol updaterとの互換性をC#側の明示実行ケースへ分担する。
+        # 最後の結果gateは必須ケースの欠落・スキップ・失敗を成功として扱わない。
         $processIntegrationResultsPath = $null
         $releaseAcceptanceResultsPath = $null
         $processIntegrationResultsPath = @(Invoke-MonitoredVerificationPhase -Name 'ProcessIntegration' -DiagnosticsRoot $testDiagnosticsDirectory -Action {

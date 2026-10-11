@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioDeviceCatalogTests
 {
+    /// <summary>
+    /// 保証：機器更新後は接続済み機器の識別子とnative番号を反映し、切断済み機器を除き、廃止ドライバーを列挙しない。
+    /// </summary>
     [TestMethod]
     public void Refresh_ReflectsConnectedAndDisconnectedFakeDevices()
     {
@@ -38,6 +41,9 @@ public sealed class AudioDeviceCatalogTests
         Assert.AreEqual(0, catalog.GetDevices(AudioDriver.DirectSound).Count);
     }
 
+    /// <summary>
+    /// 保証：一つのドライバーの列挙失敗ではその直前の機器一覧だけを保持し、成功した別ドライバーの新しい機器を反映する。
+    /// </summary>
     [TestMethod]
     public void Refresh_BackendFailureRetainsOnlyThatBackendsLastGoodList()
     {

@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableRowChangeTrackerTests
 {
+    /// <summary>三行の中央一行だけを可視にした場合はその行の変更だけ通知することを確認し、画面外の全行を購読して再描画する誤りを検出します。</summary>
     [TestMethod]
     public void ReplaceVisibleRows_OnlyTracksVisibleRows()
     {
@@ -28,6 +29,7 @@ public sealed class CustomTableRowChangeTrackerTests
         Assert.AreEqual(1, tracker.SubscribedRowCount);
     }
 
+    /// <summary>二行ずつの可視範囲を移すと外れた行を解除して新しい二行だけ通知することを確認し、スクロール後の購読残留や新規行の購読漏れを検出します。</summary>
     [TestMethod]
     public void ReplaceVisibleRows_ScrollsSubscriptions()
     {
@@ -49,6 +51,7 @@ public sealed class CustomTableRowChangeTrackerTests
         Assert.AreEqual(2, tracker.SubscribedRowCount);
     }
 
+    /// <summary>行集合交換で旧行を解除し通知可能な新行だけ購読することを確認し、旧集合の通知や通知不能な行を購読数に混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void ReplaceVisibleRows_RebuildsSubscriptionsAndIgnoresNonNotifyRows()
     {
@@ -68,6 +71,7 @@ public sealed class CustomTableRowChangeTrackerTests
         Assert.AreEqual(1, tracker.SubscribedRowCount);
     }
 
+    /// <summary>同じ行参照が二度現れる範囲から移動しても一回の購読を保ち、別行と各一回通知することを確認し、重複通知や一方の削除による購読解除を検出します。</summary>
     [TestMethod]
     public void ReplaceVisibleRows_TracksDuplicateRowReferencesWithReferenceCount()
     {
@@ -86,6 +90,7 @@ public sealed class CustomTableRowChangeTrackerTests
         Assert.AreEqual(2, tracker.SubscribedRowCount);
     }
 
+    /// <summary>Dispatcher実行前の三要求を一回へまとめ、完了後の次要求は新たに実行することを確認し、過剰な再描画や次回要求の取り落としを検出します。</summary>
     [TestMethod]
     public void RedrawScheduler_CoalescesRequestsUntilDispatcherRuns()
     {
@@ -117,6 +122,7 @@ public sealed class CustomTableRowChangeTrackerTests
         });
     }
 
+    /// <summary>workerからの複数再描画要求はまとめてUIスレッドへ配送することを確認し、workerで描画を行う誤りや二重配送を検出します。</summary>
     [TestMethod]
     public void RedrawScheduler_BackgroundRequestRunsActionOnDispatcherThread()
     {
@@ -146,6 +152,7 @@ public sealed class CustomTableRowChangeTrackerTests
         });
     }
 
+    /// <summary>同じ行の失効要求はDrainまで重複除去し別行を保持して取出し後は空にすることを確認し、重複失効や取出し済みの要求を再利用する誤りを検出します。</summary>
     [TestMethod]
     public void RowInvalidationQueue_CoalescesDuplicateRowsUntilDrain()
     {

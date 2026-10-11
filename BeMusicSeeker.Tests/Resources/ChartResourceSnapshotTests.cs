@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceSnapshotTests
 {
+    /// <summary>
+    /// 保証：リソース集合の捕捉後に元の資源を追加しても既存のパス・ハッシュ集合を変更せず、操作途中の入力を固定する。
+    /// </summary>
     [TestMethod]
     public void ResourcesSnapshotsRemainImmutableAfterOwnerMutation()
     {
@@ -28,6 +31,9 @@ public sealed class ChartResourceSnapshotTests
         CollectionAssert.DoesNotContain(paths.ToArray(), "image.png");
     }
 
+    /// <summary>
+    /// 保証：音声・画像・動画の集約は最後の拡張子だけを除き、名前途中の点を保持して別リソースへ照合しない。
+    /// </summary>
     [TestMethod]
     public void CreateAggregate_PreservesExtensionlessResourceKeysWithDotsInStem()
     {
@@ -56,6 +62,9 @@ public sealed class ChartResourceSnapshotTests
         CollectionAssert.DoesNotContain(aggregate.MovieRelativePaths.ToArray(), "movie");
     }
 
+    /// <summary>
+    /// 保証：階層付きリソース名から照合用のbasenameを作るときも途中の点を保持し、拡張子除去で名前を短縮しない。
+    /// </summary>
     [TestMethod]
     public void GetLookupFileName_PreservesDotsInStem()
     {
@@ -63,6 +72,9 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual("bg.final", ChartResourcePathNormalizer.GetLookupFileName(Path.Combine("visual", "bg.final.png")));
     }
 
+    /// <summary>
+    /// 保証：相対リソースの現在ディレクトリ記号だけを除き、先頭・途中に記号があっても同じ階層付きキーへ正規化する。
+    /// </summary>
     [TestMethod]
     public void NormalizeReferencePathForLookup_SkipsCurrentDirectorySegments()
     {
@@ -71,6 +83,9 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual(Path.Combine("sound", "foo"), ChartResourcePathNormalizer.NormalizeResourceKeyForLookup(@"sound\.\foo.wav"));
     }
 
+    /// <summary>
+    /// 保証：親参照のあるリソースを推定非対応として保持し、有効な照合キーを作って別フォルダへ誤推定しない。
+    /// </summary>
     [TestMethod]
     public void AnalyzeReferencePathForLookup_RejectsParentTraversalAsUnsupported()
     {
@@ -81,6 +96,9 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual(string.Empty, result.NormalizedPath);
     }
 
+    /// <summary>
+    /// 保証：親参照・空・NUL・絶対パスを区別し、名前中の二連点や先頭区切りは従来の有効入力として保持する。
+    /// </summary>
     [TestMethod]
     [DataRow(@"sound\..\foo.wav", "ParentTraversalUnsupported", "")]
     [DataRow("foo..bar.wav", "Valid", "foo..bar.wav")]
@@ -96,6 +114,9 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual(normalizedPath, result.NormalizedPath);
     }
 
+    /// <summary>
+    /// 保証：未知拡張子では照合件数を増やさず、実際に親参照する記述だけを非対応理由として単体・集約へ保持する。
+    /// </summary>
     [TestMethod]
     [DataRow("mystery.xyz", false)]
     [DataRow("mystery..xyz", false)]
@@ -116,6 +137,10 @@ public sealed class ChartResourceSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：実BMSの拡張子だけの空キーは定義件数へ数えず、通常の音声・画像・動画キーと未知記述を取得したまま保持する。
+    /// </summary>
+    /// <remarks>本番のファイル読取り・解析から資源分類へ接続し、合成済みreferenceでは分からない空キーの生産を確認する。</remarks>
     [TestMethod]
     public void Create_ExtensionOnlyBmsResourcesKeepNormalKeysWithoutParentTraversal()
     {
@@ -152,6 +177,10 @@ public sealed class ChartResourceSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：実BMSの音声・動画の親参照は種別付きで非対応集合へ保持し、通常の照合キーや充足件数へ混入しない。
+    /// </summary>
+    /// <remarks>本番解析で原文を取得し、集約側の分類との接続を確認する。</remarks>
     [TestMethod]
     public void CreateAggregate_PreservesUnsupportedParentTraversalReferencesWithoutLookupKeys()
     {
@@ -191,6 +220,10 @@ public sealed class ChartResourceSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：実BMSから取得したリソース原文を単体・集約で保持し、検索キーだけを拡張子なしへ正規化して原文を上書きしない。
+    /// </summary>
+    /// <remarks>本番の取得と解析を通し、表記・階層・種別の受渡しを両snapshotで観測する。</remarks>
     [TestMethod]
     public void Create_PreservesAcquiredBmsRawResourcePaths()
     {
@@ -243,6 +276,9 @@ public sealed class ChartResourceSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：リソースsnapshotは渡した譜面の共通値を正本とし、元の別値を探索して投影したリソースを上書きしない。
+    /// </summary>
     [TestMethod]
     public void Create_ResourcesRemainAuthoritativeWhenStorageOwnerHasDifferentResources()
     {
@@ -262,6 +298,9 @@ public sealed class ChartResourceSnapshotTests
         Assert.AreEqual("projected.wav", snapshot.ResourceReferences.Single(reference => reference.Kind == ChartResourceKind.Audio).RawPath);
     }
 
+    /// <summary>
+    /// 保証：同じ照合キーを持つ異拡張子は件数を重複計上せず、互換判定に必要な全原文とその順序は保持する。
+    /// </summary>
     [TestMethod]
     public void Create_DuplicateNormalizedResourceKeepsUniqueLookupAndAllRawReferences()
     {
@@ -286,6 +325,9 @@ public sealed class ChartResourceSnapshotTests
             snapshot.ResourceReferences.Select(reference => reference.RawPath).ToArray());
     }
 
+    /// <summary>
+    /// 保証：導入推定に捕捉済みの定義リソースを明示した場合はその入力を使い、対象譜面から再捕捉して別内容へ変えない。
+    /// </summary>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_UsesPrecomputedDefinedResources()
     {
@@ -306,6 +348,9 @@ public sealed class ChartResourceSnapshotTests
         CollectionAssert.DoesNotContain(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "target");
     }
 
+    /// <summary>
+    /// 保証：未取得リソースは単体・集約で失敗させ、取得済みの空集合だけを正常な零件として扱う。
+    /// </summary>
     [TestMethod]
     public void Create_UnacquiredResourcesFailAndSuccessfulEmptyResourcesRemainEmpty()
     {
@@ -322,6 +367,10 @@ public sealed class ChartResourceSnapshotTests
         Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(omitted));
     }
 
+    /// <summary>
+    /// 保証：譜面削除後も取得済みreferenceをコピー・パッケージへ保持し、健全性とLR2互換性を原文・任意画像・親参照に基づいて判定できる。
+    /// </summary>
+    /// <remarks>実ファイルから原文を取得して削除した後、投影・パッケージ・保守・互換評価の接続を確認する。</remarks>
     [TestMethod]
     public void AcquiredResourcesRemainSharedAcrossOwnerlessCopiesAfterChartDeletion()
     {
@@ -377,8 +426,11 @@ public sealed class ChartResourceSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：BMS・bmsonの基本・一覧・一時状態・パッケージ・保存対象へのコピーは元の取得済み原文を保持し、未取得を空集合へ変換しない。
+    /// </summary>
     [TestMethod]
-    public void StorageOwnerCopiesKeepSourceResourcesWhenOwnersReleaseOrReplaceThem()
+    public void ChartCopiesPreserveSourceResourcesAndUnacquiredState()
     {
         ImmutableList<ChartResourceReference> resources =
         [
@@ -400,46 +452,38 @@ public sealed class ChartResourceSnapshotTests
             bmsOwner with { Resources = null },
             bmsonOwner with { Resources = null }
         ];
-        foreach (ImmutableList<ChartResourceReference>? ownerResources in new ImmutableList<ChartResourceReference>?[]
-            { null, TestChartResources.Create(["different.wav"]) })
+        foreach (ChartFile source in sources)
         {
-            bmsOwner = bmsOwner with { Resources = ownerResources };
-            bmsonOwner = bmsonOwner with { Resources = ownerResources };
-            bmsOwner = bmsOwner with { RawTitle = "after" };
-            bmsonOwner = bmsonOwner with { RawTitle = "after" };
-            foreach (ChartFile source in sources)
+            ChartFile[] copies =
+            [
+                ChartFileProjection.CaptureBasicSnapshot(source),
+                ChartFileProjection.CaptureBasicSnapshotWithTransientState(source, ChartFileTransientState.Empty),
+                ChartFileProjection.CaptureListSnapshot(source),
+                PackageChartEntry.FromChart(source).Chart,
+                ChartStorageTargetSet.FromCharts([source]).Charts.Single()
+            ];
+            foreach (ChartFile copy in copies)
             {
-                ChartFile[] copies =
-                [
-                    ChartFileProjection.CaptureBasicSnapshot(source),
-                    ChartFileProjection.CaptureBasicSnapshotWithTransientState(source, ChartFileTransientState.Empty),
-                    ChartFileProjection.CaptureListSnapshot(source),
-                    PackageChartEntry.FromChart(source).Chart,
-                    ChartStorageTargetSet.FromCharts([source]).Charts.Single()
-                ];
-                foreach (ChartFile copy in copies)
-                {
-                    Assert.AreEqual("before", copy.RawTitle);
-                    Assert.AreSame(resources, copy.Resources);
-                    CollectionAssert.AreEqual(resources.ToArray(), ChartResourceSnapshot.Create(copy).ResourceReferences.ToArray());
-                    Assert.AreEqual(@"audio\foo.v2", copy.Resources[0].LookupKey);
-                    Assert.AreEqual(3, ChartResourceSnapshot.Create(copy).UnsupportedResourceReferenceCount);
-                }
+                Assert.AreEqual("before", copy.RawTitle);
+                Assert.AreSame(resources, copy.Resources);
+                CollectionAssert.AreEqual(resources.ToArray(), ChartResourceSnapshot.Create(copy).ResourceReferences.ToArray());
+                Assert.AreEqual(@"audio\foo.v2", copy.Resources[0].LookupKey);
+                Assert.AreEqual(3, ChartResourceSnapshot.Create(copy).UnsupportedResourceReferenceCount);
             }
-            foreach (ChartFile source in unacquiredSources)
+        }
+        foreach (ChartFile source in unacquiredSources)
+        {
+            foreach (ChartFile copy in new[]
             {
-                foreach (ChartFile copy in new[]
-                {
-                    ChartFileProjection.CaptureBasicSnapshot(source),
-                    ChartFileProjection.CaptureBasicSnapshotWithTransientState(source, ChartFileTransientState.Empty),
-                    ChartFileProjection.CaptureListSnapshot(source),
-                    PackageChartEntry.FromChart(source).Chart,
-                    ChartStorageTargetSet.FromCharts([source]).Charts.Single()
-                })
-                {
-                    Assert.IsNull(copy.Resources);
-                    Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(copy));
-                }
+                ChartFileProjection.CaptureBasicSnapshot(source),
+                ChartFileProjection.CaptureBasicSnapshotWithTransientState(source, ChartFileTransientState.Empty),
+                ChartFileProjection.CaptureListSnapshot(source),
+                PackageChartEntry.FromChart(source).Chart,
+                ChartStorageTargetSet.FromCharts([source]).Charts.Single()
+            })
+            {
+                Assert.IsNull(copy.Resources);
+                Assert.ThrowsException<InvalidOperationException>(() => ChartResourceSnapshot.Create(copy));
             }
         }
     }

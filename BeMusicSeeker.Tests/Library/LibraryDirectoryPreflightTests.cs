@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LibraryDirectoryPreflightTests
 {
+    /// <summary>
+    /// 保証：登録済みの未接続ルートも設定の読み書きで保持し、存在しないという理由で利用者の登録を消さない。
+    /// </summary>
     [TestMethod]
     public void StandaloneConfiguredAdapterPreservesMissingRootsOnRoundTrip()
     {
@@ -30,6 +33,9 @@ public sealed class LibraryDirectoryPreflightTests
         CollectionAssert.AreEqual(new[] { Path.GetFullPath(missing) }, reloaded.ToArray());
     }
 
+    /// <summary>
+    /// 保証：LR2の検索先読取りでドライブ直下を保持し、相対ルートはLR2基準へ解決して変更追跡対象を取り違えない。
+    /// </summary>
     [TestMethod]
     public void Lr2RawSearchRootGetterPreservesDriveRootAndResolvesRelativeRoot()
     {
@@ -57,6 +63,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：追加出力先の保存文字列にあるドライブ直下を検査要求へ保持し、末尾区切り除去で別パスへ変えない。
+    /// </summary>
     [TestMethod]
     public void RawAdditionalOutputDriveRootPreservesRootDuringRequestCapture()
     {
@@ -76,6 +85,9 @@ public sealed class LibraryDirectoryPreflightTests
         Assert.AreEqual(driveRoot, target.DirectoryPath);
     }
 
+    /// <summary>
+    /// 保証：空のBMSルートは読取り検査で成功し、走査対象に書込みprobeや削除を行わない。
+    /// </summary>
     [TestMethod]
     public void EmptyBmsRoot_IsReadOnlyAndSucceeds()
     {
@@ -103,6 +115,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：欠落ルートと通常ファイルを別原因の型付き停止として返し、対象用途と正規パスを診断へ保持する。
+    /// </summary>
     [TestMethod]
     public void MissingAndFileRootsProduceTypedFailuresWithCause()
     {
@@ -134,6 +149,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：BMSルート列挙の権限不足は型付き停止として返し、読取り不能を空成功へ変換したり書込みで確認したりしない。
+    /// </summary>
     [TestMethod]
     public void BmsRootEnumerationFailureIsTypedAndDoesNotWrite()
     {
@@ -161,6 +179,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：壊れた追加出力先JSONは設定不備として返し、空出力先に読み替えて検査成功にしない。
+    /// </summary>
     [TestMethod]
     public void MalformedAdditionalOutputConfigurationIsNotTreatedAsEmpty()
     {
@@ -186,6 +207,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：LR2連携では通常・追加・ルート形式の出力基点を検査し、欠落する基点を自動作成せず設定修復へ戻す。
+    /// </summary>
     [TestMethod]
     public void LinkedModeProbesEveryOutputBaseAndDoesNotCreateMissingBase()
     {
@@ -218,6 +242,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：単独動作では使わないLR2出力基点を検査・作成せず、BMSルートだけで利用を開始できる。
+    /// </summary>
     [TestMethod]
     public void StandaloneModeIgnoresUnusedMissingOutputBases()
     {
@@ -248,6 +275,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：管理出力の未作成子フォルダは独立した必須検索ルートから除き、基点の検査成功を子の欠落で止めない。
+    /// </summary>
     [TestMethod]
     public void ManagedOutputChildIsNotRequiredAsASeparateRoot()
     {
@@ -281,6 +311,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：出力基点のprobeはその内部で一度作成・削除し、既存ファイルを保持して後段の読取り検査で再probeしない。
+    /// </summary>
     [TestMethod]
     public void OutputProbeIsOwnedInsideBaseAndLeavesExistingFilesUnchanged()
     {
@@ -328,6 +361,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：probe作成失敗は書込み原因と予定パスを返し、所有していない未作成ファイルの削除を試みない。
+    /// </summary>
     [TestMethod]
     public void OutputCreateFailureDoesNotAttemptDelete()
     {
@@ -364,6 +400,9 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
+    /// <summary>
+    /// 保証：probe削除失敗は残ったパスと清掃例外を保持し、書込み可能であることだけを理由に検査成功にしない。
+    /// </summary>
     [TestMethod]
     public void OutputCleanupFailureKeepsProbeDiagnostics()
     {

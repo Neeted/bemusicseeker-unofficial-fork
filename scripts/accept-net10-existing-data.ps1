@@ -1,3 +1,6 @@
+# 保証：既存のsong.dbと旧user.configを持つ単独動作・LR2連携の各プロファイルで、
+# 実配布アプリの起動完了と正常終了を二回通し、設定移行・保存済みDBデータの保持を確認する。
+# 二回目の終了による不要な設定変更、移行元設定や譜面ファイルの書換えも検出する。
 [CmdletBinding()]
 param(
     [string]$AppPublishRoot,
@@ -603,6 +606,8 @@ $failed = $false
 
 try {
     New-Item -ItemType Directory -Path $sandboxRoot -Force | Out-Null
+    # 単独動作はアプリ所有DB、LR2連携は外部song.dbとLR2設定を使用する。
+    # LR2では保存済み譜面・パッケージに加えて、同期後の標準フォルダと状態も観測する。
     foreach ($profile in $script:manifest.profiles) {
         $profileRoot = Join-Path $sandboxRoot ([string]$profile.name)
         $appRoot = Join-Path $profileRoot 'app'
@@ -665,6 +670,7 @@ try {
 
         $appExecutable = Join-Path $appRoot 'BeMusicSeeker.exe'
         $profileKind = if ([bool]$profile.operationModeLr2Db) { 'Lr2' } else { 'Standalone' }
+        # 初回は旧設定からの移行を通し、readyと後続初期化の実完了・正常終了後に保存結果を読む。
         $firstRun = Invoke-ProfileRun `
             -ProfileRoot $profileRoot `
             -AppExecutable $appExecutable `
@@ -683,6 +689,7 @@ try {
             -BmsRoot $bmsRoot
         $firstSettingsHash = Get-Sha256 -Path $portableSettingsPath
 
+        # 再起動は移行済み設定の再利用とDBの保持を確認し、同じ入力で設定が再変更されないことを検査する。
         $secondRun = Invoke-ProfileRun `
             -ProfileRoot $profileRoot `
             -AppExecutable $appExecutable `

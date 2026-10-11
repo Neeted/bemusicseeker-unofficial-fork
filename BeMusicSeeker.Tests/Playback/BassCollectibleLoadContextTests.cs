@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassCollectibleLoadContextTests
 {
+    /// <summary>player型の静的初期化だけではnative読込みと機器列挙を開始せず、専用collectible contextの解放を妨げない。</summary>
     [TestMethod]
     public void BassAudioPlayer_StaticInitializationDoesNotEnumerateOrLoadNativeRuntime()
     {

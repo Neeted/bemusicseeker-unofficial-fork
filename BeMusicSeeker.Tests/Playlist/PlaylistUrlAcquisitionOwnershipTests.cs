@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,13 +18,14 @@ using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>URLの取得判断と実workspaceから導入・表示への配送、受理されなかった入力の回収を確認します。</summary>
+/// <remarks>取得は応答portで固定し実stagingを使います。Windowは不要で、compiled購読の接続はMainWindowの代表が担います。実導入ownerの受付・終端だけは上位の引渡しケースで通します。</remarks>
 [TestClass]
 public sealed class PlaylistUrlAcquisitionOwnershipTests
 {
-    private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-
     private readonly List<PlaylistWorkspaceTestPorts.OwnedPlaylistStore> ownedPlaylistStores = [];
 
+    /// <summary>要求の終端後に、各ケースが所有した実store領域を逆順で回収します。</summary>
     [TestCleanup]
     public void CleanupOwnedPlaylistStores()
     {
@@ -35,30 +35,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
         ownedPlaylistStores.Clear();
     }
-    [TestMethod]
-    public void OptionsSnapshot_CapturesAutoInstallSettingsWithoutExposingSettingsObject()
-    {
-        bool previousScan = testSettings.ScanBmsFilesOnStartup;
-        bool previousAutoInstall = testSettings.AutoInstall;
-        try
-        {
-            testSettings.ScanBmsFilesOnStartup = true;
-            testSettings.AutoInstall = true;
 
-            var snapshot =
-                PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(testSettings);
-
-            Assert.IsTrue(snapshot.ScanBmsFilesOnStartup);
-            Assert.IsTrue(snapshot.AutoInstall);
-            Assert.IsTrue(snapshot.ShouldAutoInstall);
-        }
-        finally
-        {
-            testSettings.ScanBmsFilesOnStartup = previousScan;
-            testSettings.AutoInstall = previousAutoInstall;
-        }
-    }
-
+    /// <summary>対応する各譜面・archive名の応答を実stagingへ保存し、元basename・拡張子・bytesを保持します。取得物を別形式や別名へ変えて導入先へ渡す誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_SupportedChartAndArchiveNamesWriteExactBasenameExtensionAndBytes()
     {
@@ -68,6 +46,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         byte[] expectedBytes = [0x10, 0x20, 0x30, 0x40];
+        // 本番の対応譜面種別とarchive種別それぞれの保存契約。
         string[] supportedNames = ["chart.bms", "chart.bme", "chart.bml", "chart.pms", "chart.bmson", "package.zip", "package.7z", "package.rar", "package.lzh"];
         try
         {
@@ -96,6 +75,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>file、FTP、独自schemeと共有サイト風の独自schemeを入口で拒否し、通信・一時先取得・書込みを行いません。site名でscheme拒否を迂回する誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UnsupportedInitialSchemeFailsBeforeGatewayOrTemp()
     {
@@ -138,6 +118,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>拡張子のないquery URIでは応答のContent-Dispositionを使ってbmson名とbytesを保存します。URIだけで名前を決めて対応ファイルを失う誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UsesContentDispositionForExtensionlessQueryUri()
     {
@@ -174,7 +155,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>共有HTMLのリンクを譜面・archive双方の直接URIへ解決し、ページ→実体の順に一回ずつ取得してbytesを保存します。HTML本文の誤保存と再帰取得の誤配送を検出します。</summary>
     [DataTestMethod]
+    // 譜面本体とarchiveの双方を、同じ共有HTML解決経路で確認する。
     [DataRow("chart.bms")]
     [DataRow("package.zip")]
     public async Task DownloadCandidate_ResolvesKnownSharedHtmlPageToDirectSupportedFile(string fileName)
@@ -219,6 +202,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>HTTP要求でも応答URIがfileなら不対応失敗として返し、本文を書込みません。redirect後のscheme検査漏れを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UnsupportedResponseSchemeFailsBeforeWriting()
     {
@@ -255,6 +239,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>HTTP応答が不対応schemeの場合、workspaceは導入もブラウザも起動しません。取得失敗の分類を捨てて危険な代替処理へ進む誤りを検出します。</summary>
     [TestMethod]
     public async Task WorkspaceDoesNotBrowserFallbackAfterUnsupportedResponseScheme()
     {
@@ -302,6 +287,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>共有HTMLがfileリンクを返しても二段目を取得せず、書込みなしの不対応失敗を返します。解決したリンクのscheme検査漏れを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UnsupportedRecursiveHtmlSchemeFailsWithoutSecondGatewayHop()
     {
@@ -339,6 +325,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>Google確認form、イベント表、会場・譜面ページのJSONからfile URIを抽出しても追加通信・保存へ進みません。抽出形式ごとの再帰入口で拒否が抜ける誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UnsupportedRecursiveSchemeFailsForKnownHtmlAndJsonSourceForms()
     {
@@ -347,8 +334,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
-        Uri responseRequestUri = new("https://example.invalid/download/package.zip");
-        Uri responseUri = new("file:///C:/secret.zip");
         var cases = new (Uri PageUri, string Html)[]
         {
             (
@@ -367,9 +352,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         try
         {
             var gateway = new RecordingPlaylistUrlDownloadGateway(temporaryDirectory);
-            gateway.AddResponse(responseRequestUri, () => new AppHttpResponse(
-                responseUri,
-                new MemoryStream([0x41, 0x42, 0x43], writable: false)));
             foreach ((Uri pageUri, string html) in cases)
             {
                 gateway.AddResponse(pageUri, () => CreateHttpResponse(
@@ -378,17 +360,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                     "text/html"));
             }
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
-
-            PlaylistUrlDownloadResult responseResult = await workflow.DownloadCandidateAsync(responseRequestUri);
-
-            Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, responseResult.Kind);
-            Assert.IsTrue(responseResult.IsUnsupportedScheme);
-            CollectionAssert.AreEqual(
-                new[] { responseRequestUri.AbsoluteUri },
-                gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
-            Assert.AreEqual(1, gateway.GetTemporaryDirectoryCount);
-            Assert.AreEqual(0, gateway.OpenWriteCount);
-            Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
 
             foreach ((Uri pageUri, string _) in cases)
             {
@@ -400,7 +371,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
             CollectionAssert.AreEqual(
                 cases.Select(testCase => testCase.PageUri.AbsoluteUri).ToArray(),
-                gateway.RequestedUris.Skip(1).Select(uri => uri.AbsoluteUri).ToArray());
+                gateway.RequestedUris.Select(uri => uri.AbsoluteUri).ToArray());
             Assert.AreEqual(0, gateway.OpenWriteCount);
             Assert.AreEqual(0, Directory.GetFiles(temporaryDirectory).Length);
         }
@@ -413,6 +384,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>不対応拡張子と譜面名を持つHTML応答はブラウザ対象へ分類し、stagingへ保存しません。ファイル名だけでHTMLを譜面扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_UnsupportedNamesAndHtmlChartReturnBrowserFallbackWithoutWriting()
     {
@@ -453,6 +425,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>通信例外を取得失敗として返し、実ファイルを書込みません。失敗した応答を保存済み扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_TransportExceptionReturnsFailedWithoutWriting()
     {
@@ -485,6 +458,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>通信待機中の明示取消はOperationCanceledExceptionで終端し、取得失敗分類やファイルへ置き換えません。取消を隠して処理を続ける誤りを検出します。</summary>
     [TestMethod]
     public async Task DownloadCandidate_ExplicitCancellationPropagatesOperationCanceledException()
     {
@@ -493,16 +467,17 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+        Task? acquisition = null;
         try
         {
-            var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
             var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
             using var cancellation = new CancellationTokenSource();
-            Task<PlaylistUrlDownloadResult> acquisition = workflow.DownloadCandidateAsync(
+            acquisition = workflow.DownloadCandidateAsync(
                 new Uri("https://example.invalid/download/running.zip"),
                 cancellationToken: cancellation.Token);
 
-            await gateway.ReadStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(gateway.ReadStarted.Task, acquisition, "url-acquisition.read-started");
             cancellation.Cancel();
             gateway.Response.TrySetCanceled(cancellation.Token);
 
@@ -518,15 +493,27 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
         finally
         {
-            if (Directory.Exists(temporaryDirectory))
+            gateway.Response.TrySetCanceled();
+            try
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                if (acquisition != null)
+                {
+                    try { await acquisition; } catch (OperationCanceledException) { }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(temporaryDirectory))
+                {
+                    Directory.Delete(temporaryDirectory, recursive: true);
+                }
             }
         }
     }
 
+    /// <summary>起動走査を切った単独URLは表示dispatchを通してブラウザへ一回配送します。自動導入条件を無視する誤りとUI配送の接続漏れを検出します。</summary>
     [TestMethod]
-    public async Task WorkspaceRequiresExplicitCompositionPortsAndForwardsBrowserFallbackOnDispatcher()
+    public async Task WorkspaceForwardsBrowserFallbackThroughPresentationDispatch()
     {
         int dispatchCount = 0;
         Uri? openedUri = null;
@@ -546,6 +533,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(1, dispatchCount);
     }
 
+    /// <summary>自動導入なしでもfile・共有サイト風の独自schemeを通信、導入、ブラウザへ配送しません。ブラウザ経路で入口拒否を迂回する誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow("file:///C:/secret.zip")]
     [DataRow("custom+scheme://drive.google.com/file/d/id/package.zip")]
@@ -589,6 +577,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>通常HTTPの通信失敗はworkspaceからブラウザへ配送します。不対応schemeの拒否をすべての失敗へ広げる誤りを検出します。</summary>
     [TestMethod]
     public async Task WorkspaceBrowserFallbackRemainsAvailableAfterOrdinaryHttpAcquisitionFailure()
     {
@@ -630,6 +619,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>ブラウザsinkの実呼出し例外を要求Taskへ返します。表示先の失敗を成功扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task BrowserFallbackSinkExceptionIsNotSuppressed()
     {
@@ -641,6 +631,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
+    /// <summary>表示schedulerの失敗を要求Taskの終端まで伝播します。非同期配送を待たず成功を返す誤りを検出します。</summary>
     [TestMethod]
     public async Task BrowserFallbackPresentationFailureIsPropagatedThroughAwaitableScheduler()
     {
@@ -653,6 +644,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
+    /// <summary>一括取得の確認後にブラウザ対象一件の結果通知を届け、statusを非稼働へ戻します。単独ブラウザdispatchへの混入と終端表示漏れを検出します。</summary>
     [TestMethod]
     public async Task BulkBrowserFallbackPublishesSummaryAndReturnsToInactiveState()
     {
@@ -679,6 +671,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(0, dispatchCount);
     }
 
+    /// <summary>未回答の確認Taskを保持して要求が未完了で戻り、OK後に結果通知と非稼働終端へ進みます。確認を待たず受付・完了する誤りを検出します。</summary>
     [TestMethod]
     public async Task BulkPlaylistUrlConfirmationAwaitsDialogWithoutBlocking()
     {
@@ -696,17 +689,26 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             [new Uri("https://example.invalid/pending-confirmation/")],
             isDiffUrl: false);
 
-        Assert.IsFalse(acquisition.IsCompleted);
-        Assert.AreEqual(1, dialogs.Confirmations.Count);
+        try
+        {
+            Assert.IsFalse(acquisition.IsCompleted);
+            Assert.AreEqual(1, dialogs.Confirmations.Count);
 
-        dialogs.PendingConfirmation.SetResult(
-            UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-        await acquisition;
+            dialogs.PendingConfirmation.SetResult(
+                UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            await acquisition;
 
-        Assert.AreEqual(1, dialogs.Messages.Count);
-        Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+        }
+        finally
+        {
+            dialogs.PendingConfirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            await acquisition;
+        }
     }
 
+    /// <summary>一括確認の未回答中でも単独の読取りURLをブラウザへ配送し、先の要求は保留します。未受理確認をdownload稼働扱いして読取りまで拒む誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlReadOnlyRouteRemainsAllowedDuringUnacceptedConfirmation()
     {
@@ -741,6 +743,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>取消と確認service失敗の後でも次の明示一括要求を確認へ届けます。未受理経路でcommand gateを残す誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlCommandGateReleasesAfterRejectionAndDialogFailure()
     {
@@ -772,6 +775,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(3, dialogs.Confirmations.Count);
     }
 
+    /// <summary>結果表示が失敗した後も次の明示要求で確認・結果表示を行います。表示失敗時のcommand gate解放漏れを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlCommandGateReleasesAfterSummaryFailure()
     {
@@ -798,6 +802,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(2, dialogs.Messages.Count);
     }
 
+    /// <summary>閉じた確認のCancelは結果表示へ進まず、OKを伴う閉じ方は処理して結果表示します。ClosedByUserだけで利用者の選択を捨てる誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlConfirmationPreservesClosedDialogDecision()
     {
@@ -823,6 +828,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(1, dialogs.Messages.Count);
     }
 
+    /// <summary>単独・重複と欠損を含む複数選択・欠損だけの選択から本体/差分URLの可否を判断し、hashのない行は外部検索不可にします。行数とURL種別の条件混同を検出します。</summary>
     [TestMethod]
     public void PlaylistUrlContextMenuAvailability_PreservesSingleAndBulkUrlPolicy()
     {
@@ -857,6 +863,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.IsFalse(unavailable.CanOpenDiffUrl);
     }
 
+    /// <summary>確認未回答中でも有効な本体・差分URLを操作可能に保ち、hashなし外部検索は不可にします。未受理確認によってmenuを無効化する誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlContextMenuAvailability_DoesNotTreatPendingConfirmationAsDownload()
     {
@@ -873,20 +880,29 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             dialogService: dialogs);
 
         Task acquisition = workspace.RunPlaylistUrlBatchAsync([new Uri("https://example.invalid/pending/")], isDiffUrl: false);
-        Assert.IsFalse(acquisition.IsCompleted);
+        try
+        {
+            Assert.IsFalse(acquisition.IsCompleted);
 
-        PlaylistUrlContextMenuAvailability availability = workspace.CapturePlaylistUrlContextMenuAvailability(
-            row,
-            [row]);
+            PlaylistUrlContextMenuAvailability availability = workspace.CapturePlaylistUrlContextMenuAvailability(
+                row,
+                [row]);
 
-        Assert.IsTrue(availability.CanOpenUrl);
-        Assert.IsTrue(availability.CanOpenDiffUrl);
-        Assert.IsFalse(availability.CanFindExternalPackage);
+            Assert.IsTrue(availability.CanOpenUrl);
+            Assert.IsTrue(availability.CanOpenDiffUrl);
+            Assert.IsFalse(availability.CanFindExternalPackage);
 
-        dialogs.PendingConfirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
-        await acquisition;
+            dialogs.PendingConfirmation.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            await acquisition;
+        }
+        finally
+        {
+            dialogs.PendingConfirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            await acquisition;
+        }
     }
 
+    /// <summary>実取得の通信待機中は本体・差分URLを操作不可にし、MD5なしの行では外部検索も不可であることを確認します。受理済みdownloadの稼働をURLメニューへ反映しない誤りを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlContextMenuAvailability_DisablesActionsWhileDownloading()
     {
@@ -895,9 +911,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+        Task? acquisition = null;
         try
         {
-            var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
             var dialogs = new RecordingPlaylistUrlDialogService
             {
@@ -911,10 +928,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 acquisitionWorkflow: acquisitionWorkflow,
                 dialogService: dialogs);
 
-            Task acquisition = workspace.RunPlaylistUrlBatchAsync(
+            acquisition = workspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/running.zip")],
                 isDiffUrl: false);
-            await gateway.ReadStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(gateway.ReadStarted.Task, acquisition, "url-acquisition.read-started");
 
             PlaylistUrlContextMenuAvailability availability = workspace.CapturePlaylistUrlContextMenuAvailability(
                 row,
@@ -931,13 +948,25 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
         finally
         {
-            if (Directory.Exists(temporaryDirectory))
+            gateway.Response.TrySetCanceled();
+            try
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                if (acquisition != null)
+                {
+                    try { await acquisition; } catch (OperationCanceledException) { }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(temporaryDirectory))
+                {
+                    Directory.Delete(temporaryDirectory, recursive: true);
+                }
             }
         }
     }
 
+    /// <summary>実取得からhubへ進捗行を届け、取消受付後は再取消を不可にして取得終端で行を除去します。進捗購読の接続漏れと終端行の残留を検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlProgressAttachedHubPublishesActiveCancelAndTerminalStates()
     {
@@ -946,9 +975,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             nameof(PlaylistUrlAcquisitionOwnershipTests),
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
+        var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
+        Task? acquisition = null;
         try
         {
-            var gateway = new BlockingPlaylistUrlDownloadGateway(temporaryDirectory);
             var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
             var dialogs = new RecordingPlaylistUrlDialogService
             {
@@ -961,10 +991,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
             hub.AttachPlaylistProgressSources(workspace, action => action(), () => false);
 
-            Task acquisition = workspace.RunPlaylistUrlBatchAsync(
+            acquisition = workspace.RunPlaylistUrlBatchAsync(
                 [new Uri("https://example.invalid/running.zip")],
                 isDiffUrl: false);
-            await gateway.ReadStarted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(gateway.ReadStarted.Task, acquisition, "url-acquisition.read-started");
 
             Assert.IsTrue(hub.Rows.Any(row => row.Key == "url"));
             Assert.IsTrue(hub.Rows.Single(row => row.Key == "url").CanCancel);
@@ -981,13 +1011,25 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
         finally
         {
-            if (Directory.Exists(temporaryDirectory))
+            gateway.Response.TrySetCanceled();
+            try
             {
-                Directory.Delete(temporaryDirectory, recursive: true);
+                if (acquisition != null)
+                {
+                    try { await acquisition; } catch (OperationCanceledException) { }
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(temporaryDirectory))
+                {
+                    Directory.Delete(temporaryDirectory, recursive: true);
+                }
             }
         }
     }
 
+    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、入力使用終端後にstagingを回収します。展開順序の逆転と入力回収漏れを検出します。</summary>
     [TestMethod]
     public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation()
     {
@@ -1028,6 +1070,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終えてstagingを回収します。引渡しの分割と表示順序・回収の欠落を検出します。</summary>
     [TestMethod]
     public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary()
     {
@@ -1083,167 +1126,21 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitPlaylistUrlPorts()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            null,
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
 
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
-            action => action(),
-            browserSink: null,
-            useDefaultBrowserSink: false));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitExternalPlaylistImportLoggingPorts()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
-            null!,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            null!,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitBeatorajaTableUrlImportLoggingPorts()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            null!,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            null!,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitPlaylistSummaryColumnSettingsStore()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
-            null!,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitPlaylistSummaryBmtSortCoordinator()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            null!,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitKeywordSearchHistorySettingsStore()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            null!,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
-    }
 
-    [TestMethod]
-    public void ConstructorRequiresExplicitPlaylistStoreProvider()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            null!,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
-    }
-
-    [TestMethod]
-    public void ConstructorRequiresExplicitPlaylistPropertySaveService()
-    {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            null!));
-    }
 
     /// <summary>
-    /// URL-HANDOFF: 単体列・本体/差分取り込み・外部 API の取得成功後に共通受付が Busy の場合、
+    /// 単体列・本体/差分取り込み・外部 API の取得成功後に共通受付が Busy の場合、
     /// 警告で終わり、導入・tree 展開・ブラウザ fallback・後続の自動再実行を行いません。
     /// 通信段階ではライブラリ変更受付を占有しない契約を、実 queue への引渡しで検証します。
     /// </summary>
     [DataTestMethod]
+    // 単独列、本体一括、差分一括、外部API検索で同じBusy引渡しを確認する。
     [DataRow("single")]
     [DataRow("url")]
     [DataRow("diff")]
@@ -1361,7 +1258,6 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>取得先だけを固定し、外部 API 検索 owner の実引渡し経路を通す provider。</summary>
     /// <summary>実導入ownerへの一回引渡しと入力使用終端を通し、P中の読取り取得とstagingの回収時機を確認します。</summary>
     [TestMethod]
     public async Task DownloadedInput_HoldsStagingUntilActualInstallTerminalWhilePlaylistIsBusy()
@@ -1428,6 +1324,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>取得先を固定し、外部API検索ownerの実引渡し経路を通すprovider。</summary>
     private sealed class HandoffLookupProvider(Uri downloadUri) : IPlaylistExternalPackageLookupProvider
     {
         public string ProviderId => "handoff-test";
@@ -1442,9 +1339,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
         Func<IReadOnlyList<string>, bool>? installSink = null,
         Action<Uri>? browserSink = null,
-        bool useDefaultBrowserSink = true,
         Action? treeExpansionSink = null,
-        bool useDefaultTreeExpansionSink = true,
         IUiDialogService? dialogService = null,
         Func<Action, Task>? presentationScheduler = null,
         PlaylistExternalPackageLookupService? externalLookupService = null,
@@ -1460,9 +1355,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 dispatch(action);
                 return Task.CompletedTask;
             });
-        Action actualTreeExpansionSink = useDefaultTreeExpansionSink
-            ? treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink
-            : treeExpansionSink!;
+        Action actualTreeExpansionSink = treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink;
         var workspace = new PlaylistWorkspaceViewModel(
             dispatch,
             new MainChartListViewModel(action => action()),
@@ -1475,9 +1368,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             externalLookupService ?? PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            useDefaultBrowserSink
-                ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
-                : browserSink!,
+            browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -1504,143 +1395,22 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         return workspace;
     }
 
-    private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
-        Action<Exception, string> externalWarningLog,
-        Action<string> externalInfoLog,
-        Action<Exception, string> beatorajaWarningLog,
-        Action<string> beatorajaInfoLog,
-        IMainChartColumnSettingsStore columnSettingsStore,
-        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
-        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
-        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore,
-        Func<BMSPlaylist> playlistStoreProvider)
-    {
-        return new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            externalWarningLog,
-            externalInfoLog,
-            beatorajaWarningLog,
-            beatorajaInfoLog,
-            columnSettingsStore,
-            playlistSummaryBmtSort,
-            keywordSearchHistorySettingsStore,
-            keywordSearchFavoritesSettingsStore,
-            playlistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-    }
 
-    private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
-        IMainChartColumnSettingsStore columnSettingsStore,
-        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
-        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
-        IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore,
-        Func<BMSPlaylist> playlistStoreProvider,
-        PlaylistPropertySaveService propertySaveService)
-    {
-        return new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            columnSettingsStore,
-            playlistSummaryBmtSort,
-            keywordSearchHistorySettingsStore,
-            keywordSearchFavoritesSettingsStore,
-            playlistStoreProvider,
-            propertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-    }
 
     private static PlaylistDetailRow CreatePlaylistUrlRow(string? url, string? diffUrl)
-    {
-        var row = (PlaylistDetailRow)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlaylistDetailRow));
-        SetPrivateField(row, "url", string.IsNullOrWhiteSpace(url) ? null : new Uri(url));
-        SetPrivateField(row, "urlDiff", string.IsNullOrWhiteSpace(diffUrl) ? null : new Uri(diffUrl));
-        return row;
-    }
+        => new PlaylistDetailSourceRow(CreatePlaylistEntry(string.Empty, url, diffUrl), resolvedChart: null).CreateViewRow();
 
     private static PlaylistDetailRow CreatePlaylistExternalPackageRow(string md5)
-    {
-        var row = (PlaylistDetailRow)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(PlaylistDetailRow));
-        SetPrivateField(row, "<Entry>k__BackingField", CreatePlaylistEntry(md5));
-        SetPrivateField(row, "<IsOwned>k__BackingField", false);
-        return row;
-    }
+        => new PlaylistDetailSourceRow(CreatePlaylistEntry(md5), resolvedChart: null).CreateViewRow();
 
-    private static BMSTableEntry CreatePlaylistEntry(string md5)
+    private static BMSTableEntry CreatePlaylistEntry(string md5, string? url = null, string? diffUrl = null)
     {
         return BMSTableEntry.CreateHydratedPlaylistEntry(
-            playlistId: 1,
-            md5Value: md5,
-            sha256Value: null,
-            levelValue: null,
-            titleValue: "Playlist Entry",
-            artistValue: "Artist",
-            folderValue: string.Empty,
-            lr2BmsIdValue: string.Empty,
-            urlValue: string.Empty,
-            urlDiffValue: string.Empty,
-            nameDiffValue: string.Empty,
-            orgMd5Value: string.Empty,
-            addDateValue: null,
-            commentValue: string.Empty,
-            memoValue: string.Empty,
-            isRemovedValue: false);
-    }
-
-    private static void SetPrivateField(object target, string fieldName, object? value)
-    {
-        FieldInfo field = target.GetType().GetField(
-            fieldName,
-            BindingFlags.Instance | BindingFlags.NonPublic)
-            ?? throw new MissingFieldException(target.GetType().FullName, fieldName);
-        field.SetValue(target, value);
+            playlistId: 1, md5Value: md5, sha256Value: null, levelValue: null,
+            titleValue: "Playlist Entry", artistValue: "Artist", folderValue: string.Empty,
+            lr2BmsIdValue: string.Empty, urlValue: url ?? string.Empty, urlDiffValue: diffUrl ?? string.Empty,
+            nameDiffValue: string.Empty, orgMd5Value: string.Empty, addDateValue: null,
+            commentValue: string.Empty, memoValue: string.Empty, isRemovedValue: false);
     }
 
     private static AppHttpResponse CreateHttpResponse(

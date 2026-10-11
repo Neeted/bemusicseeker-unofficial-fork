@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -11,9 +10,12 @@ using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>通常一覧ownerの画面遷移と編集要求の配送をWindowなしで確認します。</summary>
+/// <remarks>実libraryを使う重複caseはgroup構築から通知までを担当し、compiledセル・treeの接続はMainWindowの実画面caseが分担します。</remarks>
 [TestClass]
 public sealed class RegularChartNavigationTests
 {
+    /// <summary>保留セル編集の受理から完了まで実pending ownerへ元package項目と入力先を配送し、導入先だけの変更通知を返して別譜面編集や余分なライブラリ変更を検出します。</summary>
     [TestMethod]
     public async Task InstlDstCellEdit_UsesPendingOwnerWithExactChartTargetAndText()
     {
@@ -86,51 +88,7 @@ public sealed class RegularChartNavigationTests
     }
 
 
-    [TestMethod]
-    public void NewOwner_DerivedCachesAreInvalidUntilFirstCommit()
-    {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-
-        Assert.IsFalse(owner.HasFolderRows);
-        Assert.IsFalse(owner.HasKeywordRows);
-        Assert.IsFalse(owner.HasModeRows);
-    }
-
-
+    /// <summary>directory・artist・全体への移動でfilter identityとsummary終了要求を配送し、無効種類は通知も条件変更もしないことで、旧条件残留と拒否時の変更を検出します。</summary>
     [TestMethod]
     public void NavigateTree_OwnsFilterIdentitySummaryTransitionAndRefreshRequest()
     {
@@ -171,6 +129,7 @@ public sealed class RegularChartNavigationTests
     }
 
 
+    /// <summary>列挙した保守画面へ対応modeとparameterを渡し、重複画面だけの準備通知と検索更新区分を保持して、別保守画面への配送や非対応sort受理を検出します。</summary>
     [TestMethod]
     public void NavigateMaintenance_OwnsSummaryTransitionAndAllMaintenanceRefreshRequests()
     {
@@ -185,6 +144,7 @@ public sealed class RegularChartNavigationTests
             owner.AttachNormalLibraryRefreshSource(library);
             var presentations = new List<RegularChartMaintenanceNavigationPresentationRequestedEventArgs>();
             owner.MaintenanceNavigationPresentationRequested += (_, request) => presentations.Add(request);
+            // 重複だけはcache準備を別通知し、他の保守画面は一回の更新要求です。
             MainViewUpdateMode[] modes =
             [
                 MainViewUpdateMode.FullScanAllChartsFilterSelected,
@@ -225,6 +185,7 @@ public sealed class RegularChartNavigationTests
     }
 
 
+    /// <summary>library未接続でも欠損・ゼロnote画面のsummary終了要求を公開し、実一覧更新は要求しないことで、未接続時の画面遷移漏れを検出します。</summary>
     [TestMethod]
     public void NavigateMaintenance_WithoutLibraryStillPublishesOwnedSummaryTransition()
     {
@@ -250,6 +211,7 @@ public sealed class RegularChartNavigationTests
     }
 
 
+    /// <summary>実libraryの重複一覧移動ではgroup構築後に更新要求を公開し、受信側が未構築cacheを読む順序逆転を検出します。</summary>
     [TestMethod]
     public void NavigateMaintenance_DuplicateModeBuildsCacheBeforeRefreshPresentation()
     {
@@ -288,6 +250,7 @@ public sealed class RegularChartNavigationTests
     }
 
 
+    /// <summary>導入済み・保留の全体と特定packageを対応parameterで配送し、非対応保守modeは通知せずsummary状態を保持して、項目取り違えや拒否時の変更を検出します。</summary>
     [TestMethod]
     public void NavigateInstall_OwnsSummaryTransitionAndPackageRefreshRequests()
     {

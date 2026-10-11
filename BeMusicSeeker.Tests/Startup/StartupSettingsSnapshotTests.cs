@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 public sealed class StartupSettingsSnapshotTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>
+    /// 保証：利用者が指定した起動後処理とスコア参照の設定を一度の捕捉で渡し、設定項目の欠落や取り違えを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateCurrentCapturesStartupTailSettingsAsOneSnapshot()
     {
@@ -78,6 +81,9 @@ public sealed class StartupSettingsSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 保証：旧単一ルートが未指定でも複数ルート設定を設定アダプター経由で捕捉し、起動入力から検索先を落とさない。
+    /// </summary>
     [TestMethod]
     public void CreateCurrentReadsStandaloneRootsThroughSettingsAdapter()
     {

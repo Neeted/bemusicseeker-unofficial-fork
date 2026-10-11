@@ -24,6 +24,10 @@ public sealed class AudioMixerPerformanceTests
 
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>
+    /// 短曲・多数keysound・長音の一定frame数を実native graphで処理し、音源読込みからplayer解放までの時間とmanaged割当を同じ条件で記録する。
+    /// </summary>
+    /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
     [TestCategory("Performance")]
     public void SyntheticAudioWorkloads_ReportLoadRenderWallTimeAndManagedAllocation()
@@ -79,6 +83,10 @@ public sealed class AudioMixerPerformanceTests
         }
     }
 
+    /// <summary>
+    /// 44.1/48kHz各64音源を既定SRCで192kHzへ実取得し、無音warmup後の読込み・発音・全frame取得・player解放を各反復で記録する。
+    /// </summary>
+    /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
     [TestCategory("Performance")]
     public void MixedRateManyVoiceDefaultSrcWorkload_ReportsColdLoadPlayRenderAndCleanup()
@@ -182,6 +190,10 @@ public sealed class AudioMixerPerformanceTests
         }
     }
 
+    /// <summary>
+    /// 高密度の短長音・再発音・同一音源aliasを速度50の予約と実tempo出力へ通し、aliasの音源共有・予約失敗なし・handle回収を確認しつつ処理分布を記録する。
+    /// </summary>
+    /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
     [TestCategory("Performance")]
     public void BmsRealtimeLookAheadWorkload_ReportsMarginTimingVoiceAndSharedPcmMetrics()
@@ -526,6 +538,10 @@ public sealed class AudioMixerPerformanceTests
         failure?.Throw();
     }
 
+    /// <summary>
+    /// 既定SRCの全rate・正弦・alias条件で有限PCMと有限の投影値を記録し、測定の欠落や非有限出力を検出する。品質の大小を新たな合否基準にしない。
+    /// </summary>
+    /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。共有native sessionと静的音声設定の所有のため非並列とし、生成・初期化を測定外へ保つ。固定時間の合否は設けない。</remarks>
     [TestMethod]
     [TestCategory("Performance")]
     public void DefaultSrcFrequencyResponse_RecordsAllThirtyFiveConditions()

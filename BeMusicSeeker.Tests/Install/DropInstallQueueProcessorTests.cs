@@ -19,10 +19,11 @@ public sealed class DropInstallQueueProcessorTests
             return Task.CompletedTask;
         };
 
+    /// <summary>終端状態の通知先を保持している間はidleを完了せず、通知返却後にだけ完了する順序違反を検出します。</summary>
     [TestMethod]
     public async Task WaitForIdleAsync_CompletesAfterTerminalStatusNotificationReturns()
     {
-        using var terminalEntered = new ManualResetEventSlim(false);
+        var terminalEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseTerminal = new ManualResetEventSlim(false);
         var processor = new DropInstallQueueProcessor(
             CompleteBatch((_, _) => { }),
@@ -30,7 +31,7 @@ public sealed class DropInstallQueueProcessorTests
             {
                 if (!snapshot.IsActive)
                 {
-                    terminalEntered.Set();
+                    terminalEntered.TrySetResult();
                     releaseTerminal.Wait();
                 }
             });
@@ -39,25 +40,26 @@ public sealed class DropInstallQueueProcessorTests
         {
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["chart.zip"])));
             idle = processor.WaitForIdleAsync();
-            terminalEntered.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(terminalEntered.Task, processor.WaitForIdleAsync(), "drop-queue.terminalEntered");
             Assert.IsFalse(idle.IsCompleted, "Idle completion must follow terminal status publication.");
             releaseTerminal.Set();
-            await idle!;
+            await idle;
         }
         finally
         {
             releaseTerminal.Set();
             if (idle != null)
             {
-                await idle!;
+                await idle;
             }
         }
     }
 
+    /// <summary>未消費入力の回収を保持している間はdispositionを完了せず、実回収の終端より早い完了を検出します。</summary>
     [TestMethod]
     public async Task RequestDisposition_CompletesAfterAbandonmentCleanupReturns()
     {
-        using var cleanupEntered = new ManualResetEventSlim(false);
+        var cleanupEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseCleanup = new ManualResetEventSlim(false);
         var request = new DroppedInstallBatchRequest(
             ["chart.zip"],
@@ -65,7 +67,7 @@ public sealed class DropInstallQueueProcessorTests
             ["owned-root"],
             _ =>
             {
-                cleanupEntered.Set();
+                cleanupEntered.TrySetResult();
                 releaseCleanup.Wait();
             },
             null);
@@ -77,7 +79,7 @@ public sealed class DropInstallQueueProcessorTests
             TaskScheduler.Default);
         try
         {
-            cleanupEntered.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(cleanupEntered.Task, abandon, "drop-queue.cleanupEntered");
             Assert.IsFalse(disposition.IsCompleted, "Disposition must follow ingress cleanup.");
             releaseCleanup.Set();
             await abandon;
@@ -92,6 +94,7 @@ public sealed class DropInstallQueueProcessorTests
 
 
 
+    /// <summary>受理処理中の追加要求は予約せず拒否し、先行実終端後の明示要求だけを独立idleで処理する受付漏れを検出します。</summary>
     [TestMethod]
     public async Task Enqueue_RejectsAdditionalRequestWithoutReservationAndAcceptsFreshRequest()
     {
@@ -126,16 +129,16 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
+    /// <summary>追加要求を拒否した受理バッチへ取消を渡して終端まで待ち、取消通知の欠落や拒否要求の実行を検出します。</summary>
     [TestMethod]
-    public void CancelAll_CancelsActiveBatchAndRejectsAdditionalRequest()
+    public async Task CancelAll_CancelsActiveBatchAndRejectsAdditionalRequest()
     {
         List<string> startedBatches = [];
         List<DropInstallQueueStatusSnapshot> snapshots = [];
         object syncRoot = new();
-        Exception? backgroundFailure = null;
-        var firstStarted = new ManualResetEventSlim(initialState: false);
-        var tokenCancelled = new ManualResetEventSlim(initialState: false);
-        var queueBecameInactive = new ManualResetEventSlim(initialState: false);
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tokenCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var queueBecameInactive = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var processor = new DropInstallQueueProcessor(
             CompleteBatch(delegate (DroppedInstallBatchRequest request, CancellationToken token)
             {
@@ -143,17 +146,9 @@ public sealed class DropInstallQueueProcessorTests
                 {
                     startedBatches.Add(request.DisplayName);
                 }
-                firstStarted.Set();
-                int signaledIndex = WaitHandle.WaitAny([token.WaitHandle]);
-                if (signaledIndex == WaitHandle.WaitTimeout)
-                {
-                    lock (syncRoot)
-                    {
-                        backgroundFailure = new AssertFailedException("The active batch token was not cancelled.");
-                    }
-                    return;
-                }
-                tokenCancelled.Set();
+                firstStarted.TrySetResult();
+                token.WaitHandle.WaitOne();
+                tokenCancelled.TrySetResult();
                 token.ThrowIfCancellationRequested();
             }),
             delegate (DropInstallQueueStatusSnapshot snapshot)
@@ -164,30 +159,34 @@ public sealed class DropInstallQueueProcessorTests
                 }
                 if (!snapshot.IsActive)
                 {
-                    queueBecameInactive.Set();
+                    queueBecameInactive.TrySetResult();
                 }
             });
 
-        processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\first.zip"]));
-        Assert.IsFalse(processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"])));
-        firstStarted.Wait();
-
-        processor.CancelAll();
-
-        tokenCancelled.Wait();
-        queueBecameInactive.Wait();
-
-        lock (syncRoot)
+        try
         {
-            if (backgroundFailure != null)
+            Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\first.zip"])));
+            Assert.IsFalse(processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"])));
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstStarted.Task, processor.WaitForIdleAsync(), "drop-queue.active");
+            processor.CancelAll();
+            Task idle = processor.WaitForIdleAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(tokenCancelled.Task, idle, "drop-queue.token-cancelled");
+            await TestUiDispatcherHost.AwaitNotificationAsync(queueBecameInactive.Task, idle, "drop-queue.terminal");
+            await idle;
+            lock (syncRoot)
             {
-                throw backgroundFailure;
+                CollectionAssert.AreEqual(new[] { "first.zip" }, startedBatches);
+                Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsCancellationRequested || !snapshot.CanCancel));
             }
-            CollectionAssert.AreEqual(new[] { "first.zip" }, startedBatches);
-            Assert.IsTrue(snapshots.Any(snapshot => snapshot.IsCancellationRequested || !snapshot.CanCancel));
+        }
+        finally
+        {
+            processor.CancelAll();
+            await processor.WaitForIdleAsync();
         }
     }
 
+    /// <summary>先行バッチの例外を一回報告し、次の明示要求を実終端まで処理することから失敗後の受付残留を検出します。</summary>
     [TestMethod]
     public async Task BatchFailure_DoesNotPreventFreshRequest()
     {
@@ -219,23 +218,34 @@ public sealed class DropInstallQueueProcessorTests
                 }
             });
 
-        processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\first.zip"]));
-        await processor.WaitForIdleAsync();
-        processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"]));
-
-        await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
-
-        lock (syncRoot)
+        try
         {
-            CollectionAssert.AreEqual(new[] { "second.zip" }, processed);
-            CollectionAssert.AreEqual(new[] { "boom" }, errors);
+            processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\first.zip"]));
+            await processor.WaitForIdleAsync();
+            processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"]));
+
+            await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
+
+            await processor.WaitForIdleAsync();
+
+            lock (syncRoot)
+            {
+                CollectionAssert.AreEqual(new[] { "second.zip" }, processed);
+                CollectionAssert.AreEqual(new[] { "boom" }, errors);
+            }
+        }
+        finally
+        {
+            processor.CancelAll();
+            await processor.WaitForIdleAsync();
         }
     }
 
+    /// <summary>失敗の通知callback自身が例外でもidleを完了して次要求を処理し、通知失敗でlifecycleが残る誤りを検出します。</summary>
     [TestMethod]
     public async Task ThrowingFailureCallback_DoesNotStrandLifecycleOrFreshRequest()
     {
-        using var firstStarted = new ManualResetEventSlim(initialState: false);
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirst = new ManualResetEventSlim(initialState: false);
         var secondFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int processCalls = 0;
@@ -248,7 +258,7 @@ public sealed class DropInstallQueueProcessorTests
                 Interlocked.Increment(ref processCalls);
                 if (request.DisplayName == "first.zip")
                 {
-                    firstStarted.Set();
+                    firstStarted.TrySetResult();
                     releaseFirst.Wait();
                     throw new InvalidOperationException("batch failed");
                 }
@@ -265,7 +275,7 @@ public sealed class DropInstallQueueProcessorTests
         {
             firstEnqueued = processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\first.zip"]));
             Assert.IsTrue(firstEnqueued);
-            firstStarted.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(firstStarted.Task, processor.WaitForIdleAsync(), "drop-queue.firstStarted");
             Assert.IsFalse(processor.TryEnqueue(new DroppedInstallBatchRequest([@"C:\queue\second.zip"])));
             releaseFirst.Set();
             await processor.WaitForIdleAsync();
@@ -273,36 +283,34 @@ public sealed class DropInstallQueueProcessorTests
             Assert.IsTrue(secondEnqueued);
 
             await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
-            idle = AssertProcessorIdleAsync(processor);
-            await idle!;
+            idle = processor.WaitForIdleAsync();
+            await idle;
             Assert.AreEqual(2, Volatile.Read(ref processCalls));
             Assert.AreEqual(1, Volatile.Read(ref failureCallbackCalls));
         }
         finally
         {
             releaseFirst.Set();
-            if (firstEnqueued && idle == null)
-            {
-                idle = AssertProcessorIdleAsync(processor);
-            }
             if (firstEnqueued)
             {
-                await idle!;
+                idle ??= processor.WaitForIdleAsync();
+                await idle;
             }
             if (secondEnqueued)
             {
-                await TestUiDispatcherHost.AwaitNotificationAsync(secondFinished.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.secondFinished");
+                await processor.WaitForIdleAsync();
             }
         }
     }
 
+    /// <summary>バッチ中の現在対象と完了数を別に公開し、対象完了・バッチ終端で表示値を消すことから古い進捗の残留を検出します。</summary>
     [TestMethod]
     public async Task ReportActiveBatchCurrentWork_ReportsAndClearsCurrentWork()
     {
         List<DropInstallQueueStatusSnapshot> snapshots = [];
         object syncRoot = new();
-        var currentWorkReported = new ManualResetEventSlim(initialState: false);
-        var releaseBatch = new ManualResetEventSlim(initialState: false);
+        var currentWorkReported = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseBatch = new ManualResetEventSlim(initialState: false);
         var queueBecameInactive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         DropInstallQueueProcessor processor = null!;
         processor = new DropInstallQueueProcessor(
@@ -324,7 +332,7 @@ public sealed class DropInstallQueueProcessorTests
                     && snapshot.CurrentWorkTotal == 3
                     && snapshot.CurrentWorkDisplayName == "a.zip")
                 {
-                    currentWorkReported.Set();
+                    currentWorkReported.TrySetResult();
                 }
                 if (!snapshot.IsActive)
                 {
@@ -338,11 +346,11 @@ public sealed class DropInstallQueueProcessorTests
             processor.TryEnqueue(new DroppedInstallBatchRequest(
                 [@"C:\queue\a.zip", @"C:\queue\b.zip", @"C:\queue\c.zip"]));
 
-            currentWorkReported.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(currentWorkReported.Task, processor.WaitForIdleAsync(), "drop-queue.currentWorkReported");
             releaseBatch.Set();
             await TestUiDispatcherHost.AwaitNotificationAsync(queueBecameInactive.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.queueBecameInactive");
-            idle = AssertProcessorIdleAsync(processor);
-            await idle!;
+            idle = processor.WaitForIdleAsync();
+            await idle;
 
             lock (syncRoot)
             {
@@ -370,12 +378,14 @@ public sealed class DropInstallQueueProcessorTests
             releaseBatch.Set();
             if (idle == null)
             {
-                idle = AssertProcessorIdleAsync(processor);
+                idle = processor.WaitForIdleAsync();
             }
-            await Task.WhenAll(idle!, queueBecameInactive.Task);
+            await idle;
         }
     }
 
+    /// <summary>複数入力の所有rootはconsumerが読み終えるまで残り、読取り完了前の回収と処理終端後の回収漏れを検出します。</summary>
+    /// <remarks>実rootと入力ファイルでqueueの所有移譲・回収を観測します。導入の保存と物理変更はinstaller側の代表ケースが担います。</remarks>
     [TestMethod]
     public async Task AcceptedMultipleInputs_RemainReadableUntilConsumerReturns()
     {
@@ -414,6 +424,8 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
+    /// <summary>取消した受理rootと拒否要求のrootだけを回収し、外部元ファイルへの誤った削除を検出します。</summary>
+    /// <remarks>実rootと入力ファイルでqueueの所有移譲・回収を観測します。導入の保存と物理変更はinstaller側の代表ケースが担います。</remarks>
     [TestMethod]
     public async Task CancelAll_DeletesAcceptedOwnedRootButNeverExternalOriginal()
     {
@@ -425,7 +437,7 @@ public sealed class DropInstallQueueProcessorTests
         Directory.CreateDirectory(activeRoot);
         Directory.CreateDirectory(pendingRoot);
         File.WriteAllText(original, "original");
-        using var activeStarted = new ManualResetEventSlim(false);
+        var activeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseActive = new ManualResetEventSlim(false);
         DropInstallQueueProcessor? processor = null;
         Task? idle = null;
@@ -434,21 +446,21 @@ public sealed class DropInstallQueueProcessorTests
             processor = new DropInstallQueueProcessor(
                 CompleteBatch((_, token) =>
                 {
-                    activeStarted.Set();
+                    activeStarted.TrySetResult();
                     WaitHandle.WaitAny([token.WaitHandle, releaseActive.WaitHandle]);
                     token.ThrowIfCancellationRequested();
                 }),
                 _ => { });
             processor.TryEnqueue(CreateOwnedRequest(activeRoot, original, "active.zip"));
-            activeStarted.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(activeStarted.Task, processor.WaitForIdleAsync(), "drop-queue.activeStarted");
             DroppedInstallBatchRequest rejected = CreateOwnedRequest(pendingRoot, original, "pending.zip");
             Assert.IsFalse(processor.TryEnqueue(rejected));
             Assert.IsTrue(rejected.TryAbandonUnconsumedSources());
 
             processor.CancelAll();
 
-            idle = AssertProcessorIdleAsync(processor);
-            await idle!;
+            idle = processor.WaitForIdleAsync();
+            await idle;
             Assert.IsFalse(Directory.Exists(pendingRoot));
             Assert.IsFalse(Directory.Exists(activeRoot));
             Assert.IsTrue(File.Exists(original));
@@ -458,8 +470,8 @@ public sealed class DropInstallQueueProcessorTests
             releaseActive.Set();
             if (processor != null)
             {
-                idle ??= AssertProcessorIdleAsync(processor);
-                await idle!;
+                idle ??= processor.WaitForIdleAsync();
+                await idle;
             }
             if (Directory.Exists(root))
             {
@@ -468,14 +480,17 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
+    /// <summary>installerへ所有を移したrootをqueue終端では削除せず、移譲後の二重回収を検出します。</summary>
+    /// <remarks>実rootと入力ファイルでqueueの所有移譲・回収を観測します。導入の保存と物理変更はinstaller側の代表ケースが担います。</remarks>
     [TestMethod]
     public async Task InstallerHandoff_PreventsQueueFinallyFromDeletingOwnedRoot()
     {
         string root = Path.Combine(Path.GetTempPath(), nameof(DropInstallQueueProcessorTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
+        DropInstallQueueProcessor? processor = null;
         try
         {
-            var processor = new DropInstallQueueProcessor(
+            processor = new DropInstallQueueProcessor(
                 CompleteBatch((request, _) => Assert.IsTrue(request.TransferSourceOwnershipToInstaller())),
                 _ => { });
             processor.TryEnqueue(new DroppedInstallBatchRequest(
@@ -485,11 +500,16 @@ public sealed class DropInstallQueueProcessorTests
                 DeleteDirectory,
                 null));
 
-            await AssertProcessorIdleAsync(processor);
+            await processor.WaitForIdleAsync();
             Assert.IsTrue(Directory.Exists(root));
         }
         finally
         {
+            if (processor != null)
+            {
+                processor.CancelAll();
+                await processor.WaitForIdleAsync();
+            }
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -497,6 +517,8 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
+    /// <summary>取消後の入力回収を保持する間はidleと再受付を止め、所有移譲の拒否と解放後の新規受付から早期終端を検出します。</summary>
+    /// <remarks>実rootと入力ファイルでqueueの所有移譲・回収を観測します。導入の保存と物理変更はinstaller側の代表ケースが担います。</remarks>
     [TestMethod]
     public async Task CancelAll_BlockedAcceptedCleanupDefersIdleAndFreshAdmission()
     {
@@ -559,6 +581,8 @@ public sealed class DropInstallQueueProcessorTests
         }
     }
 
+    /// <summary>取消時のroot削除失敗は専用通知し、残ったrootを保持しても次要求の実終端を可能にすることから回収失敗による受付残留を検出します。</summary>
+    /// <remarks>実rootと入力ファイルでqueueの所有移譲・回収を観測します。導入の保存と物理変更はinstaller側の代表ケースが担います。</remarks>
     [TestMethod]
     public async Task CancelAll_CleanupFailureStillCompletesDrainAndAcceptsFreshBatch()
     {
@@ -568,18 +592,19 @@ public sealed class DropInstallQueueProcessorTests
             Guid.NewGuid().ToString("N"));
         string failedCleanupRoot = Path.Combine(root, "failed-cleanup");
         Directory.CreateDirectory(failedCleanupRoot);
-        using var activeStarted = new ManualResetEventSlim(false);
+        var activeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanupFailureReported = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var freshProcessed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         Exception? backgroundFailure = null;
+        DropInstallQueueProcessor? processor = null;
         try
         {
-            var processor = new DropInstallQueueProcessor(
+            processor = new DropInstallQueueProcessor(
                 CompleteBatch((request, token) =>
                 {
                     if (request.DisplayName == "active.zip")
                     {
-                        activeStarted.Set();
+                        activeStarted.TrySetResult();
                         token.WaitHandle.WaitOne();
                         return;
                     }
@@ -602,20 +627,25 @@ public sealed class DropInstallQueueProcessorTests
                         cleanupFailureReported.TrySetResult(true);
                     }
                 })));
-            activeStarted.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(activeStarted.Task, processor.WaitForIdleAsync(), "drop-queue.activeStarted");
 
             processor.CancelAll();
 
             await TestUiDispatcherHost.AwaitNotificationAsync(cleanupFailureReported.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.cleanupFailureReported");
-            await AssertProcessorIdleAsync(processor);
+            await processor.WaitForIdleAsync();
             Assert.IsTrue(Directory.Exists(failedCleanupRoot));
             Assert.IsNull(backgroundFailure);
             Assert.IsTrue(processor.TryEnqueue(new DroppedInstallBatchRequest(["fresh.zip"])));
             await TestUiDispatcherHost.AwaitNotificationAsync(freshProcessed.Task, processor.WaitForIdleAsync(), "DropInstallQueueProcessorTests.freshProcessed");
-            await AssertProcessorIdleAsync(processor);
+            await processor.WaitForIdleAsync();
         }
         finally
         {
+            if (processor != null)
+            {
+                processor.CancelAll();
+                await processor.WaitForIdleAsync();
+            }
             DeleteDirectory(root);
         }
     }
@@ -630,11 +660,6 @@ public sealed class DropInstallQueueProcessorTests
             null);
     }
 
-    private static async Task AssertProcessorIdleAsync(DropInstallQueueProcessor processor)
-    {
-        await processor.WaitForIdleAsync();
-    }
-
     private static void DeleteDirectory(string path)
     {
         try
@@ -646,7 +671,7 @@ public sealed class DropInstallQueueProcessorTests
         }
         catch (DirectoryNotFoundException)
         {
-            // Queue cleanup can win between the existence probe and recursive test-fixture cleanup.
+            // 存在確認とfixture削除の間にqueue側の回収が先に完了する場合があります。
         }
     }
 }

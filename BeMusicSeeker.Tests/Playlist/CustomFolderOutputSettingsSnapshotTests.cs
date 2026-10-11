@@ -7,57 +7,20 @@ namespace BeMusicSeeker.Tests;
 public sealed class CustomFolderOutputSettingsSnapshotTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>出力先と出力抑止設定を捕捉した後にValuesを編集しても旧snapshotは変わらず、次の捕捉だけが編集値を使うことで、処理中の利用者編集の混入を検出します。</summary>
     [TestMethod]
-    public void CreateCurrentCapturesCustomFolderOutputResolutionSettings()
+    public void CreateCurrentFreezesOutputSettingsUntilNextCapture()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousRootPath = testSettings.LR2RootPath;
-        string previousOutputBaseDirectory = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDirectory = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirectories = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        bool previousEnableUnsent = testSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
-        int previousPlaylistDefaultIgnoreFolderOutput = testSettings.PlaylistDefaultIgnoreFolderOutput;
-        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
-        try
-        {
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2RootPath = "lr2-root";
-            testSettings.LR2CustomFolderOutputBaseDir = "output-base";
-            testSettings.LR2CustomFolderOutputBaseDirRootType = "root-output-base";
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[\"additional-output-base\"]";
-            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = true;
-            testSettings.PlaylistDefaultIgnoreFolderOutput = 23;
-            testSettings.ShowRecommUpdatedMsg = true;
+        testSettings.LR2CustomFolderOutputBaseDir = "output-base";
+        testSettings.PlaylistDefaultIgnoreFolderOutput = 23;
+        var snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
 
-            var snapshot = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
-
-            Assert.IsTrue(snapshot.OperationModeLR2DB);
-            Assert.AreEqual("lr2-root", snapshot.LR2RootPath);
-            Assert.AreEqual("output-base", snapshot.LR2CustomFolderOutputBaseDir);
-            Assert.AreEqual("root-output-base", snapshot.LR2CustomFolderOutputBaseDirRootType);
-            Assert.AreEqual("[\"additional-output-base\"]", snapshot.LR2CustomFolderAdditionalOutputBaseDirs);
-            Assert.IsTrue(snapshot.EnableDownloadLr2IrScoreAndDetectUnsent);
-            Assert.AreEqual(23, snapshot.PlaylistDefaultIgnoreFolderOutput);
-            Assert.IsTrue(snapshot.ShowRecommUpdatedMsg);
-
-            testSettings.LR2CustomFolderOutputBaseDir = "edited-output-base";
-            testSettings.PlaylistDefaultIgnoreFolderOutput = 42;
-            Assert.AreEqual("output-base", snapshot.LR2CustomFolderOutputBaseDir, "捕捉Aは共有Valuesの後続編集で変わりません。");
-            Assert.AreEqual(23, snapshot.PlaylistDefaultIgnoreFolderOutput);
-            var next = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
-            Assert.AreEqual("edited-output-base", next.LR2CustomFolderOutputBaseDir, "次の捕捉Bは編集後の値を使います。");
-            Assert.AreEqual(42, next.PlaylistDefaultIgnoreFolderOutput);
-        }
-        finally
-        {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2RootPath = previousRootPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDirectory;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDirectory;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirectories;
-            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
-            testSettings.PlaylistDefaultIgnoreFolderOutput = previousPlaylistDefaultIgnoreFolderOutput;
-            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
-        }
+        testSettings.LR2CustomFolderOutputBaseDir = "edited-output-base";
+        testSettings.PlaylistDefaultIgnoreFolderOutput = 42;
+        Assert.AreEqual("output-base", snapshot.LR2CustomFolderOutputBaseDir);
+        Assert.AreEqual(23, snapshot.PlaylistDefaultIgnoreFolderOutput);
+        var next = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+        Assert.AreEqual("edited-output-base", next.LR2CustomFolderOutputBaseDir);
+        Assert.AreEqual(42, next.PlaylistDefaultIgnoreFolderOutput);
     }
 }

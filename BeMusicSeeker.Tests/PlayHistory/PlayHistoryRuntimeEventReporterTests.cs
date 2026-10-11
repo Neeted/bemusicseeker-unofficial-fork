@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlayHistoryRuntimeEventReporterTests
 {
+    /// <summary>
+    /// 読取り・期間索引・変換fallbackの段階ごとに件数・版・時間・元失敗を診断sinkへ一度渡し、段階の欠落や重複を検出する。
+    /// </summary>
     [TestMethod]
     public void ReportReadWorkflowProgress_EmitsExpectedStageEventsExactlyOnce()
     {
@@ -101,6 +104,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
             events.Select(runtimeEvent => runtimeEvent.Name).ToArray());
     }
 
+    /// <summary>
+    /// schema未利用による索引・変換の省略理由を残し、必須段階情報が欠けた通知はイベント公開前に失敗させる。
+    /// </summary>
     [TestMethod]
     public void ReportReadWorkflowProgress_PreservesSkipReasonsAndFailsMalformedPayloadsWithoutEmitting()
     {
@@ -178,6 +184,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         Assert.IsTrue(events.All(runtimeEvent => events.Count(eventItem => eventItem.Name == runtimeEvent.Name) == 1));
     }
 
+    /// <summary>
+    /// 現在面なしと古い要求を区別して履歴診断と一覧診断へ一組ずつ渡し、理由や現在要求版を取り違えない。
+    /// </summary>
     [TestMethod]
     public void ReportViewExecution_EmitsStaleAndNoCurrentRoutesWithoutDuplicates()
     {
@@ -206,6 +215,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(events[3].Fields, "reason=stale_play_history_request");
     }
 
+    /// <summary>
+    /// 古い要求には履歴・一覧の診断を順に一度出し、期間・要求版・要求モードを双方へ引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void ReportStaleViewRequest_EmitsTheLegacyMainViewBuildPairExactlyOnce()
     {
@@ -230,6 +242,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(events[1].Fields, "playHistoryPeriod=All skipped=true reason=stale_play_history_request requestId=42 currentRequestId=43 elapsedMs=6");
     }
 
+    /// <summary>
+    /// 表示対象・キーワード・警告・反映の診断に各件数と整列情報を渡し、画面反映の段階や原因を欠落させない。
+    /// </summary>
     [TestMethod]
     public void ReportViewExecution_EmitsFiltersDiagnosticsAndApplyFields()
     {
@@ -327,6 +342,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         StringAssert.Contains(events[4].Fields, "playHistoryPeriod=Today");
     }
 
+    /// <summary>
+    /// 反映結果・終端反映・表示状態が欠けた成功情報は公開前に拒否し、不完全な成功ログを残さない。
+    /// </summary>
     [TestMethod]
     public void ReportViewExecution_FailsIncompleteAppliedPayloadBeforeEmittingAnyEvents()
     {
@@ -458,6 +476,9 @@ public sealed class PlayHistoryRuntimeEventReporterTests
         Assert.AreEqual(0, events.Count);
     }
 
+    /// <summary>
+    /// 通知対象がない入力は何も出さず、必須要求やsinkが欠けた入力は拒否する。診断messageは有無に応じてfieldsを含める。
+    /// </summary>
     [TestMethod]
     public void Reporter_IsSinkOwnedAndNullSafeForAbsentInputs()
     {

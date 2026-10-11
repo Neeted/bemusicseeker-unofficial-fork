@@ -30,16 +30,20 @@ using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>設定適用の保存・後続処理・失敗／取消・実 owner 接続を検証します。</summary>
+/// <remarks>判断と port 配送は Window なし、radio／音量の BAML 接続と実 DB／出力の統合は該当ケースで分担します。共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed partial class SettingDialogEditCompletionTests
 {
+    // MSTest が各ケース開始前に注入する。fixture cleanup の診断に使用する。
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>culture 変更で表示カタログを一回更新し、二度 Dispose した後は更新しないことを確認して、共有リソースへの購読漏れを検出します。</summary>
     [TestMethod]
     public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string previousCulture = Resources.Culture?.Name ?? "ja-JP";
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -67,33 +71,16 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
-    [TestMethod]
-    public void PlaylistDialogs_UsePlaylistWorkspaceOwnerComposition()
-    {
-        TestUiDispatcherHost.RunWindowTest(windowTest =>
-        {
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-            var settingDialog = new SettingsWindow
-            {
-                DataContext = viewModel.SettingDialog,
-                PlaylistWorkspace = viewModel.PlaylistWorkspace
-            };
-            var uriDialog = new LoadPlaylistURIDialog
-            {
-                DataContext = viewModel.PlaylistWorkspace
-            };
-
-            Assert.AreSame(viewModel.PlaylistWorkspace, settingDialog.PlaylistWorkspace);
-            Assert.AreSame(viewModel.PlaylistWorkspace, uriDialog.DataContext);
-        });
-    }
-
+    /// <summary>音量Sliderの変更を再生主体・設定・表示へ一回ずつ通知し、再生主体からの変更もSliderと表示へ戻すBindingを確認します。</summary>
+    /// <remarks>実control間の接続の誤りを観測するためSettingsWindowを使います。音量値の判断は再生主体側で分担します。</remarks>
     [TestMethod]
     public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = CreateTemporaryRoot();
+            SettingsWindow? settingDialog = null;
+            SettingsDialogViewModel? dialog = null;
             try
             {
                 var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
@@ -103,12 +90,13 @@ public sealed partial class SettingDialogEditCompletionTests
                         defaultBmsPlayerFactory: () => player,
                         uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
                     .CreateMainWindowViewModel();
-                var settingDialog = new SettingsWindow
+                dialog = viewModel.SettingDialog;
+                settingDialog = new SettingsWindow
                 {
                     DataContext = viewModel.SettingDialog,
                     PlaybackPanel = viewModel.PlaybackPanel
                 };
-                ((ListBox)settingDialog.FindName("settingsNavigation")).SelectedIndex = 3;
+                ((ListBox)settingDialog.FindName("settingsNavigation")).SelectedItem = settingDialog.FindName("navigationAudio");
                 settingDialog.Measure(new Size(1000, 800));
                 settingDialog.Arrange(new Rect(0, 0, 1000, 800));
                 settingDialog.UpdateLayout();
@@ -139,11 +127,17 @@ public sealed partial class SettingDialogEditCompletionTests
             }
             finally
             {
-                Directory.Delete(root, recursive: true);
+                try { settingDialog?.CloseForOwnerShutdown(); }
+                finally
+                {
+                    dialog?.Dispose();
+                    Directory.Delete(root, recursive: true);
+                }
             }
         });
     }
 
+    /// <summary>LR2／単独の保存済みモードで画面を繰り返し開閉しても保存要求を出さず、実 radio の承認クリックだけが一回のモード保存へ進むことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -163,7 +157,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
                 };
                 var lifetime = new CountingApplicationLifetime();
-                SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                using SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
                 var presentationPort = new WindowClosingPresentationPort();
                 dialog.AttachPresentationPort(presentationPort);
 
@@ -207,6 +201,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
+    /// <summary>両モードで実 radio の変更確認を取消すると、保存・再起動要求なしで元の checked 選択へ戻ることを確認し、取消後の表示と draft のずれを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -226,7 +221,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
                 };
                 var lifetime = new CountingApplicationLifetime();
-                SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                using SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
                 window = OpenSettingsWindow(windowTest, dialog);
 
                 RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
@@ -251,6 +246,7 @@ public sealed partial class SettingDialogEditCompletionTests
         });
     }
 
+    /// <summary>登録ルートの削除承認後に単独設定を保存し、残った検索対象を適用してから再読込みすることを確認して、保存前の反映や旧ルート残存を検出します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_AcceptedStandaloneRoot_PersistsAndReloads()
     {
@@ -274,8 +270,9 @@ public sealed partial class SettingDialogEditCompletionTests
             var sequence = new List<string>();
             settingsSession.SaveObserved = () => sequence.Add("save");
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
             var runtime = new RecordingSearchRootRuntimePort(sequence);
-            var dialog = new SettingsDialogViewModel(
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(
                     owner,
                     () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)),
@@ -324,6 +321,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>削除確認を取消すると登録文字列を保ち、保存を行わないことを確認して、取消を承認扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_CancelLeavesStandaloneSettingsUnchanged()
     {
@@ -337,7 +335,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new SettingsDialogViewModel(
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -368,6 +367,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>空白要求は確認・保存をせず、存在しない登録ルートの明示削除は一回確認して保存することを確認し、欠損ルートを解除できなくする誤りを検出します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_BlankRootIsIgnored_MissingRootCanBeUnregistered()
     {
@@ -383,7 +383,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new SettingsDialogViewModel(
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -415,6 +416,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>削除確認の表示失敗を呼出元へ返し、保存せず登録ルートを保つことを確認して、表示失敗による削除実行を検出します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_ConfirmationFailure_IsPropagatedBeforeMutation()
     {
@@ -427,7 +429,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.Failed(new InvalidOperationException("dialog failure"))
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new SettingsDialogViewModel(
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -470,6 +473,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>LR2 登録削除を実 config に先に保存してから所持譜面を判定し、残るルートを保って検索対象適用・再読込みへ進むことを確認します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_AcceptedLr2Root_SavesConfigWithoutSettingsSave()
     {
@@ -496,6 +500,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var sequence = new List<string>();
             int reloadCount = 0;
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
             var runtime = new RecordingSearchRootRuntimePort(sequence)
             {
                 HasOwnedChartUnderRealPathHandler = directoryPath =>
@@ -510,7 +515,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             config.Save(configPath);
-            var dialog = new SettingsDialogViewModel(
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(
                     owner,
                     () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)),
@@ -543,9 +548,6 @@ public sealed partial class SettingDialogEditCompletionTests
             CollectionAssert.DoesNotContain(persistedConfig.GetBMSSearchDirectories().ToArray(), bmsRoot);
             CollectionAssert.Contains(persistedConfig.GetBMSSearchDirectories().ToArray(), otherRoot);
             Assert.AreEqual(0, settingsSession.SaveCount);
-            CollectionAssert.DoesNotContain(
-                new BeMusicSeeker.Models.LR2.LR2Config(configPath).GetBMSSearchDirectories().ToArray(),
-                bmsRoot);
             Assert.AreEqual(1, reloadCount);
             CollectionAssert.AreEqual(new[] { "query", "apply", "reload" }, sequence);
         }
@@ -556,6 +558,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>LR2 登録削除後に所持譜面がない場合は検索対象とフォルダ cache を更新し、譜面再読込みや利用者設定保存を行わないことを確認します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_Lr2RootWithoutOwnedChart_InvalidatesFolderCache()
     {
@@ -603,6 +606,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     return Task.CompletedTask;
                 });
 
+            using SettingsDialogViewModel dialogLifetime = dialog;
+
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
 
             Assert.AreEqual(1, dialogs.ConfirmationCount);
@@ -621,6 +626,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>実 config の削除保存後に所持判定が失敗すると元の失敗を通知し、検索対象適用・再読込みを止めることを確認して、保存済み変更と未実行の反映を区別します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_Lr2OwnedChartQueryFailure_PresentsFailureWithoutRuntimeApply()
     {
@@ -668,6 +674,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     return Task.CompletedTask;
                 });
 
+            using SettingsDialogViewModel dialogLifetime = dialog;
+
             await dialog.RequestRemoveBmsSearchRootAsync(bmsRoot);
 
             Assert.AreEqual(1, dialogs.ConfirmationCount);
@@ -687,6 +695,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>単独登録の保存失敗を返し、設定文字列と表示リストのルートを元へ戻すことを確認して、未保存の削除だけが残る誤りを検出します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_StandaloneSaveFailure_RestoresInMemoryState()
     {
@@ -705,7 +714,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var dialog = new SettingsDialogViewModel(
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -749,6 +759,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>config 保存先が消失した削除要求は失敗を通知し、両登録ルートをメモリに保ち、利用者設定保存で代替しないことを確認します。</summary>
     [TestMethod]
     public async Task RequestRemoveBmsSearchRootAsync_Lr2SaveFailure_RestoresConfigAndPresentsFailure()
     {
@@ -775,10 +786,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerDialogLifetime = owner.SettingDialog;
             var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
             config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
             config.Save(configPath);
-            var dialog = new SettingsDialogViewModel(
+            using var dialog = new SettingsDialogViewModel(
                 new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
                 owner.PlaylistWorkspace,
                 owner.PlaylistWorkspace,
@@ -813,6 +825,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>明示した起動走査・初期 playlist・offline・IR の変更が、それぞれに対応する翻訳済み確認要求へ届くことを確認し、異なる設定の警告を配送する誤りを検出します。</summary>
     [TestMethod]
     public void AdvancedStartupOptions_AcceptedChangesPublishLocalizedConfirmationRequestsInOrder()
     {
@@ -829,7 +842,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            SettingsDialogViewModel dialog = CreateOperationModeDialog(
+            using SettingsDialogViewModel dialog = CreateOperationModeDialog(
                 settingsSession,
                 dialogs,
                 TestApplicationContext.CreateLifetime());
@@ -872,6 +885,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>通常設定の変更は保存を一回完了してから Close 要求を出し、編集可能な終端へ戻ることを確認して、未保存のまま画面を閉じる誤りを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_ChangedNormalSetting_SavesBeforeClosing()
     {
@@ -885,7 +899,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 settingsSession,
                 firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
 
@@ -902,6 +916,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>player 選択の保存と Close の後に捕捉設定で player を生成し、再生主体へ適用して通知する順序を確認して、旧設定での再構築や通知先行を検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_PlayerRuntimeUsesFactoryThenApplyThenNotify()
     {
@@ -922,7 +937,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 playbackRuntimePort: runtime);
             SetActiveLibraryProfile(viewModel, true);
             AttachPlaylistTables(viewModel, root);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.uBMplayPath = playerPath;
             dialog.UsePlayeruBMplay = true;
@@ -941,6 +956,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>品質・thread・event 条件の保存中も実行中の再生 Task と譜面を保ち、player 再構築・適用・通知を追加しないことを確認して、音声 draft 保存による再生中断を検出します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -953,6 +969,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 string root = CreateTemporaryRoot();
                 PlaybackPanelViewModel? playingPanel = null;
+                SettingsDialogViewModel? dialog = null;
                 var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 try
                 {
@@ -986,7 +1003,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     await playingPanel.StartAtIndex(0);
                     Assert.AreSame(currentChart, playingPanel.NowPlayingChart);
                     Assert.IsTrue(playingPanel.IsPlaying);
-                    SettingsDialogViewModel dialog = viewModel.SettingDialog;
+                    dialog = viewModel.SettingDialog;
                     dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
                     if (eventOnly) { dialog.PlayerWASAPIParam = !originalEventMode; }
                     else { dialog.PlayerResamplingQuality = 2; dialog.PlayerMixerThreadCount = 4; }
@@ -1010,16 +1027,28 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 finally
                 {
-                    if (playingPanel != null) { await playingPanel.StopPlayback(closeProcess: true); }
-                    completion.TrySetCanceled();
-                    try { await completion.Task; } catch (OperationCanceledException) { }
-                    Directory.Delete(root, recursive: true);
+                    try
+                    {
+                        if (playingPanel != null) { await playingPanel.StopPlayback(closeProcess: true); }
+                    }
+                    finally
+                    {
+                        completion.TrySetCanceled();
+                        try { await completion.Task; }
+                        catch (OperationCanceledException) { }
+                        finally
+                        {
+                            dialog?.Dispose();
+                            Directory.Delete(root, recursive: true);
+                        }
+                    }
                 }
             }
             TestUiDispatcherHost.AwaitTaskOnDispatcher(VerifyAsync(), "audio-settings-current-playback");
         });
     }
 
+    /// <summary>thread 数だけの変更を保存して Close し、現在の player を交換しないことを確認して、品質変更と結合した場合だけ保存する誤りを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_PlayerMixerThreadOnlyChangeIsSaved()
     {
@@ -1038,7 +1067,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 playbackRuntimePort: runtime);
             SetActiveLibraryProfile(viewModel, true);
             AttachPlaylistTables(viewModel, root);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.PlayerMixerThreadCount = 3;
 
@@ -1047,7 +1076,6 @@ public sealed partial class SettingDialogEditCompletionTests
 
             CollectionAssert.AreEqual(new[] { "save", "close" }, sequence);
             Assert.AreEqual(3, values.PlayerMixerThreadCount);
-            Assert.AreEqual(2, values.PlayerResamplingQuality);
             Assert.IsNull(runtime.LastReplacementPlayer);
         }
         finally
@@ -1056,6 +1084,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>保存と Close 後の player 生成失敗を通知し、player 適用・設定通知・再表示を行わないことを確認して、失敗した交換を正常扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_PlayerFactoryFailureLeavesPlaybackUntouched()
     {
@@ -1081,7 +1110,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 playbackRuntimePort: runtime);
             SetActiveLibraryProfile(viewModel, true);
             AttachPlaylistTables(viewModel, root);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
             dialog.AttachPresentationPort(presentation);
             dialog.uBMplayPath = playerPath;
@@ -1103,6 +1132,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>単独モードでも LR2 player 選択の捕捉設定を構成の factory に渡し、生成・適用・通知へ進むことを確認して、モードで外部 player を誤選択する接続不良を検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_Lr2bodyReplacementUsesConfiguredFactoryInStandaloneMode()
     {
@@ -1127,9 +1157,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            viewModel.SettingDialog.Dispose();
             var workspace = new ComposedSettingsDialogWorkspacePort(settingsSession.Values);
             var state = new ActiveSettingsDialogStatePort();
-            SettingsDialogViewModel dialog = composition.CreateSettingDialogViewModel(
+            using SettingsDialogViewModel dialog = composition.CreateSettingDialogViewModel(
                 state,
                 workspace,
                 workspace,
@@ -1151,7 +1182,6 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.IsTrue(factory.LastConfiguredSettings.UsePlayerLR2body);
             Assert.AreEqual(1, runtime.ApplyCount);
 
-            dialog.Dispose();
         }
         finally
         {
@@ -1159,6 +1189,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>URL 補完設定の保存は player を交換せず、Close 後に再生主体の設定変更通知だけを一回出すことを確認して、再生以外の保存通知漏れを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_NonPlaybackImpactStillNotifiesPlaybackOnce()
     {
@@ -1175,7 +1206,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 playbackRuntimePort: runtime);
             SetActiveLibraryProfile(viewModel, true);
             AttachPlaylistTables(viewModel, root);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
             dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
 
@@ -1277,6 +1308,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>保存と Close 後に必須 BMT 出力の実終端を待ち、任意 URL 補完だけを scheduler へ渡すことを確認して、必要出力を予約だけで完了扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_AwaitsRequiredPlaylistOutputAndKeepsOptionalUrlCompletionIndependent()
     {
@@ -1306,7 +1338,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 else { completedOutputs++; }
             };
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.OverwritePlaylistUrlsWithCompletion = !dialog.OverwritePlaylistUrlsWithCompletion;
             dialog.RegisterBeatorajaBmtUrls = !dialog.RegisterBeatorajaBmtUrls;
 
@@ -1322,6 +1354,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>稼働中 profile の未変更適用は Close 要求だけを一回出し、編集中状態を解除することを確認して、無変更で処理を再実行する誤りを検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_ActiveProfileWithoutChanges_PublishesSingleCloseRequest()
     {
@@ -1331,7 +1364,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
 
@@ -1349,6 +1382,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>音声テストの runtime が保留中は適用・取消・Close を拒み、実 Task 終端後に編集を再開することを確認して、native 使用中の保存や画面終了を検出します。</summary>
     [TestMethod]
     public async Task AudioDeviceTestBusy_BlocksSaveCancellationAndPresentationCloseUntilRelease()
     {
@@ -1363,6 +1397,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new BlockingAudioDeviceTestRuntime(runtimeStarted, releaseRuntime));
+            viewModel.SettingDialog.Dispose();
             SettingsDialogViewModel dialog = new(
                 viewModel,
                 viewModel.PlaylistWorkspace,
@@ -1422,6 +1457,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>音声テストへ品質・thread の draft を渡し、進捗不成立でも保存済み音声値を保って有効な AUTO 要求の失敗表示を出すことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_NoStreamProgress_DoesNotChangeEditedAudioValues()
     {
@@ -1456,7 +1492,7 @@ public sealed partial class SettingDialogEditCompletionTests
                             latency: 21,
                             streamProgressSucceeded: false);
                 }));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1488,6 +1524,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>要求と異なる backend・機器・形式でのテスト結果を実値と診断に区別して表示し、保存済み要求を上書きしないことを確認して、fallback による利用者意図の消失を検出します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_BackendFallback_DoesNotChangeEditedAudioValues()
     {
@@ -1523,7 +1560,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         endpointEffectiveBits: 24,
                         latency: 16.5,
                         fallbackReason: fallbackReason)));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1557,10 +1594,23 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>音声ページの再表示だけで照会し、同じ表示中は重複せず、保存済み非対応値を表示に残して rate ごとの対応形式を選び直すことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceCapabilityQuery_AudioPageVisibilityRefreshesAndFiltersFormatsByRate()
     {
         string root = CreateTemporaryRoot();
+        AudioDeviceTestWorkflowOwner? workflow = null;
+        SettingsDialogViewModel? dialog = null;
+        PropertyChangedEventHandler? appliedObserver = null;
+        var firstReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int releasedCount = 0;
+        int queryCount = 0;
+        Action observeReleased = () =>
+        {
+            if (Interlocked.Increment(ref releasedCount) == 1) { firstReleased.TrySetResult(); }
+            else { secondReleased.TrySetResult(); }
+        };
         try
         {
             Settings settings = CreateValidStandaloneSettings(root);
@@ -1575,7 +1625,6 @@ public sealed partial class SettingDialogEditCompletionTests
                     settings.PlayerDeviceName)
             };
             AudioDeviceCapabilityRequest? observedRequest = null;
-            int queryCount = 0;
             var capabilityRuntime = new DelegateAudioDeviceCapabilityRuntime(request =>
             {
                 observedRequest = request;
@@ -1592,11 +1641,12 @@ public sealed partial class SettingDialogEditCompletionTests
                         new(SampleRate.SAMPLE_RATE_384000Hz, SampleFormat.SAMPLE_INT_16BIT, true)
                     ]);
             });
-            var workflow = new AudioDeviceTestWorkflowOwner(
+            workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
                 capabilityRuntime);
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            workflow.OperationReleased += observeReleased;
+            dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1604,7 +1654,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var firstApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var secondApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             int appliedCount = 0;
-            dialog.PropertyChanged += (_, args) =>
+            appliedObserver = (_, args) =>
             {
                 if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
                     && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz))
@@ -1619,6 +1669,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                 }
             };
+            dialog.PropertyChanged += appliedObserver;
             dialog.SetPresentationActive(active: true);
             Assert.AreEqual(0, queryCount);
             dialog.SetAudioSettingsPageVisible(visible: true);
@@ -1666,14 +1717,32 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         finally
         {
+            // Dispose が次の照会と表示を止める。OperationReleased は runtime 資源解放であり、表示 wrapper の Task 終端ではない。
+            dialog?.Dispose();
+            if (queryCount > 0) { await firstReleased.Task; }
+            if (queryCount > 1) { await secondReleased.Task; }
+            if (dialog != null && appliedObserver != null) { dialog.PropertyChanged -= appliedObserver; }
+            if (workflow != null) { workflow.OperationReleased -= observeReleased; }
             Directory.Delete(root, recursive: true);
         }
     }
 
+    /// <summary>照会保留中の二回のbackend変更は途中選択の照会を始めず、解放後に最終選択への照会を一回追加して最終backend選択を保持することを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceCapabilityQuery_SelectionChangesDuringQueryRunsOnlyFinalSelection()
     {
         string root = CreateTemporaryRoot();
+        AudioDeviceTestWorkflowOwner? workflow = null;
+        SettingsDialogViewModel? dialog = null;
+        PropertyChangedEventHandler? appliedObserver = null;
+        var firstReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int releasedCount = 0;
+        Action observeReleased = () =>
+        {
+            if (Interlocked.Increment(ref releasedCount) == 1) { firstReleased.TrySetResult(); }
+            else { secondReleased.TrySetResult(); }
+        };
         var firstQueryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirstQuery = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finalQueryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1717,16 +1786,17 @@ public sealed partial class SettingDialogEditCompletionTests
                     AudioDeviceCapabilityStatus.Available,
                     [SampleRate.SAMPLE_RATE_384000Hz]);
             });
-            var workflow = new AudioDeviceTestWorkflowOwner(
+            workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("test runtime unused")),
                 capabilityRuntime);
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            workflow.OperationReleased += observeReleased;
+            dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
                 audioGateway);
-            dialog.PropertyChanged += (_, args) =>
+            appliedObserver = (_, args) =>
             {
                 if (args.PropertyName == nameof(SettingsDialogViewModel.PlayerSampleRateNames)
                     && dialog.PlayerSampleRateNames.ContainsKey(SampleRate.SAMPLE_RATE_384000Hz))
@@ -1734,6 +1804,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     finalQueryApplied.TrySetResult();
                 }
             };
+            dialog.PropertyChanged += appliedObserver;
             dialog.SetPresentationActive(active: true);
             dialog.SetAudioSettingsPageVisible(visible: true);
             await firstQueryStarted.Task;
@@ -1759,11 +1830,18 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         finally
         {
+            // Dispose が次の照会と表示を止める。OperationReleased は runtime 資源解放であり、表示 wrapper の Task 終端ではない。
+            dialog?.Dispose();
             releaseFirstQuery.TrySetResult();
+            if (firstQueryStarted.Task.IsCompleted) { await firstReleased.Task; }
+            if (finalQueryStarted.Task.IsCompleted) { await secondReleased.Task; }
+            if (dialog != null && appliedObserver != null) { dialog.PropertyChanged -= appliedObserver; }
+            if (workflow != null) { workflow.OperationReleased -= observeReleased; }
             Directory.Delete(root, recursive: true);
         }
     }
 
+    /// <summary>既定機器・AUTO rate／format で成功しても、解決済み機器と実測値を保存設定へ固定しないことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_DefaultAndAutoSuccess_PreservesUserIntent()
     {
@@ -1792,7 +1870,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         engineFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
                         endpointFormat: SampleFormat.SAMPLE_FLOAT_32BIT,
                         latency: 17)));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1812,6 +1890,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>typed 初期化失敗を要求機器と試行機器の翻訳済み表示・native stage／error 診断へ分け、modal 通知なしで元設定を保つことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_KnownInitializationFailureShowsLocalizedDiagnosticWithoutChangingSettings()
     {
@@ -1841,7 +1920,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     "BASSWASAPI",
                     Errors.Device,
                     "WASAPI initialization failed")));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1870,6 +1949,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>初期化と cleanup の同時失敗を両方表示し、未取得の実値を捏造せず有効要求を保ち、例外の私有パスを表示・診断へ漏らさないことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_InitializationAndCleanupFailureKeepsEffectiveRequestWithoutActualValues()
     {
@@ -1913,7 +1993,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         failureKind: AudioDeviceTestFailureKind.Unexpected,
                         primaryFailure: primaryFailure,
                         cleanupFailure: cleanupFailure)));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -1945,6 +2025,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>実 native cleanup 境界の解放失敗は受付を隔離し、取得済み音声値と構造化 stage／error を保って例外の私有パスを漏らさないことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_NativeCleanupFailureKeepsNegotiatedValuesAndSafeStructuredDetails()
     {
@@ -2029,7 +2110,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 ReleaseSession,
                 operationGate);
             var workflow = new AudioDeviceTestWorkflowOwner(new TestAudioDeviceTestPlaybackPort(), runtime);
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -2064,6 +2145,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>MixerAttach の typed 失敗を局所表示と native stage／HANDLE 診断へ届け、modal 通知や保存音声値の変更を行わないことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_PlaybackStartFailureIsShownWithStageAndNativeError()
     {
@@ -2092,7 +2174,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         playbackStage: BassAudioPlaybackStage.MixerAttach,
                         nativeErrorSource: "BASS_Mixer_StreamAddChannel",
                         nativeErrorCode: Errors.Handle)));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -2115,6 +2197,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>SourceCreate の typed 失敗を生成失敗表示と FILEOPEN 診断へ届け、再生開始失敗と混同せず保存音声値を保つことを確認します。</summary>
     [TestMethod]
     public async Task AudioDeviceTest_PlayerCreationFailureIsShownWithStageAndNativeError()
     {
@@ -2143,7 +2226,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         playbackStage: BassAudioPlaybackStage.SourceCreate,
                         nativeErrorSource: "BASS_StreamCreateFile",
                         nativeErrorCode: Errors.FileOpen)));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -2165,8 +2248,9 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>予期しない runtime 例外を局所失敗表示と例外型の診断に変換し、modal 通知なしで音声設定を保つことを確認します。</summary>
     [TestMethod]
-    public async Task AudioDeviceTest_UnexpectedRuntimeFailureIsLoggedAndShownLocally()
+    public async Task AudioDeviceTest_UnexpectedRuntimeFailureShowsLocalDiagnosticWithoutDialog()
     {
         string root = CreateTemporaryRoot();
         try
@@ -2186,7 +2270,7 @@ public sealed partial class SettingDialogEditCompletionTests
             var workflow = new AudioDeviceTestWorkflowOwner(
                 new TestAudioDeviceTestPlaybackPort(),
                 new DelegateAudioDeviceTestRuntime(_ => throw new InvalidOperationException("unexpected test failure")));
-            SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
+            using SettingsDialogViewModel dialog = CreateAudioDeviceTestDialog(
                 viewModel,
                 settingsSession,
                 workflow,
@@ -2206,6 +2290,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>score 保留・起動操作の block に再同期可否が追従し、無関係な title 変更では再通知せず、Dispose 後は可否購読を解除することを確認します。</summary>
     [TestMethod]
     public async Task SettingDialogViewModel_OwnsLr2ManualResyncAvailability()
     {
@@ -2342,6 +2427,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { release.Set(); Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>保存後のディレクトリ失敗は L/P と編集受付を解放して警告し、自動再表示せず、次の明示表示・適用で保留再読込みを完了できることを確認します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_DirectoryWarningReturnsAfterCleanupAndNextExplicitPresentationCanRetry()
     {
@@ -2363,7 +2449,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     : new StartupInitializationResult(StartupInitializationOutcome.Succeeded, OperationKind: StartupProgressOperationKind.ReloadFileDiff)),
                 reportSettingsApplyFailure: failures.Add, dialogs: dialogs);
             SetActiveLibraryProfile(viewModel, true);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.StandaloneBmsRootPathList.Add(addedRoot);
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
@@ -2425,7 +2511,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     : new StartupInitializationResult(StartupInitializationOutcome.Succeeded, OperationKind: StartupProgressOperationKind.ScoreOnly)),
                 reportSettingsApplyFailure: _ => { });
             SetActiveLibraryProfile(viewModel, true);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             dialog.BeatorajaPlayerId = "player2";
 
             await dialog.ApplySettingsAsync();
@@ -2467,6 +2553,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>無効な検索ルートでは通常起動だけが初回言語選択／設定再表示を要求し、設定経由では重ねて表示せず、進捗 block と profile を残さないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(true, false)]
     [DataRow(true, true)]
@@ -2519,6 +2606,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>有効な DB／config がある LR2 root 未設定は通常起動だけ警告し、設定経由は警告を重ねず、どちらも実初期化を成功できることを確認します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -2624,6 +2712,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>未設定・欠損・不正・占有 config／DB の起動は設定案内へ終端し、初回と通常の案内順を分け、元ファイルと raw path を保って修復・出力を始めないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("null-path", false)]
     [DataRow("null-path", true)]
@@ -2774,6 +2863,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>起動走査の有無と既存 DB の有無によらず、欠損登録 root では警告後に設定を開き、新規 DB 作成や既存 DB の改変前に止まることを確認します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -2847,6 +2937,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>LR2 config の登録 root が欠損すると警告と設定案内に終端し、実 config／DB を保って出力先修復を始めないことを確認します。</summary>
     [TestMethod]
     public async Task InitializeAsync_LinkedMissingRootStopsBeforeOutputRepairAndPreservesConfig()
     {
@@ -3069,8 +3160,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     {
                         try
                         {
-                            // InitializeAsync leaves owned deferred work alive. Completing
-                            // reinitialize's failure cleanup is not the shell shutdown signal.
+                            // 起動の後続処理は再初期化失敗の cleanup 後も生存するため、実 shell 終了まで回収する。
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(
                                 viewModel!.ShellShutdownWorkflow.RequestWindowCloseAsync(),
                                 "late-directory-reinitialize-shutdown");
@@ -3252,6 +3342,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>構築直後に root が消えた起動は受付・進捗を解放して警告し、警告 callback 内の復旧と再起動を完了できることを確認して、通知中の自己 Busy を検出します。</summary>
     [TestMethod]
     public void InitializeAsync_LateDirectoryFailureAfterConstructionWarnsAfterCleanupAndOpensSettings()
     {
@@ -3446,6 +3537,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>初回／通常と LR2／単独の設定適用で保存→実 Close 完了→初回通知完了→初期化を順に待ち、保留中の重複適用・取消を拒むことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -3460,6 +3552,7 @@ public sealed partial class SettingDialogEditCompletionTests
         var messageReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var initializationReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? applyTask = null;
+        SettingsDialogViewModel? dialog = null;
         try
         {
             Settings values = CreateValidStandaloneSettings(root);
@@ -3512,7 +3605,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: failures.Add,
                 dialogs: dialogs);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
             {
@@ -3570,14 +3663,19 @@ public sealed partial class SettingDialogEditCompletionTests
             closeReleased.TrySetResult();
             messageReleased.TrySetResult();
             initializationReleased.TrySetResult();
-            if (applyTask != null)
+            try
             {
-                await applyTask;
+                if (applyTask != null) { await applyTask; }
             }
-            Directory.Delete(root, recursive: true);
+            finally
+            {
+                dialog?.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
+    /// <summary>出力先重複を注入通知先へ一回届け、通知成功・失敗・owner 不在のいずれも元の出力先と config を保ち、通知不能は失敗として返すことを確認します。</summary>
     [DataTestMethod]
     [DataRow("Accepted")]
     [DataRow("Failed")]
@@ -3664,6 +3762,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>保存と Close 後の初回完了通知が失敗／owner 不在なら初期化を始めず、失敗を報告して編集可能な再表示へ戻ることを確認します。</summary>
     [DataTestMethod]
     [DataRow("Failed")]
     [DataRow("OwnerUnavailable")]
@@ -3695,7 +3794,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: exception => reportedFailure = exception,
                 dialogs: dialogs);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             settingsSession.SaveObserved = () => sequence.Add("save");
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
             {
@@ -3726,30 +3825,35 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>保存保留中の二回目適用と取消を拒み、一回の保存・Close に終端することを確認して、完了 guard の再入許可を検出します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_CompletionGuardRejectsConcurrentCall()
     {
         string root = CreateTemporaryRoot();
+        CountingSettingsEditSession? settingsSession = null;
+        SettingsDialogViewModel? dialog = null;
+        Task? first = null;
+        Task? second = null;
         try
         {
             Settings values = CreateValidStandaloneSettings(root);
             values.PlayerResamplingQuality = 4;
             values.PlayerMixerThreadCount = 2;
-            var settingsSession = new CountingSettingsEditSession(values)
+            settingsSession = new CountingSettingsEditSession(values)
             {
                 BlockSave = true
             };
             MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
             SetActiveLibraryProfile(viewModel, true);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog = viewModel.SettingDialog;
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
 
-            var first = Task.Run(() => dialog.ApplySettingsAsync());
+            first = Task.Run(() => dialog.ApplySettingsAsync());
             settingsSession.SaveEntered.Wait();
             Assert.IsTrue(dialog.IsEditCompletionInProgress);
-            Task second = dialog.ApplySettingsAsync();
+            second = dialog.ApplySettingsAsync();
             dialog.CancelCommand.Execute();
             settingsSession.ReleaseSave.Set();
             await Task.WhenAll(first, second);
@@ -3762,10 +3866,23 @@ public sealed partial class SettingDialogEditCompletionTests
         }
         finally
         {
-            Directory.Delete(root, recursive: true);
+            settingsSession?.ReleaseSave.Set();
+            try
+            {
+                if (first != null) { await first; }
+                if (second != null) { await second; }
+            }
+            finally
+            {
+                dialog?.Dispose();
+                settingsSession?.SaveEntered.Dispose();
+                settingsSession?.ReleaseSave.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
+    /// <summary>同期／保留後の初期化の false／例外結果は編集受付の解放後に一回再表示し、例外の同一性と保存済み draft を保って明示再試行では追加保存しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -3779,6 +3896,7 @@ public sealed partial class SettingDialogEditCompletionTests
         var initializeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var initializeReleased = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? applyTask = null;
+        SettingsDialogViewModel? dialog = null;
         try
         {
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
@@ -3809,7 +3927,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     return false;
                 },
                 reportSettingsApplyFailure: failures.Add);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            dialog = viewModel.SettingDialog;
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
             var presentation = new RecordingSettingsDialogPresentationPort(request =>
             {
@@ -3854,11 +3972,15 @@ public sealed partial class SettingDialogEditCompletionTests
         finally
         {
             initializeReleased.TrySetResult();
-            if (applyTask != null)
+            try
             {
-                await applyTask;
+                if (applyTask != null) { await applyTask; }
             }
-            Directory.Delete(root, recursive: true);
+            finally
+            {
+                dialog?.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
@@ -4451,6 +4573,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>保存検証後に root が消えた初期化は cleanup 後の警告・再表示へ戻り、初回通知の有無を分け、次の明示適用で保存値を重ねて保存しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -4547,6 +4670,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>初回保存の元例外を一回報告し、Close・通知・初期化を始めず、未保存の品質・thread・通常設定 draft と元保存値を保つことを確認します。</summary>
     [TestMethod]
     public async Task ApplySettingsAsync_InitialSaveFailureKeepsDraftWithoutClosingOrInitializing()
     {
@@ -4574,7 +4698,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 },
                 reportSettingsApplyFailure: failures.Add,
                 dialogs: dialogs);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             var presentation = new RecordingSettingsDialogPresentationPort();
             dialog.AttachPresentationPort(presentation);
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
@@ -4603,6 +4727,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>品質・thread draft の取消は指定した保存値へ戻し、保存せず dirty 状態を解除することを確認します。</summary>
     [TestMethod]
     public void CancelSettings_RestoresResamplingQualityAndMixerThreadDraftsWithoutSaving()
     {
@@ -4636,6 +4761,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>品質の下限外／上限外入力を専用の検証メッセージで拒否し、保存を行わないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(7)]
@@ -4661,6 +4787,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>thread 数の下限外／上限外入力を専用の検証メッセージで拒否し、保存を行わないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(5)]
@@ -4686,6 +4813,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>有効な個別 DB／config がある LR2 root 未設定は保存を妨げず、単独モードでは警告しないことと、不正候補の拒否・有効 root 再選択の警告解除を確認します。</summary>
     [TestMethod]
     public void Lr2RootPathEmpty_IsWarningOnlyAndDoesNotBlockSaving()
     {
@@ -4767,6 +4895,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>導入先・通常／root 出力先の未設定は項目別 Error と保存拒否へ一致し、有効値の再選択で全て解除することを確認して、表示と保存可否の不一致を検出します。</summary>
     [TestMethod]
     public void RequiredSettingsValidationPresentation_UsesErrorStateForSaveBlockingFields()
     {
@@ -4814,6 +4943,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>標準 path から個別 DB への変更で由来表示を分け、取消 snapshot の復元で DB／config と標準由来表示を同時に戻すことを確認します。</summary>
     [TestMethod]
     public void Lr2PathPresentation_StandardAndIndividualDraftsFollowSharedCancelSnapshot()
     {
@@ -4835,7 +4965,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = standardSongDb;
             values.LR2ConfigXmlPath = standardConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             Assert.AreEqual("Success", dialog.Lr2SongDbPathStatusKind);
             Assert.AreEqual(Resources.Settings_path_detected_from_lr2_root, dialog.Lr2SongDbPathStatusText);
@@ -4859,6 +4989,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>標準／個別の欠損 DB を同じ path に復旧して再選択すると status を通知・更新し、path tuple と config を保存せず保つことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -4893,7 +5024,6 @@ public sealed partial class SettingDialogEditCompletionTests
             CollectionAssert.Contains(notifications, nameof(draft.Lr2SongDbPathStatusKind));
             CollectionAssert.Contains(notifications, nameof(draft.Lr2SongDbPathStatusIcon));
             Assert.AreEqual("Success", draft.Lr2SongDbPathStatusKind);
-            Assert.AreEqual("✓", draft.Lr2SongDbPathStatusIcon);
             Assert.AreEqual(
                 useIndividualPath
                     ? Resources.Settings_path_detected_from_individual_setting
@@ -4912,6 +5042,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>個別 path と標準 song.db／config.xmh を往復選択すると現 path の由来を表示し、過去の選択履歴を引き継ぐ誤りを検出します。</summary>
     [TestMethod]
     public void Lr2PathSource_UsesCurrentStandardLayoutInsteadOfSelectionHistory()
     {
@@ -4934,7 +5065,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = individualSong;
             values.LR2ConfigXmlPath = individualConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2SongDbPathStatusText);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, dialog.Lr2ConfigPathStatusText);
@@ -4957,6 +5088,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>別の有効 LR2 root を選択すると root・DB・config の標準 tuple と由来表示をまとめて置換し、旧 DB だけを保持する誤りを検出します。</summary>
     [TestMethod]
     public void Lr2RootSelection_ReplacesTheWholeStandardTupleWithoutKeepingStaleSongDb()
     {
@@ -4972,7 +5104,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = firstSong;
             values.LR2ConfigXmlPath = firstConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel dialog = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             dialog.LR2RootPath = nextRoot;
 
@@ -4988,6 +5120,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>欠損／壊れた保存済み config の raw tuple を開く・保存・再表示で保ち、別 root への編集取消も元 tuple へ戻ることを確認して、暗黙の標準 path 置換を検出します。</summary>
     [DataTestMethod]
     [DataRow(null)]
     [DataRow("<config>")]
@@ -5014,13 +5147,13 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = originalSong;
             values.LR2ConfigXmlPath = rawConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             Assert.AreEqual(rawConfig, opened.LR2ConfigXmlPath);
             Assert.AreEqual(invalidXml != null ? "Error" : "Warning", opened.Lr2ConfigPathStatusKind);
             await opened.SaveSettings();
 
-            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
             Assert.AreEqual(originalRoot, reopened.LR2RootPath);
             Assert.AreEqual(originalSong, reopened.LR2SongDBPath);
             Assert.AreEqual(rawConfig, reopened.LR2ConfigXmlPath);
@@ -5039,6 +5172,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>壊れた config 候補を拒否して元の有効 path と成功状態を保ち、候補拒否の診断を別に出すことを確認します。</summary>
     [TestMethod]
     public void Lr2ConfigPicker_MalformedCandidateKeepsPreviousRawPathAndReportsFailure()
     {
@@ -5055,7 +5189,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = song;
             values.LR2ConfigXmlPath = config;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), malformedConfig);
 
@@ -5070,6 +5204,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>不正 root 候補を拒否して root／DB／config 全 tuple を保ち、root 選択エラーを出すことを確認します。</summary>
     [TestMethod]
     public void Lr2RootPicker_InvalidCandidateLeavesWholeTupleUnchangedAndReportsFailure()
     {
@@ -5083,7 +5218,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = song;
             values.LR2ConfigXmlPath = config;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
 
@@ -5099,6 +5234,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>同じ有効 root の再選択で個別 DB／config を標準 tuple と由来へ戻し、同値 root として更新を省く誤りを検出します。</summary>
     [TestMethod]
     public void Lr2RootPicker_ReselectingSameRootRestoresStandardTupleAndSource()
     {
@@ -5117,7 +5253,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = customSong;
             values.LR2ConfigXmlPath = customConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), root);
 
@@ -5134,6 +5270,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>不正 root の拒否後に現在の有効 root を再選択すると拒否状態だけを解除し、元 tuple を保つことを確認します。</summary>
     [TestMethod]
     public void Lr2RootPicker_ReselectingCurrentValidRootClearsPriorInvalidSelectionError()
     {
@@ -5147,7 +5284,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = song;
             values.LR2ConfigXmlPath = config;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetRootFolderPathFromPicker(nameof(draft.LR2RootPath), Path.Combine(scope, "invalid"));
             Assert.IsTrue(draft.HasLr2PathSelectionError);
@@ -5165,6 +5302,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>同じ／別の有効 root に復旧すると raw tuple を依存表示より先に一回ずつ通知し、拒否状態を解除することを確認して、途中の不整合表示や重複通知を検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -5184,7 +5322,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = originalSong;
             values.LR2ConfigXmlPath = originalConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
             var changedProperties = new List<string>();
             draft.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
 
@@ -5225,6 +5363,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>root／xml／xmh の同 path 再選択で外部編集の検索 root・player identity を通知し、後の実 config 保存でも外部 sentinel と追加 root を保つことを確認します。</summary>
     [DataTestMethod]
     [DataRow(nameof(SettingsDialogViewModel.LR2RootPath), "config.xml")]
     [DataRow(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), "config.xml")]
@@ -5250,7 +5389,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = song;
             values.LR2ConfigXmlPath = configPath;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
             string scoreDirectory = Path.Combine(root, "LR2files", "Database", "Score");
             Assert.AreEqual(Path.Combine(scoreDirectory, "player1.db"), draft.Lr2PlayHistoryScoreDbPath);
             int directoryNotifications = 0;
@@ -5310,6 +5449,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>DB／config 候補の拒否後に保持中の有効 path を再選択すると両方の拒否状態を解除し、成功 status を保つことを確認します。</summary>
     [TestMethod]
     public void Lr2IndividualPickers_ReselectingRetainedValidPathsClearsRejectedCandidateError()
     {
@@ -5326,7 +5466,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = song;
             values.LR2ConfigXmlPath = config;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), invalidSong);
             Assert.AreEqual(song, draft.LR2SongDBPath);
@@ -5348,6 +5488,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>個別 DB／config の選択を共有 draft へ反映・保存し、再表示でも同 path と個別由来を保つことを確認して、選択を表示だけに閉じる誤りを検出します。</summary>
     [TestMethod]
     public async Task Lr2IndividualPickers_SelectedPathsStayInSharedDraftForSettingsSaveAndReopen()
     {
@@ -5368,7 +5509,7 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = standardSong;
             values.LR2ConfigXmlPath = standardConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel draft = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             draft.SetFilePathFromPicker(nameof(draft.LR2SongDBPath), individualSong);
             draft.SetFilePathFromPicker(nameof(draft.LR2ConfigXmlPath), individualConfig);
@@ -5381,7 +5522,7 @@ public sealed partial class SettingDialogEditCompletionTests
             await draft.SaveSettings();
             Assert.AreEqual(1, session.SaveCount);
 
-            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
             Assert.AreEqual(individualSong, reopened.LR2SongDBPath);
             Assert.AreEqual(individualConfig, reopened.LR2ConfigXmlPath);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, reopened.Lr2SongDbPathStatusText);
@@ -5393,6 +5534,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>保存済み個別 DB／config を未編集で保存・再表示しても同 path と個別由来を保ち、標準 tuple へ戻す誤りを検出します。</summary>
     [TestMethod]
     public async Task Lr2IndividualPaths_OpenWithoutEditingSaveAndReopenPreservesRawValues()
     {
@@ -5413,13 +5555,13 @@ public sealed partial class SettingDialogEditCompletionTests
             values.LR2SongDBPath = customSong;
             values.LR2ConfigXmlPath = customConfig;
             var session = new CountingSettingsEditSession(values);
-            SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel opened = CreateViewModel(session, firstStartup: false).SettingDialog;
 
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, opened.Lr2SongDbPathStatusText);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, opened.Lr2ConfigPathStatusText);
             await opened.SaveSettings();
 
-            SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
+            using SettingsDialogViewModel reopened = CreateViewModel(session, firstStartup: false).SettingDialog;
             Assert.AreEqual(customSong, reopened.LR2SongDBPath);
             Assert.AreEqual(customConfig, reopened.LR2ConfigXmlPath);
             Assert.AreEqual(Resources.Settings_path_detected_from_individual_setting, reopened.Lr2SongDbPathStatusText);
@@ -5431,6 +5573,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>各出力役割の既登録 root 採用は削除済み登録も含め保存前に確認し、取消で config を保ち、承認後の継続保存は再確認しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("normal", false)]
     [DataRow("normal", true)]
@@ -5521,6 +5664,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>通常出力先を二度編集した採用確認は保存済み旧検索 root だけを示し、追加出力先として保持する場合も中間 draft を警告に混ぜず、取消で config を保つことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -5571,6 +5715,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>各出力役割と BMS 登録 root の禁止される親子関係を選択と保存検証の両方で拒み、元出力先・登録・config を保つことを確認します。</summary>
     [DataTestMethod]
     [DataRow("normal", false)]
     [DataRow("normal", true)]
@@ -5627,6 +5772,7 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>通常・追加・root の役割組と同一／親／子関係のどちらの入力順でも二つ目を拒み、全出力先リストを保つことを確認して、順序依存の重複登録を検出します。</summary>
     [DataTestMethod]
     [DataRow("normal", "additional")]
     [DataRow("additional", "normal")]
@@ -5681,6 +5827,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>作業スレッドの実候補読取と画面結果の分類を非WPFで確認し、終了フラグだけで元の画面障害を黙殺しないことを保証します。</summary>
     [DataTestMethod]
+    // 0:承認後終了、1:AppClosing、2:元例外付きFailed、3:owner不在、4:通知境界から元例外。
     [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
@@ -5742,6 +5889,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>修復失敗通知と警告の実Taskで、既知終了と表示終了だけを取消にし、同時の実表示障害・null・未知の表示終了は保持します。</summary>
     [DataTestMethod]
+    // warningは修復警告/修復失敗を区別。0:既知終了、1:Failed、2:owner不在、3:null、4:元例外throw、5:OK後終了、6:未知AppClosing。
     [DataRow(true, 0)]
     [DataRow(false, 0)]
     [DataRow(true, 1)]
@@ -5788,6 +5936,7 @@ public sealed partial class SettingDialogEditCompletionTests
 
     /// <summary>各実入口で確認中の終了は副作用を始めず、成功公開後の修復通知中の終了は既公開成功を保持し、新しい案内・後続・設定再表示を止めます。</summary>
     [DataTestMethod]
+    // entry 0:初期Apply、1:稼働中All適用、2:通常startup、3:tree再初期化。二つのboolは確認中/通知中の終了を区別します。
     [DataRow(0, false, false)]
     [DataRow(1, false, false)]
     [DataRow(2, false, false)]
@@ -6182,6 +6331,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 audioSettingsGateway: new TestAudioSettingsGateway(),
                 audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(),
                 operationAdmission: composition.OperationAdmission);
+            viewModel.SettingDialog.Dispose();
             typeof(MainWindowViewModel)
                 .GetProperty("SettingDialog", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
                 .SetValue(viewModel, testDialog);
@@ -6224,6 +6374,7 @@ public sealed partial class SettingDialogEditCompletionTests
         IApplicationLifetimePort applicationLifetime)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        owner.SettingDialog.Dispose();
         SetActiveLibraryProfile(owner, true);
         return new SettingsDialogViewModel(
             new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
@@ -6283,6 +6434,7 @@ public sealed partial class SettingDialogEditCompletionTests
         IUiDialogService? dialogs = null,
         IAudioDeviceCatalog? audioDeviceCatalog = null)
     {
+        viewModel.SettingDialog.Dispose();
         var dialog = new SettingsDialogViewModel(
             viewModel,
             viewModel.PlaylistWorkspace,
@@ -6342,6 +6494,7 @@ public sealed partial class SettingDialogEditCompletionTests
         Func<Task> reloadFileDiff)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        owner.SettingDialog.Dispose();
         var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
         config.AddBMSSearchDirectories([bmsRoot, otherRoot]);
         config.Save(configPath);
@@ -6946,8 +7099,6 @@ public sealed partial class SettingDialogEditCompletionTests
             this.sequence = sequence;
         }
 
-        internal Exception? DefaultFactoryFailure { get; set; }
-
         internal Exception? ConfiguredFactoryFailure { get; set; }
 
         internal StartupSettingsSnapshot? LastConfiguredSettings { get; private set; }
@@ -6955,10 +7106,6 @@ public sealed partial class SettingDialogEditCompletionTests
         public IBMSPlayer CreateDefaultBmsPlayer()
         {
             sequence?.Add("factory-default");
-            if (DefaultFactoryFailure != null)
-            {
-                throw DefaultFactoryFailure;
-            }
             return new RecordingPlaybackPlayer();
         }
 

@@ -11,9 +11,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>アプリ由来データの削除に必要な受付・確認・通知・終了判断を検証します。</summary>
+/// <remarks>削除窓口とダイアログを差し替え、実 DB の削除はストア側、実 Window の終了は MainWindow 側に分担します。</remarks>
 [TestClass]
 public sealed class ApplicationDataUninstallWorkflowOwnerTests
 {
+    /// <summary>workspace 未準備なら確認も削除も始めず NotStarted を返すことを確認します。</summary>
     [TestMethod]
     public async Task WorkspaceNotReady_DoesNotOpenDialogsOrStore()
     {
@@ -31,6 +34,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), dialogs.Events.ToArray());
     }
 
+    /// <summary>ライブラリ操作中は拒否通知だけを送り、確認や削除へ進まないことを確認します。</summary>
     [TestMethod]
     public async Task LibraryOperationInProgress_ShowsBlockedMessageWithoutConfirmationOrStore()
     {
@@ -48,6 +52,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "message" }, dialogs.Events.ToArray());
     }
 
+    /// <summary>利用者が確認を取り消した場合は Cancelled とし、永続データ削除や終了通知を始めないことを確認します。</summary>
     [TestMethod]
     public async Task ConfirmationRejected_DoesNotStartDurableOrTerminalRoute()
     {
@@ -68,6 +73,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "confirm" }, dialogs.Events.ToArray());
     }
 
+    /// <summary>承認後に指定 DB の削除を呼び、成功→終了案内の順に通知して終了可能な結果を返すことを確認します。</summary>
     [TestMethod]
     public async Task AcceptedOperationPublishesSuccessThenExitAndCompletes()
     {
@@ -92,6 +98,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, dialogs.MessageRequests[1].MessageBoxText);
     }
 
+    /// <summary>削除失敗を元例外と失敗通知で伝え、終了可能な成功結果へ置き換えないことを確認します。</summary>
     [TestMethod]
     public async Task StoreFailureShowsFailureAndDoesNotCompleteClose()
     {
@@ -115,6 +122,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_failed_uninstall);
     }
 
+    /// <summary>確認の表示失敗を取消結果へ隠さず例外として返し、削除を開始しないことを確認します。</summary>
     [TestMethod]
     public async Task DialogFailureIsNotTreatedAsCancellation()
     {
@@ -134,6 +142,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "confirm" }, dialogs.Events.ToArray());
     }
 
+    /// <summary>存在しない DB パスの削除は例外なく完了し、初回利用など DB が未作成でも削除処理を呼べることを確認します。</summary>
     [TestMethod]
     public void MissingSongDbIsAStableNoOpForDurableStore()
     {
@@ -158,7 +167,7 @@ public sealed class ApplicationDataUninstallWorkflowOwnerTests
 
         internal string LastSongDbPath { get; private set; } = string.Empty;
 
-        internal Exception Failure { get; set; } = null!;
+        internal Exception? Failure { get; set; }
 
         public void Uninstall(string songDbPath)
         {

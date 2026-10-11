@@ -16,6 +16,10 @@ public sealed class VerificationProcessLifecycleTests
     private sealed record LedgerEntry(int ProcessId, long CreationIdentity);
     private sealed record PrimitiveEvent(int Sequence, string Operation, int RootProcessId, string Context, long UtcTicks);
 
+    /// <summary>
+    /// 正常終了したrootの両pipeと保存結果を保持し、一回のcleanup遷移後に保存・破棄を行って残留processを残さないことを確かめる。
+    /// </summary>
+    /// <remarks>実pwsh rootの終了と両pipeを本番監視へ渡し、出力・保存結果・cleanupの呼出し記録と残留PIDを確認する。</remarks>
     [TestMethod]
     public void NormalExitPreservesCompletedStandardOutputAndError()
     {
@@ -38,6 +42,10 @@ public sealed class VerificationProcessLifecycleTests
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    /// <summary>
+    /// 日本語・記号・補助文字を両pipeと成果物へ保持し、子processのUTF-8設定で親のencodingや環境を書き換える誤りを検出する。
+    /// </summary>
+    /// <remarks>実pwsh rootのUTF-8出力を両pipeと成果物で比較し、probe側の親encoding・環境の非変更を確認する。</remarks>
     [TestMethod]
     public void RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent()
     {
@@ -54,6 +62,10 @@ public sealed class VerificationProcessLifecycleTests
         CollectionAssert.AreEqual(Array.Empty<int>(), ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    /// <summary>
+    /// root終了後も子がpipeを保持する入力で回収期限の診断を残して所有子を停止し、root終了だけで成功処理を閉じる誤りを検出する。
+    /// </summary>
+    /// <remarks>実rootが終了しても子が保持するpipeを本番監視へ渡し、期限診断と所有processの残留PIDを確認する。</remarks>
     [TestMethod]
     public void RootExitWithOwnedDescendantReturnsBoundedCleanupDiagnostic()
     {
@@ -73,6 +85,10 @@ public sealed class VerificationProcessLifecycleTests
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    /// <summary>
+    /// 非ゼロ終了と元stderrを主失敗に保持して所有子を停止し、後片付けが主失敗を隠す誤りや子の残留を検出する。
+    /// </summary>
+    /// <remarks>実rootの非ゼロ終了と両pipeを本番監視へ渡し、主失敗・stderr・所有子停止の呼出しと残留PIDを確認する。</remarks>
     [TestMethod]
     public void NonzeroExitPreservesPrimaryFailureAndStopsOwnedDescendant()
     {
@@ -93,6 +109,10 @@ public sealed class VerificationProcessLifecycleTests
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    /// <summary>
+    /// 実行期限後の正常終了でもtimeout分類を保持し、後片付け猶予で成功へ戻したり期限を作り直したりする誤りを検出する。
+    /// </summary>
+    /// <remarks>実rootの終了をgateで遅らせ、実行期限後の終了時刻とtimeout分類・cleanup期限を確認する。</remarks>
     [TestMethod]
     public void LateExitDuringCleanupGraceRemainsExecutionTimeout()
     {
@@ -112,6 +132,10 @@ public sealed class VerificationProcessLifecycleTests
             "Failure cleanup must carry the phase cleanup deadline without resetting it to a new relative timeout.");
     }
 
+    /// <summary>
+    /// 実root終了後に遅延faultする両読取りTaskを注入し、streamとrootを識別する診断・遅延fault観測・期限後操作の抑止と所有子の回収を確認する。
+    /// </summary>
+    /// <remarks>実rootの終了後に両読取りTaskを遅延faultへ差し替え、診断・遅延fault観測・期限後の操作抑止と所有processの残留PIDを確認する。</remarks>
     [TestMethod]
     public void StreamDrainTimeoutDiagnosticIncludesContextAndOwnedCleanupCompletes()
     {
@@ -149,6 +173,10 @@ public sealed class VerificationProcessLifecycleTests
             ReadIntArray(result.RootElement.GetProperty("remainingOwnedProcessIds")));
     }
 
+    /// <summary>
+    /// 実root終了後に完了済stdoutと遅延faultするstderrのTaskを渡し、stderrだけをtimeout診断へ残して成果物を保存しない。
+    /// </summary>
+    /// <remarks>実rootの終了後に完了済stdoutと遅延faultするstderrのTaskを本番監視へ渡し、診断対象と成果物不在を確認する。</remarks>
     [TestMethod]
     public void CompletedStdoutDoesNotExtendExecutionDeadlineForPendingStderr()
     {
@@ -162,6 +190,10 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
     }
 
+    /// <summary>
+    /// 実root終了後に完了済stderrと遅延faultするstdoutのTaskを渡し、stdoutだけをtimeout診断へ残して成果物を保存しない。
+    /// </summary>
+    /// <remarks>実rootの終了後に完了済stderrと遅延faultするstdoutのTaskを本番監視へ渡し、診断対象と成果物不在を確認する。</remarks>
     [TestMethod]
     public void CompletedStderrDoesNotExtendExecutionDeadlineForPendingStdout()
     {
@@ -175,6 +207,10 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual(JsonValueKind.Null, result.RootElement.GetProperty("lifecycleArtifact").ValueKind);
     }
 
+    /// <summary>
+    /// 同じpwsh内で前の処理の遅延faultを観測しつつ次の処理の診断を分離し、局所診断の混入や未観測faultを検出する。
+    /// </summary>
+    /// <remarks>同じpwsh内の実rootへ完了済・gate付きfault Taskを渡し、二つの監視結果と後発faultの観測を比較する。</remarks>
     [TestMethod]
     public void LateFaultFromLifecycleAIsObservedWithoutContaminatingLifecycleB()
     {
@@ -193,6 +229,10 @@ public sealed class VerificationProcessLifecycleTests
         Assert.AreEqual("B-complete", result.RootElement.GetProperty("lifecycleBStdout").GetString());
     }
 
+    /// <summary>
+    /// 実監視呼出元の起動直後に失敗を注入して元失敗と既存stderr成果物を保持し、登録済みroot・子の回収漏れを検出する。
+    /// </summary>
+    /// <remarks>実監視呼出元へ起動直後の失敗を注入し、元失敗・stderr成果物とroot・子のidentityに対応する残留状態を確認する。</remarks>
     [TestMethod]
     public void ActualMonitoredCallerPreservesPostStartPrimaryAndExactOwnership()
     {
@@ -218,6 +258,10 @@ public sealed class VerificationProcessLifecycleTests
                 "post-start-exception"));
     }
 
+    /// <summary>
+    /// 診断成果物の置換に失敗した終端診断を最終成果物にも残し、保存後に生じた失敗を利用側へ伝えない誤りを検出する。
+    /// </summary>
+    /// <remarks>実pwsh probe内で診断成果物の置換を失敗させ、副診断と最終成果物の内容を確認する。</remarks>
     [TestMethod]
     public void TerminalDiagnosticIsIncludedInFinalLifecycleArtifact()
     {
@@ -230,6 +274,10 @@ public sealed class VerificationProcessLifecycleTests
                 StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// 終端診断の最終flushが失敗しても副診断に元の置換失敗を保持し、不完全な成果物を正常な保存結果として返す誤りを検出する。
+    /// </summary>
+    /// <remarks>実pwsh probe内で診断成果物の置換と最終flushを失敗させ、副診断と成果物不在を確認する。</remarks>
     [TestMethod]
     public void FinalDiagnosticFlushFailureRemainsSecondaryAndPreservesSinkArtifact()
     {
@@ -240,6 +288,10 @@ public sealed class VerificationProcessLifecycleTests
         Assert.IsTrue(ContainsDiagnostic(diagnostics, "artifact replace failed"));
     }
 
+    /// <summary>
+    /// 複数entryの後片付けが同じ期限を共有し、期限消費後のentryでnative・I/O・待機を始める誤りを実呼出し記録から検出する。
+    /// </summary>
+    /// <remarks>実pwsh内で実process entryと注入読取りTaskを共有cleanup入口へ渡し、期限に対するprimitive呼出し記録を確認する。</remarks>
     [TestMethod]
     public void FunctionalCleanupUsesOneSharedCutoffAndSkipsLaterPrimitiveWork()
     {
@@ -274,6 +326,10 @@ public sealed class VerificationProcessLifecycleTests
                 "skipped after shared cleanup deadline"));
     }
 
+    /// <summary>
+    /// 実行期限内に成功済みのentryを共有cleanupで処理して成功と出力を保持し、新しい相対期限や失敗分類へ置き換える誤りを検出する。
+    /// </summary>
+    /// <remarks>実pwsh内で実processと両pipeの完了を準備して共有cleanup入口へ渡し、成功分類・出力・引き継ぐ期限を確認する。</remarks>
     [TestMethod]
     public void FunctionalCleanupPreservesCompletedSuccessWithinOriginalExecutionDeadline()
     {
@@ -293,6 +349,10 @@ public sealed class VerificationProcessLifecycleTests
             "A completed-success wrapper must carry the original execution deadline into the shared lifecycle.");
     }
 
+    /// <summary>
+    /// 結果JSONの保存前にprobeが失敗しても生成identity付きledgerから所有root・子を回収し、結果不在時のprocess残留を検出する。
+    /// </summary>
+    /// <remarks>実probeを結果保存前に失敗させ、外側の生成identity付きledgerによる所有root・子の停止を直接確認する。</remarks>
     [TestMethod]
     public void ProbeFailureCleanupUsesExactLedgerWhenResultIsMissing()
     {
@@ -334,6 +394,10 @@ public sealed class VerificationProcessLifecycleTests
         }
     }
 
+    /// <summary>
+    /// 複数rootを停止してから子孫・生成identityを調べ、最初のrootの調査中に別rootが動き続ける順序誤りを検出する。
+    /// </summary>
+    /// <remarks>実pwsh内の二つのrootを共有停止へ渡し、root停止とlineage収集の呼出し順・残留PIDを確認する。</remarks>
     [TestMethod]
     public void FunctionalRootFanoutStopsEveryRootBeforeLineageCollection()
     {
@@ -355,6 +419,10 @@ public sealed class VerificationProcessLifecycleTests
         AssertNoPrimitiveStartedAfterDeadline(result.RootElement, events);
     }
 
+    /// <summary>
+    /// cleanup期限が尽きたとき生存する所有PIDを重複なく返し、外側ledger回収で同じidentityのprocessを停止することを確かめる。
+    /// </summary>
+    /// <remarks>実root・子を生存させたまま期限切れの監視結果を取得し、残留PIDのidentity照合と外側ledgerによる停止を確認する。</remarks>
     [TestMethod]
     public void ExpiredDeadlineReportsExactResidualAndOuterLedgerCleanupRemovesIt()
     {

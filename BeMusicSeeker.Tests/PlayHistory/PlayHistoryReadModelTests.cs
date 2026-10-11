@@ -20,10 +20,11 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// This fixture uses the shared WPF dispatcher host and process-wide settings-backed test ports.
-[DoNotParallelize]
 public sealed class PlayHistoryReadModelTests
 {
+    /// <summary>
+    /// 検査結果の保存後に元の状態・パス・文言を変えても捕捉値を維持し、可変結果の共有による表示の書換えを防ぐ。
+    /// </summary>
     [TestMethod]
     public void Lr2PlayHistorySchemaStatusSnapshot_DetachesMutableServiceResult()
     {
@@ -45,6 +46,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("installed", snapshot.Message);
     }
 
+    /// <summary>
+    /// 全期間は時刻制限を付けず確定履歴だけを要求し、当日の範囲や未確定行を混ぜない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodRequest_AllHasNoEpochBounds()
     {
@@ -59,6 +63,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(Lr2PlayHistoryFinalizationFilter.FinalizedOnly, request.FinalizationFilter);
     }
 
+    /// <summary>
+    /// 今日・昨日・最近7日/30日は開始日を含む午前0時から翌境界を除く区間とし、日数と境界のずれを検出する。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodRequest_DayRangesUseLocalMidnightInclusiveAndNextMidnightExclusive()
     {
@@ -68,6 +75,9 @@ public sealed class PlayHistoryReadModelTests
         AssertPeriodRange(PlayHistoryPeriodKind.Recent30Days, UtcEpoch(2026, 5, 21), UtcEpoch(2026, 6, 20));
     }
 
+    /// <summary>
+    /// UTC+9の日境界をUTC秒へ換算し、UTC日付をそのままローカル日付として扱わない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodRequest_UsesProvidedLocalTimeZoneForDayBoundary()
     {
@@ -81,6 +91,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(UtcEpoch(2026, 6, 20, 15), request.PlayedAtToExclusive);
     }
 
+    /// <summary>
+    /// 診断期間は日付制限なしで未確定だけをLR2/beatoraja要求へ渡し、通常の確定履歴を混ぜない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodRequest_DiagnosticsIncludesUnfinalizedWithoutDateBounds()
     {
@@ -101,6 +114,9 @@ public sealed class PlayHistoryReadModelTests
             request.ToBeatorajaReadRequest("score.db").FinalizationFilter);
     }
 
+    /// <summary>
+    /// 年・12月・個別日の範囲と表示名をUTC+9の境界から求め、年/月末の繰上げを誤らない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodRequest_ArchiveRangesUseLocalBoundaries()
     {
@@ -124,6 +140,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(UtcEpoch(2026, 1, 2, 15), day.PlayedAtToExclusive);
     }
 
+    /// <summary>
+    /// 複数年/日に跨る時刻を年→月→日の降順にまとめ、同日の重複を統合して日範囲を保持する。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodTreeItem_BuildArchiveTreeGroupsDescending()
     {
@@ -148,6 +167,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(UtcEpoch(2026, 1, 3), year2026.Children[0].Children[0].Request.PlayedAtToExclusive);
     }
 
+    /// <summary>
+    /// UTC+9の午前0時前後は別の日へ分類し、UTC日付だけでarchiveをまとめない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryPeriodTreeItem_BuildArchiveTreeUsesProvidedTimeZone()
     {
@@ -167,6 +189,10 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(UtcEpoch(2026, 1, 2, 15), january.Children[0].Request.PlayedAtToExclusive);
     }
 
+    /// <summary>
+    /// 実履歴の期間・確定条件と上限をSQL読取りへ適用し、未確定を含める要求では時刻降順の先頭を返す。
+    /// </summary>
+    /// <remarks>実SQLiteの履歴行を読み、期間・確定条件・上限で選ばれるIDと降順を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_ReadsFinalizedRowsByRangeDescendingAndExcludesUnfinalized()
     {
@@ -213,6 +239,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 未確定専用要求は実DBの診断行だけを降順に返し、確定済み行を混入させない。
+    /// </summary>
+    /// <remarks>実SQLiteの確定・未確定行を読み、返る履歴IDと未確定状態を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_UnfinalizedOnlyFilterReadsOnlyDiagnosticRows()
     {
@@ -239,6 +269,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 開始直前/開始/終了直前/終了の4行から区間内2行だけを返し、SQLの両境界を取り違えない。
+    /// </summary>
+    /// <remarks>実SQLiteに境界前後の履歴を保存し、readerが返すIDから区間条件を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_RangeBoundariesAreInclusiveFromExclusiveTo()
     {
@@ -266,6 +300,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 履歴未導入DBはエラー診断を返し、読取りに伴って履歴objectを作成しない。
+    /// </summary>
+    /// <remarks>履歴未導入の実SQLiteを読み、診断とsqlite_master上の履歴object不在を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_NotInstalledReturnsDiagnosticWithoutCreatingObjects()
     {
@@ -282,11 +320,15 @@ public sealed class PlayHistoryReadModelTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.SchemaStatus);
             Assert.IsTrue(result.HasErrors);
             AssertSingleDiagnostic(result, PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_schema_not_installed", scoreDbPath);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%';"));
         });
     }
 
+    /// <summary>
+    /// 不足索引を検出すると行を返さず対象DBの診断を出し、修復が必要な読取りを成功扱いしない。
+    /// </summary>
+    /// <remarks>実SQLiteの索引を削除し、修復が必要なschema状態とエラー・履歴0件を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_IndexRepairRequiredReturnsDiagnosticWithoutReading()
     {
@@ -312,6 +354,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 必須triggerがmissing/mismatchedなら厳密要求は履歴0件とエラーを返し、DBバイトを変更しない。
+    /// </summary>
+    /// <remarks>実SQLiteのtrigger欠落・不一致を作り、厳密要求の診断・履歴0件と読取り前後のDBバイト一致を確認する。</remarks>
     [DataTestMethod]
     [DataRow("missing")]
     [DataRow("mismatched")]
@@ -356,6 +402,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// missing/mismatched triggerは厳密要求なら停止し、非厳密なら警告付きで読む。索引修復許可をtrigger要求の代用にしない。
+    /// </summary>
+    /// <remarks>実SQLiteのtriggerを欠落・不一致にし、要求条件別の診断・履歴件数と読取り前後のDBバイト一致を確認する。</remarks>
     [DataTestMethod]
     [DataRow("missing", true, false)]
     [DataRow("mismatched", true, false)]
@@ -428,6 +478,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// missing/mismatched triggerの厳密検査は、照会すれば失敗する履歴表を問い合わせずschema診断で停止する。
+    /// </summary>
+    /// <remarks>実SQLiteの履歴表定義とtriggerを壊し、行照会より前のschema診断とDBバイトの非変更を確認する。</remarks>
     [DataTestMethod]
     [DataRow("missing")]
     [DataRow("mismatched")]
@@ -495,6 +549,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// triggerが揃って索引だけ不足するDBは明示許可時に警告付きで読み、厳密trigger要求で一律拒否しない。
+    /// </summary>
+    /// <remarks>実SQLiteの索引だけを削除し、明示許可時の履歴・警告と読取り前後のDBバイト一致を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_StrictHistoryTriggerRequirementAllowsIndexOnlyRepairableReadWhenOptedIn()
     {
@@ -531,6 +589,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 非連携・パスなし・元表不足・trigger不足をそれぞれ情報/エラー/警告へ分類し、許可されたtrigger不備だけは行を読む。
+    /// </summary>
+    /// <remarks>非連携・未設定入力と実SQLiteのschema不備をreaderへ渡し、各診断と履歴件数を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_MapsSchemaStatusesToDiagnostics()
     {
@@ -599,6 +661,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 上限未指定・0・負値は有限の既定上限を実履歴へ適用し、最新行を保持して全件読取りへ広げない。
+    /// </summary>
+    /// <remarks>実SQLiteに既定上限を超える履歴を保存し、未指定・非正上限で返る件数と最新IDを確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_DefaultAndNonPositiveLimitUseDefaultLimit()
     {
@@ -651,6 +717,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 期間索引は一覧上限を超える確定履歴も読み、未確定の時刻を日付候補へ混ぜない。
+    /// </summary>
+    /// <remarks>実SQLiteに一覧上限を超える履歴を保存し、期間索引に含まれる確定時刻の件数と降順を確認する。</remarks>
     [TestMethod]
     public void Lr2Reader_ReadPeriodIndexReadsFinalizedRowsWithoutDefaultLimit()
     {
@@ -691,6 +761,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 最初に捕捉した全履歴はDB削除後も期間/未確定/日索引へ再利用し、失効後は実不在を診断する。
+    /// </summary>
+    /// <remarks>実SQLiteを初回読取り後に削除し、cacheからの期間・未確定・日索引取得と失効後の不在診断を確認する。</remarks>
     [TestMethod]
     public void PlayHistoryReadCache_Lr2LoadsAllRowsOnceAndFiltersFromMemory()
     {
@@ -783,6 +857,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 同じ全件cacheでも通常一覧は上限を保ち、明示DisableLimitだけ全件を返す。暖まった読取りで条件を失わない。
+    /// </summary>
+    /// <remarks>実SQLiteから捕捉した全件cacheへ異なる上限条件を適用し、cache利用状態と返却件数を確認する。</remarks>
     [TestMethod]
     public void PlayHistoryReadCache_Lr2KeepsDefaultLimitUnlessDisabled()
     {
@@ -836,6 +914,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// beatorajaの履歴とplayer面を一度捕捉し、DB削除後も期間/日索引を返す。未確定診断は空、失効後は不在診断へ戻す。
+    /// </summary>
+    /// <remarks>実beatoraja DBを初回読取り後に削除し、cacheの履歴・player面・日索引と失効後の不在診断を確認する。</remarks>
     [TestMethod]
     public void PlayHistoryReadCache_BeatorajaLoadsAllRowsOnceAndFiltersFromMemory()
     {
@@ -946,6 +1028,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// スコア面の版とノーツ数が変わるとcacheを失効し、古いノーツ数を履歴へ残さない。
+    /// </summary>
+    /// <remarks>実scorelogの履歴と指定スコア面を使い、スコア版変更時のcache失効と返却ノーツ数を確認する。</remarks>
     [TestMethod]
     public void PlayHistoryReadCache_BeatorajaScoreSnapshotVersionInvalidatesCachedNotes()
     {
@@ -985,7 +1071,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
-    /// <summary>保証：実DBの履歴を時刻・同時刻ID降順で表示し、期間のcache再利用と失効後の追加・再読込みを保つ。</summary>
+    /// <summary>
+    /// 実DBの読取り→期間索引→表示変換を順に接続し、同時刻ID降順・暖まった期間検索・失効後の追加/再読込み・指定昇順・観測取消を維持する。
+    /// </summary>
+    /// <remarks>実SQLite読取りから期間索引・表示変換へ接続し、返却表示行とcache利用・失効・取消を観測する。</remarks>
     [TestMethod]
     public void BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle()
     {
@@ -1130,6 +1219,9 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 古い要求は取得元や管理主体を使う前にread段階で中止し、索引・表示変換を開始しない。
+    /// </summary>
     [TestMethod]
     public void BuildReadView_StaleRequestStopsAtReadBoundary()
     {
@@ -1162,6 +1254,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(PlayHistoryProjectionStageStatus.NotStarted, result.Projection.Status);
     }
 
+    /// <summary>
+    /// 所持譜面/表を解決したLR2履歴はベスト前後と確定プレイの判定差分を分け、ランク・割合・オプション増分を表示する。
+    /// </summary>
     [TestMethod]
     public void ProjectLr2Rows_ResolvesChartAndSeparatesBestDeltaFromActualResult()
     {
@@ -1227,6 +1322,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("score bp clear combo", row.Kind);
     }
 
+    /// <summary>
+    /// 表単体を選ぶと一致するMD5行へその表のフォルダ表示を付け、元行の表示を変更しない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder()
     {
@@ -1244,6 +1342,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(string.Empty, row.FolderLabels);
     }
 
+    /// <summary>
+    /// preset対象は一致行だけを通し、表記号とレベルを表示する。非対象行を通す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetFiltersRowsAndUsesOrgSymbolLevel()
     {
@@ -1271,6 +1372,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
     }
 
+    /// <summary>
+    /// FOLDER専用presetは全行を残し、一致行だけ表記号/レベルを付けて非対象行の古い表示を消す。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder()
     {
@@ -1301,6 +1405,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(string.Empty, otherDisplayRow.FolderLabels);
     }
 
+    /// <summary>
+    /// 同名・同記号の別ID表はpreset参照とみなさず、指定IDだけを使って表示する。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_TargetSetUsesPlaylistIdOnly()
     {
@@ -1334,6 +1441,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("SATAlpha", displayRow.FolderLabels);
     }
 
+    /// <summary>
+    /// 全件対象は表snapshotを要求せず既存行をそのまま使い、追加走査と表表示の消失を防ぐ。
+    /// </summary>
     [TestMethod]
     public void ApplyPlayHistoryDisplayTargetRows_AllKeepsProjectedRowsFastPath()
     {
@@ -1352,6 +1462,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("SAT", rows[0].FolderLabels);
     }
 
+    /// <summary>
+    /// 古い要求は表snapshot取得前に取消を返し、不要な遅延読込みを開始しない。
+    /// </summary>
     [TestMethod]
     public void ApplyPlayHistoryDisplayTargetRows_StaleRequestStopsBeforeTableSnapshot()
     {
@@ -1368,19 +1481,9 @@ public sealed class PlayHistoryReadModelTests
             ensureEntriesLoaded: null));
     }
 
-    [TestMethod]
-    public void SnapshotActiveRequest_ReturnsCurrentRequest()
-    {
-        var owner = new PlayHistoryWorkflowOwner();
-        PlayHistoryViewRequest active = owner.BeginRequest(
-            PlayHistoryPeriodRequest.All(),
-            string.Empty,
-            string.Empty,
-            displayTargetRevision: 0L);
-
-        Assert.AreSame(active, owner.SnapshotActiveRequest());
-    }
-
+    /// <summary>
+    /// 利用者の整列条件を切離して保持し、同値更新では版を変えず異なる条件へ変更すると旧snapshotを失効させる。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_OwnsSortParametersAndFreshnessSnapshot()
     {
@@ -1411,6 +1514,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(owner.IsCurrentSortSnapshot(snapshot));
     }
 
+    /// <summary>
+    /// 整列・表示対象・キーワードの各変更を別のstale理由へ分類し、既に最新面があれば重複refreshを要求しない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_OwnsCurrentViewFreshnessAndRefreshCandidate()
     {
@@ -1505,6 +1611,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreSame(latestKeywordState, owner.PresentationState.CurrentView);
     }
 
+    /// <summary>
+    /// MD5を持つ表entryは異なるMD5行とSHA256だけで一致させず、別譜面への誤参照を防ぐ。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_UsesPlaylistEntryMd5BeforeSha256()
     {
@@ -1520,6 +1629,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(matched);
     }
 
+    /// <summary>
+    /// 一致する表entryのフォルダが空なら過去のフォルダ表示を消し、古いラベルを引き継がない。
+    /// </summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetIndex_PlaylistTargetKeepsEmptyFolderEmpty()
     {
@@ -1536,6 +1648,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(string.Empty, displayRow.FolderLabels);
     }
 
+    /// <summary>
+    /// 解決できない未確定履歴も生ハッシュ付きで残し、架空のタイトルや実プレイスコアを補わない。
+    /// </summary>
     [TestMethod]
     public void ProjectLr2Rows_UnresolvedUnfinalizedRowRemainsVisible()
     {
@@ -1556,6 +1671,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(row.PlayExscore);
     }
 
+    /// <summary>
+    /// ベスト値が変わらない確定プレイは更新列を空にし、実プレイEXSCOREだけを残す。毎プレイをベスト更新と誤認しない。
+    /// </summary>
     [TestMethod]
     public void ProjectLr2Rows_BestScoreColumnsAreBlankWhenBestScoreDidNotChange()
     {
@@ -1597,6 +1715,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(210, row.PlayExscore);
     }
 
+    /// <summary>
+    /// 旧新clearがFCのままでも新PERFECTビットでPAへ昇格し、新PERFECT集計へ一件加える。
+    /// </summary>
     [TestMethod]
     public void ProjectLr2Rows_OpHistoryPerfectBitPromotesFullComboToPerfect()
     {
@@ -1631,6 +1752,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, summary.NewPerfectCount);
     }
 
+    /// <summary>
+    /// 確定/未確定を行数で区別し、演奏時間・判定・更新集計には確定した解決済み行だけを加える。
+    /// </summary>
     [TestMethod]
     public void SummaryCountsOnlyFinalizedRowsForPlaytimeAndJudges()
     {
@@ -1658,6 +1782,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, summary.NewClearCount);
     }
 
+    /// <summary>
+    /// 履歴の集約テキストへ診断code・詳細・対象DBを含め、利用者が原因と対象を識別できる。
+    /// </summary>
     [TestMethod]
     public void SummaryTextIncludesDiagnosticDetailWhenPresent()
     {
@@ -1687,6 +1814,9 @@ public sealed class PlayHistoryReadModelTests
         StringAssert.Contains(text, "C:\\LR2\\Score\\player.db");
     }
 
+    /// <summary>
+    /// 履歴の判定数・プレイ数・時間・各更新内訳をカードへ渡し、更新カードの検索条件を対応付ける。LR2へEXHを混ぜない。
+    /// </summary>
     [TestMethod]
     public void SummaryCardsExposeDedicatedPlayHistoryMetrics()
     {
@@ -1704,37 +1834,39 @@ public sealed class PlayHistoryReadModelTests
 
         IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
-        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards[0].Label);
-        Assert.AreEqual("160", cards[0].Value);
-        Assert.AreEqual(Resources.Play_history_summary_play_count, cards[1].Label);
-        Assert.AreEqual("2", cards[1].Value);
-        Assert.AreEqual(Resources.Play_history_summary_playtime, cards[2].Label);
-        Assert.AreEqual("2:00", cards[2].Value);
-        Assert.AreEqual(Resources.Play_history_summary_score_update, cards[3].Label);
-        Assert.AreEqual("1", cards[3].Value);
-        Assert.AreEqual("score", cards[3].FilterKey);
-        Assert.AreEqual("type:score", cards[3].FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_bp_update, cards[4].Label);
-        Assert.AreEqual("1", cards[4].Value);
-        Assert.AreEqual("type:bp", cards[4].FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_combo_update, cards[5].Label);
-        Assert.AreEqual("1", cards[5].Value);
-        Assert.AreEqual("type:combo", cards[5].FilterText);
-        Assert.AreEqual(Resources.Play_history_summary_clear_update, cards[6].Label);
-        Assert.AreEqual("2", cards[6].Value);
-        Assert.AreEqual("type:clear", cards[6].FilterText);
-        Assert.AreEqual("EASY", cards[8].Label);
-        Assert.AreEqual("1", cards[8].Value);
-        Assert.AreEqual("type:clear newclear:EC", cards[8].FilterText);
+        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Label);
+        Assert.AreEqual("160", cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Value);
+        Assert.AreEqual(Resources.Play_history_summary_play_count, cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Label);
+        Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+        Assert.AreEqual(Resources.Play_history_summary_playtime, cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Label);
+        Assert.AreEqual("2:00", cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Value);
+        Assert.AreEqual(Resources.Play_history_summary_score_update, cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Label);
+        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).Value);
+        Assert.AreEqual("score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterKey);
+        Assert.AreEqual("type:score", cards.Single(card => card.Label == Resources.Play_history_summary_score_update).FilterText);
+        Assert.AreEqual(Resources.Play_history_summary_bp_update, cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Label);
+        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).Value);
+        Assert.AreEqual("type:bp", cards.Single(card => card.Label == Resources.Play_history_summary_bp_update).FilterText);
+        Assert.AreEqual(Resources.Play_history_summary_combo_update, cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Label);
+        Assert.AreEqual("1", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).Value);
+        Assert.AreEqual("type:combo", cards.Single(card => card.Label == Resources.Play_history_summary_combo_update).FilterText);
+        Assert.AreEqual(Resources.Play_history_summary_clear_update, cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Label);
+        Assert.AreEqual("2", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).Value);
+        Assert.AreEqual("type:clear", cards.Single(card => card.Label == Resources.Play_history_summary_clear_update).FilterText);
+        Assert.AreEqual("EASY", cards.Single(card => card.Label == "EASY").Label);
+        Assert.AreEqual("1", cards.Single(card => card.Label == "EASY").Value);
+        Assert.AreEqual("type:clear newclear:EC", cards.Single(card => card.Label == "EASY").FilterText);
         Assert.IsFalse(cards.Any(card => card.Label == "EXH"));
-        Assert.AreEqual("FC", cards[11].Label);
-        Assert.AreEqual("1", cards[11].Value);
-        Assert.AreEqual("type:clear newclear:FC|PF", cards[11].FilterText);
-        Assert.IsTrue(cards[11].Compact);
-        Assert.IsFalse(cards[0].IsFilterable);
-        Assert.IsTrue(cards[3].IsFilterable);
+        Assert.AreEqual("FC", cards.Single(card => card.Label == "FC").Label);
+        Assert.AreEqual("1", cards.Single(card => card.Label == "FC").Value);
+        Assert.AreEqual("type:clear newclear:FC|PF", cards.Single(card => card.Label == "FC").FilterText);
+        Assert.IsFalse(cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).IsFilterable);
+        Assert.IsTrue(cards.Single(card => card.Label == Resources.Play_history_summary_score_update).IsFilterable);
     }
 
+    /// <summary>
+    /// 選択したscore/FCだけをカードと検索条件へ反映し、集約診断はwarningよりerror詳細を先に示す。
+    /// </summary>
     [TestMethod]
     public void PresentationOwnerMapsSelectedSummaryFiltersAndDiagnosticPriority()
     {
@@ -1756,11 +1888,17 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(cards.Single(card => card.FilterKey == "score").IsSelected);
         Assert.IsTrue(cards.Single(card => card.FilterKey == "fc").IsSelected);
         Assert.IsFalse(cards.Single(card => card.FilterKey == "bp").IsSelected);
-        CollectionAssert.AreEqual(new[] { "type:score", "type:clear newclear:FC|PF" }, filterTexts.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "type:score", "type:clear newclear:FC|PF" }, filterTexts.ToArray());
         StringAssert.StartsWith(diagnostic, "Error error: detail");
         Assert.AreEqual(string.Empty, PlayHistoryPresentationState.FormatDiagnosticSummary([null]));
     }
 
+    /// <summary>
+    /// playlist summary選択の実構成は履歴集計と診断を消し、archive日付面を保持する。画面切替の残留表示を検出する。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public async Task SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
@@ -1782,6 +1920,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreSame(archive, viewModel.PlayHistory.ArchivePeriodTree);
     }
 
+    /// <summary>
+    /// カード選択を子表示へ反映してからrefreshを一度通知し、非検索カードでは通知も表示更新も増やさない。
+    /// </summary>
     [TestMethod]
     public void SummaryFilterCommandUpdatesChildPresentationBeforeRequestingRefresh()
     {
@@ -1812,6 +1953,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, propertyNames.Count);
     }
 
+    /// <summary>
+    /// EXH更新内訳と検索条件はbeatorajaだけへ表示し、LR2のカードに非対応clearを追加しない。
+    /// </summary>
     [TestMethod]
     public void SummaryCardsIncludeExHardOnlyForBeatorajaProvider()
     {
@@ -1845,6 +1989,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(lr2Cards.Any(card => card.Label == "EXH"));
     }
 
+    /// <summary>
+    /// 集計根拠が未取得のプレイ数・判定・時間は0へ代用せず利用不能と「-」を表示する。
+    /// </summary>
     [TestMethod]
     public void SummaryCardsShowDashWhenSnapshotValuesAreUnavailable()
     {
@@ -1858,14 +2005,17 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(summary.PlayCountAvailable);
         Assert.IsFalse(summary.JudgeCountAvailable);
         Assert.IsFalse(summary.PlaytimeAvailable);
-        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards[0].Label);
-        Assert.AreEqual("-", cards[0].Value);
-        Assert.AreEqual(Resources.Play_history_summary_play_count, cards[1].Label);
-        Assert.AreEqual("-", cards[1].Value);
-        Assert.AreEqual(Resources.Play_history_summary_playtime, cards[2].Label);
-        Assert.AreEqual("-", cards[2].Value);
+        Assert.AreEqual(Resources.Play_history_summary_judge_count, cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Label);
+        Assert.AreEqual("-", cards.Single(card => card.Label == Resources.Play_history_summary_judge_count).Value);
+        Assert.AreEqual(Resources.Play_history_summary_play_count, cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Label);
+        Assert.AreEqual("-", cards.Single(card => card.Label == Resources.Play_history_summary_play_count).Value);
+        Assert.AreEqual(Resources.Play_history_summary_playtime, cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Label);
+        Assert.AreEqual("-", cards.Single(card => card.Label == Resources.Play_history_summary_playtime).Value);
     }
 
+    /// <summary>
+    /// 初回BP・スコア割合の前後・増減optionビットを別々に整形し、消えたASSISTビットも表示する。
+    /// </summary>
     [TestMethod]
     public void RowProjectionFormatsTransitionsAndOptionHistory()
     {
@@ -1902,6 +2052,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("P.A / ASSIST off", row.OpHistory);
     }
 
+    /// <summary>
+    /// LR2 clear2の旧ASSISTからEASYビット追加をclear更新として表示/集計し、同じ整数値だからと省略しない。
+    /// </summary>
     [TestMethod]
     public void RowProjectionTreatsLr2AssistToEasyBitAsClearUpdate()
     {
@@ -1938,6 +2091,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(0, summary.AssistClearUpdateCount);
     }
 
+    /// <summary>
+    /// LR2 clear2でEASYビットがなければASSIST内訳へ加え、EASYカードへ誤分類しない。
+    /// </summary>
     [TestMethod]
     public void RowProjectionCountsLr2Clear2WithoutEasyBitAsAssistUpdate()
     {
@@ -1976,6 +2132,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("type:clear newclear:AE|LAE", assistCard.FilterText);
     }
 
+    /// <summary>
+    /// clear2・EASYなし・BP負値の初回行はclearだけを更新し、未保存のEXSCORE/COMBO/OPTIONを推測しない。
+    /// </summary>
     [TestMethod]
     public void RowProjectionTreatsInitialLr2ForceEasySentinelsAsClearOnly()
     {
@@ -2030,6 +2189,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(1, summary.AssistClearUpdateCount);
     }
 
+    /// <summary>
+    /// 旧新とも解決後EASYならASSISTビットの増加だけをclear更新にせず、EASY更新集計を増やさない。
+    /// </summary>
     [TestMethod]
     public void RowProjectionDoesNotCountSameResolvedEasyClearAsClearUpdate()
     {
@@ -2066,6 +2228,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(0, summary.EasyClearUpdateCount);
     }
 
+    /// <summary>
+    /// NP→FAILEDはclear更新として数えるが新クリア/FC/PAへ加えず、失敗をクリア実績と誤認しない。
+    /// </summary>
     [TestMethod]
     public void SummaryDoesNotCountFailedAsNewClear()
     {
@@ -2085,6 +2250,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(0, summary.NewPerfectCount);
     }
 
+    /// <summary>
+    /// 確定していても未解決ハッシュ行は行数だけに残し、演奏時間・判定・スコア更新へ加えない。
+    /// </summary>
     [TestMethod]
     public void SummaryExcludesFinalizedUnknownHashFromAggregates()
     {
@@ -2106,6 +2274,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(0, summary.ScoreUpdateCount);
     }
 
+    /// <summary>
+    /// 履歴整列は時刻/同時刻IDの降順を守り、通常譜面だけの未対応列は理由付きで拒否する。
+    /// </summary>
     [TestMethod]
     public void SortEngine_DefaultsDateDescendingAndRejectsUnknownColumn()
     {
@@ -2139,6 +2310,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual("play_history_unknown_column", unknownProfile);
     }
 
+    /// <summary>
+    /// 実一覧の整列要求を通常/履歴それぞれの主体へ渡し、片方の利用者指定で他方の条件を上書きしない。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public async Task MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
@@ -2156,6 +2333,7 @@ public sealed class PlayHistoryReadModelTests
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
         viewModel.MainChartList.RequestSort(nameof(ChartFile.Title), ListSortDirection.Ascending);
+        await TestUiDispatcherHost.AwaitNotificationAsync(regularSortChanged.Task, Task.CompletedTask, "play-history.sort-condition-notification");
         MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
         Assert.AreEqual(nameof(ChartFile.Title), regularReceipt.ColumnName);
 
@@ -2177,6 +2355,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlayHistory.SortChanged += (_, request) => playHistorySortChanged.TrySetResult(request);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
+        await TestUiDispatcherHost.AwaitNotificationAsync(playHistorySortChanged.Task, Task.CompletedTask, "play-history.sort-condition-notification");
         MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task;
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
@@ -2189,6 +2368,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(playHistorySort.Direction, viewModel.MainChartList.SortParameters.Direction);
     }
 
+    /// <summary>
+    /// 受付後に表示scopeが切り替わっても捕捉した整列対象へ要求を送り、現在画面の別主体へ誤配送しない。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public async Task MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
@@ -2207,6 +2392,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
         viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+        await TestUiDispatcherHost.AwaitNotificationAsync(playHistorySortChanged.Task, Task.CompletedTask, "play-history.sort-condition-notification");
         MainChartListSortRequestedEventArgs playHistoryReceipt = await playHistorySortChanged.Task;
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), playHistoryReceipt.ColumnName);
 
@@ -2236,6 +2422,7 @@ public sealed class PlayHistoryReadModelTests
                 playHistorySort.ColumnsName,
                 playHistorySort.Direction),
             MainChartListSortTarget.PlayHistory);
+        await TestUiDispatcherHost.AwaitNotificationAsync(regularSortChanged.Task, Task.CompletedTask, "play-history.sort-condition-notification");
         MainChartListSortRequestedEventArgs regularReceipt = await regularSortChanged.Task;
         Assert.AreEqual(nameof(ChartFile.Title), regularReceipt.ColumnName);
 
@@ -2247,6 +2434,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(playHistorySort.Direction, viewModel.MainChartList.SortParameters.Direction);
     }
 
+    /// <summary>
+    /// A→B→Aと戻った整列条件も版で旧要求を除き、通常/履歴それぞれ最後の要求だけを現在とする。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void MainChartListSortRequest_RejectsStaleAndAbaOwnerRevisions()
     {
@@ -2283,6 +2476,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(viewModel.PlayHistory.IsCurrentSortRequest(playHistoryRequests[2]));
     }
 
+    /// <summary>
+    /// 通常一覧の整列条件変更時に実行中の行要求を取消し、refresh開始前から古い行反映を禁止する。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void RegularSortMutation_CancelsTheInFlightRowRequestBeforeRefreshRuns()
     {
@@ -2299,6 +2498,10 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(lease.Token.IsCancellationRequested);
     }
 
+    /// <summary>
+    /// 最初のrefresh通知を保持中に40要求を合流し、解放後は増加する版で最新通知へ到達する。古い版の後出しを検出する。
+    /// </summary>
+    /// <remarks>sort通知の到達を観測する。実背景Taskの終端を受け取る窓口はなく、keyword/対象用idleをsort終端へ読み替えない。</remarks>
     [TestMethod]
     public async Task PlayHistorySortRefreshQueue_CoalescesAndNeverPublishesOutOfRevisionOrder()
     {
@@ -2309,8 +2512,9 @@ public sealed class PlayHistoryReadModelTests
         var firstRefreshRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var finalRefreshPublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         long finalRevision = -1L;
-        owner.SortChanged += (_, request) => changed.Add(request);
-        owner.SortRefreshRequested += (_, request) =>
+        EventHandler<MainChartListSortRequestedEventArgs> changedHandler = (_, request) => changed.Add(request);
+        owner.SortChanged += changedHandler;
+        EventHandler<MainChartListSortRequestedEventArgs> refreshHandler = (_, request) =>
         {
             lock (refreshed)
             {
@@ -2325,103 +2529,143 @@ public sealed class PlayHistoryReadModelTests
                 finalRefreshPublished.TrySetResult(true);
             }
         };
-
-        owner.QueueSort(new MainChartListSortRequestedEventArgs(
-            nameof(PlayHistoryRow.Title),
-            ListSortDirection.Ascending,
-            MainChartListSortTarget.PlayHistory));
-        // 最初の refresh 通知を観測してから更新を集中させ、解放後に最新 revision の通知を待つ。
-        await firstRefreshEntered.Task;
+        owner.SortRefreshRequested += refreshHandler;
         try
         {
-            for (int index = 1; index < 40; index++)
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                nameof(PlayHistoryRow.Title),
+                ListSortDirection.Ascending,
+                MainChartListSortTarget.PlayHistory));
+            // 最初の refresh 通知を観測してから更新を集中させ、解放後に最新 revision の通知を待つ。
+            await firstRefreshEntered.Task;
+            try
             {
-                owner.QueueSort(new MainChartListSortRequestedEventArgs(
-                    index % 2 == 0 ? nameof(PlayHistoryRow.Title) : nameof(PlayHistoryRow.PlayedAt),
-                    index % 2 == 0 ? ListSortDirection.Ascending : ListSortDirection.Descending,
-                    MainChartListSortTarget.PlayHistory));
+                for (int index = 1; index < 40; index++)
+                {
+                    owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                        index % 2 == 0 ? nameof(PlayHistoryRow.Title) : nameof(PlayHistoryRow.PlayedAt),
+                        index % 2 == 0 ? ListSortDirection.Ascending : ListSortDirection.Descending,
+                        MainChartListSortTarget.PlayHistory));
+                }
+                Volatile.Write(ref finalRevision, changed[changed.Count - 1].OwnerRevision);
             }
-            Volatile.Write(ref finalRevision, changed[changed.Count - 1].OwnerRevision);
+            finally
+            {
+                firstRefreshRelease.TrySetResult(true);
+            }
+            await finalRefreshPublished.Task;
+
+            lock (refreshed)
+            {
+                Assert.IsTrue(refreshed.Count < changed.Count);
+                for (int index = 1; index < refreshed.Count; index++)
+                {
+                    Assert.IsTrue(refreshed[index - 1].OwnerRevision < refreshed[index].OwnerRevision);
+                }
+                Assert.IsTrue(owner.IsCurrentSortRequest(refreshed[refreshed.Count - 1]));
+            }
         }
         finally
         {
             firstRefreshRelease.TrySetResult(true);
-        }
-        await finalRefreshPublished.Task;
-
-        lock (refreshed)
-        {
-            Assert.IsTrue(refreshed.Count < changed.Count);
-            for (int index = 1; index < refreshed.Count; index++)
-            {
-                Assert.IsTrue(refreshed[index - 1].OwnerRevision < refreshed[index].OwnerRevision);
-            }
-            Assert.IsTrue(owner.IsCurrentSortRequest(refreshed[refreshed.Count - 1]));
+            owner.SortChanged -= changedHandler;
+            owner.SortRefreshRequested -= refreshHandler;
         }
     }
 
+    /// <summary>
+    /// 最初のrefresh購読が例外を投げても次の整列要求を通知し、背景readerが停止したままになる誤りを検出する。
+    /// </summary>
+    /// <remarks>sort通知の到達を観測する。実背景Taskの終端を受け取る窓口はなく、keyword/対象用idleをsort終端へ読み替えない。</remarks>
     [TestMethod]
-    public void PlayHistorySortRefreshQueue_RecoversAfterSubscriberFailure()
+    public async Task PlayHistorySortRefreshQueue_RecoversAfterSubscriberFailure()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        using var firstAttempt = new ManualResetEventSlim();
-        using var recovered = new ManualResetEventSlim();
+        var firstAttempt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int attempt = 0;
-        owner.SortRefreshRequested += (_, _) =>
+        EventHandler<MainChartListSortRequestedEventArgs> handler = (_, _) =>
         {
             if (Interlocked.Increment(ref attempt) == 1)
             {
-                firstAttempt.Set();
+                firstAttempt.TrySetResult();
                 throw new InvalidOperationException("expected test failure");
             }
-            recovered.Set();
+            recovered.TrySetResult();
         };
+        owner.SortRefreshRequested += handler;
+        try
+        {
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                nameof(PlayHistoryRow.Title),
+                ListSortDirection.Ascending,
+                MainChartListSortTarget.PlayHistory));
+            await firstAttempt.Task;
 
-        owner.QueueSort(new MainChartListSortRequestedEventArgs(
-            nameof(PlayHistoryRow.Title),
-            ListSortDirection.Ascending,
-            MainChartListSortTarget.PlayHistory));
-        firstAttempt.Wait();
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                nameof(PlayHistoryRow.PlayedAt),
+                ListSortDirection.Descending,
+                MainChartListSortTarget.PlayHistory));
 
-        owner.QueueSort(new MainChartListSortRequestedEventArgs(
-            nameof(PlayHistoryRow.PlayedAt),
-            ListSortDirection.Descending,
-            MainChartListSortTarget.PlayHistory));
-
-        recovered.Wait();
-        Assert.AreEqual(2, Volatile.Read(ref attempt));
+            await recovered.Task;
+            Assert.AreEqual(2, Volatile.Read(ref attempt));
+        }
+        finally { owner.SortRefreshRequested -= handler; }
     }
 
+    /// <summary>
+    /// 条件変更の購読例外を呼出元へ返しても通常/履歴のrefresh通知を起動し、受理済み更新を欠落させない。
+    /// </summary>
+    /// <remarks>sort通知の到達を観測する。実背景Taskの終端を受け取る窓口はなく、keyword/対象用idleをsort終端へ読み替えない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
-    public void SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
+    public async Task SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
     {
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
         using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
         RegularChartListOwner regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
-        using var regularRefreshed = new ManualResetEventSlim();
-        regularOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected regular notification failure");
-        regularOwner.SortRefreshRequested += (_, _) => regularRefreshed.Set();
-
-        Assert.ThrowsException<InvalidOperationException>(() => regularOwner.QueueSort(
-            new MainChartListSortRequestedEventArgs(
-                nameof(ChartFile.Title),
-                ListSortDirection.Ascending,
-                MainChartListSortTarget.Regular)));
-        regularRefreshed.Wait();
+        var regularRefreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<MainChartListSortRequestedEventArgs> regularChanged = (_, _) => throw new InvalidOperationException("expected regular notification failure");
+        regularOwner.SortChanged += regularChanged;
+        EventHandler<MainChartListSortRequestedEventArgs> regularRefresh = (_, _) => regularRefreshed.TrySetResult();
+        regularOwner.SortRefreshRequested += regularRefresh;
 
         var playHistoryOwner = new PlayHistoryWorkflowOwner();
-        using var playHistoryRefreshed = new ManualResetEventSlim();
-        playHistoryOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected play-history notification failure");
-        playHistoryOwner.SortRefreshRequested += (_, _) => playHistoryRefreshed.Set();
+        var playHistoryRefreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<MainChartListSortRequestedEventArgs> playChanged = (_, _) => throw new InvalidOperationException("expected play-history notification failure");
+        playHistoryOwner.SortChanged += playChanged;
+        EventHandler<MainChartListSortRequestedEventArgs> playRefresh = (_, _) => playHistoryRefreshed.TrySetResult();
+        playHistoryOwner.SortRefreshRequested += playRefresh;
 
-        Assert.ThrowsException<InvalidOperationException>(() => playHistoryOwner.QueueSort(
-            new MainChartListSortRequestedEventArgs(
-                nameof(PlayHistoryRow.Title),
-                ListSortDirection.Ascending,
-                MainChartListSortTarget.PlayHistory)));
-        playHistoryRefreshed.Wait();
+        try
+        {
+            Assert.ThrowsException<InvalidOperationException>(() => regularOwner.QueueSort(
+                new MainChartListSortRequestedEventArgs(
+                    nameof(ChartFile.Title),
+                    ListSortDirection.Ascending,
+                    MainChartListSortTarget.Regular)));
+            await regularRefreshed.Task;
+
+            Assert.ThrowsException<InvalidOperationException>(() => playHistoryOwner.QueueSort(
+                new MainChartListSortRequestedEventArgs(
+                    nameof(PlayHistoryRow.Title),
+                    ListSortDirection.Ascending,
+                    MainChartListSortTarget.PlayHistory)));
+            await playHistoryRefreshed.Task;
+        }
+        finally
+        {
+            regularOwner.SortChanged -= regularChanged;
+            regularOwner.SortRefreshRequested -= regularRefresh;
+            playHistoryOwner.SortChanged -= playChanged;
+            playHistoryOwner.SortRefreshRequested -= playRefresh;
+        }
     }
 
+    /// <summary>
+    /// 仮想表示は行参照・検索を保ちながらAdd/置換/消去/挿入/削除を拒否し、公開consumerの構造変更を禁止する。
+    /// </summary>
     [TestMethod]
     public void VirtualViewExposesReadOnlyRows()
     {
@@ -2449,6 +2693,10 @@ public sealed class PlayHistoryReadModelTests
         Assert.ThrowsException<NotSupportedException>(() => view.RemoveAt(0));
     }
 
+    /// <summary>
+    /// 実scorelogの通常モードだけを表示へ変換し、ベスト更新・所持譜面/表・検索を接続する。単曲実績や時間は補わない。
+    /// </summary>
+    /// <remarks>実scorelogとplayer表を読み、所持譜面・プレイリストによる行変換、集計と検索を接続して確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_ReadsScoreLogUpdateHistory()
     {
@@ -2520,6 +2768,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 期間実績は実player累計の境界前差分、全期間は最新累計から求め、表示行件数や単曲時間で代用しない。
+    /// </summary>
+    /// <remarks>実player表の累計を読み、期間差分・全期間値と投影後の集計値を確認する。</remarks>
     [TestMethod]
     public void BeatorajaPeriodSummaryUsesPlayerAggregateRangeForScreenPeriod()
     {
@@ -2575,6 +2827,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// playerが読めない場合と診断期間では実績を利用不能とし、scorelog更新行から推測しない。
+    /// </summary>
+    /// <remarks>player表を欠く実DBから診断を取得し、通常・診断期間で利用不能となる集計値を確認する。</remarks>
     [TestMethod]
     public void BeatorajaPeriodSummaryIsUnavailableForDiagnosticsOrUnreadablePlayerTable()
     {
@@ -2619,6 +2875,9 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// プレイ数・判定・時間の減少、大きい累計の減少、負値は実績を利用不能にし、負の差分を成功集計へ渡さない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaPeriodSummaryIsUnavailableWhenPlayerAggregateDecreases()
     {
@@ -2647,6 +2906,9 @@ public sealed class PlayHistoryReadModelTests
             playtime2: 160);
     }
 
+    /// <summary>
+    /// int上限を超える累計をlongで保持し、期間差分と全期間の値を切り詰めない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaPeriodSummaryPreservesLargePlayerAggregateValues()
     {
@@ -2680,6 +2942,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(baseValue + 200 + deltaValue, allSummary.PlaytimeSeconds);
     }
 
+    /// <summary>
+    /// 無効と判定済みの捕捉面は合計が正でも期間集計を利用不能にし、無効状態を合計で隠さない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaPeriodSummaryIsUnavailableWhenAnyRawJudgeAggregateIsNegative()
     {
@@ -2705,6 +2970,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(summaryOverride.PlaytimeSeconds);
     }
 
+    /// <summary>
+    /// 途中の累計が無効なら端点が有効でも全期間集計を利用不能とし、途中の異常を飛ばさない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaPeriodSummaryIsUnavailableWhenIntermediatePlayerAggregateIsInvalid()
     {
@@ -2732,6 +3000,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(summaryOverride.PlaytimeSeconds);
     }
 
+    /// <summary>
+    /// 途中で減少した累計は最後に増加していても利用不能とし、端点だけで減少を見落とさない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaPeriodSummaryIsUnavailableWhenIntermediatePlayerAggregateDecreases()
     {
@@ -2759,6 +3030,10 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(summaryOverride.PlaytimeSeconds);
     }
 
+    /// <summary>
+    /// 実playerの負の判定内訳を読んで無効情報を引き継ぎ、期間実績を推測しない。
+    /// </summary>
+    /// <remarks>実player表に負の判定内訳を保存し、捕捉面の無効判定と期間集計の利用不能を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReaderMarksNegativeRawJudgeAggregateAsInvalid()
     {
@@ -2799,6 +3074,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 履歴DB不在は更新行0件と不在診断を返し、空履歴DBの作成や架空行の補完をしない。
+    /// </summary>
+    /// <remarks>未作成の履歴DBパスをreaderへ渡し、不在診断・履歴0件とファイル不在を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_MissingScoreLogReturnsNoUpdateRows()
     {
@@ -2818,6 +3097,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// scorelogがなく最新詳細DBだけがあっても履歴へ流用せず、不在診断を返す。
+    /// </summary>
+    /// <remarks>実詳細DBだけが存在する配置でreaderを呼び、履歴DB不在の診断と履歴0件を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_DoesNotFallbackToScoreDataLogWhenScoreLogIsMissing()
     {
@@ -2844,6 +3127,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// beatorajaの診断要求は更新履歴を未確定扱いせず空行を返し、確定履歴と混ぜない。
+    /// </summary>
+    /// <remarks>実scorelogへ未確定専用要求を渡し、正常なschema状態と履歴0件を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_UnfinalizedOnlyReturnsEmptyRows()
     {
@@ -2868,6 +3155,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 不正なSQLiteファイルはUnreadableと読取り失敗診断を返し、空の正常履歴へ置き換えない。
+    /// </summary>
+    /// <remarks>SQLiteとして読めない実ファイルをreaderへ渡し、Unreadable・読取り失敗診断と履歴0件を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_ReadReportsUnreadableScoreLog()
     {
@@ -2888,6 +3179,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 旧BPのint.MaxValueは未プレイへ正規化し、新BPだけを表示して巨大な旧値を出さない。
+    /// </summary>
+    /// <remarks>実scorelogの旧BP特殊値を読み、表示行で旧BPがなく新BPだけを表示することを確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed()
     {
@@ -2912,6 +3207,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 実scorelogの終了境界前・通常モード行だけを表示し、コースや境界上の更新を混入させない。
+    /// </summary>
+    /// <remarks>実scorelogへ期間条件を適用して表示行へ変換し、時刻とベスト更新の表示値を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_ReadsScoreLogRowsDirectly()
     {
@@ -2944,6 +3243,10 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>
+    /// 実scorelogの日付索引は通常モードの各日最大時刻を降順に返し、同日の重複やコース日を増やさない。
+    /// </summary>
+    /// <remarks>実scorelogから通常モードの日付索引を読み、各日の最大時刻と降順を確認する。</remarks>
     [TestMethod]
     public void BeatorajaReader_PeriodIndexUsesScoreLogMaxDatePerLocalDay()
     {
@@ -3387,6 +3690,9 @@ public sealed class PlayHistoryReadModelTests
 
     private const string ShaA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+    /// <summary>
+    /// 次の要求は旧tokenを取消し、最新のキーワード・対象識別・版を保持する。非選択化は現在要求を消して取消す。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_TransfersRequestIdentityAndCancelsPreviousLifecycle()
     {
@@ -3422,6 +3728,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(owner.IsCurrentRequest(second.RequestId));
     }
 
+    /// <summary>
+    /// cache失効は要求を取消して理由を診断へ出し、履歴画面の選択中状態は維持する。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_InvalidateReadCache_CancelsRequestPreservesActivityAndLogsReason()
     {
@@ -3444,6 +3753,9 @@ public sealed class PlayHistoryReadModelTests
             logMessages);
     }
 
+    /// <summary>
+    /// 最初の選択と最後の非選択化だけactivityを通知し、再読込みや要求置換で余分な切替通知を出さない。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_PublishesViewActiveFromRequestLifecycle()
     {
@@ -3495,6 +3807,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(activeNotifications[1]);
     }
 
+    /// <summary>
+    /// 期間選択/非選択callbackの失敗でも旧tokenと現在要求を退役させ、外部callbackを要求lock外で呼ぶ。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_PeriodActivationFailureDoesNotLeaveRequestLifecycleActive()
     {
@@ -3540,6 +3855,12 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(owner.SnapshotActiveRequest());
     }
 
+    /// <summary>
+    /// 履歴の非選択通知が失敗した場合、実shellは既存の保留パッケージ操作contextを維持し、未完了の画面切替で対象を変えない。
+    /// </summary>
+    /// <remarks>実shell構成から一覧/履歴主体への配送を確認するためVMを使う。Windowの表示やDataContextは観測しない。</remarks>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void MainViewSelectionKeepsExistingChartOperationContextWhenDeactivationRaises()
     {
@@ -3573,6 +3894,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsNull(playHistory.SnapshotActiveRequest());
     }
 
+    /// <summary>
+    /// 詳細入力の退役と期間受付通知を要求lock外で呼び、返した要求へ退役情報と正規化キーワードを引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_ActivatePeriodRaisesAfterRequestLockIsReleased()
     {
@@ -3608,6 +3932,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(owner.IsCurrentRequest(request.RequestId));
     }
 
+    /// <summary>
+    /// keyword/対象refreshは同版重複を拒否し、双方の完了までidleを保留する。32並列受付は一件だけ取り、旧完了で最新要求を失わない。
+    /// </summary>
     [TestMethod]
     public async Task WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
     {
@@ -3688,12 +4015,15 @@ public sealed class PlayHistoryReadModelTests
         await requeuedIdle;
     }
 
+    /// <summary>
+    /// 受理したkeyword refreshを既存callbackへ一度渡し、callback復帰後に実idleを完了する。
+    /// </summary>
     [TestMethod]
     public async Task WorkflowOwner_QueuesViewRefreshAndCompletesRevisionAfterRefreshCallback()
     {
         var owner = new PlayHistoryWorkflowOwner();
         owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
-        using var refreshed = new ManualResetEventSlim();
+        var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var requests = new List<PlayHistoryViewRequest>();
         owner.ConfigureViewRefreshScheduler(
             () => false,
@@ -3703,20 +4033,45 @@ public sealed class PlayHistoryReadModelTests
                 {
                     requests.Add(request);
                 }
-                refreshed.Set();
+                refreshed.TrySetResult();
             });
 
-        owner.QueueKeywordFilterRefresh(string.Empty, advanceRevision: false);
-
-        refreshed.Wait();
-        await owner.WaitForRefreshQueuesIdleAsync();
-        lock (requests)
+        Task? idle = null;
+        Exception? testFailure = null;
+        try
         {
-            Assert.AreEqual(1, requests.Count);
-            Assert.AreEqual(0L, requests[0].KeywordFilterRevision);
+            owner.QueueKeywordFilterRefresh(string.Empty, advanceRevision: false);
+
+            idle = owner.WaitForRefreshQueuesIdleAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(refreshed.Task, idle, "play-history.refresh-arrived");
+            await idle;
+            lock (requests)
+            {
+                Assert.AreEqual(1, requests.Count);
+                Assert.AreEqual(0L, requests[0].KeywordFilterRevision);
+            }
+        }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
+        finally
+        {
+            try { await (idle ?? owner.WaitForRefreshQueuesIdleAsync()); }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
         }
     }
 
+    /// <summary>
+    /// 古い表示要求は取得元の解決前にstaleを返し、構成依存へ到達しない。
+    /// </summary>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void WorkflowOwner_ExecuteViewRejectsStaleRequestBeforeCallingCompositionDependencies()
     {
@@ -3748,6 +4103,11 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsFalse(dependencyCalled);
     }
 
+    /// <summary>
+    /// 明示された現在要求で表示判断を行い、別parameterや後から渡したkeywordで要求の期間/識別を上書きしない。
+    /// </summary>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void WorkflowOwner_ExecuteViewUsesExplicitActiveRequest()
     {
@@ -3794,6 +4154,11 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(active.RequestId, owner.CurrentRequestId);
     }
 
+    /// <summary>
+    /// keyword変更は現在の変換済み行を再利用し、取得元読取りなしで検索する。表示dispatchが不採用ならstaleを返す。
+    /// </summary>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void WorkflowOwner_ExecuteViewKeywordFilterUpdatedReusesCurrentProjectionWithoutReadingSource()
     {
@@ -3878,6 +4243,11 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(0, result.PresentationOnlyResult.State.ProjectedRows.Count);
     }
 
+    /// <summary>
+    /// 表示対象が進んだ古い面はstaleとし、最新対象版のrefreshを受理して実idleまで完了する。
+    /// </summary>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public async Task WorkflowOwner_ExecuteViewRequeuesLatestDisplayTargetAfterPresentationStale()
     {
@@ -3907,35 +4277,60 @@ public sealed class PlayHistoryReadModelTests
         var latestTarget = PlayHistoryDisplayTargetItem.FromTargetSet(
             new PlayHistoryDisplayTargetSet { Name = "latest-target" });
         owner.AdvanceDisplayTargetRevision(latestTarget.Identity);
-        using var refreshed = new ManualResetEventSlim();
+        var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PlayHistoryViewRequest? refreshRequest = null;
         owner.ConfigureViewRefreshScheduler(
             () => false,
             request =>
             {
                 refreshRequest = request;
-                refreshed.Set();
+                refreshed.TrySetResult();
             });
         owner.ConfigureViewExecution(CreateViewExecutionDependencies());
 
-        PlayHistoryViewExecutionResult result = owner.ExecuteView(
-            new PlayHistoryViewExecutionRequest(
-                MainViewUpdateMode.PlayHistorySelected,
-                MainViewUpdateMode.SortUpdated,
-                parameter: null,
-                Stopwatch.StartNew(),
-                active,
-                keywordFilter: string.Empty,
-                PlayHistoryDisplayTargetItem.All));
+        Task? idle = null;
+        Exception? testFailure = null;
+        try
+        {
+            PlayHistoryViewExecutionResult result = owner.ExecuteView(
+                new PlayHistoryViewExecutionRequest(
+                    MainViewUpdateMode.PlayHistorySelected,
+                    MainViewUpdateMode.SortUpdated,
+                    parameter: null,
+                    Stopwatch.StartNew(),
+                    active,
+                    keywordFilter: string.Empty,
+                    PlayHistoryDisplayTargetItem.All));
 
-        Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
-        refreshed.Wait();
-        await owner.WaitForRefreshQueuesIdleAsync();
-        Assert.IsNotNull(refreshRequest);
-        Assert.AreEqual(owner.DisplayTargetRevision, refreshRequest.DisplayTargetRevision);
-        Assert.AreEqual(latestTarget.Identity, owner.CurrentDisplayTargetIdentity);
+            Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
+            idle = owner.WaitForRefreshQueuesIdleAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(refreshed.Task, idle, "play-history.refresh-arrived");
+            await idle;
+            Assert.IsNotNull(refreshRequest);
+            Assert.AreEqual(owner.DisplayTargetRevision, refreshRequest.DisplayTargetRevision);
+            Assert.AreEqual(latestTarget.Identity, owner.CurrentDisplayTargetIdentity);
+        }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
+        finally
+        {
+            try { await (idle ?? owner.WaitForRefreshQueuesIdleAsync()); }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
+        }
     }
 
+    /// <summary>
+    /// 同期表示dispatchが利用不能なら現在要求でもstaleを返し、反映成功として扱わない。
+    /// </summary>
+    // 実shell構成または共有設定providerへの接続を使うため直列化する。
+    [DoNotParallelize]
     [TestMethod]
     public void WorkflowOwner_ExecuteViewReturnsStaleWhenSynchronousPresentationDispatchIsUnavailable()
     {
@@ -4028,6 +4423,9 @@ public sealed class PlayHistoryReadModelTests
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
     }
 
+    /// <summary>
+    /// 重なる候補更新を一投稿へ合流し、実行/終了中の破棄でidleへ戻す。空候補でも全件対象を保持する。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_OwnsDisplayTargetCatalogRefreshScheduling()
     {
@@ -4059,6 +4457,9 @@ public sealed class PlayHistoryReadModelTests
         StringAssert.Contains(owner.DescribeDisplayTargetCatalogRefresh(), "displayTargetsRequestedRevision=");
     }
 
+    /// <summary>
+    /// 設定した候補snapshot providerを一度呼び、返した表を選択肢へ反映する。別の読取り元へ迂回しない。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_RefreshDisplayTargetCatalogUsesConfiguredSnapshotProvider()
     {
@@ -4079,6 +4480,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(owner.DisplayTargets.Any(item => item.Kind == PlayHistoryDisplayTargetKind.Playlist && item.Table?.name == "Configured"));
     }
 
+    /// <summary>
+    /// 候補snapshotの取得失敗は現在の全件選択を維持し、設定presetの適用を先に進めない。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_RefreshDisplayTargetSetsFromSettingsSnapshotsBeforeMutation()
     {
@@ -4099,6 +4503,9 @@ public sealed class PlayHistoryReadModelTests
         Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, owner.SelectedDisplayTarget.Identity);
     }
 
+    /// <summary>
+    /// 不正preset JSONは既存の候補集合と選択識別を維持して失敗し、解析失敗を空設定へ置き換えない。
+    /// </summary>
     [TestMethod]
     public void WorkflowOwner_RefreshDisplayTargetSetsFromSettingsInvalidJsonPreservesState()
     {

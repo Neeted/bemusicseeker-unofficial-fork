@@ -17,6 +17,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// 実owner・mutation portから展開直後取消、準備後停止失敗、譜面なし、実展開先消失へ到達します。
     /// 未引渡し管理入力の回収終端まで受付を保持し、利用者元ZIPと未変更DBを保全し、取消・元例外・準備診断を解放後へ一度渡します。
     /// </summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [DataTestMethod]
     [DataRow("cancel")]
     [DataRow("stop_failure")]
@@ -152,6 +153,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>全失敗の必須日時警告と壊れZIP混在の抽出警告を、実処理が生成して受付解放後に一度表示します。正常独立対象の確定を警告で失敗へ変えません。</summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
+    // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]

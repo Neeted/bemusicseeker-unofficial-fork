@@ -15,7 +15,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionInlineDigestTests
 {
-    /// <summary>DB確定後に所持集合、MD5索引、リソース健全性、譜面情報通知を同じdigest差分で更新する。</summary>
+    /// <summary>
+    /// 実譜面を解析・保存した後、MD5・SHA-256変更を所持集合と導入済み索引へ通知前に公開し、以前の捕捉値を変更しない。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
     [TestMethod]
     public void BuildInlineChartInfo_DispatchesDigestMutationToOwnedAdjacentIndexes()
     {
@@ -109,7 +112,10 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
-    /// <summary>背景譜面を含む2回の導入後補完で、局所差分・索引のreadback・通知前のMD5/SHA-256解決を確認する。</summary>
+    /// <summary>
+    /// 背景16譜面の中で二件を順に実補完したとき、hash・導入済み・playlist索引を局所更新し、通知時に新hashを解決できる。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
     [DataTestMethod]
     [DataRow(16)]
     public void BuildInlineChartInfo_WarmDigestDeltaStaysLocalAcrossTwoOperations(int backgroundCount)
@@ -328,7 +334,10 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
-    /// <summary>SHA-256だけが変わる既存MD5では、主索引を再構築せずSHA参照と健全性だけを更新する。</summary>
+    /// <summary>
+    /// MD5が同じでSHA-256だけが更新される補完では、MD5所有数を保ってSHA参照と健全性の対象を更新する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
     [TestMethod]
     public void BuildInlineChartInfo_ShaOnlyChangeUpdatesShaLookupAndResourceHealthWithoutPrimaryLookupRebuild()
     {
@@ -393,7 +402,10 @@ public sealed class OwnedChartCollectionInlineDigestTests
         });
     }
 
-    /// <summary>実DB保存の失敗時はdigest差分、各索引、譜面情報、警告を一つも公開しない。</summary>
+    /// <summary>
+    /// 実DBの譜面情報保存が失敗したとき、DB行・digest差分・索引・譜面情報・通知を一つも公開しない。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・索引・通知を接続し、局所のdigest差分だけでは分からない公開順と失敗時の非公開を確認する。</remarks>
     [TestMethod]
     public void BuildInlineChartInfo_StorageFailureDoesNotPublishDigestIndexSessionIndexOrWarning()
     {
@@ -441,7 +453,7 @@ public sealed class OwnedChartCollectionInlineDigestTests
             Assert.IsTrue(initialLookup.ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
             Assert.IsTrue(InvokeCreateInstalledChartLookupSnapshot(library)
                 .ContainsPrimaryHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.song>().Count(row => row.path == chartPath));
             Assert.AreEqual(0, verify.Table<LR2SongDBExtended.chart_info>().Count());
         });

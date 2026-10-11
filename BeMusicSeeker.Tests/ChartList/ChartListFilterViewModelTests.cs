@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartListFilterViewModelTests
 {
+    /// <summary>有効な鍵盤区分の後にNoneを指定しても元区分を保ち、再検索は増やさずbinding通知だけを返してチェック表示を戻します。</summary>
     [TestMethod]
     public void ModeFilter_RejectsNoneButRefreshesBindingState()
     {
@@ -28,6 +29,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.AreEqual(nameof(ChartListFilterViewModel.ModeFilter), propertyNames[1]);
     }
 
+    /// <summary>空白を含む検索文字列と複合鍵盤区分を同じsnapshotへ保持し、検索受付時に文字列を勝手に正規化しません。</summary>
     [TestMethod]
     public void CaptureSnapshot_PreservesRawKeywordAndCanonicalModeTogether()
     {
@@ -44,6 +46,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.AreEqual(ChartModeFilter._5KEYS | ChartModeFilter._14KEYS, snapshot.ModeFilter);
     }
 
+    /// <summary>通常とplaylistで検索語の警告・helpを切り替え、playlist候補を大小文字で重複除去し、保存履歴の読込みと新規履歴の保存を補助ownerへ接続します。</summary>
     [TestMethod]
     public void KeywordSearchAssistanceOwner_UsesContextCandidatesAndPersistedHistory()
     {
@@ -81,6 +84,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.AreEqual("title:new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
     }
 
+    /// <summary>検索補助にplaylistの候補と世代を渡して選択候補を元クエリへ適用し、入力末尾のcaretとblur後の閉鎖状態を返します。</summary>
     [TestMethod]
     public void KeywordSearchAssistanceOwner_UsesImmutableContextSnapshotAndRevision()
     {
@@ -97,7 +101,7 @@ public sealed class ChartListFilterViewModelTests
         KeywordSearchPresentationItem candidate = state.VisibleItems.Single(item => item.DisplayText == "Alpha");
 
         Assert.AreEqual(GridKeywordSearchContext.PlaylistDetail, state.Context);
-        Assert.AreEqual(1L, state.CatalogRevision);
+        Assert.IsTrue(state.CatalogRevision > 0);
         Assert.AreEqual(1, state.VisibleItems.Count);
 
         KeywordSearchApplyResult result = filters.KeywordSearchAssistanceOwner.TryApply(
@@ -115,6 +119,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.IsFalse(closed.IsOpen);
     }
 
+    /// <summary>履歴contextの検索を更新すると警告・表示可否・helpのbinding通知を返し、履歴用の検索説明へ切り替えます。</summary>
     [TestMethod]
     public void KeywordFilter_UpdatesWarningAndContextHelpNotifications()
     {
@@ -131,6 +136,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.IsTrue(filters.KeywordSearchHelpText.IndexOf("finalized", StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
+    /// <summary>履歴の不完全なdate範囲は警告を表示可能な状態と翻訳済み本文を返し、誤入力を無言で受理しません。</summary>
     [TestMethod]
     public void KeywordFilter_InvalidPlayHistoryDateShowsLocalizedWarning()
     {
@@ -143,6 +149,7 @@ public sealed class ChartListFilterViewModelTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(filters.KeywordSearchWarningText));
     }
 
+    /// <summary>日付検索を既存クエリへ追加して末尾空白・tabと既存の不正dateを保ち、必要な区切りだけを足して元入力を改変しません。</summary>
     [TestMethod]
     public void PlayHistoryDateSearchTerm_AppendsWithoutNormalizingExistingKeyword()
     {

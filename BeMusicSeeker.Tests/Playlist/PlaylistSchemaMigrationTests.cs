@@ -11,11 +11,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>旧プレイリストDBの移行とバックアップ復元の保存互換・原子性を検証する。</summary>
+/// <remarks>専用SQLiteを新しい接続で読み、値だけでなく保存型・索引・他テーブルの不変を確認する。構造検査は既存DBの読取りと検索互換を担う。</remarks>
 [TestClass]
 public sealed class PlaylistSchemaMigrationTests
 {
-    /// <summary>数値風TEXT、空文字、空白、引用符、日本語、NULLとINTEGER/REALを実dump/restoreで往復し、新規読取り専用接続で値・SQLite型・所属と行集合を確認します。fr-FRからの一ケースだけ別行のmemoの埋込みNULとcommentの垂直TAB＋CRLFを独立したhex値とNULL/空文字の対照で確認し、途中の不正SQLでも旧三表・対象外を保ちます。</summary>
+    /// <summary>異なるカルチャーでdump・復元し、数値風TEXT・空白・引用符・日本語・NULLとINTEGER/REALを型ごと保持する。制御文字と途中SQL失敗時の旧3表・対象外保全も確認し、文字列損失・型変換・部分復元を検出する。</summary>
     [DataTestMethod]
+    // fr-FRからの復元はNUL・垂直TAB・CRLFも含む。en-USからは同じ保存型を別カルチャーで確認する。
     [DataRow("fr-FR", "ja-JP")]
     [DataRow("en-US", "fr-FR")]
     public void PlaylistDump_RoundTripPreservesValuesAndStorageTypesAcrossCultures(string dumpCulture, string restoreCulture)
@@ -23,6 +26,7 @@ public sealed class PlaylistSchemaMigrationTests
         string path = CreateEmptySongDbPath();
         CultureInfo previous = CultureInfo.CurrentCulture;
         bool hasNulMemo = dumpCulture == "fr-FR";
+        // 数値風TEXT・空文字・空白・多言語・SQL引用符・NULLを独立の期待値として往復する。
         string?[] values = ["1e3", "1.00", "1,000", "001", "", "   ", "日本語", "O'Brien", null];
         const long ticks = 638857728000000000;
         try
@@ -157,6 +161,7 @@ public sealed class PlaylistSchemaMigrationTests
         public string? Folder { get; set; }
     }
 
+    /// <summary>旧SHAなしschemaのDBでプレイリストを構築しても列・索引を変更しない。生成だけで既存DBを書き換える境界違反を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSPlaylist_Constructor_DoesNotMigrateLegacyPlaylistEntrySchema()
@@ -188,6 +193,7 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
+    /// <summary>明示schema整備で旧エントリ表へSHA列と検索・一意索引を追加する。SHA対応の移行漏れや旧一意条件の残存を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSPlaylist_EnsureSchema_MigratesLegacyPlaylistEntrySchema()
@@ -219,6 +225,7 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
+    /// <summary>schema整備は出力設定・外部テーブルmetadataの保存列とcourse表の検索・一意索引を用意する。保存項目の欠落とcourse所属の保存不能を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSPlaylist_EnsureSchema_AddsPlaylistMetadataAndCourseStorage()
@@ -252,6 +259,7 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
+    /// <summary>BMT出力列を持たない旧dumpを復元し、従来のsort・出力有効値と未設定basenameを補完する。旧バックアップの拒否や互換値の変更を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_RestoresLegacyDumpWithoutBmtColumns()
@@ -280,6 +288,7 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
+    /// <summary>空エントリのdumpを復元してもSHA列と検索・一意索引を保持する。復元時の表再作成による検索互換の消失を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_RestoresSha256Indexes()
@@ -311,6 +320,7 @@ public sealed class PlaylistSchemaMigrationTests
         }
     }
 
+    /// <summary>途中course INSERTをトリガーで失敗させ、liveの旧テーブルとDBの旧所属を維持して新世代の部分行を残さない。SQLステップ失敗時の部分公開・部分保存を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadPlaylistDump_StepFailureAfterPartialRowsPreservesPriorGeneration()

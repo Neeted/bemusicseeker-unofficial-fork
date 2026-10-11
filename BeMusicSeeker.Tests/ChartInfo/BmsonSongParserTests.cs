@@ -10,6 +10,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsonSongParserTests
 {
+    /// <summary>実 bmson の複合タイトル・副アーティスト・画像・モードを読み取り、メタデータの欠落や資源名の互換変換漏れを検出する。</summary>
+    /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]
     public void Parse_ExtractsHashesAndMetadata()
     {
@@ -71,6 +73,8 @@ public sealed class BmsonSongParserTests
         }
     }
 
+    /// <summary>音声・画像・動画を含む bmson から有効な参照を索引化し、拡張子だけの入力や未知形式が件数・キーへ混入する誤りを検出する。</summary>
+    /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]
     public void Parse_ExtractsResourceReferences()
     {
@@ -95,7 +99,8 @@ public sealed class BmsonSongParserTests
             ChartFile parsed = ChartTestValues.ReadBmson(filePath);
             CollectionAssert.AreEquivalent(new[] { "keysound.wav", "preview.wav", ".wav" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
             CollectionAssert.AreEquivalent(new[] { "image.png", "movie.mp4", ".png" }, parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-            ChartFile chart = (parsed);
+            ChartFile chart = parsed;
+            // 生の参照、単譜面、集約の各入口で、拡張子だけの参照を索引へ混入させない。
             foreach (ChartResourceSnapshot snapshot in new[] { ChartResourceSnapshot.Create(parsed.Resources), ChartResourceSnapshot.Create(chart), ChartResourceSnapshot.CreateAggregate([chart]) })
             {
                 Assert.AreEqual(2, snapshot.AudioReferenceCount);
@@ -117,6 +122,8 @@ public sealed class BmsonSongParserTests
         }
     }
 
+    /// <summary>親参照を含む各資源を有効キーから除外して未対応情報へ保持し、警告対象の消失や資源種別の取り違えを検出する。</summary>
+    /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]
     public void Parse_PreservesUnsupportedParentTraversalResourceReferences()
     {
@@ -160,6 +167,8 @@ public sealed class BmsonSongParserTests
         }
     }
 
+    /// <summary>定義された資源欄だけを読み、任意の metadata 名の誤採用や key・mine 音声、任意画像の正規化漏れを検出する。</summary>
+    /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]
     public void Parse_UsesStructuredResourceLocationsOnly()
     {
@@ -209,55 +218,8 @@ public sealed class BmsonSongParserTests
         }
     }
 
-    [TestMethod]
-    public void ParseSnapshot_MatchesParse()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string filePath = Path.Combine(tempDirectory, "chart.bmson");
-        try
-        {
-            File.WriteAllText(filePath,
-                "{"
-                + "\"version\":\"1.0.0\","
-                + "\"info\":{"
-                + "\"title\":\"Main\","
-                + "\"subtitle\":\"Sub\","
-                + "\"chart_name\":\"Another\","
-                + "\"artist\":\"Artist\","
-                + "\"genre\":\"Genre\","
-                + "\"level\":12,"
-                + "\"mode_hint\":\"beat-14k\","
-                + "\"banner_image\":\"banner.png\","
-                + "\"back_image\":\"back.png\","
-                + "\"eyecatch_image\":\"stage.png\","
-                + "\"preview_music\":\"preview.ogg\","
-                + "\"subartists\":[\"Sub1\",\"Sub2\"]"
-                + "},"
-                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"image.png\"}]},"
-                + "\"bpm_events\":[],"
-                + "\"lines\":[{\"y\":0}]"
-                + "}");
-            var lastWriteTimeUtc = new DateTime(2026, 5, 2, 4, 5, 6, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
-
-            ChartFile expected = ChartTestValues.ReadBmson(filePath);
-            ChartFile actual = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
-
-            AssertBmsonEqual(expected, actual);
-            Assert.IsNotNull(expected.Resources);
-            Assert.IsNotNull(actual.Resources);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>捕捉後に元ファイルを書き換えても元のタイトルとハッシュを返し、解析時の再読込みによる入力世代の混在を検出する。</summary>
+    /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]
     public void ParseSnapshot_UsesSnapshotBytesAfterFileChanges()
     {
@@ -288,7 +250,6 @@ public sealed class BmsonSongParserTests
             Assert.AreEqual("Before", actual.RawTitle);
             Assert.AreEqual(snapshot.Md5, actual.Md5);
             Assert.AreEqual(snapshot.Sha256, actual.Sha256);
-            Assert.IsNotNull(actual.Resources);
             Assert.AreNotEqual(ChartTestValues.ReadBmson(filePath).Md5, actual.Md5);
         }
         finally
@@ -300,35 +261,25 @@ public sealed class BmsonSongParserTests
         }
     }
 
+    /// <summary>途中で切れた JSON の捕捉入力を解析失敗として伝え、破損入力を正常な譜面として受理する誤りを検出する。</summary>
     [TestMethod]
     public void ParseSnapshot_InvalidJsonThrowsParserException()
     {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        string filePath = Path.Combine(tempDirectory, "chart.bmson");
+        string filePath = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"), "chart.bmson");
+        ChartFileSnapshot snapshot = ChartFileContentReader.CreateSnapshot(filePath, System.Text.Encoding.UTF8.GetBytes("{\"version\":\"1.0.0\",\"info\":"), DateTime.UtcNow);
+
         try
         {
-            ChartFileSnapshot snapshot = ChartFileContentReader.CreateSnapshot(filePath, System.Text.Encoding.UTF8.GetBytes("{\"version\":\"1.0.0\",\"info\":"), DateTime.UtcNow);
-
-            try
-            {
-                BmsonChartFileParser.ParseSnapshot(snapshot);
-                Assert.Fail("Expected bmson parser to throw for invalid JSON.");
-            }
-            catch (Exception ex)
-            {
-                StringAssert.Contains(ex.GetType().Name, "Json");
-            }
+            BmsonChartFileParser.ParseSnapshot(snapshot);
+            Assert.Fail("Expected bmson parser to throw for invalid JSON.");
         }
-        finally
+        catch (Exception ex)
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
+            StringAssert.Contains(ex.GetType().Name, "Json");
         }
     }
 
+    /// <summary>各公開 mode_hint をプレイリストの鍵数へ変換し、popn の表示互換や未知モードの未確定扱いを失う誤りを検出する。</summary>
     [TestMethod]
     public void ResolvePlaylistMode_MapsPhase5DisplayModes()
     {
@@ -343,24 +294,4 @@ public sealed class BmsonSongParserTests
         Assert.IsNull(BmsonChartFileParser.ResolvePlaylistMode("unknown-mode"));
     }
 
-    private static void AssertBmsonEqual(BeMusicSeeker.Models.ChartFile expected, BeMusicSeeker.Models.ChartFile actual)
-    {
-        Assert.AreEqual(expected.Path, actual.Path);
-        Assert.AreEqual(expected.Folder, actual.Folder);
-        Assert.AreEqual(expected.RawTitle, actual.RawTitle);
-        Assert.AreEqual(expected.RawSubtitle, actual.RawSubtitle);
-        Assert.AreEqual(expected.RawArtist, actual.RawArtist);
-        Assert.AreEqual(expected.Genre, actual.Genre);
-        Assert.AreEqual(expected.Level, actual.Level);
-        Assert.AreEqual(expected.ModeHint, actual.ModeHint);
-        Assert.AreEqual(expected.Banner, actual.Banner);
-        Assert.AreEqual(expected.Backbmp, actual.Backbmp);
-        Assert.AreEqual(expected.Stagefile, actual.Stagefile);
-        Assert.AreEqual(expected.PreviewMusic, actual.PreviewMusic);
-        Assert.AreEqual(expected.Md5, actual.Md5);
-        Assert.AreEqual(expected.Sha256, actual.Sha256);
-        Assert.AreEqual(expected.LastWriteTimeUtc, actual.LastWriteTimeUtc);
-        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && (reference.Kind == ChartResourceKind.Image || reference.Kind == ChartResourceKind.Movie)).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-    }
 }

@@ -13,23 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DirectoryResourceLookupCacheTests
 {
-    [TestMethod]
-    public void Entry_DoesNotExposeMutableHashArrayToAssemblyConsumers()
-    {
-        PropertyInfo[] assemblyVisibleMutableArrayProperties = typeof(DirectoryResourceLookupCache.Entry)
-            .GetProperties(BindingFlags.Instance | BindingFlags.NonPublic)
-            .Where(property => property.PropertyType == typeof(uint[]))
-            .Where(property => property.GetMethod?.IsAssembly == true
-                || property.GetMethod?.IsFamilyOrAssembly == true
-                || property.GetMethod?.IsFamilyAndAssembly == true)
-            .ToArray();
-
-        Assert.AreEqual(
-            0,
-            assemblyVisibleMutableArrayProperties.Length,
-            string.Join(", ", assemblyVisibleMutableArrayProperties.Select(property => property.Name)));
-    }
-
+    /// <summary>
+    /// 保証：未正規化の走査ハッシュは整列・重複除去し、正規化済み入力も三分類の値を欠落なく索引へ渡す。
+    /// </summary>
     [TestMethod]
     public void CreateFromScanResult_TrustsCanonicalArraysAndNormalizesUntrustedHashes()
     {
@@ -83,6 +69,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEqual(trustedHashes, trustedEntry.MovieRelativePathHashArray);
     }
 
+    /// <summary>
+    /// 保証：要求した音声ハッシュの逆引きを重複なく構築し、各ハッシュへ定義したフォルダだけを返す。
+    /// </summary>
     [TestMethod]
     public void EnsureAudioRelativeDirectoriesByHashes_BuildsCategoryReverseLookup()
     {
@@ -96,6 +85,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.AreEqual(0, cache.LazyHashCacheEntryCount);
     }
 
+    /// <summary>
+    /// 保証：追加フォルダを計算済み欠落と全構築の逆引きへ直接反映し、追加後も古い空候補や再構築待ちを残さない。
+    /// </summary>
     [TestMethod]
     public void AddDir_UpdatesCachedMissAndFullCategoryReverseLookupIncrementally()
     {
@@ -126,6 +118,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\D" }, cache.GetDirectoriesByAudioRelativeHash(100u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：全構築済みの削除は自己固有のハッシュを消し、共有ハッシュでは残るフォルダだけを維持して再構築を要求しない。
+    /// </summary>
     [TestMethod]
     public void RemoveDir_AfterFullCategoryReverseLookup_RemovesSharedAndOwnedHashesIncrementally()
     {
@@ -140,6 +135,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\B" }, cache.GetDirectoriesByAudioRelativeHash(3u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：フォルダ置換は全構築済み候補を新パスへ変え、旧フォルダ名や遅延再構築を残さない。
+    /// </summary>
     [TestMethod]
     public void ReplaceDir_AfterFullCategoryReverseLookup_ReplacesCachedDirectoryPath()
     {
@@ -154,6 +152,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { "C:\\Songs\\RenamedA", "C:\\Songs\\B" }, cache.GetDirectoriesByAudioRelativeHash(2u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：複数フォルダの一括置換は全対象の項目と共有候補を新パスへそろえ、未反映の旧パスを残さない。
+    /// </summary>
     [TestMethod]
     public void ReplaceDirsWithResult_AfterFullCategoryReverseLookup_RewritesDirectoryPathsInBulk()
     {
@@ -178,6 +179,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsNotNull(cache.GetEntryOrNull("C:\\Renamed\\B"));
     }
 
+    /// <summary>
+    /// 保証：移動は対象項目の音声・画像・動画ハッシュbucketだけを更新し、無関係な逆引きの全列挙・書込みを行わない。
+    /// </summary>
     [TestMethod]
     public void ReplaceDirsWithResult_RewritesOnlyBucketsForMovedEntryHashes()
     {
@@ -226,6 +230,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEqual(new[] { first }, cache.GetDirectoriesByAudioRelativeHash(11u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：移動先の既存フォルダも同時移動する要求では先に退避して両方の対応を保持し、連鎖置換で内容を上書きしない。
+    /// </summary>
     [TestMethod]
     public void ReplaceDirsWithResult_MovesExistingDestinationAwayBeforeApplyingReplacement()
     {
@@ -248,6 +255,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsNotNull(cache.GetEntryOrNull("C:\\Songs\\C"));
     }
 
+    /// <summary>
+    /// 保証：別フォルダへの上書き移動では旧逆引きを失効して再構築を要求し、上書きされたリソース候補を残さない。
+    /// </summary>
     [TestMethod]
     public void ReplaceDirsWithResult_ExternalOverwriteInvalidatesCachedReverseLookup()
     {
@@ -269,6 +279,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsNotNull(cache.GetEntryOrNull("C:\\Songs\\B"));
     }
 
+    /// <summary>
+    /// 保証：階層付き音声・画像・動画を追加・削除・改名しても、全分類の逆引きから古いフォルダを除く。
+    /// </summary>
     [TestMethod]
     public void RelativeReverseLookup_AddRemoveReplace_DoesNotLeaveStaleDirectories()
     {
@@ -296,6 +309,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { dirB, dirRenamed }, cache.GetDirectoriesByMovieRelativeHash(movieRelativeHash).ToArray());
     }
 
+    /// <summary>
+    /// 保証：同じ走査入力からの索引作成と単独追加は全分類で同じ項目を作り、入口別の分類欠落を起こさない。
+    /// </summary>
     [TestMethod]
     public void CreateFromScanResult_AndAddDirFromSameScanResult_ProduceEquivalentCategoryEntries()
     {
@@ -327,6 +343,9 @@ public sealed class DirectoryResourceLookupCacheTests
         AssertEntriesEqual(fromCreate.GetEntryOrNull(chartDir), fromAdd.GetEntryOrNull(chartDir));
     }
 
+    /// <summary>
+    /// 保証：音声・画像・動画それぞれの指定ハッシュから、分類に対応するフォルダ候補を返す。
+    /// </summary>
     [TestMethod]
     public void EnsureRelativeDirectoriesByHashes_BuildsCategorySpecificReverseLookups()
     {
@@ -348,6 +367,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEquivalent(new[] { dirB }, cache.GetDirectoriesByMovieRelativeHash(movieRelativeHash).ToArray());
     }
 
+    /// <summary>
+    /// 保証：変更用分岐で移動・削除・追加しても元の項目と全逆引きを保持し、新世代だけへ実変更を反映する。
+    /// </summary>
     [TestMethod]
     public void CloneForMutation_CopiesEntriesAndFullReverseLookupIndependently()
     {
@@ -375,6 +397,9 @@ public sealed class DirectoryResourceLookupCacheTests
             clone.GetDirectoriesByAudioRelativeHash(4u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：旧snapshotの遅延逆引き計算中に所有者が追加しても新旧の候補を分離し、旧世代へ追加フォルダを混入させない。
+    /// </summary>
     [TestMethod]
     public void LazyReverseLookupOverlappingOwnerMutation_PreservesBothGenerations()
     {
@@ -409,6 +434,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.AreNotSame(oldSnapshot.DirectoryLookupCache, observedReceipt.Snapshot.DirectoryLookupCache);
     }
 
+    /// <summary>
+    /// 保証：公開ハッシュ配列の書換えや集合への追加では索引の原本を変更できず、逆引きも共有可変配列を返さない。
+    /// </summary>
     [TestMethod]
     public void PublishedEntryAndReverseLookupSurfaces_DoNotExposeSharedMutablePayloads()
     {
@@ -423,6 +451,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsFalse(cache.GetDirectoriesByAudioRelativeHash(2u) is string[]);
     }
 
+    /// <summary>
+    /// 保証：リソース零件の追加は項目格納だけを変更し、基底項目の列挙や逆引き書込みなしに新世代へ反映する。
+    /// </summary>
     [TestMethod]
     public void CloneForMutation_EmptyResourceEntryChangesOnlyTheEntryStore()
     {
@@ -454,6 +485,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.AreEqual(0, entryVisits.Count);
     }
 
+    /// <summary>
+    /// 保証：音声・画像・動画の各単独変更は該当分類だけの逆引きを更新し、旧世代と他分類の候補を保持する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(1)]
@@ -486,6 +520,9 @@ public sealed class DirectoryResourceLookupCacheTests
         CollectionAssert.AreEqual(new[] { added }, GetCandidates(next, category, 41u));
     }
 
+    /// <summary>
+    /// 保証：自己所有だけの変化は項目へ反映し、候補列が同じなら逆引きを書き換えず旧世代の自己所有値を維持する。
+    /// </summary>
     [TestMethod]
     public void SelfOwnedOnlyChange_PreservesEntryChangeWithoutRewritingIdenticalCandidates()
     {
@@ -510,8 +547,7 @@ public sealed class DirectoryResourceLookupCacheTests
     }
 
     /// <summary>
-    /// Characterizes the retained candidate-order contract: a SelfOwned-only replacement
-    /// still moves the directory to the tail, but writes nothing if it was already last.
+    /// 保証：自己所有だけの置換でも候補を除去後に末尾へ追加し、既に末尾の場合だけ逆引き無変更として旧候補順を保持する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -562,6 +598,9 @@ public sealed class DirectoryResourceLookupCacheTests
         AssertEntriesEqual(original.GetEntryOrNull(unchangedDirectory), next.GetEntryOrNull(unchangedDirectory));
     }
 
+    /// <summary>
+    /// 保証：ディレクトリのリソース置換では共通候補も除去後追加の順へ変え、新しいハッシュだけでなく既存候補順を反映する。
+    /// </summary>
     [TestMethod]
     public void DirectoryReplacement_PreservesRemoveThenAppendCandidateOrder()
     {
@@ -577,6 +616,9 @@ public sealed class DirectoryResourceLookupCacheTests
             next.GetDirectoriesByAudioRelativeHash(4u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：遅延逆引きは計算済み欠落だけを追加時に更新し、未計算ハッシュを空候補として保存せず新旧世代を分離する。
+    /// </summary>
     [TestMethod]
     public void LazyMutation_UpdatesCachedMissButDoesNotInventAnUncachedEmptyResult()
     {
@@ -600,6 +642,9 @@ public sealed class DirectoryResourceLookupCacheTests
         Assert.IsFalse(next.IsFullReverseLookupBuilt);
     }
 
+    /// <summary>
+    /// 保証：管理走査・native入力の両方で変更列の各世代が独立した所属事実へ一致し、共有・固有・零ハッシュの誤反映を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]

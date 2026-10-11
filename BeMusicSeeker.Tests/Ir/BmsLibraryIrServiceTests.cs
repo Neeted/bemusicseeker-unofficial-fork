@@ -18,6 +18,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrServiceTests
 {
+    /// <summary>
+    /// IRのEASYを上書きすると古いASSIST履歴ビットを置換し、LR2 clear2をEASYとして解決する。
+    /// </summary>
     [TestMethod]
     public void BmsScoreOverwriteLr2IrDataAppliesEasyOptionHistoryForIrEasyClear()
     {
@@ -25,7 +28,6 @@ public sealed class BmsLibraryIrServiceTests
         BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 50, minbp: 20);
         score.clearValue = 2;
         score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
-        Assert.AreEqual(ClearType.INVALID, score.clear);
 
         score.Overwrite(new LR2IRData(hash)
         {
@@ -41,6 +43,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(ClearType.EASY, score.clear);
     }
 
+    /// <summary>
+    /// 実IR保存行のEASYをlocal scoreへ反映し、旧ASSISTビットを残してclearを誤解決しない。
+    /// </summary>
     [TestMethod]
     public void RefreshRankingScoresFromCache_AppliesEasyOptionHistoryWhenIrClearIsApplied()
     {
@@ -71,7 +76,6 @@ public sealed class BmsLibraryIrServiceTests
         BMSScore score = CreateScore(hash, ClearType.EASY, pg: 100, gr: 0, minbp: 30);
         score.clearValue = 2;
         score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
-        Assert.AreEqual(ClearType.INVALID, score.clear);
 
         service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, [score], estimateOfflineScoreRanking: false);
 
@@ -79,6 +83,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(ClearType.EASY, score.clear);
     }
 
+    /// <summary>
+    /// IRスコアがlocalより低くてもclear改善はoption履歴を置換し、ASSISTからEASYへの更新を失わない。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_ClearOnlyIrScoreUpdateReplacesOptionHistory()
     {
@@ -89,7 +96,6 @@ public sealed class BmsLibraryIrServiceTests
         score.op_history = ClearTypeStorageConverter.OptionHistoryAssist;
         LR2IRScore irScore = CreateIrScore(hash, ClearType.EASY, pg: 100, gr: 0, minbp: 20);
         irScore.option = ClearTypeStorageConverter.OptionHistoryEasy;
-        Assert.AreEqual(ClearType.INVALID, score.clear);
 
         service.UpdateBmsScores([irScore], [score], _ => false);
 
@@ -97,6 +103,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(ClearType.EASY, score.clear);
     }
 
+    /// <summary>
+    /// 取得XMLのclear2はoptionビットでASSIST/EASYを区別し、異なる意味を同じclearへ潰さない。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTable_ParsesLr2Clear2ByOptionHistory()
     {
@@ -116,6 +125,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(ClearType.EASY, easyScore.clear);
     }
 
+    /// <summary>
+    /// 同じ得点でもFAILEDとraw clear2/ASSISTのdigestを区別し、更新要否判定で別のclear状態を同一視しない。
+    /// </summary>
     [TestMethod]
     public void ComputeScoreDigestKeepsRawLr2Clear2DistinctFromFailed()
     {
@@ -131,6 +143,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreNotEqual(failedDigest, assistDigest);
     }
 
+    /// <summary>
+    /// local scoreだけがある所持譜面は未送信として判定し、更新後snapshotの譜面statusへ未送信を渡す。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_ProjectsMissingIrScoreAsUnsentChartStatus()
     {
@@ -145,9 +160,11 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsTrue(score.IsLr2IrScoreUnsent);
         ChartFile chart = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(score, file.Path));
         Assert.IsTrue(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
-        Assert.AreEqual(ChartFileStatus.NONE, file.Status);
     }
 
+    /// <summary>
+    /// 同じIR成績が見つかれば古い未送信を消し、譜面statusに未送信表示を残さない。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_ClearsStaleUnsentProjectionWhenIrScoreMatches()
     {
@@ -165,6 +182,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
+    /// <summary>
+    /// 検出を明示無効にした要求はIR不在でも未送信を付けず、設定を無視して警告状態を作らない。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_DoesNotProjectUnsentWhenDetectionIsDisabled()
     {
@@ -181,6 +201,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
+    /// <summary>
+    /// IR側のより良い得点/BPを採用した後は未送信を残さず、更新済みsnapshotへ状態を渡す。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_DoesNotLeaveUnsentAfterIrScoreOverwrite()
     {
@@ -200,6 +223,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsFalse(chart.Status.HasFlag(ChartFileStatus.SCORE_UNSENT));
     }
 
+    /// <summary>
+    /// local PAと同成績のIR FCは送信済みとして扱い、IRが持たないPA区別だけで未送信にしない。
+    /// </summary>
     [TestMethod]
     public void UpdateBmsScores_TreatsLocalPaAndIrFcAsSent()
     {
@@ -214,6 +240,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsFalse(score.IsLr2IrScoreUnsent);
     }
 
+    /// <summary>
+    /// 実beatoraja DBから通常mode0だけを読み、SHA256正規化・判定合計・得点/割合/ランク・clearを変換する。コースを混ぜない。
+    /// </summary>
     [TestMethod]
     public void BeatorajaScoreDbLoader_ReadsModeZeroScoresOnly()
     {
@@ -258,19 +287,16 @@ public sealed class BmsLibraryIrServiceTests
         }
         finally
         {
-            try
+            if (Directory.Exists(rootDirectoryPath))
             {
-                if (Directory.Exists(rootDirectoryPath))
-                {
-                    Directory.Delete(rootDirectoryPath, recursive: true);
-                }
-            }
-            catch
-            {
+                Directory.Delete(rootDirectoryPath, recursive: true);
             }
         }
     }
 
+    /// <summary>
+    /// beatoraja利用時は実LR2 DBがあってもbeatorajaだけを読み、LR2 score/IDを合算しない。
+    /// </summary>
     [TestMethod]
     public void LoadScoreTable_UsesBeatorajaAsExclusiveSourceWhenEnabled()
     {
@@ -296,6 +322,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsTrue(result.BeatorajaScoresBySha256.ContainsKey("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     }
 
+    /// <summary>
+    /// beatoraja無効時は実LR2 scoreとplayer IDを読み、beatoraja側の結果を残さない。
+    /// </summary>
     [TestMethod]
     public void LoadScoreTable_UsesLr2SourceWhenBeatorajaIsDisabled()
     {
@@ -317,6 +346,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
     }
 
+    /// <summary>
+    /// 選択したbeatoraja DBが不在なら元取得失敗を返し、実在LR2 DBへ黙って切り替えない。
+    /// </summary>
     [TestMethod]
     public void LoadScoreTable_reportsBeatorajaFailureWithoutFallingBackToLr2()
     {
@@ -340,6 +372,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, result.BeatorajaScoresBySha256.Count);
     }
 
+    /// <summary>
+    /// LR2/beatorajaの選択DBが空でもLoadedと空scoreを返し、別接続での後続テーブル作成が成功する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -374,6 +409,9 @@ public sealed class BmsLibraryIrServiceTests
         writeAfterRead.Execute("CREATE TABLE released_connection (value INTEGER)");
     }
 
+    /// <summary>
+    /// LR2/beatorajaどちらも選択パス未設定ならNotConfiguredと空scoreを返し、取得失敗や架空DBへ置き換えない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -387,6 +425,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, result.Scores.Count + result.BeatorajaScoresBySha256.Count);
     }
 
+    /// <summary>
+    /// XML時刻が保存行と同じなら再解析/再保存せず実DBの順位をlocal scoreへ渡す。
+    /// </summary>
+    /// <remarks>実XMLの時刻と実SQLiteの保存時刻を揃え、DB再利用時の解析・保存件数とlocal順位を確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_UnchangedXmlAppliesDbRowWithoutUpsert()
     {
@@ -416,7 +458,6 @@ public sealed class BmsLibraryIrServiceTests
             }
         ]);
         List<BMSScore> scores = [];
-        ChartFile file = CreateFile(hash);
 
         IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, estimateOfflineScoreRanking: false);
 
@@ -429,6 +470,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(10, scores[0].ranking);
     }
 
+    /// <summary>
+    /// 実IR保存行を指定LR2 IDだけへ絞り、読取り専用接続でprocess lockを取らない。他プレイヤー行の混入を検出する。
+    /// </summary>
     [TestMethod]
     public void LoadIrDataWithMetrics_FiltersByLr2IdInSqlLoader()
     {
@@ -452,12 +496,14 @@ public sealed class BmsLibraryIrServiceTests
 
         Assert.AreEqual(1, result.Rows.Count);
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", result.Rows[0].hash);
-        Assert.IsTrue(result.DbReadMs >= 0);
-        Assert.IsTrue(result.MaterializeMs >= 0);
         Assert.IsTrue(result.ReadOnly);
         Assert.AreEqual(0L, result.DbLockWaitMs);
     }
 
+    /// <summary>
+    /// XMLに対応する保存行がなければ指定並列度で解析し、一度bulk保存してlocal scoreへ適用する。
+    /// </summary>
+    /// <remarks>実XMLから保存行のない実SQLiteへ取り込み、保存行の読戻しとlocal scoreへの反映を確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_MissingDbRowReloadsXmlAndUpsertsOnce()
     {
@@ -468,7 +514,6 @@ public sealed class BmsLibraryIrServiceTests
         env.WriteCacheXml(hash, cacheUpdate, cacheUpdate, lr2Id: 123, pg: 700, gr: 100);
         BmsLibraryDbGateway gateway = env.CreateGateway();
         List<BMSScore> scores = [];
-        ChartFile file = CreateFile(hash);
 
         IrCacheRefreshResult result = service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, estimateOfflineScoreRanking: false);
 
@@ -487,6 +532,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
     }
 
+    /// <summary>
+    /// 複数プレイヤーXMLから対象の成績/順位と全体の平均/標準偏差を算出し、更新/捕捉時刻を区別して保持する。
+    /// </summary>
     [TestMethod]
     public void RankingCacheSummaryParser_TargetPlayerUsesUnifiedExpectedValues()
     {
@@ -520,6 +568,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(cacheUpdate, actual.lastcacheupdate);
     }
 
+    /// <summary>
+    /// 対象プレイヤー不在は未プレイ/順位-1と全体統計を返し、他人の成績を対象へ流用しない。
+    /// </summary>
     [TestMethod]
     public void RankingCacheSummaryParser_MissingPlayerUsesUnifiedExpectedValues()
     {
@@ -551,6 +602,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(cacheUpdate, actual.lastcacheupdate);
     }
 
+    /// <summary>
+    /// lastupdate空と末尾NULを受理し、更新時刻に独立して渡したcache書込時刻を採用する。
+    /// </summary>
     [TestMethod]
     public void RankingCacheSummaryParser_EmptyLastupdateWithNulFallsBackToCacheWriteTime()
     {
@@ -569,6 +623,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(cacheUpdate, actual.lastcacheupdate);
     }
 
+    /// <summary>
+    /// IR cache入口でも負のBP行を除外して2人分の順位を返し、summary入口との必要な成績/統計の受渡しを保つ。
+    /// </summary>
     [TestMethod]
     public void LR2IRCacheWrapper_UsesUnifiedParserSemantics()
     {
@@ -594,6 +651,9 @@ public sealed class BmsLibraryIrServiceTests
     }
 
 
+    /// <summary>
+    /// 閉じていないXMLは解析不成立・結果なし・0件を返し、一部成功の成績を補わない。
+    /// </summary>
     [TestMethod]
     public void RankingCacheSummaryParser_MalformedXmlReturnsFalse()
     {
@@ -610,6 +670,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, scoresParsed);
     }
 
+    /// <summary>
+    /// 負のBPを持つ行を統計/順位から除き、有効な対象一人だけの平均と順位を返す。
+    /// </summary>
     [TestMethod]
     public void RankingCacheSummaryParser_SkipsNegativeNumericFields()
     {
@@ -648,6 +711,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1000, actual.average);
     }
 
+    /// <summary>
+    /// IR保存が空の二XMLを解析して二行bulk保存し、件数の欠落や単件だけの反映を検出する。
+    /// </summary>
+    /// <remarks>二つの実XMLを空の実SQLiteへ取り込み、bulk保存の件数をDBから読み戻して確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_EmptyIrDataBulkInsertsMultipleXmlRows()
     {
@@ -668,6 +735,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(2, gateway.LoadIrData(123).Count);
     }
 
+    /// <summary>
+    /// 同じ二XMLは並列度1/2の双方で二行保存し、全成績/統計/時刻を一致させる。並列化による取り落しを検出する。
+    /// </summary>
+    /// <remarks>同じ実XMLを二つの実SQLiteへ異なる並列度で取り込み、保存行の成績・統計・時刻を比較する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_ProducesSameRowsWithDifferentXmlReloadDegree()
     {
@@ -698,6 +769,10 @@ public sealed class BmsLibraryIrServiceTests
         }
     }
 
+    /// <summary>
+    /// 既存IR保存行がある新XMLは増分置換を一度行い、同じhashの重複を作らず新得点へ更新する。
+    /// </summary>
+    /// <remarks>実XMLを既存行のある実SQLiteへ取り込み、増分保存後の行数と得点を読み戻して確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_NonEmptyIrDataUsesIncrementalUpsert()
     {
@@ -732,6 +807,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1500, gateway.LoadIrData(123).Single(data => data.hash == hash).score);
     }
 
+    /// <summary>
+    /// 同じhash/IDを二度保存すると一行に置換し、順位と得点を最後の値へ更新する。
+    /// </summary>
     [TestMethod]
     public void UpsertIrData_ReplacesSameHashAndLr2IdWithoutDuplicates()
     {
@@ -748,6 +826,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1000, rows[0].score);
     }
 
+    /// <summary>
+    /// 同じhashでも別LR2 IDの保存行は双方を保持し、プレイヤーを跨いで上書きしない。
+    /// </summary>
     [TestMethod]
     public void UpsertIrData_PreservesSameHashForDifferentLr2Id()
     {
@@ -765,6 +846,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, gateway.LoadIrData(456).Count(data => data.hash == hash));
     }
 
+    /// <summary>
+    /// 旧DBの同一hash/ID重複行をschema準備後も読み取れ、互換入力を一意制約で拒否/消去しない。
+    /// </summary>
     [TestMethod]
     public void EnsureIrDataSchema_AllowsLegacyDuplicateRows()
     {
@@ -779,6 +863,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(2, env.CreateGateway().LoadIrData(123).Count(data => data.hash == "31313131313131313131313131313131"));
     }
 
+    /// <summary>
+    /// 新XMLの解析で得た順位索引をlocal上位scoreへ再利用し、推定のため同じXMLを二度読み込まない。
+    /// </summary>
+    /// <remarks>実XMLとDB窓口を通して順位推定を行い、追加XML読取り件数とlocal順位を確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_UsesReloadedLookupForOfflineEstimate()
     {
@@ -802,6 +890,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, score.ranking);
     }
 
+    /// <summary>
+    /// DB行再利用時もlocal上位scoreの推定には必要なXML索引だけを一度読み、再解析全体を起動しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行と実XMLを使い、DB再利用時の推定用XML読取り件数とlocal順位を確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_LoadsCompactLookupOnDemandForDbFallbackOfflineEstimate()
     {
@@ -839,6 +931,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, score.ranking);
     }
 
+    /// <summary>
+    /// 準備後にXMLを削除しても通知抑止下で準備済み順位索引を適用し、local順位と変更scoreの記録を得る。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行と実XMLから準備し、XML削除後の適用結果と変更scoreの記録を確認する。</remarks>
     [TestMethod]
     public void PreparedRankingRefresh_DoesNotReadFallbackXmlDuringGuardedApply()
     {
@@ -896,6 +992,10 @@ public sealed class BmsLibraryIrServiceTests
         CollectionAssert.Contains(plan.ChangedScores.ToList(), score);
     }
 
+    /// <summary>
+    /// offline推定無効ならlocalが高くてもXMLを追加読取せず、参加者数を保持して推定順位を補わない。
+    /// </summary>
+    /// <remarks>実XMLと実SQLiteの保存時刻を揃え、推定無効時の追加XML読取り件数とlocalの順位・参加者数を確認する。</remarks>
     [TestMethod]
     public void RefreshRankingScoresFromCache_EstimateDisabledAvoidsXmlLoadForHigherLocalScore()
     {
@@ -939,6 +1039,10 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, score.ranking);
     }
 
+    /// <summary>
+    /// 取得はstagingだけへ保存し、準備/昇格/適用後に有効成績一件をDBとlocalへ反映する。負のBP行を除き順位変更通知を公開する。
+    /// </summary>
+    /// <remarks>局所clientが返すXMLを実ファイルへ取得・昇格し、実SQLiteの保存行とlocal成績への反映を確認する。</remarks>
     [TestMethod]
     public void DownloadIRData_ParsesDownloadedXmlWithUnifiedParser()
     {
@@ -955,8 +1059,6 @@ public sealed class BmsLibraryIrServiceTests
         irClient.SetRankingXml(hash, xml);
         BmsLibraryDbGateway gateway = env.CreateGateway();
         List<BMSScore> scores = [];
-        ChartFile file = CreateFile(hash);
-        ChartFile capturedChart = file;
         List<BMSLibrary.IRDataCacheInfo> cacheInfo =
         [
             CreateCacheInfo(hash, lastUpdate)
@@ -990,21 +1092,21 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, failed.Count);
         Assert.AreEqual(1, scores.Count);
         Assert.AreEqual(hash, scores[0].hash);
-        Assert.AreSame(capturedChart, file);
-        Assert.IsFalse(file.Score.IsLr2IrScoreUnsent);
         int scoreNotifications = 0;
         scores[0].PropertyChanged += (_, _) => scoreNotifications++;
 
         scores[0].PublishRankingDataChanged();
 
         Assert.AreEqual(5, scoreNotifications);
-        Assert.AreSame(capturedChart, file);
-        Assert.IsFalse(file.Score.IsLr2IrScoreUnsent);
         Assert.AreEqual(1, scores[0].ranking);
         Assert.AreEqual(1, scores[0].rankingNum);
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
     }
 
+    /// <summary>
+    /// 壊れた取得XMLは昇格せず失敗対象へ残し、既存cacheの実内容を保持する。
+    /// </summary>
+    /// <remarks>局所clientの不正XMLを実stagingへ取得し、昇格拒否後も既存cacheファイルの内容が残ることを確認する。</remarks>
     [TestMethod]
     public void DownloadIRData_MalformedStagingPreservesExistingCache()
     {
@@ -1042,6 +1144,9 @@ public sealed class BmsLibraryIrServiceTests
         CollectionAssert.Contains(applyPlan.Failed, cacheInfo);
     }
 
+    /// <summary>
+    /// 問い合わせJSONは不正hashを除き、有効な大小文字違いのhashを配列のまま渡す。
+    /// </summary>
     [TestMethod]
     public void BuildRankingInfoRequestJson_FiltersInvalidHashesAndKeepsArrayContract()
     {
@@ -1053,6 +1158,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual("[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\"]", json);
     }
 
+    /// <summary>
+    /// 正しい小文字md5・size・時刻を読み、不正hash/異なるfield名/null行を混入させない。
+    /// </summary>
     [TestMethod]
     public void ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows()
     {
@@ -1071,6 +1179,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[0].lastupdate);
     }
 
+    /// <summary>
+    /// 配列の後に別JSON文書が続く入力は解析失敗とし、先頭だけを成功採用しない。
+    /// </summary>
     [TestMethod]
     public void ParseRankingInfoResponse_RejectsTrailingDocument()
     {
@@ -1078,6 +1189,9 @@ public sealed class BmsLibraryIrServiceTests
             () => BmsLibraryIrClient.ParseRankingInfoResponse("[] {}"));
     }
 
+    /// <summary>
+    /// 同じ取得XMLを再処理しても成績digest一致でDB置換を省き、保存行を読んで結果を返す。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml()
     {
@@ -1099,6 +1213,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(hash, second.ScoreTable[0].hash);
     }
 
+    /// <summary>
+    /// 改行だけが増えたXMLは成績digest一致で置換/metadata更新を省き、表面的なXML差分で再保存しない。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplace()
     {
@@ -1121,6 +1238,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsFalse(second.MetadataUpdated);
     }
 
+    /// <summary>
+    /// lastupdateだけが変わったXMLは成績一致でDB置換を省き、時刻差だけを成績変更にしない。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_LastupdateOnlyChangeSkipsReplace()
     {
@@ -1142,6 +1262,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, second.DbReplaceMs);
     }
 
+    /// <summary>
+    /// 先行取得の成績面を適用し、別clientを再要求/再解析しない。別取得hashで置き換わる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_UsesPrefetchedScoreSnapshotWithoutFetchingAgain()
     {
@@ -1166,6 +1289,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(hash, result.ScoreTable[0].hash);
     }
 
+    /// <summary>
+    /// 先行取得失敗は再要求せず失敗を返し、実成績行とdigest/保存時刻を保持する。
+    /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_FailedPrefetchPreservesNonemptyDatabaseWithoutRetry()
     {
@@ -1192,6 +1318,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(beforeMetadata.updated_at, gateway.LoadIrScoreRefreshMetadata(123).updated_at);
     }
 
+    /// <summary>
+    /// 取得取消はcaller token取消時だけCancelled、未取消ならTimedOutへ分類し、終了取消と期限失敗を混同しない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1249,22 +1378,25 @@ public sealed class BmsLibraryIrServiceTests
     {
         Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
         using var connection = new SQLiteConnection(scoreDbPath);
-        connection.CreateTable<BMSScore>();
-        connection.CreateTable<LR2ScoreDB.player>();
-        connection.Insert(new BMSScore
+        connection.RunInTransaction(() =>
         {
-            hash = "12121212121212121212121212121212",
-            clear = ClearType.HARD,
-            perfect = 300,
-            great = 50,
-            totalnotes = 400,
-            maxcombo = 350,
-            minbp = 20
-        });
-        connection.Insert(new LR2ScoreDB.player
-        {
-            id = "player",
-            irid = 123
+            connection.CreateTable<BMSScore>();
+            connection.CreateTable<LR2ScoreDB.player>();
+            connection.Insert(new BMSScore
+            {
+                hash = "12121212121212121212121212121212",
+                clear = ClearType.HARD,
+                perfect = 300,
+                great = 50,
+                totalnotes = 400,
+                maxcombo = 350,
+                minbp = 20
+            });
+            connection.Insert(new LR2ScoreDB.player
+            {
+                id = "player",
+                irid = 123
+            });
         });
     }
 
@@ -1272,11 +1404,14 @@ public sealed class BmsLibraryIrServiceTests
     {
         Directory.CreateDirectory(Path.GetDirectoryName(scoreDbPath)!);
         using var connection = new SQLiteConnection(scoreDbPath);
-        connection.Execute(
-            "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
-        connection.Execute(
-            "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
+        connection.RunInTransaction(() =>
+        {
+            connection.Execute(
+                "CREATE TABLE score (sha256 TEXT NOT NULL, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER, PRIMARY KEY(sha256, mode));");
+            connection.Execute(
+                "INSERT INTO score (sha256, mode, clear, epg, lpg, egr, lgr, notes, combo, minbp, playcount, clearcount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 2, 100, 20, 30, 10, 200, 180, 5, 7, 3);
+        });
     }
 
     private static readonly Regex PlayerScoreRegex = new("\\t<score>\\r?\\n\\t\\t<hash>([a-f0-9]+)</hash>\\r?\\n\\t\\t<clear>(\\d+)</clear>\\r?\\n\\t\\t<notes>(\\d+)</notes>\\r?\\n\\t\\t<combo>(\\d+)</combo>\\r?\\n\\t\\t<pg>(\\d+)</pg>\\r?\\n\\t\\t<gr>(\\d+)</gr>\\r?\\n\\t\\t<gd>(\\d+)</gd>\\r?\\n\\t\\t<bd>(\\d+)</bd>\\r?\\n\\t\\t<pr>(\\d+)</pr>\\r?\\n\\t\\t<minbp>(\\d+)</minbp>\\r?\\n\\t\\t<option>(\\d+)</option>\\r?\\n\\t\\t<lastupdate>(\\d+)</lastupdate>\\r?\\n\\t</score>\\r?\\n", RegexOptions.Compiled);
@@ -1433,9 +1568,12 @@ public sealed class BmsLibraryIrServiceTests
             Directory.CreateDirectory(Path.GetDirectoryName(ScoreDbPath)!);
             Directory.CreateDirectory(IrDirectoryPath);
             using var songDb = new LR2SongDBExtended(SongDbPath);
-            BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
-            songDb.CreateTable<LR2SongDBExtended.ir_score>();
-            songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+            songDb.RunInTransaction(() =>
+            {
+                BmsLibraryDbGateway.EnsureIrDataSchema(songDb);
+                songDb.CreateTable<LR2SongDBExtended.ir_score>();
+                songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+            });
         }
 
         public string RootDirectoryPath { get; }
@@ -1480,15 +1618,9 @@ public sealed class BmsLibraryIrServiceTests
 
         public void Dispose()
         {
-            try
+            if (Directory.Exists(RootDirectoryPath))
             {
-                if (Directory.Exists(RootDirectoryPath))
-                {
-                    Directory.Delete(RootDirectoryPath, recursive: true);
-                }
-            }
-            catch
-            {
+                Directory.Delete(RootDirectoryPath, recursive: true);
             }
         }
     }

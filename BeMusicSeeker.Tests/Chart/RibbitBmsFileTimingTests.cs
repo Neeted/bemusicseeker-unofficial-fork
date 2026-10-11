@@ -15,12 +15,18 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RibbitBmsFileTimingTests
 {
+    /// <summary>
+    /// 各小節境界で捨てた端数tickを後続へ補償せず、六小節後の終端時刻から既存時計とのずれを検出する。
+    /// </summary>
     [TestMethod]
     public void MeasureBoundariesDiscardFractionalTicksInsteadOfCompensatingLater()
     {
         WithChart("#BPM 7\n#00611:01\n", bms => Assert.AreEqual(2399999994L, bms.Duration.Ticks));
     }
 
+    /// <summary>
+    /// 開始・拡張BPMが一tick境界の直上なら小節時間をゼロとし、十進精度を失って一tick増える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void DecimalBpmAboveOneTickBoundaryProducesZeroTicks()
     {
@@ -29,6 +35,9 @@ public sealed class RibbitBmsFileTimingTests
             Assert.AreEqual(0L, bms.Duration.Ticks));
     }
 
+    /// <summary>
+    /// 複数STOPの端数を累積し、小節長倍率はSTOP時間へ掛けずに発音と終端へ反映して停止時計の誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void StopsAccumulateFractionalTicksAndIgnoreMeasureLengthMultiplier()
     {
@@ -42,6 +51,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// double範囲を超える有限値は正確に合成し、極小の非正相当入力では以前の正値を保って桁あふれ・過小値の誤解釈を検出する。
+    /// </summary>
     [TestMethod]
     public void FiniteOverflowTextRemainsExactAndUnderflowKeepsTheOldPositiveGuard()
     {
@@ -60,6 +72,9 @@ public sealed class RibbitBmsFileTimingTests
             Assert.AreEqual(TimeSpan.FromTicks(12500000), bms.Measures[0].Stop.Single().Value));
     }
 
+    /// <summary>
+    /// 指数表記と末尾符号の受理を直接BPM・拡張BPMそれぞれの規則で保ち、チャンネル間の字句規則の混同を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("1e2", 100L, 120L)]
     [DataRow("120+", 120L, 120L)]
@@ -74,6 +89,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 英語・ドイツ語・フランス語の小数点と桁区切りを指定文化圏に合わせて受理し、BPMと終端が地域設定でずれる誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("en-US", "1,200.5")]
     [DataRow("de-DE", "1.200,5")]
@@ -88,6 +106,9 @@ public sealed class RibbitBmsFileTimingTests
         }, culture);
     }
 
+    /// <summary>
+    /// 埋込ASCII空白を小節長だけで除去し、不正BPM・STOP・小節長は前値を保って指示ごとの受理規則の混同を検出する。
+    /// </summary>
     [TestMethod]
     public void OnlyMeasureLengthRemovesEmbeddedAsciiSpacesAndInvalidDefinitionsKeepPreviousValues()
     {
@@ -100,6 +121,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 奇数桁データの末尾は各チャンネルの従来解釈を保ち、小節端BPM制御の位置と順序を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void OddDataTailsKeepTheirChannelSpecificMeaning()
     {
@@ -116,6 +140,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 小節端のゼロBPM制御を既に確定した時刻へ残し、過去の発音や小節終端を再計算する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void TerminalOddZeroBpmKeepsItsControlAndTheAlreadyStampedMeasureTime()
     {
@@ -134,6 +161,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 次小節の位置ゼロで直接・拡張BPMを正値へ戻せば発音と終端が進み、位置を進める前の復旧を拒否する誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("03", "78")]
     [DataRow("08", "01")]
@@ -151,6 +181,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 次小節が非ゼロの位置進行を必要とするとゼロBPMは解析失敗となり、不正な時計で成功する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ZeroBpmStillFailsWhenTheNextMeasureNeedsNonzeroPositionAdvance()
     {
@@ -158,6 +191,9 @@ public sealed class RibbitBmsFileTimingTests
             WithChart("#BPM 120\n#00003:000\n#00011:01\n#00111:01\n", _ => { }));
     }
 
+    /// <summary>
+    /// 同位置の発音を制御変更前に刻み、最後の有効STOPだけを後続へ適用して制御順や未定義STOP扱いの誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SamePositionControlsStampNotesBeforeChangesAndOnlyLastStopAffectsLaterTime()
     {
@@ -178,6 +214,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 明示無限BPMの時間係数をゼロとして未使用・使用STOPも受理し、巨大な有限値との分類混同を検出する。
+    /// </summary>
     [TestMethod]
     public void ExplicitInfiniteBpmHasZeroCoefficientAndUnusedInfiniteStopIsAccepted()
     {
@@ -196,6 +235,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 巨大な有限BPMでは無限STOPをゼロ、有限STOPを正確な時間にし、無限入力と有限値の分類が再生時計を変える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void HugeFiniteBpmKeepsInfiniteStopZeroAndFiniteStopExact()
     {
@@ -217,6 +259,9 @@ public sealed class RibbitBmsFileTimingTests
         });
     }
 
+    /// <summary>
+    /// 直接・拡張のテンポ変更後には開始時の巨大有限BPMのSTOP分類を引き継がず、無限STOPを誤受理する誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("03", "78")]
     [DataRow("08", "01")]
@@ -227,6 +272,9 @@ public sealed class RibbitBmsFileTimingTests
             WithChart($"#BPM 1e400\n#BPM01 120\n#STOP01 {infinity}\n#000{channel}:{value}00\n#00009:0001\n#00011:01\n", _ => { }));
     }
 
+    /// <summary>
+    /// 参照する無限小節長と有限BPMの無限STOPは入力失敗とし、無限値の不正な時間計算を成功させる誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("120", "02")]
     [DataRow("explicit-infinity", "02")]
@@ -245,6 +293,9 @@ public sealed class RibbitBmsFileTimingTests
             WithChart("#BPM " + bpm + "\n" + definition + "#00011:01\n", _ => { }));
     }
 
+    /// <summary>
+    /// 採用・不採用のRANDOM選択を記述順に一回ずつ通知して解析結果にも残し、監査履歴の重複・欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void AuditReportsEachUsedAndSkippedRandomChoiceOnceInOrder()
     {
@@ -258,6 +309,9 @@ public sealed class RibbitBmsFileTimingTests
         }, options: options, choices: new Queue<int>([1, 2, 3]));
     }
 
+    /// <summary>
+    /// 次の乱数選択が故障したら完了した選択だけを通知し、元原因を実装故障として保持して入力不良へ読み替える誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]

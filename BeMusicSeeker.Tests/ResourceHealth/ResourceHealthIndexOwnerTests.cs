@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public class ResourceHealthIndexOwnerTests
 {
+    /// <summary>
+    /// 全所有譜面の入力が現在の保存世代より古いとき、構築結果を公開せず空の非最新状態を維持する。
+    /// </summary>
     [TestMethod]
     public void EnsureCurrent_StaleFullOwnedTargetDoesNotPublish()
     {
@@ -36,6 +39,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
+    /// <summary>
+    /// 構築開始後に保存世代が変わるとき、公開直前にも世代を確認して古い結果を拒否する。
+    /// </summary>
     [TestMethod]
     public void EnsureCurrent_RechecksVersionAfterBuildBeforePublishing()
     {
@@ -63,6 +69,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
+    /// <summary>
+    /// 一度公開した後で保存世代が変わるとき、古い入力の再構築から以前の表示を返さない。
+    /// </summary>
     [TestMethod]
     public void EnsureCurrent_StalePublishDoesNotReturnPreviousSnapshot()
     {
@@ -91,7 +100,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(ResourceHealthIndexSnapshot.Empty, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-DELTA: 差分成功時は全件入力を取得せず、新しい対象を公開する。</summary>
+    /// <summary>
+    /// 入力変更の貸与した基点と終点に合う差分は全件取得をせず追加対象を含む新しい表示を公開する。
+    /// </summary>
     [TestMethod]
     public void Apply_DeltaRequiresMatchingLeaseVersionsAndPublishesNewSnapshot()
     {
@@ -123,7 +134,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(result.Snapshot, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-SKIP: 失効時は全件取得せず、古い表示を返さない。</summary>
+    /// <summary>
+    /// 明示失効を受けたとき、全件取得をせず以前の表示を返却・保持しない。
+    /// </summary>
     [TestMethod]
     public void Apply_InvalidateDoesNotReturnPreviousSnapshot()
     {
@@ -152,6 +165,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
+    /// <summary>
+    /// 入力変更中は表示を非最新とし、リソースの変更がない完了では既存表示を再利用して最新に戻す。
+    /// </summary>
     [TestMethod]
     public void RebaseAfterInputMutation_PreservesCurrentSnapshotWhenNoResourceChangeOccurred()
     {
@@ -179,7 +195,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(initial, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-SKIP: 失効は延期・全件再構築・差分に優先し、不要な取得を行わない。</summary>
+    /// <summary>
+    /// 失効・延期・再構築・差分が同時指定されても失効を優先し、全件取得や差分適用で覆さない。
+    /// </summary>
     [TestMethod]
     public void Apply_InvalidateWinsOverDeferAndDelta()
     {
@@ -210,7 +228,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
-    /// <summary>R1-SKIP: 失敗時失効を指定した差分は、全件入力を先行取得しない。</summary>
+    /// <summary>
+    /// 差分の世代が合わず失効指定があるとき、全件再構築へ隠れて切り替えず表示を失効させる。
+    /// </summary>
     [TestMethod]
     public void Apply_DeltaFailureInvalidatesWithoutHiddenRebuild()
     {
@@ -241,7 +261,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
-    /// <summary>R1-FULL: 必要な fallback だけが全件入力を取得し、指定済み入力は再利用する。</summary>
+    /// <summary>
+    /// 失効指定のない不成立差分は全件再構築し、入力の事前指定あり・なしに応じて取得回数を零・一回に保つ。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -280,7 +302,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(result.Snapshot, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-FULL: 明示再構築を保ち、全件入力は不足する場合だけ一回取得する。</summary>
+    /// <summary>
+    /// 現在の表示が最新でも明示再構築は新しい表示を作り、指定済み入力の再取得を避ける。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -318,7 +342,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(result.Snapshot, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-SKIP: 少数の差分を伴う延期は全件入力を取得せず、確定済み表示を保つ。</summary>
+    /// <summary>
+    /// 再構築指定の有無にかかわらず延期された差分では、全件取得をせず確定済み表示を保つ。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -350,7 +376,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(initial, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-SKIP: 変更のない dispatch は全件取得も失効も行わない。</summary>
+    /// <summary>
+    /// 変更要求がnullまたは空なら、全件取得・失効・入力世代変更をせず現在の表示を保つ。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -372,7 +400,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(result.Deferred || result.DeltaApplied || result.FullRebuilt);
     }
 
-    /// <summary>R1-FULL: 入力取得時に collection を構築しても、取得後の版で正しく公開する。</summary>
+    /// <summary>
+    /// 全件入力の取得中に所有集合が構築されたとき、取得後の集合世代で対象全体を公開する。
+    /// </summary>
     [TestMethod]
     public void Apply_FullRebuildReadsVersionAfterCapturingInput()
     {
@@ -399,7 +429,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(result.Snapshot, owner.TryGetCurrentSnapshot());
     }
 
-    /// <summary>R1-FULL: 指定済みの古い入力を再取得で隠さず、公開を拒否する。</summary>
+    /// <summary>
+    /// 事前指定された全件入力が古いとき、取得し直して失敗を隠さず公開を拒否する。
+    /// </summary>
     [TestMethod]
     public void Apply_StaleSuppliedFullInputIsNotRecaptured()
     {
@@ -419,7 +451,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
-    /// <summary>R1-FULL: 取得中の writer 開始・完了によって古くなった入力を公開しない。</summary>
+    /// <summary>
+    /// 全件入力の取得中に書込みが開始・完了した両条件で、取得済みの古い入力を公開しない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -458,7 +492,9 @@ public class ResourceHealthIndexOwnerTests
         }
     }
 
-    /// <summary>R1-FULL: 遅延取得した入力も storage owner から切り離し、公開済み表示を保つ。</summary>
+    /// <summary>
+    /// 遅延取得した保守情報の元データを公開後に変更しても、公開済みの欠落警告と抑止設定を変えない。
+    /// </summary>
     [TestMethod]
     public void Apply_LazyFullInputDetachesMaintenanceFromStorageOwner()
     {
@@ -484,6 +520,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsTrue(result.Snapshot.GetProjection(published).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
+    /// <summary>
+    /// 入れ子の入力変更を外側から解放しても、最後の内側解放まで同じ変更区間を保ち終了世代を一度だけ進める。
+    /// </summary>
     [TestMethod]
     public void InputMutation_NestedScopesPreserveOuterVersionWindow()
     {
@@ -502,6 +541,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.IsFalse(owner.IsCurrent());
     }
 
+    /// <summary>
+    /// 警告を持たない譜面は現在の索引でも失効後でも空の警告射影を返す。
+    /// </summary>
     [TestMethod]
     public void Projection_ReturnsEmptyAfterInvalidation()
     {
@@ -522,6 +564,9 @@ public class ResourceHealthIndexOwnerTests
         Assert.AreSame(ResourceHealthWarningProjection.Empty, owner.TryGetCurrentProjection(chart));
     }
 
+    /// <summary>
+    /// 対象集合の公開リストへの追加を拒否し、捕捉済みの譜面数を外から変更させない。
+    /// </summary>
     [TestMethod]
     public void TargetSet_ExposesReadOnlyChartSnapshot()
     {

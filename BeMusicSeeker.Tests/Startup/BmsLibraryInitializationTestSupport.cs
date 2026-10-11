@@ -174,69 +174,6 @@ internal static class BmsLibraryInitializationTestSupport
                 : normalized + Path.DirectorySeparatorChar;
     }
 
-    internal static SongTableFileCheckResult RunWithParserDegreeOverride(int? overrideValue, string songDbPath)
-    {
-        BmsLibraryInitializationService service = overrideValue.HasValue
-            ? new BmsLibraryInitializationService(overrideValue.Value)
-            : new BmsLibraryInitializationService();
-        return service.ApplyFileScanDiff(
-            new BmsLibraryDbGateway(songDbPath),
-            new EverythingNative(ApplicationPathPolicy.Current),
-            new BmsLibraryOptionsSnapshot(),
-            [],
-            new ChartScanExecutionResult
-            {
-                Success = true,
-                Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
-            },
-            0L,
-            () => null,
-            null,
-            currentBmsonSongs: []);
-    }
-
-    internal static SongTableFileCheckResult RunWithCommitChunkSizeOverride(int? overrideValue, string songDbPath)
-    {
-        BmsLibraryInitializationService service = overrideValue.HasValue
-            ? new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, fileDiffCommitChunkSizeOverride: overrideValue.Value)
-            : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
-        return service.ApplyFileScanDiff(
-            new BmsLibraryDbGateway(songDbPath),
-            new EverythingNative(ApplicationPathPolicy.Current),
-            new BmsLibraryOptionsSnapshot(),
-            [],
-            new ChartScanExecutionResult
-            {
-                Success = true,
-                Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
-            },
-            0L,
-            () => null,
-            null,
-            currentBmsonSongs: []);
-    }
-
-    internal static SongTableFileCheckResult RunWithInlineChartInfoBatchSizeOverride(int? overrideValue, string songDbPath)
-    {
-        BmsLibraryInitializationService service = overrideValue.HasValue
-            ? new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1, inlineChartInfoBatchSizeOverride: overrideValue.Value)
-            : new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
-        return service.ApplyFileScanDiff(
-            new BmsLibraryDbGateway(songDbPath),
-            new EverythingNative(ApplicationPathPolicy.Current),
-            new BmsLibraryOptionsSnapshot(),
-            [],
-            new ChartScanExecutionResult
-            {
-                Success = true,
-                Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
-            },
-            0L,
-            () => null,
-            null,
-            currentBmsonSongs: []);
-    }
-
     internal static BeMusicSeeker.Models.ChartDetails CreateMinimalChartInfoRow(string sha256, string md5)
     {
         return new BeMusicSeeker.Models.ChartDetails
@@ -570,9 +507,8 @@ internal static class BmsLibraryInitializationTestSupport
 }
 
 /// <summary>
-/// Supplies one captured chart-scan result to a production-shaped library
-/// route without consulting the local Everything service or filesystem at
-/// scan time.
+/// 準備時に捕捉した一回分の走査結果を実ライブラリ入口へ渡します。
+/// 走査時には実機のEverythingサービスやファイルシステムへ問い合わせません。
 /// </summary>
 internal sealed class CapturedChartFileScanner : IChartFileScanner
 {
@@ -587,12 +523,11 @@ internal sealed class CapturedChartFileScanner : IChartFileScanner
     }
 
     /// <summary>
-    /// Captures the supplied fixture surface before the production ingress is
-    /// invoked, including any directory metadata present under the roots.
+    /// 実入口の呼出し前にfixtureの譜面・リソースとroot配下の実ディレクトリ情報を捕捉します。
     /// </summary>
-    /// <param name="chartPaths">Stable chart paths to publish from the fixture.</param>
-    /// <param name="resourcesByDirectory">Stable resource paths grouped by chart directory.</param>
-    /// <param name="directorySurfaceRoots">Directories whose metadata is captured for the scan result.</param>
+    /// <param name="chartPaths">fixtureから公開する譜面path。</param>
+    /// <param name="resourcesByDirectory">譜面ディレクトリごとのリソースpath。</param>
+    /// <param name="directorySurfaceRoots">走査結果へディレクトリ情報を捕捉するroot。</param>
     internal static CapturedChartFileScanner FromFixture(
         IEnumerable<string> chartPaths,
         IDictionary<string, IEnumerable<string>> resourcesByDirectory,

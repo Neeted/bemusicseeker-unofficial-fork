@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LR2ConfigTests
 {
+    /// <summary>
+    /// 未指定・空白・不正文字の設定パスは読取り不能として返し、設定があるという誤報を防ぐ。
+    /// </summary>
     [DataTestMethod]
     [DataRow(null)]
     [DataRow("")]
@@ -25,6 +28,10 @@ public sealed class LR2ConfigTests
         Assert.IsNull(config);
     }
 
+    /// <summary>
+    /// 不完全XML・必須jukebox欠落・別ルート要素を拒否して元ファイルを保持し、読取り時の無断修復を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [DataTestMethod]
     [DataRow("<config>")]
     [DataRow("<config />")]
@@ -43,6 +50,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// xmlとxmhの設定を読み、現在存在しない登録ルートも変更追跡用に保持して一時的な不在を登録削除へ読み替える誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [DataTestMethod]
     [DataRow("config.xml")]
     [DataRow("config.xmh")]
@@ -66,6 +77,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 空jukeboxを有効設定として読み任意system要素とファイルを変更せず、読取りに伴う不要な補完を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections()
     {
@@ -80,6 +95,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 既存の自動再読込み設定2を手動専用の保存値0へ変更して実ファイルへ保存し、LR2の自動変更との競合を防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void EnsureDatabaseAutoReloadManualOnly_ChangesExistingAutoReloadMode()
     {
@@ -94,6 +113,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 既に手動専用の設定は変更なしと返して保持し、不要な変更扱いを検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void EnsureDatabaseAutoReloadManualOnly_DoesNotChangeManualOnlyMode()
     {
@@ -106,6 +129,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 自動再読込み要素がなくても手動専用0を追加して保存し、安全なLR2設定が欠ける誤りを検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void EnsureDatabaseAutoReloadManualOnly_AddsMissingAutoReloadElement()
     {
@@ -120,6 +147,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 設定変更の保存でUTF-8宣言と日本語を保持し、文字コード変更による既存設定の破損を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void Save_PreservesDeclaredXmlEncodingAndNonAsciiContent()
     {
@@ -142,6 +173,10 @@ public sealed class LR2ConfigTests
             });
     }
 
+    /// <summary>
+    /// 保存先がロックされると元バイトと兄弟ファイルを保持して失敗原因を返し、部分保存や一時ファイル残留を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void Save_WhenDestinationCannotBeReplaced_PreservesExistingBytes()
     {
@@ -169,6 +204,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 登録ルート削除の保存がロックで失敗した場合は実ファイルとメモリ上の登録を戻し、保存前だけ削除された状態を防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RemoveBMSSearchDirectoriesAndSave_WhenDestinationCannotBeReplaced_RestoresDocument()
     {
@@ -197,6 +236,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 同じ要求の親子ルートを拒否し、重複範囲を登録して二重管理する誤りを検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void AddBMSSearchDirectories_RejectsNestedPathsWithinSameRequest()
     {
@@ -210,6 +253,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 存在する登録ルートだけを読取り結果へ返しても不在登録を含む設定ファイルは変更せず、参照に伴う登録消失を防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void GetBMSSearchDirectoriesReadOnly_DoesNotRewriteConfig()
     {
@@ -227,6 +274,9 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 同一・正規化同一・子・親・兄弟・接頭辞類似・ボリューム親を区別し、親出力をルート出力時だけ許可して範囲衝突を防ぐ。
+    /// </summary>
     [DataTestMethod]
     [DataRow("same", false, true)]
     [DataRow("same", true, true)]
@@ -269,6 +319,10 @@ public sealed class LR2ConfigTests
         }
     }
 
+    /// <summary>
+    /// 既存登録を保持しつつ指定された既定・追加出力先を全て登録し、出力先の未登録や既存登録の消失を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_AddsConfiguredDefaultAndAdditionalRoots()
     {
@@ -301,6 +355,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 既に登録済みの指定出力先を変更なしとして保持し、重複登録と不要な修復を検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_DoesNotRewriteExistingRoots()
     {
@@ -326,7 +384,12 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 通常出力先が登録ルートの親・子となる両条件を拒否し、元の登録集合を保持する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [DataTestMethod]
+    // false は出力先が子、true は出力先が親となる衝突。
     [DataRow(false)]
     [DataRow(true)]
     public void RepairNormalOutputBaseRoots_RejectsParentOrChildOfRegisteredRoot(bool outputIsParent)
@@ -348,6 +411,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 既定と追加出力先が入れ子の場合は両方の採用前に拒否し、途中まで登録する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_RejectsNestedDefaultAndAdditionalBeforeAdoption()
     {
@@ -372,6 +439,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 既定と追加の同一出力先を採用前に拒否し、重複設定から登録を増やす誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_RejectsDuplicateDefaultAndAdditionalBeforeAdoption()
     {
@@ -394,6 +465,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加出力先が登録ルートと衝突すると新しい既定先も登録・作成せず、失敗前の副作用を防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_RejectsInvalidAdditionalBeforeAddingDefault()
     {
@@ -417,6 +492,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加出力先のJSONが壊れている場合は引数エラーを返し、指定が空であったかのように採用する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void RepairNormalOutputBaseRoots_RejectsInvalidAdditionalOutputBaseJson()
     {
@@ -431,6 +510,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加出力先の変更に合わせてjukebox登録を一件追加・削除し、保存設定との同期漏れを検出する。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void SyncAdditionalOutputBaseRoots_AddsAndRemovesJukeboxPath()
     {
@@ -457,7 +540,12 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 登録ルートの親・子となる追加先を拒否して登録と保存バイトを保持し、失敗時に登録が置換される誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [DataTestMethod]
+    // false は出力先が子、true は出力先が親となる衝突。
     [DataRow(false)]
     [DataRow(true)]
     public void SyncAdditionalOutputBaseRoots_RejectsParentOrChildWithoutReplacingRegistration(bool outputIsParent)
@@ -483,6 +571,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加先から外しても通常出力先として必要な登録を残し、他用途の登録まで削除する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void SyncAdditionalOutputBaseRoots_DoesNotRemovePathPreservedByNormalOutputBase()
     {
@@ -506,6 +598,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 準備時に新既定先を追加して旧登録を保持し、完了時だけ旧登録を削除して処理途中の参照切れを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void PrepareNormalOutputBaseRoots_AddsNewDefaultAndRemovesOldDefault()
     {
@@ -541,6 +637,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加先を既定先へ昇格させる場合はその登録を削除候補にせず、用途変更時に必要な登録を失う誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void PrepareNormalOutputBaseRoots_PreservesOldAdditionalWhenPromotedToDefault()
     {
@@ -568,6 +668,10 @@ public sealed class LR2ConfigTests
         });
     }
 
+    /// <summary>
+    /// 追加先変更の準備で新旧登録を共存させ、完了後に旧登録だけを削除して移行途中の参照切れを防ぐ。
+    /// </summary>
+    /// <remarks>実設定ファイルと登録ディレクトリを使い、読取り・保存・登録変更の接続を確認する。</remarks>
     [TestMethod]
     public void PrepareAdditionalOutputBaseRoots_AddsNewRootBeforeOldRootRemoval()
     {

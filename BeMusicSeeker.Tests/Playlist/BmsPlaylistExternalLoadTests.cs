@@ -21,12 +21,11 @@ public sealed class BmsPlaylistExternalLoadTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>新規表作成へ利用者指定の出力除外maskを渡し、既定maskへ戻る設定接続の漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public void CreateBMSTable_UsesPlaylistDefaultIgnoreFolderOutputSetting()
     {
-        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
@@ -45,7 +44,6 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -53,12 +51,11 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>新規外部表を実JSONから取得すると利用者指定の複合出力除外maskを採用し、空表作成との設定接続差を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public async Task LoadExternalTableAsync_NewExternalTableUsesPlaylistDefaultIgnoreFolderOutputSetting()
     {
-        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
             | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
         testSettings.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
@@ -80,7 +77,6 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -88,12 +84,11 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>既存表を再取得すると新規表の出力除外設定より既存表のmaskを優先し、利用者設定の上書きを防ぎます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public async Task LoadExternalTableAsync_BaseTablePreservesIgnoreFolderOutput()
     {
-        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.UserFolder
@@ -120,7 +115,6 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -128,40 +122,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void LoadExternalTable_BomHeaderAndRelativeDataUrl_LoadsSuccessfully()
-    {
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
-            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
-            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"Samalite難易度表\",\r\n\"symbol\":\"夏\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1,2]\r\n}"));
-            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Test Song\",\"artist\":\"Test Artist\",\"level\":\"1\"}]"));
-
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new TestBmsPlaylist(songDbPath, settings: testSettings);
-
-            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
-
-            Assert.AreEqual("Samalite難易度表", table.name);
-            Assert.AreEqual("夏", table.symbol);
-            Assert.AreEqual("./score.json", table.data_url);
-            Assert.AreEqual(1, table.entries.Count);
-            Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
-            Assert.AreEqual("Test Song", table.entries.Single().title);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>BOM付きUTF-8ヘッダーと相対data_urlの実ファイルを読み、日本語の名称・記号と譜面識別子・タイトルを欠落させません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_BomHeaderAndRelativeDataUrl_LoadsSuccessfully()
@@ -196,7 +157,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
-    /// <summary>取得済みHTMLの参照先を読み込み、解析による再取得や外部DTD取得がないことを確認します。</summary>
+    /// <summary>取得済みHTMLからpage基準の相対headerとheader基準の相対dataを各一回だけ取得し、解析の再取得・別表採用・外部DTD通信を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests()
@@ -256,6 +217,7 @@ public sealed class BmsPlaylistExternalLoadTests
         Assert.AreEqual(string.Empty, parserNetworkServer.RequestMethod, parserNetworkServer.Diagnostics);
     }
 
+    /// <summary>相対data_urlをドライブとUNCのfileヘッダー基準で解決し、上位ディレクトリとUNCホストを失う互換性退行を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTable_ExternalDataUrlResolutionPreservesDriveFileAndUncRoutes()
@@ -284,6 +246,7 @@ public sealed class BmsPlaylistExternalLoadTests
         Assert.AreEqual("/share/data/score.json", uncDataUri.AbsolutePath);
     }
 
+    /// <summary>ヘッダー参照のないHTMLは専用例外として同期入口へ返し、JSONと誤認した成功や失敗の置換を防ぎます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_HtmlWithoutHeaderMeta_ThrowsHeaderUriNotFound()
@@ -309,6 +272,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>閉じタグ欠損とmeta属性順の違いを受理し、HTMLから相対ヘッダーを取得して表の名称・記号・行を復元します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_UnclosedHtmlWithReorderedMetaAttributes_LoadsSuccessfully()
@@ -347,6 +311,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>SHA-256だけの外部行をMD5欠損のまま保持し、SHA識別子とタイトルを同期入口から復元します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_Sha256OnlyEntry_LoadsSuccessfully()
@@ -380,6 +345,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>両hashを持つ外部行のMD5とSHA-256を共に保持し、一方の識別子を失う取込みを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_Md5AndSha256Entry_LoadsBothHashes()
@@ -411,6 +377,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>不正SHA-256は除外しても有効MD5の行を残し、従来受理した譜面まで破棄する厳格化を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_InvalidSha256_IgnoresSha256AndKeepsRow()
@@ -442,6 +409,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>タイトルだけの行は保持し、全項目が空の行だけを除外することで空行判定の過剰除外を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadExternalTable_FullyEmptyEntry_IgnoresRow()
@@ -472,6 +440,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>外部ヘッダーに接頭辞がない再取得でも既存の空・通常・非CP932接頭辞を維持し、その接頭辞でfolderを作成します。</summary>
     [DataTestMethod]
     [TestCategory("Playlist")]
     [DataRow("", "1")]
@@ -511,6 +480,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>外部ヘッダーの接頭辞より既存の空または利用者指定接頭辞を優先し、folderの利用者設定を上書きしません。</summary>
     [DataTestMethod]
     [TestCategory("Playlist")]
     [DataRow("", "1")]
@@ -549,6 +519,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>既存接頭辞の維持に合わせて外部folder_orderを変換し、folder_listにも外部で指定した逆順を引き継ぎます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_HeaderFolderOrderIsRewrittenWhenCompatPrefixIsPreserved()
@@ -585,6 +556,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>外部接頭辞と対応folder名だけの変更はheader hashを変えず、再取得で既存接頭辞を保つ互換性を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_HeaderHashIgnoresCompatPrefix()
@@ -617,6 +589,7 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>接頭辞と順序のない外部ヘッダーではsymbolからfolder接頭辞を推定し、levelゼロも失わず結合します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task LoadExternalTableAsync_InferCompatPrefixFromHeaderSymbolWhenHeaderOrderIsMissing()
@@ -650,10 +623,8 @@ public sealed class BmsPlaylistExternalLoadTests
     /// <summary>実JSON登録で非CP932タグを従来接頭辞へ変換し、実保存と新主体のhydration後も名称・行・所属ID・folderを保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public async Task RegistrateExternalTableAsync_NonCp932TagPersistsLegacyPrefix()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -705,7 +676,6 @@ public sealed class BmsPlaylistExternalLoadTests
         {
             reader?.RequestShutdown("json-registration-test-complete");
             playlist?.RequestShutdown("json-registration-test-complete");
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -713,12 +683,11 @@ public sealed class BmsPlaylistExternalLoadTests
         }
     }
 
+    /// <summary>登録済み名称と衝突するURL取込みは名称付き専用例外を返し、既存表を増減させない拒否を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public async Task RegistrateExternalTableAsync_ExistingPlaylistNameThrowsSpecificException()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -746,7 +715,6 @@ public sealed class BmsPlaylistExternalLoadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

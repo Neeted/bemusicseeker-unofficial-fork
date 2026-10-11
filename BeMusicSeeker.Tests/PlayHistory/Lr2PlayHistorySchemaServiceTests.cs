@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2PlayHistorySchemaServiceTests
 {
+    /// <summary>
+    /// 非LR2連携ではnullパスでも検査対象外を返し、DBを開こうとして読取り失敗へ変えない。
+    /// </summary>
     [TestMethod]
     public void Check_WhenProfileIsNotLr2Linked_SkipsWithoutOpeningDb()
     {
@@ -21,6 +24,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, result.Status);
     }
 
+    /// <summary>
+    /// 未導入DBの検査はNotInstalledを返すだけで履歴objectを作らず、確認操作が保存を変える誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_NotInstalled_IsReadOnlyAndDoesNotCreateObjects()
     {
@@ -32,11 +39,15 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Lr2PlayHistorySchemaCheckResult result = service.Check(scoreDbPath, isLr2LinkedProfile: true);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
     }
 
+    /// <summary>
+    /// 導入を二度実行してもInstalledとなり、履歴表・索引・記録/確定/掃除triggerを実DBへ揃える。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_CreatesRequiredObjectsAndIsIdempotent()
     {
@@ -50,7 +61,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, first.Status);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, second.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayPendingTableName);
@@ -63,6 +74,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 実score追加とplayer更新により履歴を確定し、旧新値・EXSCORE・演奏時間/判定差分・最終プレイ時刻を保存する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_InstalledTriggersRecordHistory()
     {
@@ -94,6 +109,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 既存score更新から旧新スコアとプレイ回数を記録し、続くplayer更新の差分で確定する。更新を追加履歴扱いする誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_ScoreUpdateTriggerRecordsHistory()
     {
@@ -130,6 +149,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 10秒を過ぎたpendingはplayer更新時に掃除し、対応しない履歴を確定しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_StalePendingIsCleanedWithoutFinalizingHistory()
     {
@@ -153,6 +176,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// ghostのみのscore更新ではプレイ履歴を増やさず、保存補助情報の更新を実プレイと誤認しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_GhostOnlyScoreUpdateDoesNotRecordHistory()
     {
@@ -174,6 +201,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 履歴表の必要時刻列が欠けたDBは不足列を示して手動修復を要求し、自動修復可能と誤分類しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_TableColumnMissing_IsManualRepairRequired()
     {
@@ -193,6 +224,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 履歴キーの主キー制約がないDBは互換不成立を報告し、列名だけで導入済みと判断しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_TableColumnConstraintMissing_IsManualRepairRequired()
     {
@@ -212,6 +247,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// LR2 scoreの必要列が欠けたDBでは不足列を報告し、記録triggerを安全に導入できると扱わない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_BaseScoreColumnMissing_IsManualRepairRequired()
     {
@@ -231,6 +270,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 元score表がないDBは検査/導入とも手動修復とし、履歴objectだけを作って不完全な状態にしない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_BaseScoreTableMissing_IsManualRepairRequiredAndInstallDoesNotCreateObjects()
     {
@@ -248,11 +291,15 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, check.Status);
             CollectionAssert.Contains(check.MissingBaseTables, "score");
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.ManualRepairRequired, install.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
         });
     }
 
+    /// <summary>
+    /// 履歴用表名がviewに使われていれば衝突を報告し、既存objectを表と誤認/置換しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Check_ReservedObjectNameCollision_IsManualRepairRequired()
     {
@@ -272,6 +319,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// DBファイルが未作成ならUnreadableを返す。
+    /// </summary>
     [TestMethod]
     public void Check_MissingScoreDb_IsUnreadable()
     {
@@ -285,6 +335,9 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 非LR2連携の導入要求はnullパスでも対象外を返し、保存窓口へ到達しない。
+    /// </summary>
     [TestMethod]
     public void InstallOrRepair_WhenProfileIsNotLr2Linked_SkipsWithoutOpeningDb()
     {
@@ -295,6 +348,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         Assert.AreEqual(Lr2PlayHistorySchemaStatus.SkippedProfile, result.Status);
     }
 
+    /// <summary>
+    /// 索引とtriggerが消失した導入済みDBをRepairableと判定し、再導入で不足objectを修復してInstalledへ戻す。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_RecreatesMissingObjects()
     {
@@ -319,6 +376,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 定義が違う索引/triggerを修復しても既存履歴行を保持し、schema修復による履歴消失を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void InstallOrRepair_RecreatesMismatchedObjectsWithoutDroppingHistory()
     {
@@ -344,11 +405,15 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             CollectionAssert.Contains(before.MismatchedIndexes, Lr2PlayHistorySchemaService.TimeIndexName);
             CollectionAssert.Contains(before.MismatchedTriggers, Lr2PlayHistorySchemaService.ScoreInsertTriggerName);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, after.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM bms_lr2_play_history WHERE hash = ?;", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
         });
     }
 
+    /// <summary>
+    /// triggerのみの解除は記録用triggerを外して履歴表・索引・行を残し、状態をRepairableへ戻す。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Uninstall_TriggersOnlyKeepsHistoryAndLeavesSchemaRepairable()
     {
@@ -373,7 +438,7 @@ public sealed class Lr2PlayHistorySchemaServiceTests
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.ScoreUpdateTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerUpdateTriggerName);
             CollectionAssert.Contains(result.MissingTriggers, Lr2PlayHistorySchemaService.PlayerCleanupTriggerName);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.LastPlayTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayHistoryTableName);
             AssertObjectExists(verify, "table", Lr2PlayHistorySchemaService.PlayPendingTableName);
@@ -384,6 +449,10 @@ public sealed class Lr2PlayHistorySchemaServiceTests
         });
     }
 
+    /// <summary>
+    /// 完全解除は本アプリの履歴objectを全て除き、LR2本来のscore/player表を残してNotInstalledを返す。
+    /// </summary>
+    /// <remarks>実SQLiteの保存objectとtriggerを検査し、SQLの実行・保存結果を局所的な判定から独立して確認する。</remarks>
     [TestMethod]
     public void Uninstall_TablesAndTriggersRemovesPlayHistoryObjects()
     {
@@ -399,13 +468,16 @@ public sealed class Lr2PlayHistorySchemaServiceTests
                 Lr2PlayHistorySchemaUninstallMode.TablesAndTriggers);
 
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, result.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, CountPlayHistoryObjects(verify));
             AssertObjectExists(verify, "table", "score");
             AssertObjectExists(verify, "table", "player");
         });
     }
 
+    /// <summary>
+    /// 導入SQLにLR2のSQLite3.6.7で使えないUPSERT・RETURNING・CTE・window・生成列構文を混ぜない。
+    /// </summary>
     [TestMethod]
     public void InstallSqlStatements_DoNotUseKnownSqlite367IncompatibleSyntax()
     {
@@ -438,8 +510,11 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     private static void CreateBaseScoreDb(string scoreDbPath)
     {
         using var db = new SQLiteConnection(scoreDbPath);
-        db.CreateTable<LR2ScoreDB.score>();
-        db.CreateTable<LR2ScoreDB.player>();
+        db.RunInTransaction(() =>
+        {
+            db.CreateTable<LR2ScoreDB.score>();
+            db.CreateTable<LR2ScoreDB.player>();
+        });
     }
 
     private static void InsertPlayer(

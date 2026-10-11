@@ -245,7 +245,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければ `Inconclusive`、有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
 
-性能測定の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。1,000 / 25,000 / 200,000行の合成入力を、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
+性能検査の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。`contract` は診断出力、`estimation` は候補リソースの評価、`parser` は同位置だけのノートの全位置で次音なしを確認する機能検査で、走査回数・所要時間は測定しません。規模に対応する入力数は各ケースに置き、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
 
 外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。通常は `Inconclusive`、`BMS_TEST_AUDIO_ENCODERS=1` で有効です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
 

@@ -17,6 +17,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrStartupTests
 {
+    /// <summary>
+    /// 起動時IR先読みが通信失敗したら一度報告して再試行せず、既存scoreとIR保存値・更新metadataを保持する。
+    /// </summary>
+    /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
     [TestMethod]
     public async Task InitializeStartup_FailedPrefetchIsReportedWithoutRetryOrScoreMutation()
     {
@@ -34,6 +38,10 @@ public sealed class BmsLibraryIrStartupTests
         fixture.AssertDatabaseRetained();
     }
 
+    /// <summary>
+    /// 起動時IRの通信を保持したまま終了取消を伝えて終了阻害を保ち、通信解放とranking停止状態の通知後に阻害解除・scoreとDBの不変を確認する。
+    /// </summary>
+    /// <remarks>実起動入口とscore DBを使い、IR通信の取消からranking停止状態の通知への接続を観測する。阻害保持は通信gate中で確認し、rankingの実worker Task終端はfixtureのDisposeAsyncで回収する。</remarks>
     [TestMethod]
     public async Task RequestShutdown_CancelsInflightIrAndDrainsRankingBeforeBecomingIdle()
     {
@@ -43,8 +51,7 @@ public sealed class BmsLibraryIrStartupTests
         await fixture.RankingStarted.Task;
         BMSScore before = fixture.Library.GetBMSScores().Single();
         fixture.Library.RequestShutdown("ir-test");
-        try { await fixture.Client.Cancelled.Task; }
-        catch (TimeoutException) { Assert.Fail("shutdown のキャンセルが開始済み IR 取得へ伝播していない。"); }
+        await fixture.Client.Cancelled.Task;
         Assert.IsTrue(fixture.Library.HasShutdownBlockingWork, "通信が完了するまでは idle にしない。");
         fixture.Client.Release.TrySetResult();
         await fixture.Client.Completed.Task;
@@ -57,7 +64,10 @@ public sealed class BmsLibraryIrStartupTests
         fixture.AssertDatabaseRetained();
     }
 
-    /// <summary>実XMLの通信・解析と確定を分け、現モデルはL解放後に保存し、退役モデルは保存しません。</summary>
+    /// <summary>
+    /// IR通信中は共有操作受付を占有せず、既に持つLの解放後に現モデルだけを保存して退役モデルの結果を破棄する。
+    /// </summary>
+    /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -87,6 +97,10 @@ public sealed class BmsLibraryIrStartupTests
         next.Dispose();
     }
 
+    /// <summary>
+    /// score再読込みで古いscoreの購読を外し、現在scoreだけの変更を通知して終了後は全購読を解除する。
+    /// </summary>
+    /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
     [TestMethod]
     public async Task ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore()
     {
@@ -142,6 +156,10 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
+    /// <summary>
+    /// 連続するranking要求は受付時のreporterと要求世代で開始・終端を通知し、次reporterの例外でも旧通知を混同せず全作業を終端する。
+    /// </summary>
+    /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -238,18 +256,24 @@ public sealed class BmsLibraryIrStartupTests
             string scorePath = Path.Combine(root, "score.db");
             using (var db = new LR2SongDBExtended(songPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                db.CreateTable<LR2SongDB.folder>();
-                db.CreateTable<LR2SongDBExtended.install>();
-                db.CreateTable<LR2SongDBExtended.ir_score>();
-                db.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.install>();
+                    db.CreateTable<LR2SongDBExtended.ir_score>();
+                    db.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+                });
             }
             using (var db = new LR2ScoreDBExtended(scorePath))
             {
-                db.CreateTable<LR2ScoreDB.player>();
-                db.CreateTable<LR2ScoreDB.score>();
-                db.Insert(new LR2ScoreDB.player { id = "ir-startup", irid = 123 });
-                db.Insert(new LR2ScoreDB.score { hash = Hash, perfect = 321, great = 45 });
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2ScoreDB.player>();
+                    db.CreateTable<LR2ScoreDB.score>();
+                    db.Insert(new LR2ScoreDB.player { id = "ir-startup", irid = 123 });
+                    db.Insert(new LR2ScoreDB.score { hash = Hash, perfect = 321, great = 45 });
+                });
             }
             gateway = new BmsLibraryDbGateway(songPath, scorePath);
             gateway.ReplaceIrScoreTable([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }]);

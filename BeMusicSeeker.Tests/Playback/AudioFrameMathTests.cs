@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioFrameMathTests
 {
+    /// <summary>
+    /// 保証：tick未満の時刻を出力格子・入力格子へ直接丸め、tickに収まる正負の時刻は従来の整数変換と一致させる。
+    /// </summary>
     [TestMethod]
     public void SubtickFrameBoundariesAreDirectAndBmsTicksRemainExact()
     {
@@ -26,6 +29,9 @@ public sealed class AudioFrameMathTests
         }
     }
 
+    /// <summary>
+    /// 保証：実効サンプルレートで絶対時刻を偶数丸めし、正負の半端フレームを切捨てや一律切上げへ読み替えない。
+    /// </summary>
     [TestMethod]
     public void AbsoluteTimeUsesTiesToEvenAtTheEffectiveSampleRate()
     {
@@ -40,6 +46,9 @@ public sealed class AudioFrameMathTests
         Assert.AreEqual(-2L, AudioFrameMath.TimeToFrame(TimeSpan.FromTicks(-300), 50000));
     }
 
+    /// <summary>
+    /// 保証：高サンプルレートでも独立に定めた時刻のフレーム数へ一致し、通常レートを固定した計算を検出する。
+    /// </summary>
     [TestMethod]
     public void AbsoluteTimeMatchesIndependentFixedFramesAtHighSampleRates()
     {
@@ -47,6 +56,9 @@ public sealed class AudioFrameMathTests
         Assert.AreEqual(9600L, AudioFrameMath.TimeToFrame(TimeSpan.FromTicks(500000), 192000));
     }
 
+    /// <summary>
+    /// 保証：正負フレームの時刻変換を整数丸めし、表現可能な代表フレームを往復変換で隣のフレームへずらさない。
+    /// </summary>
     [TestMethod]
     public void FrameTimeConversionUsesIntegerRoundingAndRoundTripsStableFrames()
     {
@@ -57,6 +69,9 @@ public sealed class AudioFrameMathTests
         Assert.AreEqual(662L, AudioFrameMath.TimeToFrame(AudioFrameMath.FrameToTime(662, 44100), 44100));
     }
 
+    /// <summary>
+    /// 保証：有限入力の出力長は不足しないよう切上げ、シーク入力位置は超えないよう切下げて末尾欠落を防ぐ。
+    /// </summary>
     [TestMethod]
     public void FiniteSourceLengthRoundsUpWhileSeekPositionRoundsDown()
     {
@@ -66,6 +81,9 @@ public sealed class AudioFrameMathTests
         Assert.AreEqual(0L, AudioFrameMath.SourceFrameFromMixerFrames(0, 44100, 48000));
     }
 
+    /// <summary>
+    /// 保証：floatフレーム位置を実際のチャンネル数でバイト位置へ換算し、表現不能な大きさでは桁あふれを失敗として返す。
+    /// </summary>
     [TestMethod]
     public void FloatFrameBytePositionUsesMixerChannelCount()
     {
@@ -74,6 +92,9 @@ public sealed class AudioFrameMathTests
             () => AudioFrameMath.Float32FrameToBytePosition(long.MaxValue, 2));
     }
 
+    /// <summary>
+    /// 保証：無効レート・負の有限長・不正チャンネル数を拒否し、表現不能な変換は桁あふれを隠さず失敗にする。
+    /// </summary>
     [TestMethod]
     public void InvalidRatesNegativeLengthsAndUnrepresentableResultsFailExplicitly()
     {

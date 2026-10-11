@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2NormalFolderSyncScopeBuilderTests
 {
+    /// <summary>
+    /// 追加だけの変更事実から対象パスを作り、既存ディレクトリを削除候補へ混ぜる誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void CreateForCatalogMutation_AddOnly_UsesReceiptFacts()
     {
@@ -33,6 +36,9 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         Assert.AreEqual(0, scope.PruneExactDirectories.Count);
     }
 
+    /// <summary>
+    /// 削除したディレクトリだけを削除範囲へ含め、現在の兄弟譜面を再追加対象や削除対象へ巻き込む誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void CreateForCatalogMutation_RemoveUsesCurrentSnapshotForPrunedDirectory()
     {
@@ -59,6 +65,9 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         CollectionAssert.AreEqual(new[] { removedDirectory }, scope.PruneExactDirectories.ToList());
     }
 
+    /// <summary>
+    /// ルート直下の譜面削除はルート行だけの完全一致削除に限定し、全配下を削除範囲にする誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void CreateForCatalogMutation_RootLevelRemovalDoesNotPruneWholeRoot()
     {
@@ -80,6 +89,9 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         CollectionAssert.AreEqual(new[] { root }, scope.PruneExactDirectories.ToList());
     }
 
+    /// <summary>
+    /// 捕捉後に元のパス一覧を変更しても受渡し済みの検索事実と世代を保ち、後続変更の混入を検出します。
+    /// </summary>
     [TestMethod]
     public void CatalogMutationReceipt_CopiesCurrentBmsFacts()
     {
@@ -109,6 +121,9 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
         Assert.AreEqual(6, receipt.OwnedCollectionVersion);
     }
 
+    /// <summary>
+    /// 移動後の大文字小文字違いの二保存キーをともに同期し、空になった元ディレクトリだけを完全一致削除へ含めることを確認します。
+    /// </summary>
     [TestMethod]
     public void CreateForCatalogMutation_PreservesExactChartPathsInScopedFacts()
     {

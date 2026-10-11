@@ -7,6 +7,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExternalProgramArgumentTemplateTests
 {
+    /// <summary>引用符と埋込placeholderを展開して空白入りパスを一引数に保ち、固定文字列と引数境界を壊しません。</summary>
     [TestMethod]
     public void ParseQuotedAndEmbeddedPlaceholdersPreservesExactTokens()
     {
@@ -17,6 +18,7 @@ public sealed class ExternalProgramArgumentTemplateTests
             "--title=quoted value");
     }
 
+    /// <summary>空の二重引用引数と単引用文字を保持し、空引数の削除やUnix式引用としての誤解釈を防ぎます。</summary>
     [TestMethod]
     public void ParseKeepsEmptyQuotedArgumentAndSingleQuotesAsLiteralCharacters()
     {
@@ -28,6 +30,7 @@ public sealed class ExternalProgramArgumentTemplateTests
             @"'C:\Songs\alpha.bms'");
     }
 
+    /// <summary>引用符直前のbackslashを偶奇で解釈し、Windows起動で渡す文字と引数境界を保持します。</summary>
     [TestMethod]
     public void ParseHandlesBackslashBeforeQuoteUsingWindowsParityRules()
     {
@@ -39,6 +42,7 @@ public sealed class ExternalProgramArgumentTemplateTests
             "suffix");
     }
 
+    /// <summary>日本語・空白・末尾backslashのパスを一引数のまま展開し、escapeで末尾を欠落させません。</summary>
     [TestMethod]
     public void ExpandPreservesUnicodeSpacesAndTrailingBackslash()
     {
@@ -48,6 +52,7 @@ public sealed class ExternalProgramArgumentTemplateTests
             @"--path=C:\譜面 データ\終端\");
     }
 
+    /// <summary>同じplaceholderが複数引数にあっても各出現を展開し、引用の有無でパスを分割しません。</summary>
     [TestMethod]
     public void ParseAllowsRepeatedFilePathPlaceholdersAndKeepsEachToken()
     {
@@ -58,6 +63,7 @@ public sealed class ExternalProgramArgumentTemplateTests
             @"--after=C:\Songs\alpha chart.bms");
     }
 
+    /// <summary>placeholder欠落・未知名・括弧不整合・引用未閉鎖を別の失敗原因で返し、不正templateを起動可能にしません。</summary>
     [TestMethod]
     public void ParseRejectsMissingUnknownAndUnbalancedPlaceholdersOrQuotes()
     {
@@ -85,6 +91,7 @@ public sealed class ExternalProgramArgumentTemplateTests
         }
     }
 
+    /// <summary>未指定templateを診断付きで拒否し、空の正常引数へ置き換えません。</summary>
     [TestMethod]
     public void ParseRejectsNullSource()
     {

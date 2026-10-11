@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExplorerOpenServiceTests
 {
+    /// <summary>存在するファイルを解決したshell候補へ一回選択起動し、追加のフォルダ起動を行いません。</summary>
     [TestMethod]
     public void OpenFileAndSelect_SelectsExistingFileWithShellApi()
     {
@@ -33,6 +34,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>ファイル候補が未解決なら親を解決して一回開き、選択起動や追加Explorer起動を始めません。</summary>
     [TestMethod]
     public void OpenFileAndSelect_OpensParentDirectoryWhenFileCannotBeResolvedBeforeAnyOpen()
     {
@@ -59,6 +61,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>通常pathの解決失敗後に拡張pathを解決し、解決済み候補だけを一回選択起動します。</summary>
     [TestMethod]
     public void OpenFileAndSelect_ResolvesExtendedPathCandidateBeforeSingleSelectionOpen()
     {
@@ -83,6 +86,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>実長パスのファイルでは拡張pathを先に解決して一回選択起動し、通常pathで二重起動しません。</summary>
     [TestMethod]
     public void OpenFileAndSelect_PrefersExtendedPathForLongPathBeforeSingleSelectionOpen()
     {
@@ -112,6 +116,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>消失ファイルはNotFoundを返し、shell解決・選択・親起動の副作用を起こしません。</summary>
     [TestMethod]
     public void OpenFileAndSelect_DoesNotInvokeShellWhenFileDoesNotExist()
     {
@@ -136,6 +141,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>解決済み候補の選択起動が失敗したら元の失敗を返し、親表示の成功に置き換えません。</summary>
     [TestMethod]
     public void OpenFileAndSelect_DoesNotInvokeParentFallbackAfterSelectionOpenFails()
     {
@@ -161,6 +167,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>存在するフォルダの解決済み候補を一回だけ開き、選択処理やExplorer追加起動を行いません。</summary>
     [TestMethod]
     public void OpenDirectory_UsesResolvedCandidateForExistingDirectory()
     {
@@ -183,6 +190,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>shellで解決済みのフォルダ起動失敗は失敗のまま返し、別プロセス起動で隠しません。</summary>
     [TestMethod]
     public void OpenDirectory_DoesNotInvokeExplorerProcessFallbackAfterShellOpenFails()
     {
@@ -205,6 +213,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>全shell候補が未解決の場合だけExplorerへ正規化pathを一回渡し、shell起動を重ねません。</summary>
     [TestMethod]
     public void OpenDirectory_FallsBackToExplorerProcessOnlyWhenNoShellPathResolves()
     {
@@ -226,6 +235,7 @@ public sealed class ExplorerOpenServiceTests
         });
     }
 
+    /// <summary>通常path未解決後の拡張pathが解決すればその候補だけを一回開き、追加のExplorer起動を行いません。</summary>
     [TestMethod]
     public void OpenDirectory_ResolvesExtendedPathCandidateBeforeSingleOpen()
     {

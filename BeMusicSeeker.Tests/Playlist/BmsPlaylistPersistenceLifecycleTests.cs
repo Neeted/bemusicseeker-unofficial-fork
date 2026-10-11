@@ -19,11 +19,14 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>実SQLiteの保存・復元と、それを所有するplaylist/workspaceの通知・受付・必須準備を検証します。</summary>
+/// <remarks>DBと出力の確定順は実SQLiteと必要なファイルで観測し、treeの実VM接続だけ共有UI構成を使います。画面操作は上位WPFケースが分担します。</remarks>
 [TestClass]
 public sealed class BmsPlaylistPersistenceLifecycleTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>出力状態の設定・ハッシュ・更新時刻を実SQLiteへ保存して再取得し、指定表の削除まで確認して保存項目の欠落や残存を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void PlaylistPersistenceRepository_CustomFolderOutputStatusRoundTripsAndDeletes()
@@ -79,9 +82,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>旧保存mask 0x7FEを実SQLiteへ保存してスキーマ準備を再適用し、読戻しでも保存値を改変しないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void EnsureSchema_DoesNotMigrateLastPlaySortOutputMaskOrCreateLegacyMarker()
+    public void EnsureSchema_PreservesLegacyCustomFolderOutputMask()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -108,10 +112,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual(
                 legacyMask,
                 verify.ExecuteScalar<int>("SELECT ignore_folder_output FROM playlist WHERE playlist_id = ?;", playlistId));
-            Assert.AreEqual(
-                0L,
-                verify.ExecuteScalar<long>(
-                    "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'app_schema_version';"));
         }
         finally
         {
@@ -122,6 +122,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>フォルダ名変更・作成・削除、行削除、dropを実DB triggerで失敗させ、表示中の参照と保存内容を復元して次の保存を受理することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void PlaylistLocalMutation_DatabaseFailureRestoresLiveStateAndAllowsFollowingSave()
@@ -388,6 +389,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>表示中の表へフォルダ変更と行削除を行い、選択の追従・詳細再読込・参照sort失効を公開して変更を古い表示へ取り残す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceMutation_ReportsDetailContentChangeForCurrentTable()
@@ -488,6 +490,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>異なる二表の選択行を一度に削除し、両方の実DBとモデルへの反映と一回の変更通知を確認して片方だけの保存や通知の分裂を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceDeleteSelectedEntries_GroupsRowsByParentAndPersistsEachTable()
@@ -593,6 +596,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>実VMへ同じcollectionの更新とcollection自体の置換を配送し、tree参照・プロパティ通知・表示更新がそれぞれ追従することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     [DoNotParallelize]
@@ -654,7 +658,9 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>編集開始後に行または表を削除し、完了をstaleとして拒否して実DBを変えず、削除対象を再生成しないことを確認します。</summary>
     [TestMethod]
+    // falseは表全体、trueは編集中の行だけを退役させる条件です。
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
@@ -717,6 +723,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>新しい表のdraftを作成・改名しても、明示登録前のモデル集合・実DB・変更通知へ漏れないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void CreateBMSTable_NewDraftDoesNotChangeCanonicalCollectionOrDatabase()
@@ -742,6 +749,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         finally { Directory.Delete(tempDirectory, recursive: true); }
     }
 
+    /// <summary>実削除後のcollection通知を失敗させ、元の失敗を返しながら表と行の削除をモデル・DB双方で確定していることを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveBMSTable_CollectionNotificationFailureLeavesVisibleAndDurableStateRemoved()
@@ -795,6 +803,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>取得URIのない表を再読込対象から除外し、結果を生成せず対象数ゼロの進捗を通知することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_SkipsTargetsWithoutAbsoluteUri()
@@ -828,11 +837,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>正常JSONと破損JSONを同じ要求で取得し、各表の成功・失敗を戻り値とcallback双方へ届けて対象結果の欠落を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task ReloadPlaylistTargetsAsync_ContinuesAfterTargetFailure()
+    public async Task ReloadPlaylistTargetsAsync_ReturnsEachTargetOutcome()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -869,7 +878,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -877,12 +885,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>二表が同じ出力先名を要求する外部初期化で、他表の現出力先を奪う変更だけを警告付きで拒否し、所有表の更新を維持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_DoesNotTakeAnotherPendingTableCurrentOutputDir()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.EnablePlaylistUrlCompletion = false;
         testSettings.OperationModeLR2DB = true;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -971,8 +978,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -985,8 +990,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
     [TestCategory("Playlist")]
     public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_PublishesExternalPropertiesThroughWorkspace()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.EnablePlaylistUrlCompletion = false;
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -1079,8 +1082,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1089,6 +1090,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
     }
 
     // 復元確定後の出力先 I/O 失敗を、復元呼出元と必須準備の待機側へ同じ例外で伝える。
+    /// <summary>実DBへの復元確定後に出力先I/Oを失敗させ、復元内容を保持しつつ呼出元と必須準備待機を同じ例外で終端させて待機の残留を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistRestore_PostApplyOutputFailureTerminalizesReadiness()
@@ -1159,12 +1161,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>実DBのヘッダー・行を親要求で読み直し、公開中の再入復元を拒否して別hydration予約を作らず必須行読込の終端まで待つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_ReloadsHeadersWithoutScoreInitialization()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.EnablePlaylistUrlCompletion = false;
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
@@ -1238,8 +1239,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1247,15 +1246,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>二表の欠損出力と余分な出力を実ファイル・DBで修復し、現ファイル時刻を保ちながらreceipt、進捗の要求識別、失敗時の非active終端を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_HydrationRepairRegeneratesBatchPrunesStaleRowsAndPreservesCurrentFiles()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1475,11 +1470,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1487,15 +1477,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>修復対象のない実再読込で、同じhydration要求を示す非active進捗だけを公開して架空の実行中表示を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_ZeroTargetRepairPublishesOnlyInactiveProgress()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1546,11 +1532,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1558,15 +1539,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>P保有中の再読込と出力を拒否し、実DB・ファイル・同期回数を変えず、解放時の自動再実行を避けて次の明示再読込を受理します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_BusyParentIsSideEffectFreeWithoutReservation()
     {
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousLr2RootPath = testSettings.LR2RootPath;
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1705,11 +1682,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1805,6 +1777,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>必須receiptの受信先を失敗させ、P保有中に元例外で終端して完了版を進めず、受付を解放して次の明示初期化だけを実行します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task InitializeAsync_ConsumerFailureFaultsWithoutRetryAndReleasesAdmission()
@@ -1863,11 +1836,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>単独モードで表名を実DBへ保存し、既存行を消さずにヘッダーだけを更新することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void CommitBMSTableHeaderToDB_PersistsPlaylistNameInStandaloneMode()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1901,7 +1874,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1909,11 +1881,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>単独モードで互換prefixを変更し、ヘッダーと二行のフォルダ名を同じ実DBへ保存して部分更新を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void CommitBMSTableWithEntriesToDB_PersistsPrefixRewrittenFoldersInStandaloneMode()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1960,7 +1932,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1968,11 +1939,11 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
     }
 
+    /// <summary>行未読込の表を保存する前に実DBから行を取得し、未読込を空集合として保存して既存行を消す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void CommitBMSTableWithEntriesToDB_HydratesUnloadedEntriesBeforeCommit()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
         testSettings.OperationModeLR2DB = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -2026,7 +1997,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

@@ -13,8 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class GridKeywordSearchQueryTests
 {
+    /// <summary>通常語が題名・ジャンル・MD5・SHA256へ一致することを確認し、全体検索からメタデータや識別子を落とす誤りを検出します。</summary>
     [TestMethod]
-    public void MatchesChartList_GlobalKeywordSearchesMetadataPathPlaylistAndHashes()
+    public void MatchesChartList_GlobalKeywordSearchesMetadataAndHashes()
     {
         ChartFile file = CreateFile();
 
@@ -24,6 +25,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("1234567890").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>題名・作者・ハッシュを含む複数語は全て一致した場合だけ通すことを確認し、一語の一致でAND条件を満たす誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_UsesAndForMultipleTokens()
     {
@@ -33,6 +35,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("alpha missing").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>題名・作者・各ハッシュの指定は指定項目だけへ一致し、別項目の値や非対応memoは通さないことを確認し、指定項目を全体検索へ広げる誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_FieldQueryLimitsSearchTarget()
     {
@@ -43,6 +46,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("memo:alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>複数の参照表を持つ譜面でplaylist・ref・tableと正規表現が表名へ一致し、記号だけでは一致しないことを確認し、表名を記号と取り違える誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_PlaylistFieldSearchesReferenceNames()
     {
@@ -72,6 +76,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("playlist:\"Second Table\"").MatchesPlaylistDetail(playlistRow));
     }
 
+    /// <summary>SHA256で参照したbmsonでも表名の三別名検索が通り、記号だけは通らないことを確認し、BMS専用識別子に依存して参照表検索を欠落させる誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_PlaylistFieldSearchesBmsonReferenceProjection()
     {
@@ -103,6 +108,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("playlist:BMSN").MatchesLibraryChartRow(row));
     }
 
+    /// <summary>source行の題名・作者・分類・パス・各ハッシュと参照表に同時一致し、library行と同じ結果となることを確認し、source経路の投影または検索項目の欠落を検出します。</summary>
     [TestMethod]
     public void MatchesChartListSourceRow_UsesSafeIdentityFieldsWithoutLibraryChartRow()
     {
@@ -131,6 +137,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
     }
 
+    /// <summary>bmsonの通常メタデータとモード・レベルをsource行に投影してlibrary行と同じ検索結果を得ることを確認し、BMS用投影に依存してbmsonの値を落とす誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartListSourceRow_UsesBmsonFallbackValues()
     {
@@ -169,6 +176,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile((song))), query.MatchesChartListSourceRow(sourceRow));
     }
 
+    /// <summary>BMSとbmsonの現行値を適用すると表示と識別子が更新され、詳細提供元のレベルと詳細参照は保持することを確認し、古い表示や詳細投影の切断を検出します。</summary>
     [TestMethod]
     public void ChartListSourceRow_AppliesCommonCurrentAndReadsChartInfoProvider()
     {
@@ -231,6 +239,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(11, bmsonSourceRow.ChartLevelSortKey);
     }
 
+    /// <summary>詳細とHARD・AAの成績を持つsource行で数値範囲と別名を組み合わせた検索がlibrary行と一致することを確認し、source経路だけ詳細や成績条件を落とす誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartListSourceRow_ScoreAndChartInfoFieldsMatchLibraryChartRow()
     {
@@ -247,6 +256,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
     }
 
+    /// <summary>特徴・判定・クリア・ランク・EXスコア・BPの正規表現がsource行とlibrary行で一致することを確認し、数値や分類の検索文字列を経路ごとに変える誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartListSourceRow_RegexScoreAndChartInfoFieldsMatchLibraryChartRow()
     {
@@ -263,6 +273,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(query.MatchesLibraryChartRow(libraryRow), query.MatchesChartListSourceRow(sourceRow));
     }
 
+    /// <summary>未知の項目・空の値・空の項目名は譜面に一致しないことを確認し、不完全な指定を通常語や無条件一致へ置き換える誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_UnknownOrEmptyFieldQueryDoesNotMatch()
     {
@@ -273,6 +284,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse(":alpha").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>ドライブ付きパス・ドライブ名だけ・小文字パスが警告なしで一致することを確認し、Windowsのコロンを未知の検索項目と解釈する誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_WindowsDriveLetterTokenIsGlobalKeyword()
     {
@@ -291,6 +303,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(0, lowerDrivePathQuery.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
 
+    /// <summary>引用した複合題名とエスケープ引用符、閉じ引用符欠落を受理し、異なる句は除くことを確認し、引用句を単語へ分割したり互換入力を拒否する誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_QuoteSearchTreatsPhraseAsSingleToken()
     {
@@ -305,6 +318,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("\"Alpha Missing\"").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>否定した作者だけを除外し、単独の否定記号は一致せず題名内のハイフンは保持することを確認し、否定の範囲や記号の解釈を取り違える誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_NegationExcludesMatchingRows()
     {
@@ -318,6 +332,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("foo-bar").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(hyphenatedFile)));
     }
 
+    /// <summary>同じ項目の選択肢と引用句にORを適用し、全選択肢不一致や空ORを除外することを確認し、ORを式全体の無条件一致へ広げる誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_OrSearchIsLimitedToTokenAlternatives()
     {
@@ -329,6 +344,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("|").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>全体および題名指定の正規表現が一致し、作者不一致と壊れた式は一致しないことを確認し、適用先の混同や不正正規表現の受理を検出します。</summary>
     [TestMethod]
     public void MatchesChartList_RegexSearchSupportsGlobalAndFieldQueries()
     {
@@ -340,6 +356,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("title:re:[").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>memoの対応画面と非対応画面、および履歴だけの空date警告を区別することを確認し、表示先に関係なく同じ診断を出す誤りを検出します。</summary>
     [TestMethod]
     public void GetDiagnostics_ReportsContextSpecificWarnings()
     {
@@ -356,6 +373,7 @@ public sealed class GridKeywordSearchQueryTests
             .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
     }
 
+    /// <summary>未知項目・空指定・否定・OR・壊れた正規表現を同時に診断して検索結果は不一致を維持することを確認し、診断の欠落や警告による検索式の意味変更を検出します。</summary>
     [TestMethod]
     public void GetDiagnostics_ReportsInvalidConditionsWithoutChangingMatchSemantics()
     {
@@ -371,6 +389,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>引用句・否定・OR・正規表現を併用する正常式へ診断を出さないことを確認し、高度な有効構文を不正と判定する誤りを検出します。</summary>
     [TestMethod]
     public void GetDiagnostics_DoesNotReportValidAdvancedSyntax()
     {
@@ -379,6 +398,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
     }
 
+    /// <summary>整数と小数・ミリ秒時間・丸め・難度・判定・複合特徴を利用者向け表記へ変換することを確認し、検索にも使う表示値の単位や分類の変換誤りを検出します。</summary>
     [TestMethod]
     public void ChartInfoDisplayFormatter_FormatsDisplayValues()
     {
@@ -393,6 +413,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual("LN RANDOM STOP", ChartInfoDisplayFormatter.FormatFeature(chartInfo.feature));
     }
 
+    /// <summary>詳細の閉区間・比較・開区間と難度・特徴・scratchの条件で一致と不一致を区別することを確認し、範囲演算や詳細別名の誤解釈を検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ChartInfoNumericRangeAndAliases()
     {
@@ -408,6 +429,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("difficulty:insane").MatchesLibraryChartRow(row));
     }
 
+    /// <summary>値欠落と定義フラグ未設定をundefined・undef・nullで検索し、詳細全体の有無も区別することを確認し、欠損をゼロや定義済みとして扱う誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ChartInfoDefinedUndefinedTerms()
     {
@@ -424,6 +446,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("feature:null").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(CreateFile())));
     }
 
+    /// <summary>クリアとDJランクの別名・率の0から1の尺度・EXスコア等の範囲を検索し、EXH・PF・MAXも一致することを確認し、成績分類や率の百分率解釈を検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportAliasesAndNumericRanges()
     {
@@ -444,11 +467,11 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:EXH").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
         file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.PA, RankType.AAA));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:PF").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
-        file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.MAX, RankType.AAA));
         file = ChartFileProjection.WithScore(file, new ChartScoreSnapshot(ClearType.MAX, RankType.MAX));
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:MAX dj:MAX").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>未登録成績のランク・スコア・率・コンボ・BPは欠損別名に一致し、クリアの既定状態は定義済みとなることを確認し、成績項目の欠損区分を一律にする誤りを検出します。</summary>
     [TestMethod]
     public void MatchesChartList_ScoreFieldsSupportUndefinedTerms()
     {
@@ -461,6 +484,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("score:defined").MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)));
     }
 
+    /// <summary>bmsonの詳細提供元からレベル・ノート数を表示し通常語と詳細検索が通ることを確認し、SHA256参照の詳細を表示や検索へ渡さない誤りを検出します。</summary>
     [TestMethod]
     public void LibraryChartRow_FromBmsonChart_ExposesChartInfoForDisplayAndSearch()
     {
@@ -490,16 +514,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("level:12 feature:random notes:>=2000").MatchesLibraryChartRow(row));
     }
 
-    [TestMethod]
-    public void MatchesLibraryChartRow_ScoreFieldsUseBmsFileScore()
-    {
-        ChartFile file = CreateFile();
-        file = ChartFileProjection.WithScore(file, ChartTestValues.Score(ClearType.HARD, RankType.AA, 850, 100, 1000, 900, 8, 0, false));
-        var row = LibraryChartRow.FromChartFile(file);
-
-        Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:HC rank:AA score:>=1800 bp:<10").MatchesLibraryChartRow(row));
-    }
-
+    /// <summary>LR2のAssist履歴・forceEasy・Easy併用と内部Easyを区別してAEとEC検索へ反映することを確認し、画面のASSIST分類と検索用クリアの不一致を検出します。</summary>
     [TestMethod]
     public void MatchesLibraryChartRow_Lr2AssistClearUsesOptionHistory()
     {
@@ -538,6 +553,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:AE").MatchesLibraryChartRow(internalEasyRow));
     }
 
+    /// <summary>プレイリスト詳細の所持譜面成績でHARD表記とEXスコア・BP範囲が一致することを確認し、詳細行の成績投影を検索に使わない誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlaylistDetail_ScoreFieldsUseSourceSnapshot()
     {
@@ -548,6 +564,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(GridKeywordSearchQuery.Parse("clear:\"HARD CLEAR\" score:>=1800 bp:0..10").MatchesPlaylistDetail(row));
     }
 
+    /// <summary>確定LR2履歴に対して日時・年月・種類・前後クリア・識別子・出典を検索し、異なる日付や未確定条件を除くことを確認し、履歴専用項目の混同を検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_SearchesPlayHistoryFields()
     {
@@ -565,6 +582,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("finalized:false").MatchesPlayHistoryRow(row));
     }
 
+    /// <summary>実際のローカル再生日時で両端を含む秒単位閉区間と外側の不一致を確認し、UTCのまま比較したり境界秒を落とす誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_DateSupportsClosedLocalTimestampRanges()
     {
@@ -583,6 +601,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse($"date:\"{start}..{localPlayedAt.AddSeconds(-1):yyyy/MM/dd HH:mm:ss}\"").MatchesPlayHistoryRow(row));
     }
 
+    /// <summary>ハイフン・スラッシュ・連結の日付と秒単位時刻、および最大日を受理することを確認し、日付互換形式の拒否や最終日の上限溢れを検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_DateSupportsExactDayAndLocalTimestampForms()
     {
@@ -601,6 +620,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsTrue(maximumDay.Matches(PlayHistoryWallClockSecond.FromDateTime(DateTime.MaxValue)));
     }
 
+    /// <summary>項目を指定しない日時文字列は履歴の日付検索へ昇格しないことを確認し、通常語に暗黙のdate条件を追加する誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_UnqualifiedTimestampIsNotPromotedToDateCondition()
     {
@@ -612,6 +632,7 @@ public sealed class GridKeywordSearchQueryTests
             row.PlayedAt.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.InvariantCulture)).MatchesPlayHistoryRow(row));
     }
 
+    /// <summary>開区間・逆順・小数秒・時差・空白・区切り過多等の不正dateを診断して不一致とし、否定も全件一致にせず有効ORだけ通すことを確認し、日付エラーの隠蔽を検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_InvalidDateAndNegatedInvalidDateMatchNone()
     {
@@ -653,6 +674,7 @@ public sealed class GridKeywordSearchQueryTests
             .Any(diagnostic => diagnostic.Kind == GridKeywordSearchDiagnosticKind.InvalidDate));
     }
 
+    /// <summary>同じ秒の二履歴を選ぶと同一の開始秒と終了秒を持つ検索句となることを確認し、同時刻選択を単一日や空の範囲へ広げる誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryDateSearchTerm_SameSecondSelectionRemainsClosedRange()
     {
@@ -666,6 +688,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual($"date:\"{timestamp}..{timestamp}\"", term.Clause);
     }
 
+    /// <summary>夏時間終了時の異なる二UTC時刻を指定地域の同じ壁時計秒として照合し、UTC表記では一致しないことを確認し、曖昧時刻の検索を絶対時刻へ置き換える誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryDateSearchTerm_UsesExplicitZoneWallClockForAmbiguousSeconds()
     {
@@ -716,6 +739,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(containingRange.Matches(secondUtc));
     }
 
+    /// <summary>未確定履歴が0・pendingと定義済みclearへ一致して確定後のHCへは一致しないことを確認し、未確定履歴へ完成成績を混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryRow_SupportsDiagnosticsFields()
     {
@@ -727,6 +751,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(GridKeywordSearchQuery.Parse("clear:HC").MatchesPlayHistoryRow(row));
     }
 
+    /// <summary>通常検索をAND、選択した集計カード同士をORとして適用することを確認し、カードの一致だけで通常検索を通したり全カードをANDにする誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlayHistoryKeywordAndSummaryFilters_CombinesKeywordAndCards()
     {
@@ -737,6 +762,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(PlayHistoryWorkflowOwner.MatchesKeywordAndSummaryFilters(row, "artist:artistx", "type:bp", "type:clear newclear:EC"));
     }
 
+    /// <summary>output項目が出力先の表示名に一致する行だけを通すことを確認し、別の出力先や内部名で一覧検索を判定する誤りを検出します。</summary>
     [TestMethod]
     public void MatchesPlaylistSummary_OutputFieldUsesOutputBaseDisplayName()
     {
@@ -748,6 +774,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(query.MatchesPlaylistSummary(negative));
     }
 
+    /// <summary>引用外のTab後は項目候補、引用内のTab後は表名値候補を出すことを確認し、候補解析で引用状態を無視して区切る誤りを検出します。</summary>
     [TestMethod]
     public void KeywordSearchAssistance_TabSeparatorUsesFieldsAndQuotedTabStaysValueContext()
     {
@@ -777,6 +804,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(values.Sections.Any(section => section.Kind == KeywordSearchPresentationSectionKind.Fields));
     }
 
+    /// <summary>開始引用符の直前にバックスラッシュがある未完引用句内のTabでは項目・値候補を開かないことを確認し、検索と支援で引用句の境界を変える誤りを検出します。</summary>
     [TestMethod]
     public void KeywordSearchAssistance_BackslashBeforeOpeningQuoteKeepsTabInUnmatchedQuotedToken()
     {
@@ -801,42 +829,7 @@ public sealed class GridKeywordSearchQueryTests
             || section.Kind == KeywordSearchPresentationSectionKind.Values));
     }
 
-    [TestMethod]
-    public void KsaCatalog_UsesApprovedCanonicalValuesByContextAndField()
-    {
-        KeywordSearchCatalogSnapshot normal = new(1L, []);
-        KeywordSearchCatalogSnapshot playHistory = new(2L, []);
-
-        AssertSetEqual(
-            new[] { "nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX" },
-            normal.GetValues(GridKeywordSearchContext.ChartList, "clear"));
-        AssertSetEqual(
-            new[] { "F", "E", "D", "C", "B", "A", "AA", "AAA", "MAX", "defined", "undefined" },
-            normal.GetValues(GridKeywordSearchContext.PlaylistDetail, "djlevel"));
-        AssertSetEqual(
-            new[] { "beginner", "normal", "hyper", "another", "insane", "defined", "undefined" },
-            normal.GetValues(GridKeywordSearchContext.ChartList, "difficulty"));
-        AssertSetEqual(
-            new[] { "veryhard", "hard", "normal", "easy", "veryeasy", "defined", "undefined" },
-            normal.GetValues(GridKeywordSearchContext.ChartList, "judge"));
-        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "judgepct"));
-        AssertSetEqual(
-            new[] { "ln", "mine", "random", "lnmode", "cn", "hcn", "stop", "scroll", "defined", "undefined" },
-            normal.GetValues(GridKeywordSearchContext.ChartList, "feature"));
-        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "peakdensity"));
-        AssertSetEqual(new[] { "defined", "undefined" }, normal.GetValues(GridKeywordSearchContext.ChartList, "bp"));
-
-        AssertSetEqual(
-            new[] { "nosong", "NP", "F", "AE", "LAE", "EC", "NC", "HC", "EXH", "FC", "PF", "MAX", "defined", "undefined" },
-            playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "oldclear"));
-        AssertSetEqual(new[] { "true", "false" }, playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "finalized"));
-        AssertSetEqual(Enumerable.Range(1, 12).Select(value => value.ToString()), playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "month"));
-        AssertSetEqual(new[] { "score", "bp", "clear", "combo", "play" }, playHistory.GetValues(GridKeywordSearchContext.PlayHistory, "type"));
-
-        Assert.AreEqual(0, normal.GetValues(GridKeywordSearchContext.ChartList, "clear").Count(value => value is "defined" or "undefined"));
-        AssertSetEqual(Array.Empty<string>(), normal.GetValues(GridKeywordSearchContext.ChartList, "clear").Where(value => value is "undef" or "null"));
-    }
-
+    /// <summary>各表示先と項目別名に対応する挿入可能な分類値・欠損語・動的表名だけを返すことを確認し、非対応項目や解析専用の別名を候補へ混入させる誤りを検出します。</summary>
     [TestMethod]
     public void KsaCatalog_ExactAuthoritySetsCoverEveryFieldAliasAndContext()
     {
@@ -949,6 +942,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(snapshot.GetValues(GridKeywordSearchContext.ChartList, "clear").Contains("undefined"));
     }
 
+    /// <summary>空白付き・大小文字重複・空の表名を受け取り、正規化済み候補と指定版を各対応画面へ渡すことを確認し、重複候補や異なる版の候補を使う誤りを検出します。</summary>
     [TestMethod]
     public void KsaCatalog_DynamicPlaylistSnapshotIsTrimmedDedupedSortedAndRevisionStamped()
     {

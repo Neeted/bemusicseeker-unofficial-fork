@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class LR2SongDBExtendedUninstallTests
 {
     /// <summary>実起動・アプリスキーマ・IR保存・フォルダ索引の生成差分を実撤去し、LR2と未知の利用者スキーマ、行、sequence、譜面ファイルを新規接続で保全確認します。削除リストから期待対象を作りません。</summary>
+    /// <remarks>実起動用スキーマと撤去storeを使い、独立した新規読取り接続で利用者DB・譜面の保全を観測します。</remarks>
     [TestMethod]
     public void Uninstall_RemovesGeneratedApplicationSchemaAndPreservesUserData()
     {

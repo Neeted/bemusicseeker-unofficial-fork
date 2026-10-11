@@ -1,3 +1,6 @@
+# 保証：現行配布物で実アプリの終了合意、updaterによる適用、後継アプリの自動起動・正常終了を通す。
+# 保存済みDB・設定・利用者追加ファイルの保持、管理対象の置換・不要ファイル除去、配布配置を観測し、
+# 合意だけで終える更新、データの破壊、旧管理ファイルの残存、起動できない配布物を検出する。
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -650,8 +653,7 @@ try {
     $successApp = Join-Path $successRoot 'app'
     Expand-AppPackage -PackagePath $current.PackagePath -Destination $successApp
     $expectedExecutableHash = Get-Sha256 -Path (Join-Path $current.AppPublishRoot 'BeMusicSeeker.exe')
-    # A removed managed file makes this a real apply/cleanup check even though
-    # the source and target application versions are the same.
+    # 同じ版の適用でも実際の配置更新・除去を検査できるよう、旧管理対象だけにあるファイルを用意する。
     $obsoleteRelativePath = 'verification-obsolete.txt'
     $obsoletePath = Join-Path $successApp $obsoleteRelativePath
     [IO.File]::WriteAllText($obsoletePath, 'obsolete managed file', [Text.UTF8Encoding]::new($false))
@@ -666,7 +668,7 @@ try {
         -OwnedProcessRecords $script:ownedProcessRecords
     $beforeSuccess = Get-ProfileState -Profile ([pscustomobject]@{ AppRoot = $successApp; DatabasePath = $successProfile.DatabasePath; InstallPath = $successProfile.InstallPath; LegacyConfigPath = $successProfile.LegacyConfigPath; MarkerPath = $successProfile.MarkerPath })
     # 公開済みv2.1.6.0 updater適用はReleaseAcceptanceレーンで確認する。
-    # This checks the current updater's handshake, apply and real app restart.
+    # ここでは現行updaterの合意・実適用・実アプリの自動再起動を一つの受入シナリオとして確認する。
     $successUpdater = Start-UpdaterHandshake `
         -UpdaterExecutable (Join-Path $successApp 'BeMusicSeeker.Updater.exe') `
         -AppRoot $successApp `

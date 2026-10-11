@@ -19,6 +19,8 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>実外部再取得のDB確定、UI置換、取消と必要出力の終端を確認します。</summary>
+/// <remarks>実JSON・SQLiteと必要なHTTP本文を使い、UI配送はWindowを作らず共有schedulerで保持します。メニューや実Windowの接続は上位が担い、失敗した正本・公開・出力を別々に観測します。</remarks>
 [TestClass]
 public sealed class BmsPlaylistExternalReloadTests
 {
@@ -556,6 +558,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>保存済みの旧難度、通知設定、保存成否を変えて初回hash保存を行い、数値の難度変化だけを通知します。保存失敗で旧状態を戻さない誤りと、名前変更や同値表記だけで通知する誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow("旧方針 ★3.87", "standard", true, false, 1)]
     [DataRow("旧方針 ★6.6", "standard", true, false, 0)]
@@ -658,58 +661,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>同期portの元例外をそのまま返し、DBパスをディレクトリで塞いでもDBアクセスの例外へ置き換えません。port失敗後にDB保存を続ける誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void Lr2FolderSync_InvokesMutationGuardBeforeOpeningDatabase()
+    public void Lr2FolderSync_PropagatesSynchronizationFailureBeforeDatabaseAccess()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "Output");
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(
-                songDbPath,
-                CustomFolderOutputPhysicalSurface.Empty);
-            synchronization.Failure = new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
-            var table = new BMSTable
-            {
-                playlist_id = 9001,
-                name = "SyncMutationGuard",
-                symbol = "SMG",
-                Output_dir = "SyncMutationGuard",
-                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder")],
-                Folder_order = ["Folder"]
-            };
-            BMSPlaylist playlist = CreatePlaylist(songDbPath, synchronization, settings: testSettings);
-            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
-                playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_mutation_guard"));
-
-            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, synchronization.Operations);
-            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, exception.Message);
-        }
-        finally
-        {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void Lr2FolderSync_RethrowsCapabilityFailure()
-    {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -747,8 +703,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -756,11 +710,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>実再取得の新旧行snapshotをreceipt購読側で捕捉し、購読者と同期callbackがともに失敗した場合は最初のreceipt例外を保持します。行の取り違えと元失敗の上書きを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_PassesOldAndNewEntrySnapshotsToCallback()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -805,7 +759,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -818,7 +771,6 @@ public sealed class BmsPlaylistExternalReloadTests
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_HashInitializationPersistsWithoutUpdatedFlag()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -887,7 +839,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1006,9 +957,10 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>LR2同期予約中はフォルダの改名・削除・作成、行のフォルダ追加・削除をモデル、DB、出力へ反映せず、解放後の次の明示変更を一回同期します。拒否の副作用と後続要求を拒み続ける誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task LocalPlaylistMutations_RejectBusyLeaseBeforeMutationAndRetryToConvergence()
+    public async Task LocalPlaylistMutations_RejectBusyWithoutEffectsAndAcceptNextExplicitMutation()
     {
         foreach (LocalPlaylistMutationCase mutationCase in CreateLocalPlaylistMutationCases())
         {
@@ -1075,9 +1027,10 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>未commitの変更と単体モードのcommitではLR2出力を変えず、前者はDBも保持し後者はDBへ保存します。保存有無と外部出力の条件を混同する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void LocalPlaylistMutations_DoNotConsultLeaseForNoCommitOrNonLr2()
+    public void LocalPlaylistMutations_SkipLr2OutputForUncommittedAndStandaloneChanges()
     {
         foreach (LocalPlaylistMutationCase mutationCase in CreateLocalPlaylistMutationCases())
         {
@@ -1150,11 +1103,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>実外部表一件の再取得で受付、対象完了、終端の進捗を届け、件数と対象名を保持します。処理済み件数の欠落と終端後も進捗を稼働表示する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_ReportsPlaylistSyncProgressSnapshots()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1190,7 +1143,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1198,11 +1150,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>同期対象の外部表だけを再取得し、同期を切った不正JSONの表へは結果callbackを届けません。自動同期が利用者の対象指定を無視する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task UpdateBmsTablesInternalAsync_ReloadsOnlyExternalSyncTargets()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1240,7 +1192,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1248,11 +1199,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>同期を切った表でも明示再取得は実データの追加を採用し、同期設定は保持します。自動同期の対象条件を明示要求にも適用する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_ReloadsExplicitTargetRegardlessOfExternalSyncFlag()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1285,7 +1236,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1293,11 +1243,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>保存中のURIと別の明示URIから実表を再取得し、追加行を採用します。引数の取得元を無視して旧URIを再利用する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadAndApplySingleTable_UsesExplicitUriOverride()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         string firstDirectory = Path.Combine(tempDirectory, "first");
@@ -1337,7 +1287,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1345,6 +1294,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>通常表と推薦表のUI置換を保留し、完了前は旧参照と無通知を保ち、競合する復元・削除を拒否します。UI確定前の成功通知と予約の早期解放を検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1353,7 +1303,6 @@ public sealed class BmsPlaylistExternalReloadTests
     {
         (string tempDirectory, TestBmsPlaylist playlist, BMSTable table, ControlledUiScheduler scheduler) =
             await CreateUiReplacementReloadFixtureAsync(UiScheduleOutcome.AcceptedPending, recommendation);
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         Task<PlaylistExternalSyncOwner.PlaylistReloadOperationResult>? reloadTask = null;
         Task? competingRestore = null;
@@ -1433,7 +1382,6 @@ public sealed class BmsPlaylistExternalReloadTests
                 try { await competingRestore; }
                 catch (InvalidOperationException) { }
             }
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1442,6 +1390,7 @@ public sealed class BmsPlaylistExternalReloadTests
     }
 
     // U2-R4/R2: 既存 operation scheduler で UI rejection / cancel / fault を区別し、DB 保持と予約解放を確認する。
+    /// <summary>復元後のUI配送が拒否・取消・失敗しても確定DBを保持し、旧表示のまま失敗を返して次の明示復元を受理します。表示失敗でDBを巻き戻す誤りと予約漏れを検出します。</summary>
     [DataTestMethod]
     [DataRow("Rejected")]
     [DataRow("Aborted")]
@@ -1452,9 +1401,7 @@ public sealed class BmsPlaylistExternalReloadTests
         UiScheduleOutcome outcome = Enum.Parse<UiScheduleOutcome>(outcomeName);
         (string directory, TestBmsPlaylist playlist, BMSTable oldTable, ControlledUiScheduler scheduler) =
             await CreateUiReplacementReloadFixtureAsync(outcome);
-        bool previousUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
-        bool previousLr2Mode = testSettings.OperationModeLR2DB;
         testSettings.OperationModeLR2DB = false;
         playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
         try
@@ -1483,12 +1430,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousUrlCompletion;
-            testSettings.OperationModeLR2DB = previousLr2Mode;
             Directory.Delete(directory, recursive: true);
         }
     }
 
+    /// <summary>通常表と推薦表のUI配送拒否を再取得適用失敗として返し、旧モデル・保存値を保持して成功通知を出しません。配送できない置換を成功扱いする誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1499,6 +1445,7 @@ public sealed class BmsPlaylistExternalReloadTests
             typeof(InvalidOperationException),
             "rejected", recommendation);
 
+    /// <summary>通常表と推薦表のUI配送取消を元取消の分類付きで返し、旧モデル・保存値と無通知を保持します。取消を適用済み扱いする誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1509,6 +1456,7 @@ public sealed class BmsPlaylistExternalReloadTests
             typeof(OperationCanceledException),
             "aborted", recommendation);
 
+    /// <summary>通常表と推薦表のUI配送例外を適用失敗の内部例外に保持し、旧モデル・保存値を変えません。配送失敗を隠して成功通知する誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1519,11 +1467,11 @@ public sealed class BmsPlaylistExternalReloadTests
             typeof(InvalidOperationException),
             "faulted", recommendation);
 
+    /// <summary>実HTTP本文の待機中は削除を拒否し、取得完了だけでは拒否した削除を再実行しません。後続の明示削除でDBとモデルを除去し、通信中の予約漏れと自動再実行を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_CommunicationKeepsPAndRejectsRemovalWithoutReplay()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1602,7 +1550,6 @@ public sealed class BmsPlaylistExternalReloadTests
                 }
             }
             if (server != null) { await server.DisposeAsync(); }
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1617,7 +1564,6 @@ public sealed class BmsPlaylistExternalReloadTests
     {
         (string tempDirectory, TestBmsPlaylist playlist, BMSTable table, ControlledUiScheduler scheduler) =
             await CreateUiReplacementReloadFixtureAsync(outcome, recommendation);
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         using PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlist.OperationNotificationOwner.BeginSession();
         try
@@ -1654,7 +1600,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1729,11 +1674,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
+    /// <summary>実手動再取得で現在の表参照と選択を置換し、行変更・header変更の表示無効化と進捗終端を届けます。不正JSONでは現在参照を保って失敗を報告し、表示更新の欠落と失敗の隠蔽を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1872,7 +1817,6 @@ public sealed class BmsPlaylistExternalReloadTests
         }
         finally
         {
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

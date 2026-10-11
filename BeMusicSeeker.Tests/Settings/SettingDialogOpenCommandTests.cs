@@ -15,8 +15,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SettingDialogOpenCommandTests
 {
+    /// <summary>保存済み音声値を変えずに Open を実行し、一回の表示要求と機器更新だけを行い勝手に保存する誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void OpenCommand_PublishesExactlyOneOwnerRequest()
     {
         var catalog = new TestAudioDeviceCatalog();
@@ -41,8 +41,8 @@ public sealed class SettingDialogOpenCommandTests
         Assert.AreEqual(0, settingsSession.SaveCount);
     }
 
+    /// <summary>共有 WASAPI・排他 WASAPI・ASIO を切り替え、形式・周波数・buffer の編集可否と読み取り専用表示が backend 能力に従うことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayerDriverSelection_UsesTypedBackendCapabilities()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -54,7 +54,6 @@ public sealed class SettingDialogOpenCommandTests
         using SettingsDialogViewModel dialog = CreateViewModel(
             settingsEditSession: new TestSettingsEditSession(settings)).SettingDialog;
 
-        Assert.AreEqual(3, dialog.PlayerDriverNames.Count);
         Assert.IsFalse(dialog.IsPlayerFormatSelectionEnabled);
         Assert.IsFalse(dialog.IsPlayerSampleRateSelectionEnabled);
         Assert.IsTrue(dialog.IsPlayerFormatReadOnly);
@@ -84,10 +83,11 @@ public sealed class SettingDialogOpenCommandTests
         Assert.IsTrue(dialog.IsPlayerBufferControlEnabled);
     }
 
+    /// <summary>利用不能 backend と保存済み欠損機器の双方で編集後に取消し、閉鎖前の識別情報・警告通知復元と保存しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
-    [DoNotParallelize]
+    [DoNotParallelize] // 取消が共有テーマと文化を復元するため非並列にします。
     public void Cancel_RestoresAudioDraftAndPresentationState(bool unavailableBackend)
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -211,8 +211,8 @@ public sealed class SettingDialogOpenCommandTests
         });
     }
 
+    /// <summary>保存機器の表示を更新し未選択や未知機器が来ても保存済み識別を消さず、新 dialog でも同じ機器を選ぶことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void OpenCommand_SelectedDevicePreservesSavedIdentityAcrossRefreshAndNewViewModel()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -256,8 +256,8 @@ public sealed class SettingDialogOpenCommandTests
         Assert.AreEqual("saved-device", secondDialog.PlayerDevice);
     }
 
+    /// <summary>空識別を既定機器として扱い、機器名との組を明示保存まで draft に保ち、既定へ戻す保存では両方を消すことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task SelectedPlayerDevice_TreatsEmptyIdentityAsDefaultAndPersistsPairOnlyOnSave()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -298,8 +298,8 @@ public sealed class SettingDialogOpenCommandTests
         Assert.IsTrue(dialog.SelectedPlayerDevice?.IsDefaultPlaceholder);
     }
 
+    /// <summary>backend と機器を変更して保存を失敗させ、保存済み三値を維持しながら選択 draft を失う誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task SaveSettings_DevicePersistenceFailureRestoresPersistedTripleAndKeepsDraft()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>

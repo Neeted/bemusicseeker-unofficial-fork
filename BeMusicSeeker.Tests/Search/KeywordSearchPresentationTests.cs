@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class KeywordSearchPresentationTests
 {
+    /// <summary>memoの非対応画面だけに警告を表示し、履歴で有効なfinalizedは警告へ含めないことを確認し、表示先と異なる項目診断を文言化する誤りを検出します。</summary>
     [TestMethod]
     public void BuildKeywordSearchWarningText_UsesContextSpecificFields()
     {
@@ -24,6 +25,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsFalse(playHistoryWarning.Contains("finalized"));
     }
 
+    /// <summary>空title・否定・OR・壊れた正規表現の各原因を表示警告に含めることを確認し、複数診断の一部を表示時に落とす誤りを検出します。</summary>
     [TestMethod]
     public void BuildKeywordSearchWarningText_ReportsInvalidSyntax()
     {
@@ -35,6 +37,8 @@ public sealed class KeywordSearchPresentationTests
         StringAssert.Contains(warning, "[");
     }
 
+    /// <remarks>診断の意味は下位の検索テストが担い、ここではMainWindowの構成からworkspaceの警告公開までの接続を確認します。共有設定を使う構成のため並列実行しません。</remarks>
+    /// <summary>構成済みworkspaceの一覧検索へ非対応memoを設定すると警告文と警告有無が更新されることを確認し、入力から警告表示状態への接続漏れを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistSummaryKeywordFilterChangedThroughWorkspaceUpdatesWarningPresentation()
@@ -48,6 +52,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(viewModel.PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning);
     }
 
+    /// <summary>四つの表示先に対応するハッシュ・成績・メモ・記号・日時等をヘルプへ含めることを確認し、表示先の検索項目を案内しない誤りを検出します。</summary>
     [TestMethod]
     public void BuildKeywordSearchHelpText_ContainsContextFields()
     {
@@ -69,6 +74,7 @@ public sealed class KeywordSearchPresentationTests
         StringAssert.Contains(playHistoryHelp, "date");
     }
 
+    /// <summary>空入力ではお気に入り・履歴・項目を順に表示し、重複履歴と非対応memoを隠して表示先変更で戻すことを確認し、保存式の投影や行操作の可否の誤りを検出します。</summary>
     [TestMethod]
     public void KsaEmptyPresentation_OrdersProjectedFavoritesHistoryAndFieldsByContext()
     {
@@ -113,6 +119,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(detailState.Sections.Any(section => section.Items.Any(item => item.Query == "memo:note")));
     }
 
+    /// <summary>お気に入り・履歴各6件と月12件の候補を切り捨てず各区画へスクロール必要を渡すことを確認し、表示容量で候補を消す誤りを検出します。</summary>
     [TestMethod]
     public void KsaPresentationSections_ExposeAllRowsAndMarkIndependentScrollCapacity()
     {
@@ -154,6 +161,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(valuesSection.IsScrollable);
     }
 
+    /// <summary>大小文字の混じる否定付き項目接頭辞を補完すると否定を保持してカーソルが末尾へ移ることを確認し、項目補完で検索の否定を失う誤りを検出します。</summary>
     [TestMethod]
     public void KsaFieldPresentation_CompletesCaseInsensitivePrefixAndPreservesNegation()
     {
@@ -182,6 +190,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual("-title:".Length, result.CaretIndex);
     }
 
+    /// <summary>空白入り表名候補を重複除去して引用符付きで適用し、一つの空白の後へカーソルを置いて次の項目候補を出すことを確認し、値補完の境界や引用の誤りを検出します。</summary>
     [TestMethod]
     public void KsaValuePresentation_UsesSnapshotAndAppliesOneAsciiSeparatorWithCaretAfterIt()
     {
@@ -217,6 +226,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(KeywordSearchPresentationSectionKind.Fields, nextFields.Sections.Single().Kind);
     }
 
+    /// <summary>語の途中で表名を補完すると後続文字を保持して一つの空白を挟み、その直後へカーソルを置くことを確認し、補完による後続文字の削除や語の連結を検出します。</summary>
     [TestMethod]
     public void KsaValueApply_NormalizesSeparatorBeforeExistingSuffix()
     {
@@ -246,6 +256,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual("playlist:Alpha ".Length, result.CaretIndex);
     }
 
+    /// <summary>引用句の途中で表名を補完すると既存の閉じ引用符を置換範囲へ含めて後続titleを保持することを確認し、閉じ引用符の重複や後続条件の破壊を検出します。</summary>
     [TestMethod]
     public void KsaValueApply_QuotedCaretInMiddleReplacesClosingQuoteAndPreservesFollowingClause()
     {
@@ -277,6 +288,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual("playlist:\"Alpha\" ".Length, result.CaretIndex);
     }
 
+    /// <summary>引用符・バックスラッシュ・縦棒を持つ表名を引用句の途中へ適用し、必要なエスケープと後続条件を保持することを確認し、値の文字を検索演算子へ変える誤りを検出します。</summary>
     [TestMethod]
     public void KsaValueApply_QuotedCaretInMiddleEscapesQuoteBackslashAndPipeValues()
     {
@@ -318,6 +330,7 @@ public sealed class KeywordSearchPresentationTests
         }
     }
 
+    /// <summary>引用されたクリア分類の途中でNPを補完して閉じ引用符と次の条件を保持することを確認し、動的表名以外の分類値に異なる置換範囲を使う誤りを検出します。</summary>
     [TestMethod]
     public void KsaValueApply_FiniteQuotedCaretInMiddlePreservesClosingQuoteAndSuffix()
     {
@@ -349,6 +362,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual("clear:\"NP\" ".Length, result.CaretIndex);
     }
 
+    /// <summary>引用されないクリア値を補完した後も後続語を保持し、空白後の項目候補へ移ることを確認し、値候補の状態を次の条件まで持ち越す誤りを検出します。</summary>
     [TestMethod]
     public void KsaValueApply_ExistingUnquotedSuffixTransitionsToFields()
     {
@@ -385,6 +399,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(fields.Items.Any(item => item.DisplayText == "title:"));
     }
 
+    /// <summary>空白入り引用表名の内部にカーソルがある間は表名値候補を出して項目候補を出さないことを確認し、引用内空白を条件の区切りとして扱う誤りを検出します。</summary>
     [TestMethod]
     public void KsaValuePresentation_WhitespaceInsideQuotedValueRemainsValueContext()
     {
@@ -407,6 +422,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsTrue(state.VisibleItems.Any(item => item.DisplayText == "Alpha One"));
     }
 
+    /// <summary>お気に入り行の適用で検索式全体と末尾カーソルを設定して履歴へ保存することを確認し、候補文字だけの部分置換や履歴記録漏れを検出します。</summary>
     [TestMethod]
     public void KsaSavedRowApply_ReplacesWholeQueryAndCommitsHistory()
     {
@@ -442,6 +458,7 @@ public sealed class KeywordSearchPresentationTests
             KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory).ToArray());
     }
 
+    /// <summary>一覧のou入力にはoutput項目候補だけを表示することを確認し、譜面用の分類値候補を一覧へ流用する誤りを検出します。</summary>
     [TestMethod]
     public void KsaSummaryPresentation_IncludesOutputFieldAndNeverValues()
     {
@@ -464,6 +481,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.IsFalse(state.Sections.Any(section => section.Kind == KeywordSearchPresentationSectionKind.Values));
     }
 
+    /// <summary>表名集合の版が変わった後で旧版の候補を適用すると元入力を保持して古い候補として拒否することを確認し、候補形状だけで有効性を判定する誤りを検出します。</summary>
     [TestMethod]
     public void KsaRevisionCandidate_RejectsSameShapeCandidateAfterSnapshotChanges()
     {
@@ -492,6 +510,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(text, result.Text);
     }
 
+    /// <summary>候補生成後に本文・カーソル・表示先のいずれかが違う要求を拒否することを確認し、旧置換範囲を別の入力状態へ適用する誤りを検出します。</summary>
     [TestMethod]
     public void KsaRevisionCandidate_RejectsTextCaretAndContextMismatches()
     {
@@ -531,6 +550,7 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(KeywordSearchApplyFailure.StaleCandidate, contextResult.Failure);
     }
 
+    /// <summary>抑制中の同じ状態は再表示せず、本文・カーソル・表示先・版・明示更新で再開しblurは一回だけ通知することを確認し、候補抑制の解除条件や重複通知の誤りを検出します。</summary>
     [TestMethod]
     public void KsaLifecycle_SuppressionReopensOnInputContextCatalogAndForceRefreshAndBlur()
     {

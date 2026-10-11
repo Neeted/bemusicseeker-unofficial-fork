@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class NativeWindowTitleBarTests
 {
+    /// <summary>有効handleへ現在の外観を適用し、テーマ通知でも同じhandleへ更新して購読の欠落を防ぎます。</summary>
     [TestMethod]
     public void Attach_AppliesCurrentSemanticAppearanceAndReappliesThemeChanges()
     {
@@ -26,6 +27,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(appearance, gateway.LastAppearance);
     }
 
+    /// <summary>題名部のdisposeを繰り返しても購読を一回解除し、後続テーマ通知でnative更新を行いません。</summary>
     [TestMethod]
     public void Dispose_DetachesExactlyOnceAndStopsNativeUpdates()
     {
@@ -43,6 +45,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(1, gateway.ApplyCount);
     }
 
+    /// <summary>初回テーマ読取り失敗を隠さず購読を戻し、原因解消後は別handleへ同じcontrollerを接続できます。</summary>
     [TestMethod]
     public void Attach_WithUnexpectedThemeFailure_RollsBackAndCanRetry()
     {
@@ -71,6 +74,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(2, themeSource.RemoveCount);
     }
 
+    /// <summary>初回native適用失敗を隠さず購読を戻し、原因解消後の再接続と重複disposeでも購読を残しません。</summary>
     [TestMethod]
     public void Attach_WithUnexpectedGatewayFailure_RollsBackAndCanRetry()
     {
@@ -101,6 +105,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(2, gateway.ApplyAttemptCount);
     }
 
+    /// <summary>接続後のnative更新失敗は元診断を返しつつ購読を保持し、次のテーマ通知で更新を再開できます。</summary>
     [TestMethod]
     public void ThemeChange_WithUnexpectedGatewayFailure_Propagates()
     {
@@ -123,6 +128,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(1, themeSource.SubscriberCount);
     }
 
+    /// <summary>未作成handleへの接続は購読もnative呼出しも始めず、不成立の接続状態を残しません。</summary>
     [TestMethod]
     public void Attach_RejectsUninitializedHandleWithoutSubscribing()
     {
@@ -136,6 +142,7 @@ public sealed class NativeWindowTitleBarTests
         Assert.AreEqual(0, gateway.ApplyCount);
     }
 
+    /// <summary>接続済みcontrollerへ再接続してもhandleと一購読を保持し、テーマ更新を別windowへ誤適用しません。</summary>
     [TestMethod]
     public void Attach_WhenAlreadyAttached_DoesNotReplaceHandleOrDuplicateSubscription()
     {

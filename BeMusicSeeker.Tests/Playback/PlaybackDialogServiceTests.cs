@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaybackDialogServiceTests
 {
+    /// <summary>
+    /// 一時導入の再生確認は警告リソースと要求形式を維持し、Yesだけを受理して拒否・取消・閉鎖・Dispatcher不在を区別する。
+    /// </summary>
     [TestMethod]
     public void ConfirmTemporaryInstallPlayback_MapsUserChoiceAndPreservesRequest()
     {
@@ -43,6 +46,9 @@ public sealed class PlaybackDialogServiceTests
             UiDialogStatus.DispatcherUnavailable.ToString());
     }
 
+    /// <summary>
+    /// 再生確認の表示に失敗したとき、元例外を返し利用者の拒否へ置き換えて隠さない。
+    /// </summary>
     [TestMethod]
     public void ConfirmTemporaryInstallPlayback_DoesNotHideDisplayFailure()
     {
@@ -56,6 +62,9 @@ public sealed class PlaybackDialogServiceTests
         Assert.AreSame(failure, actual);
     }
 
+    /// <summary>
+    /// 再生失敗は内部schedule診断を表示へ漏らさずリソースで通知し、閉鎖・不在・表示失敗・不正な応答を通知契約に従って扱う。
+    /// </summary>
     [TestMethod]
     public void NotifyPlaybackFailure_PreservesRequestAndResultContract()
     {

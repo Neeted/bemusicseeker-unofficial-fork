@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PackageCatalogWorkflowOwnerTests
 {
+    /// <summary>library未接続の全解除は変更と活動を始めず正常終了し、未接続窓口への誤転送を検出します。</summary>
     [TestMethod]
     public async Task ClearAllAsync_WithoutAttachedLibraryIsNoOp()
     {
@@ -28,6 +29,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>保留・導入済み両区画の全解除で確認を要求し、指定区画の変更を一つの活動・抑制内で実行して、区画誤転送や解放順序の欠落を検出します。</summary>
     [DataTestMethod]
     [DataRow((int)PackageCatalogSection.Pending)]
     [DataRow((int)PackageCatalogSection.Installed)]
@@ -51,6 +53,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             events);
     }
 
+    /// <summary>全解除確認の取消は変更もview反映も要求せず、未承認操作の副作用を検出します。</summary>
     [TestMethod]
     public async Task ClearAllAsync_RejectionSkipsMutationAndViewApply()
     {
@@ -71,6 +74,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>全解除の表示失敗は元原因を保持して変更・view反映を止め、確認失敗を成功へ読み替える誤りを検出します。</summary>
     [TestMethod]
     public async Task ClearAllAsync_ConfirmationFailureSkipsMutationAndViewApply()
     {
@@ -90,6 +94,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>保留packageの表示titleを確認要求へ含め、同じ対象一件を活動・抑制内で変更して、確認要求の欠落や対象・解放順序の取り違えを検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PendingConfirmationPrecedesMutation()
     {
@@ -121,6 +126,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, package.DisplayTitle);
     }
 
+    /// <summary>package解除後に空となる区画を反映結果へ渡し、画面の区画解除漏れを検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PublishesEmptySectionIntent()
     {
@@ -139,6 +145,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.AreEqual(PackageCatalogSection.Pending, result.EmptySection);
     }
 
+    /// <summary>導入済みpackage解除は確認を出さずstoreへ渡し、不要な確認で処理を止める誤りを検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_InstalledDoesNotPrompt()
     {
@@ -159,6 +166,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.Contains(events, "store-remove-packages");
     }
 
+    /// <summary>保留package解除の取消は変更・view反映を行わず、取消後の実行を検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PendingRejectionSkipsMutationAndViewApply()
     {
@@ -181,6 +189,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>保留package解除の表示失敗は元原因を返して変更を止め、表示できない確認の代替実行を検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PendingConfirmationFailureSkipsMutationAndViewApply()
     {
@@ -202,6 +211,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>保留選択からpackage解決と解除を同じ抑制範囲で行い、対象接続漏れと別々の変更確定を検出します。</summary>
     [TestMethod]
     public async Task RemoveSelectionAsync_ResolvesAndRemovesInsideOneMutation()
     {
@@ -234,6 +244,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             events);
     }
 
+    /// <summary>保留選択解除の確認失敗は変更・view反映を止め、別入口だけで失敗を無視する誤りを検出します。</summary>
     [TestMethod]
     public async Task RemoveSelectionAsync_DialogFailureSkipsMutationAndViewApply()
     {
@@ -254,6 +265,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>package解除と活動解放が両方失敗しても元変更原因を先に集約し、空区画の反映やcleanup原因が失われる誤りを検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PreservesMutationAndCleanupFailures()
     {
@@ -284,6 +296,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             events);
     }
 
+    /// <summary>package解除後の空区画照会も失敗した場合は両原因を変更失敗から順に保持し、二次照会が主因を隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task RemovePackageAsync_PreservesMutationBeforeEmptySectionFailures()
     {
@@ -309,6 +322,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.AreSame(emptySectionFailure, exception.InnerExceptions[1]);
     }
 
+    /// <summary>共通受付のBusy中は確認・変更・活動を始めず、解放後の明示要求だけを処理する受付漏れと残留を検出します。</summary>
     [TestMethod]
     public async Task ClearAllAsync_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
     {
@@ -401,7 +415,6 @@ public sealed class PackageCatalogWorkflowOwnerTests
     private sealed class RecordingPhaseObserver
     {
         private readonly List<string> events;
-        private readonly TaskCompletionSource<bool> activityStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         internal RecordingPhaseObserver(List<string> events)
         {
@@ -410,16 +423,10 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Exception? EndActivityFailure { get; set; }
 
-        internal Task ActivityStarted => activityStarted.Task;
-
         internal void OnActivityChanged(object? sender, EventArgs e)
         {
             var activity = (ChartMutationActivityOwner)sender!;
             events.Add(activity.IsActive ? "activity-start" : "activity-end");
-            if (activity.IsActive)
-            {
-                activityStarted.TrySetResult(true);
-            }
             if (!activity.IsActive && EndActivityFailure != null)
             {
                 throw EndActivityFailure;

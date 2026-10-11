@@ -16,6 +16,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CatalogMutationOwnerTests
 {
+    /// <summary>
+    /// 背景BMSが16件・128件でもbmsonの列挙・コピー・検索はbmson範囲だけを訪問し、入力順とコピー先の境界を保つ。
+    /// </summary>
     [TestMethod]
     public void FormatRangeOperations_VisitOnlyRequestedBmsonEntriesRegardlessOfBmsBackground()
     {
@@ -89,6 +92,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 空範囲・先頭と途中・255から257件・末尾余白の各入力で、列挙と捕捉が範囲順を保ち別集合の置換で以前の値を変えない。
+    /// </summary>
     [TestMethod]
     [DataRow(0, 0, 0)]
     [DataRow(0, 0, 1)]
@@ -129,6 +135,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 背景BMSの件数とbmson包含の有無に応じて通常一覧を入力順・パス順で射影し、含めた行だけを一度ずつ訪問する。
+    /// </summary>
     [TestMethod]
     [DataRow(16, true)]
     [DataRow(128, true)]
@@ -176,16 +185,17 @@ public sealed class CatalogMutationOwnerTests
         return values.ToArray();
     }
 
+    /// <summary>
+    /// 所有tokenのない直接保存要求から旧パスと移転先を準備し、保存する新パスと捕捉した旧現在値を取り違えない。
+    /// </summary>
     [TestMethod]
-    public void CreateRelocationRequest_SnapshotsPreparedPathFacts()
+    public void CreateRelocationRequest_PreparesTokenlessDirectStoragePathChange()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogRelocationRequest_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string oldPath = Path.Combine(tempRootPath, "old.bms");
         string newPath = Path.Combine(tempRootPath, "new.bms");
-        string laterPath = Path.Combine(tempRootPath, "later.bms");
         File.WriteAllText(newPath, "#PLAYER 1");
-        File.WriteAllText(laterPath, "#PLAYER 1");
         try
         {
             ChartFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -201,12 +211,9 @@ public sealed class CatalogMutationOwnerTests
             var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), null);
             CatalogRelocationRequest request = owner.CreateRelocationRequest(catalogFacts);
 
-            movedBms = movedBms with { Path = laterPath };
-
             Assert.AreEqual(1, request.BmsPathReplacements.Count);
             Assert.AreEqual(oldPath, request.BmsPathReplacements[0].OldPath);
             Assert.AreEqual(newPath, request.BmsPathReplacements[0].Song.Path);
-            Assert.AreSame(movedBms.Token, request.BmsPathReplacements[0].LiveOwner.Token);
             Assert.AreEqual(oldPath, request.BmsPathReplacements[0].LiveOwner.Path);
         }
         finally
@@ -218,7 +225,10 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
-    /// <summary>同path/hashの新項目で退役tokenを救済せず、DB確定とcurrent変更の前に移転を拒否します。</summary>
+    /// <summary>
+    /// 同パス・同hashへ置換された退役tokenの移転はDB確定前に拒否し、通知・集合世代・新しい所有行を変更しない。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyCatalogMutation_RetiredRelocationTokenFailsBeforeDurableCommit()
     {
@@ -248,13 +258,17 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(0, durableNotifications);
             Assert.AreEqual(version, collection.OwnedCollectionVersion);
             Assert.AreSame(replacement.Token, collection.Collection.ResolveCurrentChart(LibraryChartRef.FromPath(ChartFileKind.Bms, oldPath, null, null)).Token);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
             Assert.AreEqual(oldPath, row.path);
             Assert.AreEqual(replacement.Md5, row.hash);
         });
     }
 
+    /// <summary>
+    /// BMS・bmson・フォルダを一括移転したとき、全件フォルダ走査をせず実DBと所有現在値を確定して以前の捕捉一覧を保つ。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyRelocation_CombinedBmsBmsonAndFolderEmitsDurableReceipt()
     {
@@ -270,7 +284,6 @@ public sealed class CatalogMutationOwnerTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllText(newBmsPath, "#PLAYER 1");
         File.WriteAllText(newBmsonPath, "{}");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile bms = CreateBms(Path.GetFileName(oldBmsPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -280,18 +293,21 @@ public sealed class CatalogMutationOwnerTests
             bmson = bmson with { Folder = oldDirectoryPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = oldDirectoryPath + Path.DirectorySeparatorChar,
-                    title = "Old",
-                    parent = "stale-parent"
-                }, typeof(LR2SongDB.folder));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmson), typeof(LR2SongDBExtended.bmson_song));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(bms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = oldDirectoryPath + Path.DirectorySeparatorChar,
+                        title = "Old",
+                        parent = "stale-parent"
+                    }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(bmson), typeof(LR2SongDBExtended.bmson_song));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -339,10 +355,7 @@ public sealed class CatalogMutationOwnerTests
             CollectionAssert.AreEqual(new[] { bmson }, capturedRows.BmsonRows.ToArray());
             Assert.AreEqual(oldBmsPath, capturedRows.BmsRows[0].Path);
             Assert.AreEqual(oldBmsonPath, capturedRows.BmsonRows[0].Path);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDB.song>();
-            verifySongDb.CreateTable<LR2SongDB.folder>();
-            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == newBmsPath));
             Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(row => row.path == newBmsonPath));
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.folder>().Any(row => row.path == newDirectoryPath + Path.DirectorySeparatorChar));
@@ -356,6 +369,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 移転とBMS・bmson削除をまとめて一度確定し、所持集合・保守行・不要digestを同じ結果へ更新する。
+    /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_CombinesRelocationRemovalAndOwnedProjectionAfterOneCommit()
     {
@@ -372,7 +388,6 @@ public sealed class CatalogMutationOwnerTests
         File.WriteAllText(movedNewPath, "#PLAYER 1");
         File.WriteAllText(removedBmsPath, "#PLAYER 1");
         File.WriteAllText(removedBmsonPath, "{}");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile movedBms = CreateBms(Path.GetFileName(movedOldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -383,21 +398,24 @@ public sealed class CatalogMutationOwnerTests
             removedBmson = removedBmson with { Path = removedBmsonPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = removedBmsPath }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedBmson), typeof(LR2SongDBExtended.bmson_song));
-                BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
-                songDb.InsertOrReplace(
-                    new LR2SongDBExtended.chart_digest_map
-                    {
-                        md5 = removedBms.Md5,
-                        sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-                    },
-                    typeof(LR2SongDBExtended.chart_digest_map));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = removedBmsPath }, typeof(LR2SongDBExtended.maintenance));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedBmson), typeof(LR2SongDBExtended.bmson_song));
+                    BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
+                    songDb.InsertOrReplace(
+                        new LR2SongDBExtended.chart_digest_map
+                        {
+                            md5 = removedBms.Md5,
+                            sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                        },
+                        typeof(LR2SongDBExtended.chart_digest_map));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -442,7 +460,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(0, storageRowsOwner.BmsonRows.Count);
             Assert.AreEqual(1, ownedCollectionOwner.Collection.CreateSnapshot().Count);
             CollectionAssert.Contains(ownedCollectionOwner.Collection.CreatePathSnapshot(), movedNewPath);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == movedNewPath));
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == removedBmsPath));
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(row => row.path == removedBmsonPath));
@@ -458,6 +476,10 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 移転後の削除がDB例外になれば一括変更をrollbackし、旧行と削除対象を残して現在値・集合世代を進めない。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyCatalogMutation_WhenRemovalFailsRollsBackRelocationAndLiveVersions()
     {
@@ -469,7 +491,6 @@ public sealed class CatalogMutationOwnerTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllText(newPath, "#PLAYER 1");
         File.WriteAllText(removedPath, "#PLAYER 1");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -478,12 +499,15 @@ public sealed class CatalogMutationOwnerTests
             removedBms = removedBms with { Path = removedPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
-                string escapedRemovedPath = removedPath.Replace("'", "''");
-                songDb.Execute("CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '" + escapedRemovedPath + "' BEGIN SELECT RAISE(ABORT, 'forced removal failure'); END;");
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
+                    string escapedRemovedPath = removedPath.Replace("'", "''");
+                    songDb.Execute("CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '" + escapedRemovedPath + "' BEGIN SELECT RAISE(ABORT, 'forced removal failure'); END;");
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -510,7 +534,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(initialRows.OwnedCollectionVersion, storageRowsOwner.OwnedCollectionVersion);
             Assert.AreEqual(2, storageRowsOwner.BmsRows.Count);
             Assert.AreEqual(2, ownedCollectionOwner.Collection.CreateSnapshot().Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == oldPath));
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == removedPath));
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == newPath));
@@ -524,6 +548,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// ある所有を削除して同じパスへ別所有を移転するとき、移転した行とtokenを保持して削除した保守情報を引き継がない。
+    /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_SamePathDifferentOwnersKeepsRelocatedOwnerRow()
     {
@@ -534,7 +561,6 @@ public sealed class CatalogMutationOwnerTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllText(removedPath, "#PLAYER 1");
         File.WriteAllText(movedOldPath, "#PLAYER 1");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -543,13 +569,16 @@ public sealed class CatalogMutationOwnerTests
             movedBms = movedBms with { Path = movedOldPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(
-                    new LR2SongDBExtended.maintenance { path = removedPath, hash = removedBms.Md5 },
-                    typeof(LR2SongDBExtended.maintenance));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(
+                        new LR2SongDBExtended.maintenance { path = removedPath, hash = removedBms.Md5 },
+                        typeof(LR2SongDBExtended.maintenance));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -575,7 +604,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(removedPath, storageRowsOwner.BmsRows.Single().Path);
             Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
             Assert.AreSame(movedBms.Token, storageRowsOwner.BmsRows.Single().Token);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song persisted = verifySongDb.Table<LR2SongDB.song>().Single(row => row.path == removedPath);
             Assert.AreEqual(movedBms.Md5, persisted.hash);
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == removedPath));
@@ -589,6 +618,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 大小文字だけ異なる移転先へ別所有を置換するとき、削除対象の完全一致旧行を残さず新しい所有のhashを保存する。
+    /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_CaseVariantPathCollisionRemovesOldExactRow()
     {
@@ -600,7 +632,6 @@ public sealed class CatalogMutationOwnerTests
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllText(removedPath, "#PLAYER 1");
         File.WriteAllText(movedOldPath, "#PLAYER 1");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -609,10 +640,13 @@ public sealed class CatalogMutationOwnerTests
             movedBms = movedBms with { Path = movedOldPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedBms), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -635,7 +669,7 @@ public sealed class CatalogMutationOwnerTests
 
             owner.ApplyCatalogMutation(catalogFacts);
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsFalse(verifySongDb.Table<LR2SongDB.song>().Any(row => row.path == removedPath));
             Assert.AreEqual(movedBms.Md5, verifySongDb.Table<LR2SongDB.song>().Single(row => row.path == movedNewPath).hash);
         }
@@ -648,6 +682,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 移転と同時のパス清掃が移転先を指定しても、移転した所有・token・保存行を誤削除しない。
+    /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_PathCleanupDoesNotRemoveRelocatedDestination()
     {
@@ -657,16 +694,18 @@ public sealed class CatalogMutationOwnerTests
         string newPath = Path.Combine(tempRootPath, "new.bms");
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllText(newPath, "#PLAYER 1");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             movedBms = movedBms with { Path = oldPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(movedBms), typeof(LR2SongDB.song));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -695,7 +734,7 @@ public sealed class CatalogMutationOwnerTests
             Assert.AreEqual(newPath, storageRowsOwner.BmsRows.Single().Path);
             Assert.AreSame(movedBms.Token, storageRowsOwner.BmsRows.Single().Token);
             Assert.AreEqual(newPath, ownedCollectionOwner.Collection.CreatePathSnapshot().Single());
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, verifySongDb.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(newPath, verifySongDb.Table<LR2SongDB.song>().Single().path);
         }
@@ -709,9 +748,9 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// PathCleanup の対象集合だけを実接続へ渡し、背景行を managed へ返さずに
-    /// digest の所有判定と BMS／BMSON の分離を維持します。
+    /// 背景16件・128件で対象四件だけを実DBへ清掃し、返却行・全表走査・SQL実行量を増やさず共有MD5とbmsonのdigest所有を保つ。
     /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership()
     {
@@ -762,7 +801,6 @@ public sealed class CatalogMutationOwnerTests
         string targetBmsonPath = Path.Combine(tempRootPath, "target.bmson");
         string maintenanceOnlyPath = Path.Combine(tempRootPath, "maintenance-only.bms");
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile targetBmsShared = CreateBms("target-shared.bms", sharedMd5);
@@ -953,6 +991,9 @@ public sealed class CatalogMutationOwnerTests
                     + statement.VmSteps + ", sql=" + statement.Sql));
     }
 
+    /// <summary>
+    /// song行が欠落した削除でも同パスの保守行を除き、保存行の不一致を残さない。
+    /// </summary>
     [TestMethod]
     public void ApplyCatalogMutation_RemovalDeletesMaintenanceWhenSongRowIsMissing()
     {
@@ -960,18 +1001,20 @@ public sealed class CatalogMutationOwnerTests
         Directory.CreateDirectory(tempRootPath);
         string removedPath = Path.Combine(tempRootPath, "missing-song.bms");
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             removedBms = removedBms with { Path = removedPath };
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(
-                    new LR2SongDBExtended.maintenance { path = removedPath, hash = removedBms.Md5 },
-                    typeof(LR2SongDBExtended.maintenance));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(
+                        new LR2SongDBExtended.maintenance { path = removedPath, hash = removedBms.Md5 },
+                        typeof(LR2SongDBExtended.maintenance));
+                });
             }
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
@@ -986,7 +1029,7 @@ public sealed class CatalogMutationOwnerTests
             new CatalogMutationOwner(storageRowsOwner, new BmsLibraryDbGateway(songDbPath))
                 .ApplyCatalogMutation(catalogFacts);
 
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == removedPath));
         }
         finally
@@ -998,6 +1041,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 走査によるBMS・bmson置換は両種別の追加・削除factsと一回の集合世代変更を受領結果へ含める。
+    /// </summary>
     [TestMethod]
     public void Apply_EmitsCanonicalReceiptForBmsAndBmsonReplacement()
     {
@@ -1038,6 +1084,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
     }
 
+    /// <summary>
+    /// DB差分のない走査置換は行と集合世代を変更せず、追加・削除・集合変更のfactsを出さない。
+    /// </summary>
     [TestMethod]
     public void Apply_WithoutDbDiffDoesNotChangeRowsOrEmitMutationFacts()
     {
@@ -1070,6 +1119,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(bms, storageRowsOwner.BmsRows[0]);
     }
 
+    /// <summary>
+    /// BMS・bmsonの明示置換は両種別の変更と所持集合失効を返し、集合世代を一度進める。
+    /// </summary>
     [TestMethod]
     public void ApplyStorageRowsReplacement_EmitsChangedKindsAndVersions()
     {
@@ -1104,6 +1156,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(newBmson, storageRowsOwner.BmsonRows.Single());
     }
 
+    /// <summary>
+    /// BMSだけを選んだ置換はbmson入力を適用せず、未選択の行と種別変更flagを保つ。
+    /// </summary>
     [TestMethod]
     public void ApplyStorageRowsReplacement_LeavesUnselectedRowsUntouched()
     {
@@ -1131,6 +1186,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(oldBmson, storageRowsOwner.BmsonRows.Single());
     }
 
+    /// <summary>
+    /// 同じ入力でも明示されたBMS置換は受理して集合世代を進め、内容一致だけで必要な失効を省略しない。
+    /// </summary>
     [TestMethod]
     public void ApplyStorageRowsReplacement_ExplicitSameInputStillPublishesVersion()
     {
@@ -1154,6 +1212,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(bms, storageRowsOwner.BmsRows.Single());
     }
 
+    /// <summary>
+    /// 背景16件・128件に固定二回の差分を適用しても、捕捉とgetterで全件列挙・再実体化をせず以前の捕捉値を保つ。
+    /// </summary>
     [TestMethod]
     public void StorageRowsOwner_Background16And128WithFixedDeltaKeepsWarmCaptureAndGetterBounded()
     {
@@ -1184,6 +1245,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.IsTrue(large.WarmAccessCount <= CalculateWarmAccessUpperBound(128), $"large access={large.WarmAccessCount}");
     }
 
+    /// <summary>
+    /// bmsonの初回差分適用でパス順へ正規化し、大小文字を区別する同パス置換後の順序を維持する。
+    /// </summary>
     [TestMethod]
     public void OwnedCurrent_FirstUpsertNormalizesBmsonAndReplacementKeepsOrdinalPathOrder()
     {
@@ -1208,6 +1272,10 @@ public sealed class CatalogMutationOwnerTests
             storageRowsOwner.BmsonRows.Select(chart => chart.Md5).ToArray());
     }
 
+    /// <summary>
+    /// 導入済みBMS・bmsonの同パス置換を実DBへ保存し、新しい所有tokenと追加factsを同じ受領結果へ反映する。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
@@ -1248,7 +1316,7 @@ public sealed class CatalogMutationOwnerTests
             OwnedChartCollectionView view = ownedCollectionOwner.Collection.CreateCollectionView();
             Assert.IsTrue(view.ContainsOwnerPath(newBms.Path));
             Assert.IsTrue(view.ContainsOwnerPath(newBmson.Path));
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(newBms.Path, verifySongDb.Table<LR2SongDB.song>().Single(row => row.path == newBms.Path).path);
             Assert.AreEqual(newBmson.Path, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Single(row => row.path == newBmson.Path).path);
         }
@@ -1262,13 +1330,13 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// install upsertで別exact keyを保持し、複数BMSONの入力を畳みません。
+    /// 導入済み追加では大小文字・別名・ドット別表記の完全一致keyを畳まず、未指定のBMS利用者列とbmson行を保存する。
     /// </summary>
     [DataTestMethod]
-    [DataRow("CHART", false)]
-    [DataRow("other", false)]
-    [DataRow(".\\chart", false)]
-    public void ApplyInstalledTargetUpsert_PreservesEveryExactKey(string siblingName, bool replaceBoth)
+    [DataRow("CHART")]
+    [DataRow("other")]
+    [DataRow(".\\chart")]
+    public void ApplyInstalledTargetUpsert_PreservesEveryExactKey(string siblingName)
     {
         BmsLibraryStateApplierTestSupport.WithTemporarySongDb(songDbPath =>
         {
@@ -1280,12 +1348,15 @@ public sealed class CatalogMutationOwnerTests
             ChartFile keptBmson = CreateBmson(siblingName + ".bmson", "dddddddddddddddddddddddddddddddd");
             using (var db = new LR2SongDBExtended(songDbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                db.CreateTable<LR2SongDBExtended.bmson_song>();
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(oldBms), typeof(LR2SongDB.song));
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptBms), typeof(LR2SongDB.song));
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(oldBmson), typeof(LR2SongDBExtended.bmson_song));
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptBmson), typeof(LR2SongDBExtended.bmson_song));
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDBExtended.bmson_song>();
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(oldBms), typeof(LR2SongDB.song));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptBms), typeof(LR2SongDB.song));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(oldBmson), typeof(LR2SongDBExtended.bmson_song));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptBmson), typeof(LR2SongDBExtended.bmson_song));
+                });
             }
             var storage = new CatalogOwnedCollectionOwner();
             CatalogChartCollectionSnapshot initial = storage.ReplaceChartsAndCaptureSnapshot([oldBms, keptBms], [oldBmson, keptBmson]);
@@ -1294,8 +1365,8 @@ public sealed class CatalogMutationOwnerTests
             var owner = new CatalogMutationOwner(storage, new BmsLibraryDbGateway(songDbPath));
             ChartFile addedBms = CreateBms("chart.bms", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
             ChartFile addedBmson = CreateBmson("chart.bmson", "ffffffffffffffffffffffffffffffff");
-            ChartFile[] bmsInput = replaceBoth ? [addedBms, keptBms] : [addedBms];
-            ChartFile[] bmsonInput = replaceBoth ? [addedBmson, keptBmson] : [addedBmson];
+            ChartFile[] bmsInput = [addedBms];
+            ChartFile[] bmsonInput = [addedBmson];
 
             CatalogInstalledTargetUpsertRequest request =
                 owner.CreateInstalledTargetUpsertRequest(bmsInput, bmsonInput);
@@ -1306,7 +1377,7 @@ public sealed class CatalogMutationOwnerTests
             CollectionAssert.AreEquivalent(new[] { addedBmson.Md5, keptBmson.Md5 }, storage.BmsonRows.Select(chart => chart.Md5).ToArray());
             Assert.AreNotSame(oldBmson.Token, storage.BmsonRows.Single(chart => chart.Path == addedBmson.Path).Token);
             CollectionAssert.AreEquivalent(new[] { addedBms.Path, keptBms.Path, addedBmson.Path, keptBmson.Path }, owned.Collection.CreatePathSnapshot());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(2, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(2, readback.Table<LR2SongDBExtended.bmson_song>().Count());
             Assert.AreEqual(addedBms.Md5, readback.Find<LR2SongDB.song>(addedBms.Path).hash);
@@ -1318,6 +1389,9 @@ public sealed class CatalogMutationOwnerTests
         });
     }
 
+    /// <summary>
+    /// 要求作成後に集合が置換された導入済み追加は拒否し、並行して確定した現在行を上書きしない。
+    /// </summary>
     [TestMethod]
     public void ApplyInstalledTargetUpsert_RejectsStaleRequestBeforeChangingRows()
     {
@@ -1336,6 +1410,10 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(concurrent, storageRowsOwner.BmsRows.Single());
     }
 
+    /// <summary>
+    /// 導入済み追加のDB接続が失敗したとき、元の所持行・集合世代・所有パスを変更しない。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyInstalledTargetUpsert_DatabaseFailureLeavesLiveRowsUnchanged()
     {
@@ -1368,6 +1446,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 空の導入済み追加は未適用として返し、追加facts・集合世代・BMSとbmson行を増やさない。
+    /// </summary>
     [TestMethod]
     public void ApplyInstalledTargetUpsert_EmptyRequestIsNoOp()
     {
@@ -1386,6 +1467,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(0, storageRowsOwner.BmsonRows.Count);
     }
 
+    /// <summary>
+    /// MD5・SHA-256の差分適用は同じ集合世代で受領factsと現在の重複hashを更新する。
+    /// </summary>
     [TestMethod]
     public void ApplyDigestMutation_EmitsImmutableReceiptAndUpdatesOwnedDigestRows()
     {
@@ -1420,6 +1504,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(ownedCollectionOwner.OwnedCollectionVersion, receipt.OwnedCollectionVersion);
     }
 
+    /// <summary>
+    /// MD5・SHA-256が変わらない入力は未適用とし、digest factsと集合変更を生まない。
+    /// </summary>
     [TestMethod]
     public void ApplyDigestMutation_EmptyRequestIsNoOpAndSnapshotsInput()
     {
@@ -1444,6 +1531,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(0, receipt.StorageRowsVersion.OwnedCollectionVersion);
     }
 
+    /// <summary>
+    /// SHA-256だけの変更は差分として受理する一方、主重複hashに用いるMD5を変更しない。
+    /// </summary>
     [TestMethod]
     public void ApplyDigestMutation_ShaOnlyChangeKeepsDuplicateLookupHash()
     {
@@ -1471,6 +1561,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(bms.Md5, ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
     }
 
+    /// <summary>
+    /// 保守保存要求はBMS・bmsonの値を受け取り、空白と大小文字の差がある同じ古い保守パスを一件へ正規化する。
+    /// </summary>
     [TestMethod]
     public void MaintenanceWriteRequest_SnapshotsPersistenceInputs()
     {
@@ -1484,9 +1577,6 @@ public sealed class CatalogMutationOwnerTests
             [song, bmson],
             [" C:\\Library\\stale.maintenance ", "c:\\library\\STALE.MAINTENANCE"]);
 
-        song = song with { Path = "C:\\Library\\changed.bms" };
-        song = song with { Title = "changed", RawTitle = "changed" };
-        bmson = bmson with { RawTitle = "changed" };
 
         Assert.AreEqual(1, request.MaintenanceInfos.Count);
         Assert.AreEqual("C:\\Library\\snapshot.bms", request.MaintenanceInfos[0].Path);
@@ -1498,53 +1588,16 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual("C:\\Library\\stale.maintenance", request.StaleMaintenancePaths[0]);
     }
 
-    [TestMethod]
-    public void ApplyCatalogSongCommands_PersistModeAndPlaylistLevelRows()
-    {
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogSongCommands_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        try
-        {
-            string songPath = Path.Combine("C:\\Library", "command.bms");
-            string[] rawValues = new string[29];
-            rawValues[0] = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-            rawValues[1] = "command.bms";
-            rawValues[7] = songPath;
-            rawValues[14] = "4";
-            rawValues[18] = "7";
-            ChartFile song = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(rawValues));
-            using (var setup = new LR2SongDBExtended(songDbPath))
-            {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(song), typeof(LR2SongDB.song));
-            }
-            var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), new BmsLibraryDbGateway(songDbPath));
-
-            owner.ApplyModeChangeSongRows([song]);
-            owner.ApplyPlaylistLevelRows([song]);
-
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(7, verify.ExecuteScalar<int>("SELECT mode FROM song WHERE path = ?;", songPath));
-            Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", songPath));
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>
+    /// playlist難易度保存がDB例外になれば元例外を返し、段階を識別した表示可能な失敗factsを一度通知する。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyPlaylistLevelRows_RethrowsAndPublishesFailureFact()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogSongCommandFailure_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             string songPath = Path.Combine("C:\\Library", "command-failure.bms");
@@ -1557,8 +1610,11 @@ public sealed class CatalogMutationOwnerTests
             ChartFile song = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(rawValues));
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(song), typeof(LR2SongDB.song));
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(song), typeof(LR2SongDB.song));
+                });
             }
             var failureFacts = new System.Collections.Generic.List<CatalogWriteFailureFact>();
             var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), new BmsLibraryDbGateway(songDbPath));
@@ -1583,6 +1639,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 譜面情報・解析失敗の保存要求は指定値を保持し、空白と大小文字だけ違う失敗削除MD5を重複させない。
+    /// </summary>
     [TestMethod]
     public void ChartInfoWriteRequest_SnapshotsRowsAndDeleteKeys()
     {
@@ -1610,8 +1669,6 @@ public sealed class CatalogMutationOwnerTests
             [failure],
             ["  " + chartInfo.md5, chartInfo.md5.ToUpperInvariant()]);
 
-        chartInfo = chartInfo with { notes = 999 };
-        failure = failure with { message = "changed" };
 
         Assert.AreEqual(1, request.DigestEntries.Count);
         Assert.AreEqual(123, request.ChartInfoRows[0].notes);
@@ -1619,50 +1676,16 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(1, request.ParseFailureDeleteMd5s.Count);
     }
 
-    [TestMethod]
-    public void ChartInfoStorageWriteRequest_SnapshotsStorageRows()
-    {
-        ChartFile bms = CreateBms("storage-snapshot.bms", new string('a', 32));
-        bms = bms with { Level = 4 };
-        ChartFile bmson = CreateBmson("storage-snapshot.bmson", new string('b', 32));
-        bmson = bmson with { RawTitle = "original", Title = "original" };
-        var chartInfo = new BeMusicSeeker.Models.ChartDetails
-        {
-            md5 = bms.Md5,
-            level = 12,
-            difficulty = 4,
-            maxbpm = 180.9,
-            notes = 1234
-        };
-        var projection =
-            Lr2ChartInfoSongProjection.Create(bms.Path, bms.Md5, chartInfo);
-        var request = new CatalogChartInfoStorageWriteRequest(
-            ChartTestValues.Combine([bms], [bmson]),
-            new CatalogChartInfoWriteRequest(),
-            [projection]);
-
-        bms = bms with { Path = "C:\\Library\\changed.bms" };
-        bms = bms with { Level = 99 };
-        bmson = bmson with { Path = "C:\\Library\\changed.bmson" };
-        bmson = bmson with { RawTitle = "changed" };
-        chartInfo = chartInfo with { level = 99 };
-        chartInfo = chartInfo with { difficulty = -1 };
-
-        Assert.AreEqual("C:\\Library\\storage-snapshot.bms", request.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).Path);
-        Assert.AreEqual(4, request.Charts.Single(chart => chart.Kind == ChartFileKind.Bms).Level);
-        Assert.AreEqual("C:\\Library\\storage-snapshot.bmson", request.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).Path);
-        Assert.AreEqual("original", request.Charts.Single(chart => chart.Kind == ChartFileKind.Bmson).Title);
-        Assert.AreEqual(12, request.ChartInfoSongProjections.Single().Level);
-        Assert.AreEqual(4, request.ChartInfoSongProjections.Single().Difficulty);
-    }
-
+    /// <summary>
+    /// 生成song行と譜面情報の一括保存で後段が失敗したら、元の難易度・利用者列を保って新しいdigest表と譜面情報行をrollbackする。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyChartInfoStorageWrite_WhenChartInfoInsertFailsRollsBackGeneratedSongRowsAndFacts()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoStorageRollback_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile stored = CreateBms("atomic.bms", new string('c', 32));
@@ -1671,10 +1694,13 @@ public sealed class CatalogMutationOwnerTests
             stored = stored with { Favorite = 7 };
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(stored), typeof(LR2SongDB.song));
-                setup.Execute("CREATE TRIGGER fail_chart_info_storage BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(stored), typeof(LR2SongDB.song));
+                    setup.Execute("CREATE TRIGGER fail_chart_info_storage BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+                });
             }
             ChartFile generated = CreateBms("atomic.bms", stored.Md5);
             generated = generated with { Path = stored.Path };
@@ -1696,7 +1722,7 @@ public sealed class CatalogMutationOwnerTests
 
             Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.Path).Single();
             Assert.AreEqual(2, song.level);
             Assert.AreEqual(7, song.favorite);
@@ -1712,13 +1738,16 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 既存songへの限定射影と譜面情報の一括保存で後段が失敗したら、元の難易度・モード・利用者列を保ってdigestと詳細行をrollbackする。
+    /// </summary>
+    /// <remarks>実DBの確定・読戻しと所有現在値を接続し、保存の成功前に公開する誤りや一部だけのrollbackを確認する。</remarks>
     [TestMethod]
     public void ApplyChartInfoStorageWrite_WhenChartInfoInsertFailsRollsBackNarrowSongProjection()
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoProjectionRollback_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             ChartFile stored = CreateBms("projection-atomic.bms", new string('c', 32));
@@ -1728,10 +1757,13 @@ public sealed class CatalogMutationOwnerTests
             stored = stored with { Favorite = 7 };
             using (var setup = new LR2SongDBExtended(songDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(stored), typeof(LR2SongDB.song));
-                setup.Execute("CREATE TRIGGER fail_chart_info_projection BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(stored), typeof(LR2SongDB.song));
+                    setup.Execute("CREATE TRIGGER fail_chart_info_projection BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'forced chart-info failure'); END;");
+                });
             }
             var chartInfo = new BeMusicSeeker.Models.ChartDetails
             {
@@ -1753,7 +1785,7 @@ public sealed class CatalogMutationOwnerTests
 
             Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyChartInfoStorageWrite(request));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", stored.Path).Single();
             Assert.AreEqual(2, song.level);
             Assert.AreEqual(11, song.mode);
@@ -1770,6 +1802,9 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>
+    /// 同MD5の譜面情報追加後は決定的なSHA-256候補へ解決し、SHA-256を明示した検索はその一致行を優先する。
+    /// </summary>
     [TestMethod]
     public void ChartInfoOwner_UpsertUsesSha256ThenDeterministicMd5Candidate()
     {
@@ -1797,6 +1832,9 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreSame(first, owner.ResolveChartInfo(first.sha256, null, null, null));
     }
 
+    /// <summary>
+    /// 譜面情報hydrationのscheduler拒否でも要求を終端し、完了世代とrunning解放を反映して処理中状態を取り残さない。
+    /// </summary>
     [TestMethod]
     public void ChartInfoOwner_QueueHydration_WhenSchedulerRejects_CompletesCurrentRequest()
     {
@@ -1817,6 +1855,9 @@ public sealed class CatalogMutationOwnerTests
         CollectionAssert.Contains(notifications, nameof(BMSLibrary.ChartInfoHydrationRunning));
     }
 
+    /// <summary>
+    /// 旧parser版の譜面情報行はLR2用のresolverへ渡さず、現在のhashが一致しても古い解析結果を返さない。
+    /// </summary>
     [TestMethod]
     public void ChartInfoOwner_ResolverSnapshot_ExcludesStaleParserRows()
     {

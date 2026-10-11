@@ -9,6 +9,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderDbWriterTests
 {
+    /// <summary>
+    /// 実DBへ同期計画を適用すると生成行を一件に揃え、末尾区切りのずれた旧行と不要行だけを除いてカスタム行を保持することを確認します。
+    /// </summary>
+    /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
     [TestMethod]
     public void ApplySyncPlan_DeletesExactStaleRowsAndUpsertsGeneratedRows()
     {
@@ -24,34 +28,37 @@ public sealed class Lr2FolderDbWriterTests
             string driftPath = Normalize(@"D:\BMS\Pack");
             string stalePath = FolderPath(@"D:\BMS\Removed");
             string customPath = FolderPath(@"D:\BMS\Custom");
-            songDb.InsertOrReplace(new LR2SongDB.folder
+            songDb.RunInTransaction(() =>
             {
-                path = rootPath,
-                title = "BMS",
-                type = 1,
-                parent = Lr2SongFolderParentNormalizer.RootParentHash,
-                date = 1,
-                adddate = 1
-            }, typeof(LR2SongDB.folder));
-            songDb.InsertOrReplace(new LR2SongDB.folder
-            {
-                path = driftPath,
-                title = "Pack",
-                type = 1,
-                parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS"),
-                date = 1,
-                adddate = 1
-            }, typeof(LR2SongDB.folder));
-            songDb.InsertOrReplace(new LR2SongDB.folder
-            {
-                path = stalePath,
-                type = 1
-            }, typeof(LR2SongDB.folder));
-            songDb.InsertOrReplace(new LR2SongDB.folder
-            {
-                path = customPath,
-                type = 2
-            }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = rootPath,
+                    title = "BMS",
+                    type = 1,
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    date = 1,
+                    adddate = 1
+                }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = driftPath,
+                    title = "Pack",
+                    type = 1,
+                    parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS"),
+                    date = 1,
+                    adddate = 1
+                }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = stalePath,
+                    type = 1
+                }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = customPath,
+                    type = 2
+                }, typeof(LR2SongDB.folder));
+            });
 
             Lr2FolderGenerationResult generation = Lr2FolderRowGenerator.GenerateNormalDirectoryRows(new Lr2FolderGenerationRequest
             {
@@ -68,11 +75,12 @@ public sealed class Lr2FolderDbWriterTests
 
             Lr2FolderGenerationWriteResult result = Lr2FolderDbWriter.ApplySyncPlan(songDb, plan);
 
+            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.IsTrue(result.HasChanges);
-            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == generatedPath));
-            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == driftPath));
-            Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
-            Assert.AreEqual(1, songDb.Table<LR2SongDB.folder>().Count(row => row.path == customPath));
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == generatedPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == driftPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count(row => row.path == stalePath));
+            Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == customPath));
         }
         finally
         {
@@ -83,6 +91,10 @@ public sealed class Lr2FolderDbWriterTests
         }
     }
 
+    /// <summary>
+    /// 空の同期計画では追加・削除とも零で無変更を返し、不要な保存を変更として報告する誤りを検出します。
+    /// </summary>
+    /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
     [TestMethod]
     public void ApplySyncPlan_ReturnsNoChangesForEmptyPlan()
     {

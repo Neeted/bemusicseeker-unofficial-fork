@@ -8,6 +8,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UpdateAvailableDialogViewModelTests
 {
+    /// <summary>
+    /// メタデータ同梱版が先の入力でも通常版を初期選択し、入力配列順によって意図しない同梱資産を取得対象にする誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void Constructor_SelectsAppPackageEvenWhenMetadataAssetComesFirst()
     {
@@ -47,6 +50,9 @@ public sealed class UpdateAvailableDialogViewModelTests
         Assert.AreEqual("app", viewModel.SelectedAsset.Kind);
     }
 
+    /// <summary>
+    /// 起動処理の進行中だけ更新適用を禁止して理由を表示し、完了後の再受付と接続して起動との競合を許す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void StartupProgressFromProgressHubBlocksAndUnblocksApply()
     {
@@ -65,7 +71,7 @@ public sealed class UpdateAvailableDialogViewModelTests
                 IncludesChartInfoMetadata = false
             }],
             "https://example.test/releases/v2.2.0.0");
-        var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
 
         Assert.IsTrue(viewModel.CanStartUpdate);
@@ -76,11 +82,14 @@ public sealed class UpdateAvailableDialogViewModelTests
         Assert.IsTrue(viewModel.CanStartUpdate);
     }
 
+    /// <summary>
+    /// 破棄後は起動進捗の変更を通知せず、寿命が終わったダイアログへの購読が残る誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void DisposeStopsListeningToProgressHub()
     {
         var result = UpdateCheckResult.NoUpdate("1.0.0.0");
-        var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
         int notifications = 0;
         viewModel.PropertyChanged += (_, _) => notifications++;

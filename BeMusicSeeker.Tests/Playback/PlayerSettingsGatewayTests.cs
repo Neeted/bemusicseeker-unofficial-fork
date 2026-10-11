@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlayerSettingsGatewayTests
 {
     // PORTABLE-SETTINGS-FAILURE-20260905 P08d: stop capture is memory-only, including no Save request.
+    /// <summary>
+    /// 保証：停止時のウィンドウ配置をメモリへ反映しても保存イベントもディスク書込みも起こさず、保存済み配置を維持する。
+    /// </summary>
     [TestMethod]
     public void CapturedPlacementUpdatesMemoryWithoutRequestingOrWritingSettingsSave()
     {
@@ -39,6 +42,9 @@ public sealed class PlayerSettingsGatewayTests
     }
 
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>
+    /// 保証：旧DirectSound設定を再生要求へ変換し、捕捉後の音質・並列数変更に影響されず、保存側のドライバー・機器・利用者値は書き換えない。
+    /// </summary>
     [TestMethod]
     public void GatewayCapturesRequestedAudioSettingsWithoutNegotiatedWriteBack()
     {
@@ -104,6 +110,9 @@ public sealed class PlayerSettingsGatewayTests
         }
     }
 
+    /// <summary>
+    /// 保証：利用者が指定した小数の幅・高さを設定の座標型へ保存して再捕捉し、次元や精度を取り違えない。
+    /// </summary>
     [TestMethod]
     public void PlayerResolutionSettingsAdapterPreservesPersistedDimensions()
     {

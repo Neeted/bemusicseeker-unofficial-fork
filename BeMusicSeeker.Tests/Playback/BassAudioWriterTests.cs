@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioWriterTests
 {
+    /// <summary>既存のmp3／wav出力と同名の保存先には衝突suffixを付け、元ファイルを上書きしない。</summary>
     [DataTestMethod]
     [DataRow(".mp3")]
     [DataRow(".wav")]

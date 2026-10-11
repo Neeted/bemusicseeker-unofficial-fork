@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
     /// <summary>実候補探索後の交差Busyは停止・物理変更を行わず、受理Lをworker cleanup終端まで保持します。純推定へPは追加しません。</summary>
+    /// <remarks>実ライブラリのDB確定・譜面情報公開と共通受付を接続する。開始した背景Taskとownerのidle終端を回収し、通知の到達だけで受付解放としない。</remarks>
     [TestMethod]
     public async Task AutoInstall_ManagedBusyAfterInputPreparationKeepsAdmissionUntilActualCleanupWithoutReplay()
     {
@@ -133,7 +134,9 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>実管理ZIPを含む保留確定から直接推定へ進み、取消・例外後も既適用結果と未適用管理入力を保持し、開始済み兄弟・必須更新の終端まで受付を保持します。</summary>
+    /// <summary>実管理ZIPを含む保留確定から直接推定へ進み、取消・例外後も既適用結果と未適用管理入力を保持する。開始済み兄弟のjoin中は受付を保持し、受理済み必須更新の完了も確認します。</summary>
+    /// <remarks>実ライブラリのDB確定・譜面情報公開と共通受付を接続する。開始した背景Taskとownerのidle終端を回収し、通知の到達だけで受付解放としない。</remarks>
+    // falseは利用者取消、trueは二件目の実評価例外。どちらも既適用Aを残し、成功終端Cを新たに適用しない。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -274,6 +277,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
+    /// <summary>実譜面情報の公開通知を保持している間は新規取り込みを拒否し、入力公開の実終端後に同じ要求を受理して保留へ登録する。</summary>
+    /// <remarks>実ライブラリのDB確定・譜面情報公開と共通受付を接続する。開始した背景Taskとownerのidle終端を回収し、通知の到達だけで受付解放としない。</remarks>
     [TestMethod]
     public async Task ProductionHydration_BlocksNewImportUntilActualInputPublicationCompletes()
     {

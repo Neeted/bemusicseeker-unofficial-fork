@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ApplicationPathPolicyTests
 {
+    /// <summary>実行ファイル基準から設定・DB・言語・試験音声の位置を解決し、作業ディレクトリに依存した保存先を防ぎます。</summary>
     [TestMethod]
     public void SnapshotDerivesAllApplicationPathsFromExecutableDirectory()
     {
@@ -27,12 +28,14 @@ public sealed class ApplicationPathPolicyTests
         Assert.AreEqual(Path.Combine(root, "test.mp3"), snapshot.TestSoundPath);
     }
 
+    /// <summary>実行ファイルが未指定なら引数失敗を返し、暗黙の別基準へパスを解決しません。</summary>
     [TestMethod]
     public void SnapshotRejectsMissingExecutablePath()
     {
         Assert.ThrowsException<ArgumentException>(() => ApplicationPathSnapshot.FromExecutablePath(null));
     }
 
+    /// <summary>注入した実行ファイル基準をnative bridgeの探索へ渡し、別のアプリ配置を参照しません。</summary>
     [TestMethod]
     public void EverythingNativeUsesInjectedApplicationBaseDirectoryForBridgePath()
     {

@@ -6,6 +6,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupMemoryPressureServiceTests
 {
+    /// <summary>
+    /// 保証：起動のメモリ診断へ渡したフェーズ・地点・各メモリ量・GC回数を欠落や取り違えなくログへ出力する。
+    /// </summary>
     [TestMethod]
     public void BuildCheckpointLog_IncludesMemoryCounters()
     {

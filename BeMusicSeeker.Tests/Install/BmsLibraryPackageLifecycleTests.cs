@@ -20,6 +20,7 @@ public sealed class BmsLibraryPackageLifecycleTests
 {
     /// <summary>局所確定値の反映、複数所属、旧購読の解除と未具体化列の非I/Oを同じownerで確認します。</summary>
     [DataTestMethod]
+    // BMS/BMSONの共通現在値を、同じ所属・退役条件で検査します。
     [DataRow(false)]
     [DataRow(true)]
     public void PackageLifecycleOwner_CommittedCurrentChartsStayLocalAndReleaseRetiredEntries(bool bmson)
@@ -163,6 +164,7 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
+    /// <summary>受理済み保守workerへ追加要求が合流しても各要求のinteractionとversionで開始・終端を公開し、先行tokenの流用や未完了状態の残留を検出します。</summary>
     [TestMethod]
     public void InstallableMaintenance_RealAcceptanceAndReusedWorkerPublishEachFeatureRequestOrigin()
     {
@@ -204,11 +206,17 @@ public sealed class BmsLibraryPackageLifecycleTests
 
 
 
+    /// <summary>dot別名の既存保留path衝突はDB保存とcollection公開前に拒否し、同じ元pathの二重所有を検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_RejectsCanonicalDuplicateBeforeDurableMutation()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
+            using (var preparationDb = new LR2SongDBExtended(songDbPath))
+            {
+                preparationDb.CreateTable<LR2SongDBExtended.install>();
+            }
             var existingPackage = new ChartPackage
             {
                 path = "C:\\Pending\\Existing",
@@ -243,17 +251,22 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.AreSame(existingPackage, pendingPackages[0]);
             Assert.AreEqual("C:\\Pending\\Existing", existingPackage.path);
             Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
 
+    /// <summary>同一packageを候補へ二回渡す要求はDB保存とcollection公開前に拒否し、参照重複による二重所有を検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_RejectsRepeatedCandidatePackageReferenceBeforeDurableMutation()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
+            using (var preparationDb = new LR2SongDBExtended(songDbPath))
+            {
+                preparationDb.CreateTable<LR2SongDBExtended.install>();
+            }
             var package = new ChartPackage
             {
                 path = "C:\\Pending\\Repeated",
@@ -280,12 +293,13 @@ public sealed class BmsLibraryPackageLifecycleTests
 
             Assert.AreEqual(0, pendingPackages.Count);
             Assert.AreEqual(0, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
 
+    /// <summary>実DB保存の失敗は保留collectionと元pathを変更せず、保存前の正本置換を検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_DurableFailureLeavesLivePackagePathUnchanged()
     {
@@ -328,6 +342,8 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
+    /// <summary>再編成先が非対象の既存保留pathと衝突する場合は全元packageとDB行を保ち、拒否前の削除・置換を検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ReplacePendingPackagesWithRegroupedPackage_RejectsCanonicalCollisionBeforeDbMutation()
     {
@@ -377,14 +393,14 @@ public sealed class BmsLibraryPackageLifecycleTests
             CollectionAssert.AreEqual(
                 new[] { firstSource, secondSource, existingPackage },
                 owner.PendingPackages.ToArray());
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             CollectionAssert.AreEquivalent(
                 new[] { firstSource.path, secondSource.path, existingPackage.path },
                 verifySongDb.Table<ChartPackage>().Select(package => package.path).ToArray());
         });
     }
 
+    /// <summary>collection変更scope内では新collectionを適用しても公開せず、scope終端で一回だけ通知する順序違反を検出します。</summary>
     [TestMethod]
     public void PackageLifecycleOwner_SetPendingPackagesPublishesAfterCollectionMutationScope()
     {
@@ -415,26 +431,35 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
+    /// <summary>共有UIキュー保持中も変更scopeは返却し、解放後に一回のsubscriber例外を失敗窓口へ渡すことから同期UI待ちや通知失敗の隠蔽を検出します。</summary>
+    /// <remarks>実ownerのNormal投稿後に同じpriorityのdrainを所有し、同期公開actionの返却を観測します。共有キューを保持するため並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
-    public void PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure()
+    public async Task PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure()
     {
-        WithTemporarySongDb(delegate (string songDbPath)
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierTests_" + Guid.NewGuid().ToString("N"));
+        string songDbPath = Path.Combine(root, "song.db");
+        var laneEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseLane = new ManualResetEventSlim();
+        var publicationFailed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        IUiScheduledOperation? lane = null;
+        IUiScheduledOperation? drain = null;
+        Exception? primaryFailure = null;
+        try
         {
-            using var laneEntered = new ManualResetEventSlim();
-            using var releaseLane = new ManualResetEventSlim();
-            using var publicationFailed = new ManualResetEventSlim();
+            Directory.CreateDirectory(root);
+            File.WriteAllBytes(songDbPath, []);
             Exception? observedFailure = null;
             int propertyChangedCount = 0;
             var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-            scheduler.Schedule(() =>
+            lane = scheduler.Schedule(() =>
             {
-                laneEntered.Set();
+                laneEntered.TrySetResult();
                 releaseLane.Wait();
-            });
-            laneEntered.Wait();
+            }, UiSchedulePriority.Normal);
+            await TestUiDispatcherHost.AwaitNotificationAsync(laneEntered.Task, lane.Completion, "package-lifecycle.ui-gate");
             var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath),
-                scheduler,
+                new BmsLibraryDbGateway(songDbPath), scheduler,
                 _ =>
                 {
                     propertyChangedCount++;
@@ -445,27 +470,53 @@ public sealed class BmsLibraryPackageLifecycleTests
                 exception =>
                 {
                     observedFailure = exception;
-                    publicationFailed.Set();
+                    publicationFailed.TrySetResult();
                 });
             ObservableCollection<ChartPackage> replacement = CreatePackageCollection([
                 new ChartPackage { path = "C:\\Pending\\Queued", delete_parent = false }
             ]);
-
             using (owner.BeginCollectionMutationScope(queuePublication: true))
             {
                 owner.SetPendingPackages(replacement);
             }
-
+            drain = scheduler.Schedule(() => { }, UiSchedulePriority.Normal);
             Assert.AreSame(replacement, owner.PendingPackages);
             Assert.AreEqual(0, propertyChangedCount);
             releaseLane.Set();
-            publicationFailed.Wait();
+            await TestUiDispatcherHost.AwaitNotificationAsync(publicationFailed.Task, drain.Completion, "package-lifecycle.subscriber-failure");
+            await drain.Completion;
             Assert.AreEqual(1, propertyChangedCount);
+            Assert.IsNotNull(observedFailure);
             Assert.IsInstanceOfType<InvalidOperationException>(observedFailure);
-            Assert.AreEqual("collection subscriber failed", observedFailure!.Message);
-        });
+            Assert.AreEqual("collection subscriber failed", observedFailure.Message);
+        }
+        catch (Exception failure) { primaryFailure = failure; }
+        finally
+        {
+            releaseLane.Set();
+            try
+            {
+                var started = new List<Task>();
+                if (lane != null) { started.Add(lane.Completion); }
+                if (drain != null) { started.Add(drain.Completion); }
+                await Task.WhenAll(started);
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure == null) { primaryFailure = cleanupFailure; }
+                else { primaryFailure.Data["PackagePublicationCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+            try { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure == null) { primaryFailure = cleanupFailure; }
+                else { primaryFailure.Data["PackagePublicationFixtureCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        }
+        if (primaryFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primaryFailure).Throw(); }
     }
 
+    /// <summary>受理された公開操作が取消された場合はsubscriberを呼ばず取消失敗を報告し、受理だけで成功扱いする誤りを検出します。</summary>
     [TestMethod]
     public void PackageLifecycleOwner_QueuedScopeReportsAcceptedPublicationCancellation()
     {
@@ -491,6 +542,8 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
+    /// <summary>削除対象の実install行を除いて残るpackageを一回公開し、DBと保留collectionの不整合を検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_UpdatesPendingCollectionAndDeletesInstallRows()
     {
@@ -512,8 +565,6 @@ public sealed class BmsLibraryPackageLifecycleTests
                 songDb.InsertOrReplace(removedPackage, typeof(LR2SongDBExtended.install));
             }
 
-            List<ChartFile> libraryFiles = [];
-            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([removedPackage, remainingPackage]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
             var callbacks = new TrackingCallbacks();
@@ -529,12 +580,13 @@ public sealed class BmsLibraryPackageLifecycleTests
             Assert.AreEqual(1, pendingPackages.Count);
             Assert.AreSame(remainingPackage, pendingPackages.Single());
             Assert.AreEqual(1, callbacks.PendingPackagesSetCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
 
+    /// <summary>case-only別install行を完全一致で二件とも削除し、物理path比較へ潰して一行を残す誤りを検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_DeletesCaseVariantInstallRowsWithoutCollapsingKeys()
     {
@@ -570,12 +622,13 @@ public sealed class BmsLibraryPackageLifecycleTests
             });
 
             Assert.AreEqual(0, pendingPackages.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.install>();
+            using var verifySongDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0, verifySongDb.Table<ChartPackage>().Count());
         });
     }
 
+    /// <summary>実DB削除が失敗すると保留collectionと通知数を保ち、未保存の削除を正本へ公開する誤りを検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_DurableDeleteFailureLeavesPendingCollectionUnchanged()
     {
@@ -610,6 +663,8 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
+    /// <summary>実DB削除が失敗した部分package変更では全entryを保持し、DB失敗前に一部entryを剪定する誤りを検出します。</summary>
+    /// <remarks>実SQLiteの保存・拒否・失敗と保留collectionの反映を接続し、保存前の公開を迂回しません。</remarks>
     [TestMethod]
     public void ApplyPendingPackageMutationDelta_DurableDeleteFailureLeavesPartialPackageEntriesUnchanged()
     {

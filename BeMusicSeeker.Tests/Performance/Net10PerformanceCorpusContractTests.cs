@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
@@ -15,54 +15,9 @@ namespace BeMusicSeeker.Tests.Performance;
 [TestCategory("contract")]
 public sealed class Net10PerformanceCorpusContractTests
 {
-    [TestMethod]
-    public void ConfiguredCorpus_UsesRequestedSeedAndScaleWithStableGolden()
-    {
-        int seed = Net10PerformanceCorpus.GetConfiguredSeed();
-        foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
-        {
-            IReadOnlyList<Net10PerformanceCorpusRow> rows =
-                Net10PerformanceCorpus.CreateRows(scale, seed);
-            string fingerprint = Net10PerformanceCorpus.CreateFingerprint(rows);
-
-            Assert.AreEqual(Net10PerformanceCorpus.GetRowCount(scale), rows.Count);
-            if (seed == Net10PerformanceCorpus.DefaultSeed)
-            {
-                Assert.AreEqual(GetDefaultGoldenFingerprint(scale), fingerprint);
-            }
-            else
-            {
-                Assert.AreEqual(
-                    fingerprint,
-                    Net10PerformanceCorpus.CreateFingerprint(
-                        Net10PerformanceCorpus.CreateRows(scale, seed)));
-            }
-        }
-    }
-
-    [TestMethod]
-    public void DifferentSeedRows_ProduceDifferentFingerprint()
-    {
-        string first = Net10PerformanceCorpus.CreateFingerprint(
-            Net10PerformanceCorpus.CreateRows(Net10PerformanceCorpusScale.Small, 1));
-        string second = Net10PerformanceCorpus.CreateFingerprint(
-            Net10PerformanceCorpus.CreateRows(Net10PerformanceCorpusScale.Small, 2));
-
-        Assert.AreNotEqual(first, second);
-    }
-
-    [TestMethod]
-    public void TemporaryWorkspace_IsRemovedAfterCompletion()
-    {
-        string capturedPath = Net10PerformanceCorpus.WithTemporaryWorkspace(path =>
-        {
-            File.WriteAllText(Path.Combine(path, "fixture.txt"), "fixture");
-            return path;
-        });
-
-        Assert.IsFalse(Directory.Exists(capturedPath));
-    }
-
+    /// <summary>
+    /// producerが渡した時刻とroute・interaction・generationを出力へ保持し、reader時刻への置換や相関情報の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public async Task BatchWriter_PreservesProducerTimestampAndCorrelationSchema()
     {
@@ -89,10 +44,13 @@ public sealed class Net10PerformanceCorpusContractTests
             captured.FormatMessage());
     }
 
+    /// <summary>
+    /// 実sinkを保持して容量を埋めてもproducerが投入/overflow結果を返し、拒否件数を一回の診断へ集約して停止時までに出力することを確かめる。
+    /// </summary>
     [TestMethod]
     public async Task BoundedWriter_AggregatesOverflowWithoutBlockingProducer()
     {
-        using var sinkEntered = new ManualResetEventSlim();
+        var sinkEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseSink = new ManualResetEventSlim();
         var events = new ConcurrentQueue<Net10PerformanceEvent>();
         int sinkCalls = 0;
@@ -103,7 +61,7 @@ public sealed class Net10PerformanceCorpusContractTests
             {
                 if (Interlocked.Increment(ref sinkCalls) == 1)
                 {
-                    sinkEntered.Set();
+                    sinkEntered.TrySetResult();
                     releaseSink.Wait();
                 }
                 events.Enqueue(performanceEvent);
@@ -113,24 +71,53 @@ public sealed class Net10PerformanceCorpusContractTests
             interactionId: 42,
             generation: 7);
 
-        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
-            DateTime.Now,
-            interaction,
-            "owner_started",
-            null)));
-        Assert.IsTrue(sinkEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
-            DateTime.Now,
-            interaction,
-            "ui_queued",
-            null)));
-        Assert.IsFalse(writer.TryWrite(new Net10PerformanceEvent(
-            DateTime.Now,
-            interaction,
-            "ui_applied",
-            null)));
-        releaseSink.Set();
-        await writer.StopAsync();
+        Exception? primaryFailure = null;
+        try
+        {
+            Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+                DateTime.Now,
+                interaction,
+                "owner_started",
+                null)));
+            await sinkEntered.Task;
+            Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+                DateTime.Now,
+                interaction,
+                "ui_queued",
+                null)));
+            Assert.IsFalse(writer.TryWrite(new Net10PerformanceEvent(
+                DateTime.Now,
+                interaction,
+                "ui_applied",
+                null)));
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+        }
+        finally
+        {
+            releaseSink.Set();
+            try
+            {
+                await writer.StopAsync();
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure is null)
+                {
+                    primaryFailure = cleanupFailure;
+                }
+                else
+                {
+                    primaryFailure.Data["WriterSecondaryDiagnostics"] = cleanupFailure.ToString();
+                }
+            }
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
 
         Assert.AreEqual(2, events.Count(item => item.Stage != "queue_overflow"));
         Assert.AreEqual(1, events.Count(item =>
@@ -138,10 +125,13 @@ public sealed class Net10PerformanceCorpusContractTests
             && string.Equals(item.Fields, "droppedCount=1", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// 実sink到達を保持してproducerと別threadで処理されることを観測し、投入処理上でsinkを同期実行する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task BatchWriter_InvokesSinkOnBackgroundReader()
     {
-        using var sinkEntered = new ManualResetEventSlim();
+        var sinkEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseSink = new ManualResetEventSlim();
         int producerThreadId = Environment.CurrentManagedThreadId;
         int sinkThreadId = producerThreadId;
@@ -151,21 +141,53 @@ public sealed class Net10PerformanceCorpusContractTests
             _ =>
             {
                 sinkThreadId = Environment.CurrentManagedThreadId;
-                sinkEntered.Set();
+                sinkEntered.TrySetResult();
                 releaseSink.Wait();
             });
 
-        Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
-            DateTime.Now,
-            PerformanceInteraction.Existing("startup", 1, 1),
-            "owner_started",
-            null)));
-        Assert.IsTrue(sinkEntered.Wait(TimeSpan.FromSeconds(5)));
-        Assert.AreNotEqual(producerThreadId, sinkThreadId);
-        releaseSink.Set();
-        await writer.StopAsync();
+        Exception? primaryFailure = null;
+        try
+        {
+            Assert.IsTrue(writer.TryWrite(new Net10PerformanceEvent(
+                DateTime.Now,
+                PerformanceInteraction.Existing("startup", 1, 1),
+                "owner_started",
+                null)));
+            await sinkEntered.Task;
+            Assert.AreNotEqual(producerThreadId, sinkThreadId);
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
+        }
+        finally
+        {
+            releaseSink.Set();
+            try
+            {
+                await writer.StopAsync();
+            }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure is null)
+                {
+                    primaryFailure = cleanupFailure;
+                }
+                else
+                {
+                    primaryFailure.Data["WriterSecondaryDiagnostics"] = cleanupFailure.ToString();
+                }
+            }
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
     }
 
+    /// <summary>
+    /// sinkのI/O失敗でもproducerの投入を受理し、停止終端後に失敗件数を残して故障を黙って捨てる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task BatchWriter_RecordsSinkFailuresWithoutFailingProducers()
     {
@@ -185,6 +207,9 @@ public sealed class Net10PerformanceCorpusContractTests
         Assert.AreEqual(1L, writer.SinkFailureCount);
     }
 
+    /// <summary>
+    /// routeを段階的に切り替えてもinteractionとgenerationを保持し、同じ操作の計測を別操作へ分断する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void InteractionRouteTransition_PreservesCorrelationIdentity()
     {
@@ -204,14 +229,4 @@ public sealed class Net10PerformanceCorpusContractTests
         Assert.AreEqual(4L, estimation.Generation);
     }
 
-    private static string GetDefaultGoldenFingerprint(Net10PerformanceCorpusScale scale) => scale switch
-    {
-        Net10PerformanceCorpusScale.Small =>
-            "51123503FA90BE44DE780C23D1F74795BE9785B66054869568C71341B727E0D5",
-        Net10PerformanceCorpusScale.Medium =>
-            "3CB33510F211A727BA3494A3F47F0ABE91D65666B06C247D5F5569B5448CA43A",
-        Net10PerformanceCorpusScale.Large =>
-            "F31E0CDECFB662740F3558F54BA02086C444D1BD33F9B35F1F65B3AB330C2CAC",
-        _ => throw new ArgumentOutOfRangeException(nameof(scale))
-    };
 }

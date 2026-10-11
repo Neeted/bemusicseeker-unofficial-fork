@@ -21,6 +21,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DuplicateMaintenanceWorkflowOwnerTests
 {
+    /// <summary>
+    /// フォルダ統合は再生停止後に表示抑制・重複優先・保存処理の順に進み、解放後に活動を終えて次の選択見出しを返し、処理順の逆転を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_PreservesMutationBoundaryAndReceipt()
     {
@@ -61,8 +64,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// merge 必須反映と後続 maintenance のどちらの失敗も、durable facts を維持して操作の非成功を返します。
+    /// 統合または後続保守の必須反映失敗では保存確定と元失敗・receiptを維持して非成功を返し、確定失敗の成功化や処理の二重呼出しを検出する。
     /// </summary>
+    // falseは統合未適用、trueは統合適用後の必須反映失敗。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -119,6 +123,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             events);
     }
 
+    /// <summary>
+    /// 未完了の確認を非同期に待つ間は共通排他を保持して再入を拒否し、承認後だけ一回統合して排他を解放することで、未承認変更を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_AwaitsConfirmationWithoutBlockingCaller()
     {
@@ -170,8 +177,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// cleanup 警告と maintenance エラーを解放後に一度報告し、reporter 失敗で session の確定事実を変更しません。
+    /// 片付け・保守の異常を排他と活動の解放後に一回報告し、報告先の失敗でも保存確定・元原因・成功区分を保持して通知障害による事実の書換えを検出する。
     /// </summary>
+    // 第一値は報告先の例外、第二値は必須保守失敗の有無。片付け失敗は全入力で保持する。
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -219,6 +227,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(1, store.MergeWithReceiptCallCount);
     }
 
+    /// <summary>
+    /// 重複グループにない統合先は引数失敗で拒否し、グループ外のフォルダへ変更を始める誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void RunFolderMergeAsync_RejectsFolderOutsideGroup()
     {
@@ -232,6 +243,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             new DuplicateGroup([], [source, @"C:\Songs\Other"])));
     }
 
+    /// <summary>
+    /// 同一ハッシュの最短ファイル名を残し、確認済み削除だけの件数と保存後失敗を返して、未実行対象の成功集計や保持対象の削除を検出する。
+    /// </summary>
+    // falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -292,6 +307,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 重複がない単一譜面は確認や活動・保存を始めず件数なしを返し、不要な削除要求の開始を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RunHashCleanupAsync_NoWorkDoesNotStartMutation()
     {
@@ -315,6 +333,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>
+    /// 重複削除の確認Cancelは失敗原因のない未実行として返し、拒否後の活動・保存開始を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RunHashCleanupAsync_RejectionDoesNotStartMutation()
     {
@@ -339,6 +360,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(0, events.Count);
     }
 
+    /// <summary>
+    /// 確定成功後の活動表示の片付けが失敗しても優先・表示抑制を解放して成功receiptを保ち、任意表示障害で保存成功を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task RunFolderMergeAsync_TerminalObserverCleanupFailureIsOptionalAfterPriorityRelease()
     {
@@ -386,6 +410,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             events);
     }
 
+    /// <summary>
+    /// 同じ重複グループの別フォルダだけを統合候補にし、三件以上はメニュー・二件は相手への統合・一件は削除へ判断して対象数の誤分類を検出する。
+    /// </summary>
     [TestMethod]
     public void DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy()
     {
@@ -409,6 +436,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             owner.CaptureDuplicateFolderKeyboardAction(group, @"C:\A").Kind);
     }
 
+    /// <summary>
+    /// 存在しないフォルダは開かず、存在先のshell失敗でも一回だけ試みて、別対象への代替実行を検出する。
+    /// </summary>
     [TestMethod]
     public void OpenDuplicateFolderInExplorer_ValidatesBeforeOpeningWithoutFallback()
     {
@@ -436,7 +466,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(1, openCount);
     }
 
-    /// <summary>実モデルのprepared要求を最初の確認から持ち越し、共通受付Busy、固定対象の実削除とcleanup終端までの権限保持を確認します。</summary>
+    /// <summary>
+    /// 実モデルで確認前に固定した重複対象を使い、確認中のBusy拒否から実削除・片付け終端まで共通権限を保持して対象再計算や早期解放を検出する。
+    /// </summary>
+    /// <remarks>実store・独立したSQLite DBと実フォルダで固定対象の削除と保存行を確認する。確認portだけを制御して実受付と終端へ接続する。</remarks>
     [TestMethod]
     public async Task RunHashCleanupAsync_RealPreparedTargetsKeepGateAndModelAdmission()
     {
@@ -555,7 +588,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         });
     }
 
-    /// <summary>全フォルダ判断中も論理受付を保持し、scope・再生停止より前に判断を済ませ同じpreparedと生存権限を実storeへ渡します。</summary>
+    /// <summary>
+    /// 固定した全フォルダ候補のYes・No・未選択閉鎖を変更前に判断し、承認範囲だけ実削除して所持行を保存し、判断中の受付解放や未承認資源の削除を検出する。
+    /// </summary>
+    /// <remarks>実store・独立したSQLite DBと実フォルダで固定対象の削除と保存行を確認する。確認portだけを制御して実受付と終端へ接続する。</remarks>
+    // 0は件数確認なし・フォルダYes、1は件数確認あり・フォルダNo、2は件数確認あり・未選択閉鎖。
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(1)]
@@ -677,7 +714,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         });
     }
 
-    /// <summary>先行Yesを実行せず、最後の確認の表示失敗・null応答・例外を失敗として保持します。</summary>
+    /// <summary>
+    /// 先行フォルダのYesがあっても後続の表示失敗・null応答・例外では全変更を始めず元原因と入力を保ち、確認途中の部分実行を検出する。
+    /// </summary>
+    // 0は表示失敗結果、1はnull応答、2は確認portの例外。いずれも二件目で注入する。
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(1)]

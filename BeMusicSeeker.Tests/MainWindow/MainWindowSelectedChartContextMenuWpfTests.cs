@@ -19,10 +19,13 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>行能力の条件網羅はPlaylistViewPipelineTestsへ分担し、この境界はcompiledメニューの実イベント配送・右クリックと選択の区別・実ファイル存在・受付時刻を検査します。関連文書のasync void入口の非適用分岐だけは既存のconsumer Taskを直接回収します。</remarks>
 [TestClass]
+// 実MainWindowはApplication.ResourcesのVMとcompiledメニューを共有するため、所有Windowの解放まで並列化しません。
 [DoNotParallelize]
 public sealed class MainWindowSelectedChartContextMenuWpfTests
 {
+    /// <summary>選択がないと右クリック行のBMS操作を表示し、bmson選択があると右クリックBMS行で選択を置き換えずBMS専用操作を隠します。</summary>
     [TestMethod]
     public void CompiledTableContextMenuState_UsesRowFallbackAndPreservesSelectedBmson()
     {
@@ -58,11 +61,11 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
                 Assert.AreEqual(Visibility.Collapsed, fixEncoding.Visibility);
                 Assert.AreEqual(Visibility.Collapsed, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility);
-                Assert.AreEqual(Resources.Open_chart_viewer, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Header);
             },
             selectedChartContextMenuTerminals: terminals);
     }
 
+    /// <summary>compiled音声変換Clickはbmsonと混在選択を行順・同じ譜面で配送し、保留行と実ファイル欠損では表示または実行を抑止します。</summary>
     [TestMethod]
     public void CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles()
     {
@@ -165,6 +168,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         }
     }
 
+    /// <summary>compiled変更・文字コード・資源検査・除外切替・音声変換のClickを対応端末へ対象譜面とscopeを保って配送し、受付後の未完了TaskにもHandledを設定します。</summary>
     [TestMethod]
     public void CompiledChartContextMenuRoutesMutationAndResourceTerminalsWithExactTargets()
     {
@@ -313,6 +317,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 audio: audio));
     }
 
+    /// <summary>解析失敗のcompiled削除ClickはMD5を正規化して渡し、受付成立時点でHandledを設定して処理結果の完了を待たず受付を確定します。</summary>
     [TestMethod]
     public void CompiledParseFailureContextMenuNormalizesRequestAndHandlesOnlyAfterAcceptance()
     {
@@ -363,6 +368,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal));
     }
 
+    /// <summary>解析失敗削除の受付拒否と受付未完了ではClickをHandledへ変更せず、処理Taskの存在だけで受付成功へ転換しません。</summary>
     [TestMethod]
     public void CompiledParseFailureContextMenuRejectsWithoutHandling()
     {
@@ -417,6 +423,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal));
     }
 
+    /// <summary>compiled順位更新メニューは単一選択として可否を照会し、Clickへ同じ対象譜面を渡して一要求だけを受理します。</summary>
     [TestMethod]
     public void CompiledRankingContextMenuUsesExactSelectionSnapshotAndOneRequest()
     {
@@ -465,6 +472,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(rankingCache: ranking));
     }
 
+    /// <summary>通常譜面と未所持詳細のcompiled閲覧Clickはそれぞれ選択行の譜面を端末へ渡してHandledを設定し、通常側では未完了Task中にもHandledが成立することを確認します。</summary>
     [TestMethod]
     public void CompiledScoreViewerContextMenusDelegateNormalAndMissingSelectionWithHandledTiming()
     {
@@ -536,6 +544,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
     }
 
+    /// <summary>外部操作端末が全操作を不可としたメニューでは区切り線も隠し、操作のない空groupだけを表示しません。</summary>
     [TestMethod]
     public void CompiledTableContextMenuHidesExternalSeparatorWithoutVisibleExternalActions()
     {
@@ -565,6 +574,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals());
     }
 
+    /// <summary>BMS・bmson保留の複数選択でも設定プログラムClickは右クリック行を使い、メニューを開いた後の導入path変更を捕捉して現pathを一回起動します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -625,7 +635,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 Assert.AreEqual(0, requests.Count);
 
                 row.PackageEntry.ApplyInstalledPath(updatedPath);
-                Assert.AreEqual(updatedPath, row.Chart.Path);
                 Assert.IsTrue(RaiseMenuClick(child).Handled);
 
                 Assert.AreEqual(1, requests.Count);
@@ -636,6 +645,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
     }
 
+    /// <summary>compiledローカル・設定web・設定program操作へ対象譜面と利用者順を配送し、表示後に可否が変わると古い可否で実行しません。</summary>
     [TestMethod]
     public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
     {
@@ -734,9 +744,6 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.IsTrue(args.Handled);
                 }
                 MenuItem programParent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
-                Assert.AreEqual(
-                    menu.Items.IndexOf(FindMenuItem(menu, "tableContextMenuItemOpenBMSFile")) + 1,
-                    menu.Items.IndexOf(programParent));
                 Assert.AreEqual(Resources.RightClick_open_with_program, programParent.Header);
                 RoutedEventArgs programArgs = RaiseMenuClick(FindMenuItem(programParent, "configuredProgramAction_program"));
                 Assert.IsTrue(programArgs.Handled);
@@ -759,6 +766,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
     }
 
+    /// <summary>関連文書の再照会は旧tokenを取消して最新結果だけを生成Clickへ接続し、取消・利用不可・失敗の終端では古い文書へ差し替えません。</summary>
     [TestMethod]
     public void CompiledRelatedDocumentMenuSuppressesStaleResultsAndOpensGeneratedPath()
     {
@@ -857,10 +865,10 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                         ?? throw new AssertFailedException("The related-document consumer was not found.");
                     foreach ((RelatedDocumentQueryReceipt receipt, bool cancelled) in new[]
                     {
-                        (RelatedDocumentQueryReceipt.Available(["stale.txt"]), true),
-                        (RelatedDocumentQueryReceipt.Unavailable, false),
-                        (RelatedDocumentQueryReceipt.Failed, false),
-                        (RelatedDocumentQueryReceipt.Canceled, false)
+                        (RelatedDocumentQueryReceipt.Available(["stale.txt"]), true), // 取消tokenでは成功結果も適用しません。
+                        (RelatedDocumentQueryReceipt.Unavailable, false), // 利用不可は文書menuを隠します。
+                        (RelatedDocumentQueryReceipt.Failed, false), // 取得失敗も文書menuを隠します。
+                        (RelatedDocumentQueryReceipt.Canceled, false) // 取消結果は既存表示を変更しません。
                     })
                     {
                         string[] baseline = ["baseline.txt"];

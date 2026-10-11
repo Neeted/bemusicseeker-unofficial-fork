@@ -13,11 +13,13 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>実表の編集TextBoxと候補Popupから確定・取消イベントまでの接続をWPFで確認します。候補装飾と実パスの分離は列生成の下位ケースが担います。</remarks>
 [TestClass]
 // 共通Dispatcherの文化圏を表示待機中も所有し、他の画面テストとの再入を避けます。
 [DoNotParallelize]
 public sealed class CustomTableEditingTests
 {
+    /// <summary>候補が一件または二件あっても空入力のEnterは空の導入先を一回確定することを確認し、未選択候補を自動採用する誤りを検出します。</summary>
     [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
@@ -31,6 +33,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>下キーで二件目を選び、上へ戻す場合も含めEnterで明示選択の実パスを確定することを確認し、候補の移動や表示用文字を保存する誤りを検出します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -49,6 +52,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>候補選択後に手入力パスまたは空へ書き換えるとEnterは現在入力を確定することを確認し、古い選択候補が手入力を上書きする誤りを検出します。</summary>
     [TestMethod]
     [DataRow(@"C:\BMS\Manual")]
     [DataRow("")]
@@ -64,6 +68,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>二件目の候補クリックはその実パスを一回確定して編集を閉じることを確認し、先頭候補を採用する誤りやクリックの二重確定を検出します。</summary>
     [TestMethod]
     public void InstallDestination_ClickCommitsTargetCandidate()
     {
@@ -74,6 +79,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>候補数と空/手入力の各条件で編集内部のフォーカス移動は確定せず、外へ出た場合だけ現在入力を確定することを確認し、候補への移動で意図せず保存する誤りを検出します。</summary>
     [TestMethod]
     [DataRow(1, "")]
     [DataRow(2, "")]
@@ -89,6 +95,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>入力変更後の最初のEscapeは候補だけ閉じ、次のEscapeは一回の取消で編集を閉じることを確認し、候補を閉じる操作で入力を保存する誤りを検出します。</summary>
     [TestMethod]
     public void InstallDestination_EscapeClosesCandidatesThenCancelsEdit()
     {
@@ -104,6 +111,7 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>候補を選択していてもTabは手入力の実パスを一回確定することを確認し、フォーカス移動で未確定の候補選択を採用する誤りを検出します。</summary>
     [TestMethod]
     public void InstallDestination_TabCommitsInputEvenWhenCandidateIsSelected()
     {
@@ -131,10 +139,6 @@ public sealed class CustomTableEditingTests
             settings.InstallDst.Visibility = Visibility.Visible;
             settings.InstallDst.Width = 250;
             CustomTableColumn column = CustomTableColumnFactory.CreateMainColumns(settings).Single(item => item.Id == "InstallDst");
-            if (string.IsNullOrEmpty(initial))
-            {
-                StringAssert.Contains(column.GetText(row), BeMusicSeeker.Properties.Resources.InstallDestination_SelectCandidate);
-            }
             var table = new CustomTableView
             {
                 Width = 300d,
@@ -149,7 +153,6 @@ public sealed class CustomTableEditingTests
                 ?? throw new InvalidOperationException("候補Popupが見つかりません。"));
             scope.TrackPopup(popup);
             scope.ShowAndWaitForContentRendered(new Window { Width = 320d, Height = 130d, Content = table });
-            table.UpdateLayout();
             var completed = new List<CustomTableCellEditEndedEventArgs>();
             table.CellEditEnded += (_, args) => completed.Add(args);
             Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));

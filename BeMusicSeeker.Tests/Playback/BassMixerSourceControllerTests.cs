@@ -10,9 +10,9 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class BassMixerSourceControllerTests
 {
+    /// <summary>未接続sourceをpause・明示行列・ramp-inなしで一回追加し、期待mixerへの所属を読戻してから採用する。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_UnattachedSourceUsesPauseAndVerifiesMembership()
     {
@@ -37,6 +37,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(77, native.MixerHandle);
     }
 
+    /// <summary>異なるrateのsourceへ指定品質2～6を設定・読戻した後に明示行列を適用し、未確認SRCの再開を防ぐ。</summary>
     [DataTestMethod]
     [DataRow(2)]
     [DataRow(3)]
@@ -75,6 +76,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(1f, matrix[1, 1]);
     }
 
+    /// <summary>同rateでは不要なSRC設定をせず、source／mixer形式確認と行列適用を省略しない。</summary>
     [TestMethod]
     public void ConfigurePausedSource_SameRateSkipsSrcButStillSetsMatrix()
     {
@@ -98,6 +100,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.IsNotNull(native.LastMatrix);
     }
 
+    /// <summary>float decodeでないsourceを行列・SRC設定前に拒否し、不正形式の再開を防ぐ。</summary>
     [TestMethod]
     public void ConfigurePausedSource_RejectsNonFloatOrNonDecodeSourceBeforePublishingMatrix()
     {
@@ -121,6 +124,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.SetSrcCalls);
     }
 
+    /// <summary>SRC読戻しが要求品質と違えば形式失敗にし、行列適用へ進めない。</summary>
     [TestMethod]
     public void ConfigurePausedSource_RejectsSrcReadbackMismatchBeforeSettingMatrix()
     {
@@ -145,6 +149,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.SetMatrixCalls);
     }
 
+    /// <summary>SRC設定失敗を元native番号付きで返し、読戻しや行列で原因を上書きしない。</summary>
     [TestMethod]
     public void ConfigurePausedSource_PreservesNativeErrorWhenSettingSrcFails()
     {
@@ -172,6 +177,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.SetMatrixCalls);
     }
 
+    /// <summary>SRC読戻し失敗を元native番号付きで返し、未確認品質の行列適用へ進まない。</summary>
     [TestMethod]
     public void ConfigurePausedSource_PreservesNativeErrorWhenReadingSrcFails()
     {
@@ -201,6 +207,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.SetMatrixCalls);
     }
 
+    /// <summary>不正品質の上下限をnative設定前に拒否し、無効値のままsourceを構成しない。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(7)]
@@ -220,6 +227,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.SetMatrixCalls);
     }
 
+    /// <summary>行列設定失敗を専用段階とnative番号で返し、音声経路の構成成功に見せない。</summary>
     [TestMethod]
     public void ConfigurePausedSource_MatrixFailurePreservesNativeError()
     {
@@ -247,6 +255,7 @@ public sealed class BassMixerSourceControllerTests
             native.ConfigurationCalls.ToArray());
     }
 
+    /// <summary>Vorbis speaker順の6ch・8ch downmixとstereoの多ch出力で規定係数・LFE除外・未使用行の無音を保つ。</summary>
     [TestMethod]
     public void AudioChannelMatrix_MapsVorbisOrderAndAppliesDefinedDownmixCoefficients()
     {
@@ -309,6 +318,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0.70710677f, eightToStereo[1, 7]);
     }
 
+    /// <summary>routing規則のないspeaker位置を拒否し、別位置へ黙って割り当てない。</summary>
     [TestMethod]
     public void AudioChannelMatrix_RejectsSpeakerPositionsWithoutARoutingRule()
     {
@@ -318,7 +328,10 @@ public sealed class BassMixerSourceControllerTests
             () => AudioChannelMatrix.Create(topFrontCenter, AudioChannelLayout.CreateBassOutput(2)));
     }
 
+    /// <summary>実6chの非対称impulseを左右へdownmixし、再演奏でもnative行列の行・speaker順の交換を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのmixer出力を読み、native行列接続の誤りを検査するため共有native状態をこのケースだけ直列所有する。</remarks>
     [TestMethod]
+    [DoNotParallelize]
     public void NativeMixer_AsymmetricSixChannelImpulsesUseNativeOutputRowsAndWaveSpeakerOrder()
     {
         SampleRate previousFrequency = BassAudioPlayer.Frequency;
@@ -417,6 +430,7 @@ public sealed class BassMixerSourceControllerTests
         }
     }
 
+    /// <summary>期待mixerへ既接続のsourceを再追加せず、所属を再利用する。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_ExpectedMembershipDoesNotAddAgain()
     {
@@ -430,6 +444,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.AddCalls);
     }
 
+    /// <summary>別mixerの所属を診断として返し、所有していない所属の除去や付け替えをしない。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_DifferentMembershipFailsWithoutRemovingIt()
     {
@@ -446,6 +461,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(0, native.AddCalls);
     }
 
+    /// <summary>所属失敗の診断に故障時のbackend・session状態・core deviceを捕捉し、別sessionの情報と取り違えない。</summary>
     [TestMethod]
     public void MixerFailureCapturesOwningSessionDiagnostics()
     {
@@ -466,6 +482,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(6, exception.CoreDeviceIndex);
     }
 
+    /// <summary>追加競合のAlreadyは期待所属の読戻しを確認してだけ受け入れ、native番号だけで成功にしない。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_AlreadyRaceIsAcceptedOnlyAfterExpectedMembershipIsObserved()
     {
@@ -488,6 +505,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(1, native.AddCalls);
     }
 
+    /// <summary>source追加が失敗したとき、MixerAttach段階とnativeのFileOpen原因を保持して失敗を返す。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_AddFailurePreservesCapturedError()
     {
@@ -508,6 +526,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(Errors.FileOpen, exception.NativeErrorCode);
     }
 
+    /// <summary>native追加が成功を返しても所属先が異なれば失敗にし、誤接続を成功と扱わない。</summary>
     [TestMethod]
     public void EnsureAttachedPaused_SuccessThatCannotBeVerifiedFails()
     {
@@ -528,6 +547,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(88, exception.ActualMixerHandle);
     }
 
+    /// <summary>pauseとresumeをmixer pause flagへ渡し、resume失敗の段階・native番号を保持する。</summary>
     [TestMethod]
     public void PauseAndResumeUseMixerPauseFlagAndRejectNativeFailure()
     {
@@ -549,6 +569,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(Errors.Handle, exception.NativeErrorCode);
     }
 
+    /// <summary>seekを指定byte位置でnativeへ渡し、失敗時も位置と元native番号を保持する。</summary>
     [TestMethod]
     public void SetPositionUsesByteModeAndPreservesNativeFailure()
     {
@@ -568,6 +589,7 @@ public sealed class BassMixerSourceControllerTests
         Assert.AreEqual(Errors.Position, exception.NativeErrorCode);
     }
 
+    /// <summary>期待mixerからの除去を読戻して確認し、既解除の再除去は追加native操作なしで冪等に扱う。</summary>
     [TestMethod]
     public void RemoveFromExpectedMixerIsVerifiedAndAlreadyDetachedIsIdempotent()
     {

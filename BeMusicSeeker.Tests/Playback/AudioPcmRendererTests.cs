@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioPcmRendererTests
 {
+    /// <summary>正の短いnative readを要求残量だけ繰り返し、指定フレームを欠落・重複なく連結する。</summary>
     [TestMethod]
     public void ReadContinuesPositiveShortReadsUntilTheRequestedFramesAreComplete()
     {
@@ -26,6 +27,7 @@ public sealed class AudioPcmRendererTests
         CollectionAssert.AreEqual(new[] { 24, 16, 8 }, native.RequestLengths);
     }
 
+    /// <summary>指定spanの内側へ実readを書き込み、隣接する保護サンプルを変更しない。</summary>
     [TestMethod]
     public void ReadIntoSpanWritesRequestedFramesWithoutChangingGuardSamples()
     {
@@ -41,6 +43,7 @@ public sealed class AudioPcmRendererTests
         CollectionAssert.AreEqual(new[] { -1f, 0.25f, -0.25f, 0.5f, -0.5f, -1f }, guarded);
     }
 
+    /// <summary>実音源の短い終端をframe数とともに返し、固定長オフラインreadでは期待長と実長を保持した失敗にする。</summary>
     [TestMethod]
     public void ReadReturnsARealShortEndAndExactOfflineReadRejectsIt()
     {
@@ -66,6 +69,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(1L, exception.ActualFrames);
     }
 
+    /// <summary>終端表示のないゼロreadを停止故障とし、成功や無限再試行に読み替えない。</summary>
     [TestMethod]
     public void ZeroReadWithoutEndIsReportedAsAStall()
     {
@@ -79,6 +83,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(AudioPcmRenderStage.Stalled, exception.Stage);
     }
 
+    /// <summary>callbackのゼロread故障を例外生成せず段階・native番号・実frame数の値として返す。</summary>
     [TestMethod]
     public void CallbackPullReturnsNativeFailureWithoutCreatingAnException()
     {
@@ -101,6 +106,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(Errors.OK, nativeError);
     }
 
+    /// <summary>callbackで非有限PCMとnative read失敗を区別し、各故障段階と失敗番号を保持する。</summary>
     [TestMethod]
     public void CallbackPullReturnsNonFiniteAndNativeErrorsAsValues()
     {
@@ -131,6 +137,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(Errors.SampleFormat, nativeError);
     }
 
+    /// <summary>native代替境界がmanaged例外を投げてもcallback外へ漏らさず、観測したnative番号付き故障値として返す。</summary>
     [TestMethod]
     public void CallbackPullContainsAnUnexpectedManagedBoundaryThrow()
     {
@@ -155,6 +162,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(Errors.FileOpen, nativeError);
     }
 
+    /// <summary>不完全なチャンネルフレームと非有限サンプルを異なる復号段階の失敗として拒否する。</summary>
     [TestMethod]
     public void PartialFrameAndNonFiniteSamplesAreRejected()
     {
@@ -173,6 +181,7 @@ public sealed class AudioPcmRendererTests
         Assert.AreEqual(AudioPcmRenderStage.NonFiniteSample, nonFinite.Stage);
     }
 
+    /// <summary>全PCMサンプルでpeakとRMSを測定し、空PCMでは両値をゼロとして扱う。</summary>
     [TestMethod]
     public void WholeBufferMeasurementUsesEverySampleAndAllowsEmptyPcm()
     {

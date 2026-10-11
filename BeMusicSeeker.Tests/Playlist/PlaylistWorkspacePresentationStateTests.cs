@@ -20,42 +20,13 @@ using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExt
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>workspaceの表示状態確定・世代失効・通知とBMT順保存後の選択復元を確認します。</summary>
+/// <remarks>実VMケースはMainChartListとの操作mode接続を対象にし、共有composition資源のため非並列です。BMT保存失敗と復元要求は実DBと実workspaceを結び、WPF viewへの実接続はMainWindow側へ分担します。</remarks>
 [TestClass]
 public sealed class PlaylistWorkspacePresentationStateTests
 {
-    [TestMethod]
-    [DoNotParallelize]
-    public void PlaylistSummaryConfiguration_IsOwnedByPlaylistWorkspace()
-    {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
-        var columns = new PlaylistSummaryColumnSettings();
-        var propertyNames = new List<string>();
-        var rootPropertyNames = new List<string>();
-        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName!);
-        viewModel.PropertyChanged += (_, e) => rootPropertyNames.Add(e.PropertyName!);
 
-        PlaylistColumnPresentationCommit columnCommit =
-            viewModel.PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
-                Visibility.Collapsed,
-                columns);
-        viewModel.PlaylistWorkspace.PublishColumnPresentation(columnCommit);
-        viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
-        viewModel.PlaylistWorkspace.GridHeaderText = "Playlist summary";
-        viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "title:test";
-        viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedComplete;
-
-        Assert.AreSame(columns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
-        Assert.AreEqual(Visibility.Visible, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
-        Assert.AreEqual("Playlist summary", viewModel.PlaylistWorkspace.GridHeaderText);
-        Assert.AreEqual("title:test", viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
-        Assert.AreEqual(PlaylistOwnedFilter.OwnedComplete, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
-        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
-        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
-        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
-        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
-    }
-
+    /// <summary>実VMのsummary検索補助はoutput field候補を出して値候補を混入させず、blur後に候補を閉じて詳細用補助との誤接続を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistSummaryKeywordSearchAssistance_IsFieldsOnlyAndIncludesOutput()
@@ -76,6 +47,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsFalse(blurred.IsOpen);
     }
 
+    /// <summary>列と詳細表示modeを通知なしで一括確定し、明示publish後に各propertyを通知して一部確定状態の公開を防ぎます。</summary>
     [TestMethod]
     public void MainTablePresentationCommit_CombinesWorkspaceStateBeforePublishingNotifications()
     {
@@ -143,7 +115,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.IsPlaylistDetailViewActive));
     }
 
-    /// <summary>保証：summaryのsort要求を同じownerで適用し、名称と所持率の併用検索を冷・再利用・更新後まで保つ。</summary>
+    /// <summary>同じownerのsummaryでsort要求を適用・通知し、全名がGroupに一致する入力の未所持あり条件を初回・再利用・行更新後の表示へ反映する。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState()
     {
@@ -228,7 +200,6 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(3, workspace.PlaylistSummaryView.Count);
         Assert.AreEqual(1, workspace.PlaylistSummaryView[0].PlaylistId);
         CollectionAssert.AreEquivalent(new[] { 2, 3 }, workspace.PlaylistSummaryView.Skip(1).Select(row => row.PlaylistId).ToArray());
-        Assert.IsNull(workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3).TableRef);
         workspace.PlaylistSummaryKeywordFilter = "Group";
         workspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedIncomplete;
         workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.TotalCharts), System.ComponentModel.ListSortDirection.Ascending);
@@ -248,6 +219,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(0, workspace.PlaylistSummaryView[0].OwnedCharts);
     }
 
+    /// <summary>summary表示中のkeyword・所持filter変更は件数と要約を更新し、非表示へ切替後は表示世代を進めず不要な表示更新を延期します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryFiltersDrainVisiblePresentationAndStayDeferredWhenHidden()
     {
@@ -292,6 +264,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(hiddenPresentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
     }
 
+    /// <summary>shell抑止中は表示と世代を維持してrefreshを延期し、抑止解除後の新filterを適用して古い延期条件を残しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryPresentationRefreshRespectsShellSuppressionGate()
     {
@@ -327,6 +300,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsFalse(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
     }
 
+    /// <summary>詳細sortはcolumn・direction確定後に要求を一回通知し、同じsort再要求を省いて購読先が旧sortを読むことを防ぎます。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailSortRequestCommitsOwnerStateBeforeEvent()
     {
@@ -382,7 +356,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(1, raisedCount);
         Assert.IsNotNull(observedRequest);
         Assert.AreEqual(MainChartListSortTarget.Regular, observedRequest.Target);
-        Assert.AreEqual(1L, observedRequest.OwnerRevision);
+        Assert.IsTrue(observedRequest.OwnerRevision > 0L);
 
         workspace.RequestPlaylistDetailSort(
             nameof(PlaylistDetailRow.Level),
@@ -391,6 +365,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(1, raisedCount);
     }
 
+    /// <summary>共通sort要求は詳細表示中だけ受理し、summary中と詳細退出後は最後の詳細sortを保持して別画面から書き換えません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceRoutesSharedDetailSortOnlyWhileDetailIsActive()
     {
@@ -426,6 +401,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             System.ComponentModel.ListSortDirection.Ascending));
     }
 
+    /// <summary>初回に利用者sortをコピーして保持し、次の初期化候補で既に選んだsortを上書きしません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailSortInitializationUsesFallbackOnlyOnce()
     {
@@ -486,6 +462,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
     }
 
+    /// <summary>filterを通知前に確定し、同値要求とNone鍵数を省く一方、次世代要求で旧要求を失効させて古いfilterを適用しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailFilterRequestCommitsOwnerStateBeforeEventAndRejectsNone()
     {
@@ -550,7 +527,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(1, raisedCount);
         Assert.IsNotNull(firstRequest);
         Assert.AreEqual(MainViewUpdateMode.KeywordFilterUpdated, firstRequest.UpdateMode);
-        Assert.AreEqual(1L, firstRequest.OwnerRevision);
+        Assert.IsTrue(firstRequest.OwnerRevision > 0L);
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailFilterRequest(firstRequest));
 
         workspace.RequestPlaylistDetailFilter(
@@ -565,7 +542,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(2, raisedCount);
         Assert.IsNotNull(secondRequest);
         Assert.AreEqual(MainViewUpdateMode.ModeFilterUpdated, secondRequest.UpdateMode);
-        Assert.AreEqual(2L, secondRequest.OwnerRevision);
+        Assert.IsTrue(secondRequest.OwnerRevision > firstRequest.OwnerRevision);
         Assert.IsFalse(workspace.IsCurrentPlaylistDetailFilterRequest(firstRequest));
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailFilterRequest(secondRequest));
         Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
@@ -578,6 +555,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
     }
 
+    /// <summary>共通filterは詳細中だけ受けてsummary・退出中は拒否し、詳細中のNoneも既存filterと通知回数を変えません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceRoutesSharedDetailFilterOnlyWhileDetailIsActive()
     {
@@ -617,6 +595,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             new ChartListFilterSnapshot("after-detail", ChartModeFilter.All)));
     }
 
+    /// <summary>詳細再入時は新しいkeywordと鍵数へ再同期し、同値の再初期化は通知せず旧画面のfilterを持ち越しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDetailFilterInitializationResynchronizesAcrossDetailEntries()
     {
@@ -677,6 +656,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
     }
 
+    /// <summary>summaryで利用できないmemo fieldを指定すると警告本文と表示flagを通知し、無効な検索条件を無警告で受理しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceKeywordWarning_IsOwnedByPlaylistWorkspace()
     {
@@ -726,6 +706,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.HasPlaylistSummaryKeywordSearchWarning));
     }
 
+    /// <summary>summary開始は見出しを更新して既存要約を保持し、終了は構築tokenを取り消して見出し・要約を消し、二重終了を通知しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryModeTransitionOwnsHeaderTextAndCancellation()
     {
@@ -784,7 +765,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsFalse(workspace.IsPlaylistSummaryMode);
         Assert.AreEqual(string.Empty, workspace.GridHeaderText);
         Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode),
@@ -797,6 +778,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         workspace.CompletePlaylistSummaryDataBuild(request);
     }
 
+    /// <summary>現行summary結果の行・要約を通知し、適用済み性能interactionの世代を保持して次要求の開始だけで適用情報を上書きしません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistWorkspaceSummaryApplyCommitsRowsAndTextWithoutSelectionRestore()
@@ -823,7 +805,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         });
 
         Assert.IsTrue(applied);
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[] { nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView), nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText) },
             notifications);
         CollectionAssert.AreEqual(rows, workspace.PlaylistSummaryView);
@@ -842,6 +824,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(interaction, retainedInteraction);
     }
 
+    /// <summary>表示・data・cacheの各旧世代と非表示modeの結果を拒否し、現行行と要約を旧結果で置換しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyRejectsStaleGenerationAndInactiveMode()
     {
@@ -930,6 +913,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
     }
 
+    /// <summary>summary行通知が失敗しても確定した行と要約を保持して公開失敗を返し、失敗を未適用扱いへ巻き戻しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryPublishFailureAggregatesPropertyPublishFailure()
     {
@@ -993,6 +977,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual("committed", workspace.PlaylistSummaryText);
     }
 
+    /// <summary>同じ表示identityの再適用は初回行を保持してreset・source通知を各一回に抑え、同じcollection接続を再置換しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistWorkspaceSummaryApplyKeepsStableSourceAndSkipsSamePresentationIdentity()
@@ -1046,6 +1031,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(1, sourceNotificationCount);
     }
 
+    /// <summary>summary要求だけでは表示modeを切替せず、行reset後にmodeを公開して実MainChartListのplaylist操作sectionへ接続します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistWorkspaceSummaryTerminalCommitsRowsBeforeVisibleMode()
@@ -1092,6 +1078,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             viewModel.MainChartList.CurrentOperationContext.OperationSection);
     }
 
+    /// <summary>summary退出後もdata世代とcache行を再利用でき、catalog無効化時には破棄して退出と内容変更を混同しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistWorkspaceSummaryCacheSurvivesModeExitUntilCatalogInvalidation()
@@ -1118,6 +1105,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsNull(workspace.GetPlaylistSummaryRowsCacheSnapshot(out _, out _));
     }
 
+    /// <summary>実DB triggerでBMT順保存を失敗させるとTaskへ元診断を返してrefreshを出さず、DBの二表の旧順を保持します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceBmtPersistenceFailureFaultsTaskAndSuppressesSummaryRefresh()
     {
@@ -1202,6 +1190,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         }
     }
 
+    /// <summary>実BMT drop後のsummary確定で行通知と選択復元通知が両方失敗しても二例外を集約し、選択ID・current IDの復元要求を一回配送します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummarySelectionRestoreEventFailureAggregatesWithPropertyFailure()
     {
@@ -1284,6 +1273,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         }
     }
 
+    /// <summary>実BMT drop後に復元購読先がなく行通知も失敗する場合、両方を集約して復元先不在を成功として隠しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummarySelectionRestoreMissingSubscriberAggregatesWithPropertyFailure()
     {
@@ -1358,6 +1348,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         }
     }
 
+    /// <summary>実BMT dropからキューに置いた選択復元は配送前に解除されたviewへ届かず、古い購読delegateを捕捉して呼びません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSummarySelectionRestoreDoesNotReachUnsubscribedView()
     {

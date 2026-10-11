@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using BeMusicSeeker.Models;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
@@ -11,6 +10,8 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>外部 JSON・保存 JSON と互換フォルダ名の受理、変換、変更失敗時の保全を検証します。</summary>
+/// <remarks>モデルの判断と保存形式を直接確認し、実 HTTP・DB・表示への接続は外部取得／永続化／workspace のケースへ分担します。</remarks>
 [TestClass]
 public sealed class BMSTableLoadTests
 {
@@ -109,6 +110,7 @@ public sealed class BMSTableLoadTests
         }
     }
 
+    /// <summary>別々の page／header URI と相対 data_url を読み込み、解析後も取得元と相対表記を区別して保つことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_StoresPassedHeaderUri()
     {
@@ -123,6 +125,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("score.json", table.data_url);
     }
 
+    /// <summary>壊れた header JSON を専用解析例外へ包み、元の解析例外を保持することを確認して、診断原因の消失を検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_PreservesInnerException()
     {
@@ -133,6 +136,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>壊れた data JSON を専用解析例外へ包み、元の解析例外を保持することを確認します。</summary>
     [TestMethod]
     public void LoadDataJson_PreservesInnerException()
     {
@@ -143,6 +147,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>配列でない data の object 入力を専用解析例外と内部原因で拒否し、単一 entry として受理する誤りを検出します。</summary>
     [TestMethod]
     public void LoadDataJson_WrongTopLevelShapePreservesParseContract()
     {
@@ -154,6 +159,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>大文字 MD5 を別名として受理せず、数値 level・null comment・親 MD5 の小文字化・未知項目の無視を同じ JSON 読込みで確認します。</summary>
     [TestMethod]
     public void LoadDataJson_PreservesCaseSensitiveFieldsAndOptionalNulls()
     {
@@ -169,6 +175,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }, entry.Org_md5);
     }
 
+    /// <summary>明示 null org_level は level 値へ戻さず、互換フォルダには文字列 level を使うことを確認して、数値と所属名の混同を検出します。</summary>
     [TestMethod]
     public void LoadDataJson_ExplicitNullOrgLevelKeepsNullLevelAndUsesCompatibleFolder()
     {
@@ -181,17 +188,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("st2", entry.folder);
     }
 
-    [TestMethod]
-    public void LoadDataJson_InvalidOrgLevelShapePreservesParseContract()
-    {
-        var table = new BMSTable();
-
-        PlaylistDataParseException exception = Assert.ThrowsException<PlaylistDataParseException>(
-            () => table.LoadDataJSON("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"org_level\":{}}]"));
-
-        Assert.IsNotNull(exception.InnerException);
-    }
-
+    /// <summary>文字列・boolean・array・object の org_level は数値へ暗黙変換せず、専用解析例外と元原因を保って拒否することを確認します。</summary>
     [DataTestMethod]
     [DataRow("\"1\"")]
     [DataRow("true")]
@@ -207,6 +204,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>明示 null entry_type は欠落と同一視せず専用解析例外へ原因を保持し、不正な項目形式の受理を検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitNullEntryTypePreservesParseContract()
     {
@@ -218,6 +216,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>ISO 日時に見える tag・title・comment を文字列として保ち、JSON 境界で日時へ解釈して表記を変える誤りを検出します。</summary>
     [TestMethod]
     public void LoadJson_PreservesIsoDateStringsAsStringsAtJsonBoundary()
     {
@@ -232,6 +231,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(timestamp, entry.comment);
     }
 
+    /// <summary>引用符・両 hash・親 hash・小数 level を含む entry の公開 JSON を独立した保存形式期待と照合し、日付以外の項目・型・escape・整形の互換変更を検出します。</summary>
     [TestMethod]
     public void PlaylistJson_WireFormatMatchesIndependentIndentedGolden()
     {
@@ -262,6 +262,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(expected, actual);
     }
 
+    /// <summary>利用者指定の folder 順と親 MD5 集合を DB 用 JSON 配列の独立期待へ照合し、順序や保存形式の変更を検出します。</summary>
     [TestMethod]
     public void PlaylistPersistedJson_UsesIndependentIndentedArrayGolden()
     {
@@ -287,6 +288,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(expectedOrgMd5, entry.org_md5);
     }
 
+    /// <summary>course・互換 prefix・folder 順を含む header 出力を時刻・version のみ正規化した独立 golden と照合し、公開 JSON の項目と型の互換変更を検出します。</summary>
     [TestMethod]
     public void PlaylistHeaderJson_MatchesIndependentFullGoldenAfterVariableNormalization()
     {
@@ -332,6 +334,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(expected, normalized.ToString(Formatting.Indented));
     }
 
+    /// <summary>明示 null level を持つ entry の data 配列を日付だけ正規化した独立 golden と照合し、null と空文字を含む出力形式の互換変更を検出します。</summary>
     [TestMethod]
     public void PlaylistDataJson_MatchesIndependentFullGoldenAfterDateNormalization()
     {
@@ -367,6 +370,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual(expected, actual);
     }
 
+    /// <summary>header object の後に別 JSON が続く入力を専用解析例外で拒否し、末尾の未解析文書を捨てて成功する誤りを検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_RejectsTrailingJsonDocument()
     {
@@ -378,6 +382,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>data 配列の後に別 JSON が続く入力を専用解析例外で拒否し、先頭配列だけを採用する誤りを検出します。</summary>
     [TestMethod]
     public void LoadDataJson_RejectsTrailingJsonDocument()
     {
@@ -389,6 +394,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNotNull(exception.InnerException);
     }
 
+    /// <summary>現在・親相対 segment を互換の出力名へ正規化し、名前が残らない親移動は null とすることを確認して、相対名の解釈変更を検出します。</summary>
     [TestMethod]
     public void NormalizeOutputDirectoryName_ResolvesRelativeSegmentsInsideManagedBase()
     {
@@ -398,6 +404,7 @@ public sealed class BMSTableLoadTests
         Assert.IsNull(BMSTable.NormalizeOutputDirectoryName("../.."));
     }
 
+    /// <summary>header の不正な data URL は URL 解決失敗として返し、通常の JSON 構文失敗と混同しないことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InvalidDataUrlThrowsInvalidOperationException()
     {
@@ -408,17 +415,17 @@ public sealed class BMSTableLoadTests
         StringAssert.Contains(exception.Message, "Failed to resolve playlist data_url");
     }
 
+    /// <summary>保存済み data URL の不正文字列を setter 経由で読み込む場合は例外を投げず URL を未設定にし、外部 header の厳格な失敗とは区別する互換性を確認します。</summary>
     [TestMethod]
     public void StoredDataUrlSetter_InvalidValueDoesNotThrowAndKeepsNull()
     {
         var table = new BMSTable();
-        PropertyInfo propertyInfo = typeof(BMSTable).GetProperty("data_url", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
-
-        propertyInfo.SetValue(table, "http://[broken");
+        table.data_url = "http://[broken";
 
         Assert.IsNull(table.Data_url);
     }
 
+    /// <summary>tag と入れ子 course を含む header 読込みで hash を生成し、再出力にも course 制約と tag を保つことを確認して、読み書き間の脱落を検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_StoresTagAndCoursesForRoundTrip()
     {
@@ -434,6 +441,7 @@ public sealed class BMSTableLoadTests
         StringAssert.Contains(table.HeaderToJson(), "\"grade_mirror\"");
     }
 
+    /// <summary>数値 level_order へ symbol を接頭辞として付け、行の所属と公開 folder 順を一致させる互換推定を確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromNumericLevelOrderSymbol()
     {
@@ -445,6 +453,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "st1" }, table.folder_list);
     }
 
+    /// <summary>CP932 の日本語記号 symbol をそのまま接頭辞に採用し、数値 level の行と順を同じフォルダ名へ変換することを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromNumericLevelOrderJapaneseSymbol()
     {
@@ -455,6 +464,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("★1", table.entries[0].folder);
     }
 
+    /// <summary>既に symbol を含む level 文字列にも互換 prefix を付ける旧変換を保ち、二重 prefix を推測で除去する変更を検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromSymbolicLevelOrder()
     {
@@ -465,6 +475,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("stst1", table.entries[0].folder);
     }
 
+    /// <summary>tag と symbol が異なる場合は tag を優先して行と folder 順を作り、接頭辞の優先順位変更を検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromTagBeforeSymbol()
     {
@@ -475,6 +486,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("stX", table.entries[0].folder);
     }
 
+    /// <summary>CP932 外 tag がある場合は symbol へ再推定せず旧 LEVEL prefix を使い、別名フォルダへ変える誤りを検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_NonCp932TagUsesLegacyPrefixWithoutTryingSymbol()
     {
@@ -485,6 +497,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
+    /// <summary>CP932 外 symbol は旧 LEVEL prefix へ変換し、LR2 で表せない記号の暗黙置換を避ける互換条件を確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_NonCp932SymbolUsesLegacyPrefix()
     {
@@ -495,6 +508,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
+    /// <summary>tag と symbol の両方がない header は旧 LEVEL prefix を使い、既存の互換フォルダ名を保つことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_MissingTagAndSymbolUsesLegacyPrefix()
     {
@@ -505,6 +519,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
+    /// <summary>負数・ゼロ・正数の level_order を順ごと prefix 付き名へ変換し、符号やゼロを欠落扱いする誤りを検出します。</summary>
     [TestMethod]
     public void LoadHeaderJson_InferCompatPrefixFromSignedLevelOrder()
     {
@@ -515,6 +530,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("st-5", table.entries[0].folder);
     }
 
+    /// <summary>明示空 prefix は symbol による推定を止め、数値 level の生のフォルダ名を保つことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitEmptyCompatPrefixPreventsInference()
     {
@@ -525,6 +541,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("1", table.entries[0].folder);
     }
 
+    /// <summary>明示空 prefix の folder_order は利用者入力の 2→1 を保ち、data 読込み後も並びや名前を推定で変更しないことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitEmptyCompatPrefixKeepsRawFolderOrder()
     {
@@ -537,6 +554,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "2", "1" }, table.folder_list);
     }
 
+    /// <summary>明示された旧 LEVEL prefix は symbol より優先し、旧フォルダ名と順を読み戻せることを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitLevelCompatPrefixKeepsLegacyFolderNames()
     {
@@ -547,6 +565,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
+    /// <summary>明示された CP932 外 prefix は推定規則で補正せず、その値を行と folder 順へ反映する既存の受理条件を確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitNonCp932CompatPrefixIsPreserved()
     {
@@ -557,6 +576,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("😀1", table.entries[0].folder);
     }
 
+    /// <summary>level_order のない header は symbol で data level を材料化し、既に同名の folder_order と一致させることを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_UsesDefaultCompatPrefixWhenOnlyFolderOrderExists()
     {
@@ -567,6 +587,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("st1", table.entries[0].folder);
     }
 
+    /// <summary>data 読込み後に raw folder_order へ不足する prefix を付け、入力の 2→1 順と行の所属を一致させることを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_MaterializesCompatibleFolderOrderWithDefaultCompatPrefix()
     {
@@ -579,6 +600,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
     }
 
+    /// <summary>既に prefix を持つ folder_order は data 読込み後も重ねて prefix を付けず、同じ所属順を保つことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_KeepsMaterializedFolderOrderWithDefaultCompatPrefix()
     {
@@ -591,6 +613,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "st2", "st1" }, table.folder_list);
     }
 
+    /// <summary>明示 null prefix は未設定として symbol 推定を使い、明示空 prefix との受理差を保つことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_NullCompatPrefixUsesDefaultPrefix()
     {
@@ -601,6 +624,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("st1", table.entries[0].folder);
     }
 
+    /// <summary>header 順のない表でも数値 data level に symbol prefix を付け、行と公開フォルダ集合へ同じ名前を渡すことを確認します。</summary>
     [TestMethod]
     public void LoadDataJson_InferCompatPrefixFromHeaderTagOrSymbolWhenHeaderOrderIsMissing()
     {
@@ -611,6 +635,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "st0" }, table.folder_list);
     }
 
+    /// <summary>header 順のない文字列 data level も互換 prefix を付け、推測による二重 prefix 除去で保存名を変えないことを確認します。</summary>
     [TestMethod]
     public void LoadDataJson_InferCompatPrefixForSymbolicDataLevelWhenHeaderOrderIsMissing()
     {
@@ -621,6 +646,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "stst0" }, table.folder_list);
     }
 
+    /// <summary>未設定 prefix の header を明示 prefix の header で再読込みすると、後の data は新 prefix を使い、前回の推定状態を残さないことを確認します。</summary>
     [TestMethod]
     public void LoadHeaderJson_ExplicitCompatPrefixClearsPendingDataInference()
     {
@@ -633,6 +659,7 @@ public sealed class BMSTableLoadTests
         Assert.AreEqual("LEVEL 1", table.entries[0].folder);
     }
 
+    /// <summary>prefix 変更は行・順・公開 node を一緒に更新して revision と必要通知を進め、表の更新日時は保つことを確認します。</summary>
     [TestMethod]
     public void RewriteCompatibleFolderPrefix_UpdatesEntriesAndFolderOrderWithoutTouchingLastUpdate()
     {
@@ -667,6 +694,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.Contains(changedProperties, "PlaylistEntriesRevision");
     }
 
+    /// <summary>空 prefix のローカル分類名にも新 prefix を付け、行と入力順を同時に更新することを確認します。</summary>
     [TestMethod]
     public void RewriteCompatibleFolderPrefix_PrefixesLocalFoldersWhenOldPrefixIsEmpty()
     {
@@ -689,6 +717,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "★Alpha", "★Beta" }, table.Folder_order);
     }
 
+    /// <summary>現在時刻より未来の更新日時でも folder 作成・改名・行追加・削除が単調に日時を進め、時計で既存日時を巻き戻す誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistStructureMutations_AdvanceLastUpdateMonotonically()
     {
@@ -722,6 +751,7 @@ public sealed class BMSTableLoadTests
         Assert.IsTrue(table.last_update > future);
     }
 
+    /// <summary>外部同期表の空 prefix も新 prefix へ変換し、逆順の folder_order を保って行と一致させることを確認します。</summary>
     [TestMethod]
     public void RewriteCompatibleFolderPrefix_PrefixesExternalFoldersWhenOldPrefixIsEmpty()
     {
@@ -745,6 +775,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "★2", "★1" }, table.Folder_order);
     }
 
+    /// <summary>変更先 prefix を既に含む別フォルダも変換対象とし、最終名が異なる場合は衝突として拒否しないことを確認します。</summary>
     [TestMethod]
     public void RewriteCompatibleFolderPrefix_RewritesExistingTargetFolderInsteadOfTreatingItAsCollision()
     {
@@ -767,6 +798,7 @@ public sealed class BMSTableLoadTests
         CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
     }
 
+    /// <summary>prefix 変換で最終名が重なる場合は可否判断と実変更の両方で拒み、行と folder 順を一切変えないことを確認します。</summary>
     [TestMethod]
     public void RewriteCompatibleFolderPrefix_FinalDuplicateDoesNotMutateTable()
     {

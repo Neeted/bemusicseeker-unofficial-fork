@@ -11,6 +11,7 @@ public sealed class QuickConverterReplacementTests
 {
     private static readonly CultureInfo Culture = CultureInfo.InvariantCulture;
 
+    /// <summary>列表示のチェックをVisible・Hiddenへ往復し、Collapsedと未設定入力を区別して不正値を伝播しません。</summary>
     [TestMethod]
     public void VisibilityColumnRoundtripPreservesVisibleAndHiddenContract()
     {
@@ -23,6 +24,7 @@ public sealed class QuickConverterReplacementTests
         Assert.AreEqual(Visibility.Hidden, converter.ConvertBack(false, typeof(Visibility), null, Culture));
     }
 
+    /// <summary>表示状態・正の長さ・文字列の型に応じた表示変換と不完全入力のUnsetValueを確認し、隠れた要素の高さを加算しません。</summary>
     [TestMethod]
     public void PresentationConvertersPreserveTypedBoundarySemantics()
     {
@@ -47,6 +49,7 @@ public sealed class QuickConverterReplacementTests
         Assert.AreEqual(Visibility.Collapsed, collapsed.Convert(null, typeof(Visibility), null, Culture));
     }
 
+    /// <summary>保存済みバックアップ間隔を選択・解除へ往復し、不正な間隔指定や件数型を正常値へ置き換えません。</summary>
     [TestMethod]
     public void SettingsConvertersPreserveBackupValues()
     {

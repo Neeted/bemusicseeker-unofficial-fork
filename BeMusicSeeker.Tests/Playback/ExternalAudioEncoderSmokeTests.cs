@@ -16,7 +16,7 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// 明示的に有効化された場合に、production writerと実外部encoderの出力を検査します。
+/// 明示的に有効化された場合に、本番writerと実外部encoderの出力を検査します。
 /// </summary>
 [TestClass]
 [DoNotParallelize]
@@ -35,10 +35,8 @@ public sealed class ExternalAudioEncoderSmokeTests
         EncoderType.OGG_VORBIS
     ];
 
-    /// <summary>
-    /// 指定された外部encoderの形式signatureと、利用可能なdecoderによるPCMを検証します。
-    /// encoderはrepository外部の配布物なので、環境変数で明示的に有効化します。
-    /// </summary>
+    /// <summary>明示有効化した実encoderで音声を保存・復号し、形式署名・非無音PCM・衝突先保持と資源解放を検査する。</summary>
+    /// <remarks>外部配布encoderが必要なProcessIntegration区分。環境指定なしは既存のInconclusiveを維持し、明示したencoder未配置は失敗とする。共有nativeとencoder状態を直列所有する。</remarks>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
     public void AvailableExternalEncodersProduceRecognizableOutput()
@@ -102,6 +100,8 @@ public sealed class ExternalAudioEncoderSmokeTests
         }
     }
 
+    /// <summary>実BASSenc子processへPCMを送り同期停止した後に、ゼロ／非ゼロの終了値を所有handleから正確に回収する。</summary>
+    /// <remarks>native encoderとWSH子processの実接続を検査するProcessIntegration区分。共有native状態を直列所有し、停止・handle回収・script削除まで行う。</remarks>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(7)]

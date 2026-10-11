@@ -9,6 +9,10 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class ExistingDataAcceptanceDialogContractTests
 {
+    /// <summary>
+    /// 所有PID・owner・可視/操作可能なモーダル条件を満たす候補だけを選び、期限超過や出力回収失敗を期待したプロセス失敗へ読み替えないことを確かめる。
+    /// </summary>
+    /// <remarks>実PowerShellの候補選択・結果判定関数へ合成観測を渡す。実画面の操作や表示成立はこのケースの保証に含めない。</remarks>
     [TestMethod]
     public void OwnedModalCandidatesRejectUnsafeObservationsAndPreserveProcessResultGate()
     {

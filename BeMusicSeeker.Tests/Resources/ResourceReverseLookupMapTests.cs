@@ -6,10 +6,13 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>Small, deterministic work-contract tests; these do not measure elapsed performance.</summary>
+/// <summary>差分操作の仕事量を局所的に観測し、背景全件の列挙と複製を検出する。</summary>
 [TestClass]
 public sealed class ResourceReverseLookupMapTests
 {
+    /// <summary>
+    /// 保証：逆引きの分岐と差分更新は基底全件を列挙せず、更新キーだけを反映して旧世代と無関係キーを維持する。
+    /// </summary>
     [TestMethod]
     public void ForkAndActualChanges_DoNotEnumerateOrCopyTheOwnedBase()
     {
@@ -44,6 +47,9 @@ public sealed class ResourceReverseLookupMapTests
         Assert.AreEqual(4, second.Count);
     }
 
+    /// <summary>
+    /// 保証：分岐後の元側・分岐側の書込みを相互に隔離し、分岐時点までの共通値を後の更新で上書きしない。
+    /// </summary>
     [TestMethod]
     public void WritesAfterFork_AreIsolatedInBothDirections()
     {
@@ -65,6 +71,9 @@ public sealed class ResourceReverseLookupMapTests
         Assert.AreEqual(3, fork.Count);
     }
 
+    /// <summary>
+    /// 保証：同じ候補列の再設定を無変更とし、候補順序の変化と調査済み欠落キーは意味ある差分として記録する。
+    /// </summary>
     [TestMethod]
     public void IdenticalCandidates_DoNotWriteButOrderAndCachedAbsenceRemainMeaningful()
     {
@@ -83,6 +92,9 @@ public sealed class ResourceReverseLookupMapTests
         Assert.AreEqual(2, map.Count);
     }
 
+    /// <summary>
+    /// 保証：明示したキー列挙は基底と最新差分を重複なく併合し、候補なしキーも残しつつ世代別の値を維持する。
+    /// </summary>
     [TestMethod]
     public void ExplicitKeyEnumeration_CombinesBaseAndLatestChangesWithoutDuplicates()
     {

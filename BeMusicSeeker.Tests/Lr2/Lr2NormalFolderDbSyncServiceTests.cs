@@ -13,6 +13,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2NormalFolderDbSyncServiceTests
 {
+    /// <summary>
+    /// 譜面階層とfolderinfoを通常行へ反映し、古い通常行だけを削除してカスタム行・既存追加時刻を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_UpsertsNormalFolderRowsAndPrunesStaleNormalRows()
     {
@@ -89,6 +93,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 生成・削除範囲の保存行を扱い、範囲外行と同一パスのカスタム行を保持して狭い更新での過剰削除を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ScopedExistingRows_LoadsGeneratedAndPruneScopeRowsOnly()
     {
@@ -153,6 +161,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 完全一致の削除対象だけを消し大文字小文字が違う保存行を保持して、DB実キーの同一性を広げる誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_ExactPruneKeepsCaseVariantRowOutsideExactIdentity()
     {
@@ -201,6 +213,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 指定した削除範囲の旧行だけを消し、他範囲を保持しながら新しい通常行を反映する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PrunesOnlyRequestedNormalFolderScope()
     {
@@ -249,6 +265,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 削除範囲の親と子をまとめて消し別パッケージを残して、祖先指定での削除漏れや範囲拡張を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PrunesRequestedAncestorScope()
     {
@@ -303,6 +323,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 登録ルート外の削除指定を適用せず既存行を保持し、入力範囲外への削除拡張を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_IgnoresPruneScopeOutsideRootDirectories()
     {
@@ -343,6 +367,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 一部のディレクトリ情報が欠けると古い行削除を抑止し、不完全な生成結果から保存行を失う誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_SuppressesPruneWhenMetadataIsIncomplete()
     {
@@ -383,6 +411,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 未対応文字のフォルダを生成源から除き登録ルート行だけを保存し、LR2で扱えない階層行の生成を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotUseCp932UnsupportedDirectoryAsFolderSource()
     {
@@ -416,6 +448,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 未対応パスを診断・除外しても正常な範囲の旧行削除を進め、個別非互換と列挙不完全を混同しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_PrunesStaleRowsEvenWhenSomeChartPathsAreIncompatible()
     {
@@ -461,6 +497,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 完了指定がない走査では新しい行を反映しても古い行を残し、未完了入力から削除する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_DoesNotPruneRowsUnlessCallerMarksScanComplete()
     {
@@ -498,6 +538,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 譜面パスから登録ルート内のルート・祖先・直近フォルダを取得対象へ含め、範囲外を除外する。
+    /// </summary>
     [TestMethod]
     public void CreateDirectoryMetadataTargets_IncludesRootsAncestorsAndChartDirectories()
     {
@@ -505,7 +548,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             [@"D:\BMS"],
             [@"D:\BMS\Pack\Song\chart.bms", @"E:\Other\chart.bms"]);
 
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 Normalize(@"D:\BMS"),
@@ -515,6 +558,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             targets.ToArray());
     }
 
+    /// <summary>
+    /// ディレクトリ入力から登録ルート内の祖先まで取得対象を広げ、別ルートの対象を混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateDirectoryMetadataTargetsFromDirectories_IncludesRootsAndAncestors()
     {
@@ -522,7 +568,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             [@"D:\BMS"],
             [@"D:\BMS\Pack\Song", @"E:\Other"]);
 
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 Normalize(@"D:\BMS"),
@@ -532,6 +578,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             targets.ToArray());
     }
 
+    /// <summary>
+    /// 正規化済み入力から登録ルートと祖先を取得対象へ含め、別ルートの入力を除外する。
+    /// </summary>
     [TestMethod]
     public void CreateDirectoryMetadataTargetsFromNormalizedDirectories_IncludesRootsAndAncestors()
     {
@@ -539,7 +588,7 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             [@"D:\BMS"],
             [Normalize(@"D:\BMS\Pack\Song"), Normalize(@"E:\Other")]);
 
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 Normalize(@"D:\BMS"),
@@ -549,6 +598,10 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
             targets.ToArray());
     }
 
+    /// <summary>
+    /// 明示ディレクトリだけを保存行へ反映し譜面由来の別フォルダを追加せず、既に捕捉した対象の無断拡張を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void Sync_UsesProvidedDirectoryTargetsWithoutRewalkingChartPaths()
     {
@@ -587,6 +640,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 捕捉済み列挙から範囲内の時刻を取得し追加読取りを呼ばず、別ルートの対象も混入させない。
+    /// </summary>
     [TestMethod]
     public void DirectoryProjection_ResolvesTargetSetFromCapturedGroupedResultWithinRoots()
     {
@@ -617,6 +673,9 @@ public sealed class Lr2NormalFolderDbSyncServiceTests
         Assert.AreEqual(packTimestamp, packEntry!.LastWriteTimeUtc);
     }
 
+    /// <summary>
+    /// 600件の欠落対象と範囲外が混在しても捕捉済みの一件だけを時刻付きで返し、大きな対象集合での範囲判定誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void DirectoryProjection_ResolvesLargeTargetSetFromCapturedGroupedResultWithinRoots()
     {

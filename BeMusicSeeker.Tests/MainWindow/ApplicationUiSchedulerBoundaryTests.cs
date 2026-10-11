@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -12,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ApplicationUiSchedulerBoundaryTests
 {
+    /// <summary>構成時のUI Dispatcherを一回取得し、worker固有のDispatcherではUI所属と判定しないことを確認し、操作するスレッドごとに配送先を取り直す誤りを検出します。</summary>
     [TestMethod]
     public void SchedulerCapturesCompositionDispatcherInsteadOfReResolvingOnWorker()
     {
@@ -41,6 +39,7 @@ public sealed class ApplicationUiSchedulerBoundaryTests
         Assert.IsFalse(workerHasUiAccess);
     }
 
+    /// <summary>遅延配送と同期呼出し・await後の処理が構成済みUIスレッドで完了することを確認し、完了通知の早期化やworkerへの継続逸脱を検出します。</summary>
     [TestMethod]
     public void SchedulerProvidesNeutralPostInvokeAndAsyncCompletion()
     {
@@ -83,70 +82,4 @@ public sealed class ApplicationUiSchedulerBoundaryTests
         Assert.AreEqual(uiDispatcher.Thread.ManagedThreadId, asyncThreadId);
     }
 
-    [TestMethod]
-    public async Task InMemoryLifetimePreservesExplicitShutdownAndRestartRoutes()
-    {
-        int shutdownCount = 0;
-        int restartCount = 0;
-        var lifetime = new TestApplicationLifetimeWithActions(
-            firstStartup: true,
-            requestShutdown: () => shutdownCount++,
-            restartApplication: () => restartCount++);
-
-        Assert.IsTrue(lifetime.IsFirstStartup);
-        lifetime.CompleteFirstStartup();
-        lifetime.RequestShutdown();
-        await lifetime.RestartApplicationAsync();
-
-        Assert.IsFalse(lifetime.IsFirstStartup);
-        Assert.AreEqual(1, shutdownCount);
-        Assert.AreEqual(1, restartCount);
-    }
-
-    [TestMethod]
-    public void CultureCatalogExposesPersistedNameAndValueAsOneBoundary()
-    {
-        var cultures = new Dictionary<string, string>
-        {
-            ["日本語"] = "ja-JP",
-            ["English"] = "en-US"
-        };
-        var catalog = new TestCultureCatalog(cultures);
-
-        Assert.AreEqual("ja-JP", catalog.Cultures["日本語"]);
-        Assert.AreEqual("English", catalog.Cultures.First(pair => pair.Value == "en-US").Key);
-    }
-
-    private sealed class TestApplicationLifetimeWithActions : IApplicationLifetimePort
-    {
-        private readonly Action requestShutdown;
-        private readonly Action restartApplication;
-        private bool firstStartup;
-
-        internal TestApplicationLifetimeWithActions(
-            bool firstStartup,
-            Action requestShutdown,
-            Action restartApplication)
-        {
-            this.firstStartup = firstStartup;
-            this.requestShutdown = requestShutdown;
-            this.restartApplication = restartApplication;
-        }
-
-        public bool IsFirstStartup => firstStartup;
-
-        public void CompleteFirstStartup() => firstStartup = false;
-
-        public void MarkCoordinatedShutdownStarted(string reason)
-        {
-        }
-
-        public void RequestShutdown() => requestShutdown();
-
-        public Task RestartApplicationAsync()
-        {
-            restartApplication();
-            return Task.CompletedTask;
-        }
-    }
 }

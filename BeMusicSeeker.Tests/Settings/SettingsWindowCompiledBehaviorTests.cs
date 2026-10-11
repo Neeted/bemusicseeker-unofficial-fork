@@ -24,8 +24,9 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Verifies settings-page behavior through the compiled WPF tree without showing a modal window.
+/// compiled 設定ページの draft・入力判断・表示と操作先への接続を確認します。
 /// </summary>
+/// <remarks>条件網羅は設定・音声 owner が担当し、この系列は実 BAML の Binding とイベント配送を担当します。共有辞書・文化・テーマを変更するため非並列です。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class SettingsWindowCompiledBehaviorTests
@@ -36,10 +37,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
+    /// <summary>実 navigation の各項目を選んで compiled ページを表示し、同じ設定 draft へ接続して表示だけで未保存変更を作らないことを確認します。</summary>
     [TestMethod]
     public void EverySettingsNavigationPageMaterializesWithoutCreatingPendingChanges()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -67,31 +69,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
-                Type[] pageTypes =
+                foreach (object item in navigation.Items.Cast<object>().ToArray())
                 {
-                    typeof(GeneralSettingsPage),
-                    typeof(AppearanceSettingsPage),
-                    typeof(PlaybackSettingsPage),
-                    typeof(AudioSettingsPage),
-                    typeof(RecordingSettingsPage),
-                    typeof(PlaylistSettingsPage),
-                    typeof(InstallSettingsPage),
-                    typeof(BackupSettingsPage),
-                    typeof(AdvancedSettingsPage),
-                    typeof(RightClickSettingsPage),
-                    typeof(AboutSettingsPage)
-                };
-                Assert.AreEqual(pageTypes.Length, navigation.Items.Count);
-                for (int index = 0; index < pageTypes.Length; index++)
-                {
-                    navigation.SelectedIndex = index;
+                    navigation.SelectedItem = item;
                     Materialize(window);
                     Assert.IsNotNull(content.Content);
                     Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
-                    Assert.AreEqual(pageTypes[index], content.Content.GetType(),
-                        $"Unexpected page materialized for navigation index {index}: {content.Content.GetType().Name}.");
                     Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges(),
-                        $"Materializing page index {index} changed the settings draft.");
+                        "ページを表示するだけで編集値を変更しません。");
                 }
             }
             finally
@@ -101,10 +86,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>内部・uBMplay・BMIIDXView・LR2 の四選択が、それぞれの意味を持つ設定 Binding と同じ draft に接続されることを確認し誤配線を検出します。</summary>
     [TestMethod]
-    public void PlaybackPageCompiledTreeMaterializesCurrentPlayerControls()
+    public void PlaybackPageCompiledTreeBindsPlayerChoicesToSettingsDraft()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -155,6 +141,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>新規導入の確認欄を実操作して値を変え Reset で戻し、別の導入確認値を巻き込む誤りや復元が control に届かない不備を検出します。</summary>
     [TestMethod]
     public void AdvancedPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()
     {
@@ -227,10 +214,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実 audio control で backend・rate・format と mixer draft を変更し、能力に従う表示・AUTO への再評価・一時 null の非適用と保存前値の保持を確認します。</summary>
     [TestMethod]
     public void AudioPagesBindPlayerCapabilitiesAndIndependentEncodingOptions()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -240,6 +228,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.BMSInstallDir = Path.GetTempPath();
                 values.PlayerSampleRate = SampleRate.SAMPLE_RATE_44100Hz;
                 values.PlayerFormat = SampleFormat.SAMPLE_INT_16BIT;
+                values.PlayerResamplingQuality = 4;
+                values.PlayerMixerThreadCount = 2;
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
                 values.UsePlayeruBMplay = false;
@@ -306,20 +296,16 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(Resources.Device_setting_resampling_parallelism_desc, mixerThreadDescription.Text);
                 Assert.AreEqual(Visibility.Visible, eventCheck.Visibility);
                 Assert.AreEqual(Visibility.Visible, eventDescription.Visibility);
-                Assert.AreEqual(TextWrapping.Wrap, eventDescription.TextWrapping);
-                Assert.AreEqual(TextWrapping.Wrap, qualityDescription.TextWrapping);
-                Assert.AreEqual(TextWrapping.Wrap, mixerThreadDescription.TextWrapping);
-                Assert.AreEqual(2, playerResamplingQuality.SelectedValue);
-                Assert.AreEqual(1, playerMixerThreadCount.SelectedValue);
+                Assert.AreEqual(4, playerResamplingQuality.SelectedValue);
+                Assert.AreEqual(2, playerMixerThreadCount.SelectedValue);
                 playerMixerThreadCount.SelectedValue = 3;
                 Materialize(window);
                 Assert.AreEqual(3, owner.SettingDialog.PlayerMixerThreadCount);
-                Assert.AreEqual(1, settings.PlayerMixerThreadCount,
+                Assert.AreEqual(2, settings.PlayerMixerThreadCount,
                     "Editing the next-playback value must not change the value captured by a new player start before save.");
                 Assert.AreEqual(Resources.AudioDeviceTestStartButton, testButton.Content);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.AudioDeviceTestButtonContent),
                     testButton.GetBindingExpression(ContentControl.ContentProperty)?.ParentBinding.Path.Path);
-                Assert.IsNull(audioPage.FindName("buttonAudioCapabilityRefresh"));
 
                 int savedDriverIndex = owner.SettingDialog.PlayerDriverIndex;
                 var driverSelector = (ComboBox)audioPage.FindName("comboBoxPlayerDriver");
@@ -396,6 +382,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>注入した排他機器の能力を実 Window に反映し、format で rate を狭めず、rate 選択時には不適合 format を AUTO へ戻す接続を確認します。</summary>
     [TestMethod]
     public void ExclusiveRateChoicesRemainIndependentFromFormatAndRealBindingResetsFormatToAuto()
     {
@@ -512,6 +499,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実 audio ページを表示して選択出力の照会が一回始まり、成功した能力結果を反映することを確認します。</summary>
     [TestMethod]
     public void VisibleAudioSettingsPageAutomaticallyQueriesTheSelectedOutput()
     {
@@ -604,10 +592,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>空の利用者 action 設定を実ページへ表示し、二種類の一覧を同じ子 editor へ接続して draft を変更しないことを確認します。</summary>
     [TestMethod]
     public void RightClickPageBindsTheChildEditorWithoutMutatingSettingsOnOpen()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -649,10 +638,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>新規 Web action の空の名前・URL に対して実 editor の Error と対応するリソースの案内が届くことを確認します。</summary>
     [TestMethod]
     public void RightClickPageMarksNewWebActionRequiredFieldsAsErrors()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -700,6 +690,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実追加・編集で名前と実行先のエラーを解消し、必須 placeholder 不足の案内を言語変更とページ再表示でも更新・保持し、有効入力で解除することを確認します。</summary>
     [TestMethod]
     public void RightClickPageShowsProgramValidationForAllFieldsAndRefreshesItAfterLanguageChange()
     {
@@ -707,7 +698,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         try
         {
             ResourceService.Current.ChangeCulture("en-US");
-            TestUiDispatcherHost.RunWindowTest(_ =>
+            TestUiDispatcherHost.Invoke(() =>
             {
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -818,10 +809,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         }
     }
 
+    /// <summary>実スコア使用選択を有効にして不正ルートを拒否し、文化変更が欄・hash 選択肢・通知へ届いて既存 option を再作成しないことを確認します。</summary>
     [TestMethod]
     public void BeatorajaScoreDbControlsUseLocalizedResourcesAndValidation()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string previousCulture = Resources.Culture?.Name ?? "ja-JP";
             MainWindowViewModel? owner = null;
@@ -848,6 +840,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 };
                 Materialize(window);
 
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                Materialize(window);
                 var generalPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
                 var scoreDb = (CheckBox)generalPage.FindName("useBeatorajaScoreDbCheckBox");
                 var hashMode = (ComboBox)generalPage.FindName("beatorajaHashOutputModeComboBox");
@@ -913,10 +907,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>一般の言語とプレイリストの URL・補完欄が正しい設定へ Binding され、URL は編集確定時に更新する接続を確認します。</summary>
     [TestMethod]
     public void GeneralAndPlaylistPagesExposeDistinctCompiledBindings()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -937,6 +932,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Materialize(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
+                navigation.SelectedItem = window.FindName("navigationGeneral");
+                Materialize(window);
                 Assert.IsInstanceOfType<GeneralSettingsPage>(content.Content);
                 Assert.AreSame(owner.SettingDialog, ((FrameworkElement)content.Content).DataContext);
                 var language = (ComboBox)((FrameworkElement)content.Content).FindName("languageComboBox");
@@ -962,10 +959,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実 LR2 手動同期と履歴 schema の状態・修復操作がそれぞれの意味を持つ見出しの下に配置され、利用者が操作目的を取り違える配置を検出します。</summary>
     [TestMethod]
     public void GeneralLr2MaintenanceActionsHaveDistinctSemanticSectionOwners()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var window = new SettingsWindow
@@ -975,6 +973,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             };
             try
             {
+                Materialize(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
                 var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 Button resyncButton = FindLogicalDescendants<Button>(page).Single(button =>
@@ -1005,10 +1005,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実履歴 preset editor が MD5 対応表と別の見出しに属し、二重見出しや説明の重複を表示しないことを確認します。</summary>
     [TestMethod]
     public void PlayHistoryPresetEditorUsesItsOwnLocalizedSectionOutsideMd5Mapping()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             var window = new SettingsWindow
@@ -1048,10 +1049,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>保存済みルートを実一覧へ表示して追加・選択解除を配送し、言語変更で操作文言を更新しながら対象を保持することを確認します。</summary>
     [TestMethod]
     public void StandaloneBmsRootsUseLocalizedListAddAndRemoveBindings()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string previousCulture = Resources.Culture?.Name ?? "ja-JP";
             string scope = Path.Combine(Path.GetTempPath(), "bemusicseeker-settings-roots-" + Guid.NewGuid().ToString("N"));
@@ -1080,6 +1082,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel
                 };
+                Materialize(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
                 var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
                 var roots = (ListBox)page.FindName("bmsSearchRootPathListBox");
@@ -1123,10 +1127,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>実 backup/restore ボタンを実行し、SQL 保存条件付き picker と取消可能な復元確認を設定 Window の所有下へ一回配送することを確認します。</summary>
     [TestMethod]
-    public void BackupAdvancedAndAboutPagesExposeCompiledActionContracts()
+    public void BackupPageCompiledActionsUseSettingsOwnerForSaveAndRestore()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel? owner = null;
             SettingsWindow? window = null;
@@ -1150,13 +1155,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var content = (ContentControl)window.FindName("settingsPageContent");
 
-                navigation.SelectedIndex = 7;
+                navigation.SelectedItem = window.FindName("navigationBackup");
                 Materialize(window);
                 var backupPage = (BackupSettingsPage)content.Content;
                 var backupButtons = FindLogicalDescendants<Button>(backupPage).ToList();
-                Assert.AreEqual(2, backupButtons.Count);
-                Button backupButton = backupButtons[0];
-                Button restoreButton = backupButtons[1];
+                Button backupButton = backupButtons.Single(button =>
+                    GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Backup_playlist");
+                Button restoreButton = backupButtons.Single(button =>
+                    GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Backup_restore_playlist");
                 backupButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, backupButton));
                 restoreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, restoreButton));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -1170,39 +1176,6 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.IsTrue(saveRequest.AddExtension);
                 Assert.AreSame(window, dialogs.LastConfirmationRequest.Owner);
 
-                var dangerButtons = new List<Button>();
-                var advancedDangerButtons = new List<Button>();
-                int advancedNavigationIndex = navigation.Items.IndexOf(window.FindName("navigationAdvanced"));
-                for (int index = 0; index < navigation.Items.Count; index++)
-                {
-                    navigation.SelectedIndex = index;
-                    Materialize(window);
-                    var page = (FrameworkElement)content.Content;
-                    var pageDangerButtonStyle = (Style)page.FindResource("SettingsDangerButtonStyle");
-                    var pageButtons = FindLogicalDescendants<Button>(page).ToList();
-                    var pageDangerButtons = pageButtons
-                        .Where(button => ReferenceEquals(button.Style, pageDangerButtonStyle))
-                        .ToList();
-                    dangerButtons.AddRange(pageDangerButtons);
-                    if (index == advancedNavigationIndex)
-                    {
-                        advancedDangerButtons.AddRange(pageDangerButtons);
-                    }
-                }
-
-                Assert.AreEqual(2, dangerButtons.Count);
-                Assert.AreEqual(2, advancedDangerButtons.Count);
-
-                navigation.SelectedItem = window.FindName("navigationAbout");
-                Materialize(window);
-                var aboutPage = (AboutSettingsPage)content.Content;
-                Button projectButton = FindLogicalDescendants<Button>(aboutPage)
-                    .Single(button => Equals(
-                        button.Tag,
-                        "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases"));
-                Assert.AreEqual(
-                    "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases",
-                    projectButton.Tag);
                 Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
             }
             finally

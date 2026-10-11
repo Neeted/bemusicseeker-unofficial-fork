@@ -10,6 +10,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionInstalledOverlayTests
 {
+    /// <summary>
+    /// root直下の譜面だけならフォルダ一括改名の実行対象を作らず、利用者のroot自体を改名させない。
+    /// </summary>
+    /// <remarks>実ライブラリの一括改名入口と所持集合を接続し、root保全の実行計画を観測する。</remarks>
     [TestMethod]
     public void AutoRenameAllChartFolders_RootOnlyChartsAreNotActionableTargets()
     {
@@ -35,6 +39,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// 導入済み主hash検索だけを初回要求したときBMS・bmsonを含め、不要なディレクトリ索引を構築しない。
+    /// </summary>
+    /// <remarks>実ライブラリのhash要求入口を使い、初回索引の選択と両形式の所有捕捉を確認する。</remarks>
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_BuildsPrimaryLookupWithoutFullDirectoryLookup()
     {
@@ -58,6 +66,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// 同じ主hashの一件だけの除外は残る所有数を保ち、全件除外では別hashの所有を残してディレクトリ索引を構築しない。
+    /// </summary>
+    /// <remarks>実ライブラリの除外snapshot入口を使い、現在の所有数と主hash索引の分担を確認する。</remarks>
     [TestMethod]
     public void CreateInstalledChartKeySnapshotExcludingCharts_ExcludesOnlyPrimaryHashCounts()
     {
@@ -92,6 +104,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// 実削除後は初期化済みの主hash検索から対象だけを除き、残る所有を保持してディレクトリ索引を追加構築しない。
+    /// </summary>
+    /// <remarks>実削除を初期化済みhash索引へ接続し、全ディレクトリ索引の不要な構築を検出する。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_UpdatesPrimaryLookupWithoutFullDirectoryLookup()
     {
@@ -131,6 +147,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// BMSの同パス重複を除外した後で実削除したとき、除外済みの別所有を復活させない。
+    /// </summary>
+    /// <remarks>実ライブラリで同パスの重複排除と物理削除を接続し、除外済みBMS所有の復活を検出する。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsExactPath()
     {
@@ -159,6 +179,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// bmsonの同パス重複を除外した後で実削除したとき、除外済みの別所有を復活させない。
+    /// </summary>
+    /// <remarks>実ライブラリで同パスの重複排除と物理削除を接続し、除外済みbmson所有の復活を検出する。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotPromoteSkippedDuplicateBmsonExactPath()
     {
@@ -187,6 +211,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// 実ライブラリの配下参照索引は初回暖機でBMS・bmsonを捕捉し、二回目は同じ件数をcacheから返す。
+    /// </summary>
+    /// <remarks>実ライブラリの暖機入口から配下参照索引を構築し、二回目の再構築を検出する。</remarks>
     [TestMethod]
     public void WarmOwnedRealPathDirectoryView_BuildsAndReusesOwnedRefIndex()
     {
@@ -214,6 +242,10 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
         });
     }
 
+    /// <summary>
+    /// 導入済み主hash暖機は両種別のhashを一度構築し、ディレクトリ索引を作らず二回目の全件取得を省く。
+    /// </summary>
+    /// <remarks>実ライブラリの主hash暖機入口を使い、初回の両形式捕捉と二回目の全件取得省略を確認する。</remarks>
     [TestMethod]
     public void WarmInstalledPrimaryHashLookup_BuildsWithoutFullDirectoryLookup()
     {

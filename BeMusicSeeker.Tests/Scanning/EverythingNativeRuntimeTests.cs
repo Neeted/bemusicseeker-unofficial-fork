@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class EverythingNativeRuntimeTests
 {
+    /// <summary>
+    /// 保証：指定アプリ基準のbridgeが欠落したら、その正確なパスを含む欠落診断と失敗を返す。
+    /// </summary>
     [TestMethod]
     public void MissingBridgeIsReportedWithoutUsingCurrentDirectory()
     {
@@ -31,6 +34,9 @@ public sealed class EverythingNativeRuntimeTests
         }
     }
 
+    /// <summary>
+    /// 保証：配布対象Everything DLLとbridgeのx64形式と承認済みハッシュを確認し、誤アーキテクチャや別バイナリへの置換を検出する。
+    /// </summary>
     [TestMethod]
     public void TrackedEverythingNativeAssetsAreX64AndHashPinned()
     {

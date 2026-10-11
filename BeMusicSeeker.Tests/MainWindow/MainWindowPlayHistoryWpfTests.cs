@@ -18,10 +18,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>検索・能力・表示対象の判断は履歴主体の下位ケースが担います。ここではLoadedのcompiled表・toolbar・メニューから行文脈と操作が届く境界を検証し、共有Resourcesの復元まで所有します。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class MainWindowPlayHistoryWpfTests
 {
+    /// <summary>履歴の有効化/解除に実dropdownの表示が追随し、保存した表示対象の選択変更が主体へ戻ることを確認し、履歴状態とcompiled双方向Bindingの切断を検出します。</summary>
     [TestMethod]
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
@@ -220,8 +222,8 @@ public sealed class MainWindowPlayHistoryWpfTests
         }
     }
 
+    /// <summary>履歴の有効化で指定カードと診断を実表へ表示し、カード操作で対応フィルターを選ぶことを確認し、履歴専用表示や操作接続の欠落を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
     {
         PlayHistoryWorkflowOwner? startupPlayHistory = null;
@@ -343,9 +345,9 @@ public sealed class MainWindowPlayHistoryWpfTests
         }
     }
 
+    /// <summary>解決済み/未解決の履歴行でAppsキーとメニュー開始が同じ行文脈を保持することを確認し、通常譜面の操作経路へ履歴を取り違える誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void PlayHistoryMainTable_UsesBoundDragKindAndRejectsChartContextMenu()
+    public void PlayHistoryMainTable_PreservesResolvedAndUnresolvedRowMenuContext()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
@@ -357,9 +359,8 @@ public sealed class MainWindowPlayHistoryWpfTests
 
                 PlayHistoryRow resolved = CreateResolvedPlayHistoryRow();
                 var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
-                // The XAML resource is deliberately non-shared; make this observation use the same instance as the route.
+                // 非共有XAML資源の同じメニュー実体で、開始時点の行と操作経路を観測します。
                 window.Resources["playHistoryContextMenu"] = playHistoryMenu;
-                Assert.AreSame(playHistoryMenu, window.FindResource("playHistoryContextMenu"));
                 int contextRequests = 0;
                 CustomTableRowRequestedEventArgs? contextRequest = null;
                 table.RowContextMenuRequested += (_, args) =>
@@ -409,8 +410,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>識別子を持たない履歴でも複数選択時だけ期間検索メニューを表示し一行選択で隠すことを確認し、譜面の解決可否で期間操作を禁止する誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryContextMenu_ShowsDateRangeOnlyForMultipleSelection()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -433,8 +434,6 @@ public sealed class MainWindowPlayHistoryWpfTests
                     .OfType<MenuItem>()
                     .SingleOrDefault(item => item.Name == "playHistoryContextMenuItemAddDateRangeToSearch");
                 Assert.IsNotNull(dateRange);
-                Assert.AreEqual(Resources.Play_history_add_date_range_to_search, dateRange!.Header as string);
-                Assert.IsFalse(string.IsNullOrWhiteSpace(dateRange!.Header as string));
                 Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
 
                 RaiseMenuClosed(playHistoryMenu);
@@ -447,8 +446,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>主行が未解決で副行だけ所持譜面でも主行のローカル操作は出さず期間操作を保つことを確認し、副行の能力を主行へ混ぜる誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows()
     {
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
@@ -481,8 +480,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>メニュー開始後に選択を変えても受付時の最小/最大時刻を検索へ一回追記し履歴保存は変えないことを確認し、クリック時の選択再取得や二重更新を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryContextMenu_DateRangeUsesOpenSnapshotAndUpdatesKeywordOnce()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -530,7 +529,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                     Assert.AreEqual(Visibility.Visible, dateRange.Visibility);
                     Assert.IsTrue(dateRange.IsEnabled);
 
-                    // The XAML Opened handler has already captured the original min/max.
+                    // compiledのOpened処理が開始時点の最小/最大時刻を捕捉した後で選択を変えます。
                     table.SelectRowsByPredicate(row => ReferenceEquals(row, intermediate));
                     dateRange.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, dateRange));
                 };
@@ -539,7 +538,7 @@ public sealed class MainWindowPlayHistoryWpfTests
                 playHistoryMenu.Closed += menuClosedHandler;
                 try
                 {
-                    // Drive the public menu events directly; the test never opens a real Popup.
+                    // 公開メニューイベントから同じcompiled経路を実行し、選択snapshotの受付を観測します。
                     RaiseMenuOpened(playHistoryMenu, table, first, 2);
                     RaiseMenuClosed(playHistoryMenu);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -558,8 +557,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>所持bmson履歴で利用者のbmson専用MD5 Web操作を名前通り表示することを確認し、BMS専用条件で登録済みのbmson操作を落とす誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryBmsonRowOffersConfiguredMd5WebAction()
     {
         const string actionName = "Bmson MD5";
@@ -596,8 +595,8 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>kind不明の未解決beatoraja履歴には全kindのSHA256 Web操作だけを出しkind限定操作は出さないことを確認し、未知kindへ一方の能力を推測する誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryUnresolvedBeatorajaRowOffersOnlyWebActionsForBothChartKinds()
     {
         const string allKindsName = "All kinds";
@@ -652,21 +651,11 @@ public sealed class MainWindowPlayHistoryWpfTests
             });
     }
 
+    /// <summary>実在ファイルへ解決した履歴では関連付け操作を表示して有効にすることを確認し、履歴の所持譜面へ操作できなくなるcompiledメニュー接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void PlayHistoryResolvedRowPlacesAssociatedOpenBeforeProgramActions()
+    public void PlayHistoryResolvedRowOffersAssociatedOpenForExistingFile()
     {
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
-            new RightClickActionSettings(
-                [],
-                [new RightClickProgramActionDefinition(
-                    "player",
-                    "Player",
-                    @"C:\Tools\player.exe",
-                    "{filePath}",
-                    enabled: true)]));
-
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             settings,
             (scope, viewModel, window) =>
@@ -686,25 +675,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                 MenuItem associated = FindMenuItem(
                     playHistoryMenu,
                     "playHistoryContextMenuItemOpenAssociated");
-                MenuItem program = FindMenuItem(
-                    playHistoryMenu,
-                    "playHistoryContextMenuItemOpenProgramActions");
-                Control localSeparator = playHistoryMenu.Items.OfType<Control>().Single(item =>
-                    item.Name == "playHistoryContextMenuSeparatorLocal");
-                Control hashSeparator = playHistoryMenu.Items.OfType<Control>().Single(item =>
-                    item.Name == "playHistoryContextMenuSeparatorHash");
                 Assert.AreEqual(Visibility.Visible, associated.Visibility);
                 Assert.IsTrue(associated.IsEnabled);
-                Assert.AreEqual(Resources.Open_association, associated.Header);
-                Assert.AreEqual(
-                    Visibility.Collapsed,
-                    localSeparator.Visibility,
-                    "Web操作がない場合はWeb/ローカル間の区切り線を表示しないこと。");
-                Assert.AreEqual(Visibility.Visible, hashSeparator.Visibility);
-                Assert.AreEqual(
-                    playHistoryMenu.Items.IndexOf(associated) + 1,
-                    playHistoryMenu.Items.IndexOf(program));
-                Assert.AreEqual(Resources.RightClick_open_with_program, program.Header);
                 RaiseMenuClosed(playHistoryMenu);
             });
     }

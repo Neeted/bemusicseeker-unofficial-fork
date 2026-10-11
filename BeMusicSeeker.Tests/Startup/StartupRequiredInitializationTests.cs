@@ -22,6 +22,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class StartupRequiredInitializationTests
 {
     /// <summary>実走査・保存済み表・管理領域・BMTを接続し、出力後も必要LR2終端までL/Pを保持します。</summary>
+    /// <remarks>実DB・保存playlist・BMT出力とLR2同期を接続し、出力後も同期の終端まで受付が閉じることを確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_HoldsBothAdmissionsUntilLr2TerminalAndWritesSavedOutputs()
     {
@@ -104,6 +105,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>必須スコアの実行開始で終了要求を起こし、元の取消・同一要求の終端と両受付解放を確認します。</summary>
+    /// <remarks>実score読込みから終了要求を発生させ、後続出力とLR2を開始しない取消境界を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_ScoreCancellationStopsOutputsAndLr2AndPreservesTerminalIdentity()
     {
@@ -137,6 +139,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>ローカル出力失敗をLR2単独失敗へ読み替えず、確定したローカルDBを保持します。</summary>
+    /// <remarks>実BMT出力の置換を失敗させ、確定済みDBと進捗終端を接続して失敗範囲を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_LocalOutputFailureDoesNotStartLr2()
     {
@@ -174,6 +177,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>実LR2書込みだけを失敗させ、失敗結果・永続記録とローカル確定の保持を確認します。</summary>
+    /// <remarks>実LR2の保存失敗を起こし、ローカル確定とFailedの保存・公開を同時に確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_Lr2FailureReturnsIndependentFailureAndKeepsLocalData()
     {
@@ -207,6 +211,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>LR2受付境界の元の失敗も既存の保存・公開窓口で一度だけFailedにし、ローカル確定と両受付解放を維持します。</summary>
+    /// <remarks>LR2受付への接続失敗を起こし、保存・公開窓口とローカル出力の保持を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_Lr2BoundaryFailureIsSavedAndPublishedOnce()
     {
@@ -244,6 +249,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>実LR2の入力取得を保持して終了し、Incompleteの一回保存・公開、取消伝播と両受付のcleanupを確認します。</summary>
+    /// <remarks>実LR2の入力取得中に終了要求を発生させ、Incompleteの保存・公開と受付解放を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_Lr2ShutdownCancellationPropagatesAndRetainsIncomplete()
     {
@@ -299,6 +305,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>設定側から借りたL/Pを子の終端で解放せず、次の親要求では新しいファイル入力を取得します。</summary>
+    /// <remarks>実譜面とDBを親要求間で更新し、借りた受付の寿命と次回の入力取得を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_BorrowsSettingsAuthorityAndNextRequestCapturesNewInput()
     {
@@ -334,6 +341,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>並列に開始した実見出し読込みが失敗しても、保持中の実走査とcleanupの終端までは両受付を解放しません。</summary>
+    /// <remarks>実header読込みとscanを別々に保持・失敗させ、開始済み処理の終端と両受付の寿命を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_HeaderFailureJoinsStartedFileTaskBeforeReleasingAdmissions()
     {
@@ -376,6 +384,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>単独動作でも保存済みBMTを完了し、LR2の不要段階とネットワーク待機を起動条件にしません。</summary>
+    /// <remarks>独立modeで実保存playlistからBMTを書き出し、LR2を起動条件にしない接続を確認する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_StandaloneWritesSavedBmtWithoutLr2Request()
     {
@@ -395,6 +404,7 @@ public sealed class StartupRequiredInitializationTests
     }
 
     /// <summary>同じCompleted署名では全体LR2を増やさず、欠けた保存済み表出力とBMTを同じ必須手続きで修復します。</summary>
+    /// <remarks>実Completed署名と生成済みファイルを用い、同一要求でLR2重複実行を避けてローカル出力だけ修復する。</remarks>
     [TestMethod]
     public async Task RequiredInitialization_CompletedSignatureSkipsWholeLr2AndStillRepairsLocalOutputs()
     {
@@ -563,13 +573,16 @@ public sealed class StartupRequiredInitializationTests
             entry.playlist_id = table.playlist_id;
             using (var setup = new LR2SongDBExtended(SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
-                setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
-                if (failLr2)
+                setup.RunInTransaction(() =>
                 {
-                    setup.Execute("CREATE TRIGGER fail_lr2 BEFORE INSERT ON lr2_song_db_sync_status WHEN NEW.status = 'Running' BEGIN SELECT RAISE(ABORT, 'lr2-only-failure'); END;");
-                }
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                    if (failLr2)
+                    {
+                        setup.Execute("CREATE TRIGGER fail_lr2 BEFORE INSERT ON lr2_song_db_sync_status WHEN NEW.status = 'Running' BEGIN SELECT RAISE(ABORT, 'lr2-only-failure'); END;");
+                    }
+                });
             }
             string configPath = Path.Combine(scope.DirectoryPath, "LR2files", "Config", "config.xml");
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
@@ -584,10 +597,13 @@ public sealed class StartupRequiredInitializationTests
             {
                 scorePath = Path.Combine(scope.DirectoryPath, "score.db");
                 using var scoreDb = new LR2ScoreDBExtended(scorePath);
-                scoreDb.CreateTable<LR2ScoreDB.player>();
-                scoreDb.CreateTable<LR2ScoreDB.score>();
-                scoreDb.Insert(new LR2ScoreDB.player { id = "required-startup", irid = 0 });
-                scoreDb.Insert(new LR2ScoreDB.score { hash = content.Md5, perfect = 123 });
+                scoreDb.RunInTransaction(() =>
+                {
+                    scoreDb.CreateTable<LR2ScoreDB.player>();
+                    scoreDb.CreateTable<LR2ScoreDB.score>();
+                    scoreDb.Insert(new LR2ScoreDB.player { id = "required-startup", irid = 0 });
+                    scoreDb.Insert(new LR2ScoreDB.score { hash = content.Md5, perfect = 123 });
+                });
             }
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
             var options = new BmsLibraryOptionsSnapshot

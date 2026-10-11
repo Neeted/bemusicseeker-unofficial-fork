@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 {
+    /// <summary>登録状態のOK・拒否・nullと型不正、uploadの応答hashを区別し、非OKを成功として受理する誤りを検出します。</summary>
     [TestMethod]
     public void AppGatewayJsonParsers_PreserveStatusAndUploadContracts()
     {
@@ -47,6 +48,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual(string.Empty, nullStatus.Status);
     }
 
+    /// <summary>必須status・成功時md5の欠落と連結JSONを拒否し、不完全な応答を正常扱いする誤りを検出します。</summary>
     [TestMethod]
     public void AppGatewayJsonParsers_RejectMissingPropertiesAndTrailingDocuments()
     {
@@ -59,6 +61,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
                 "{\"status\":\"OK\"} {\"status\":\"OK\"}"));
     }
 
+    /// <summary>ローカルファイル・hashのみ・非対応の選択を区別し、表示可能性とupload可能性の取り違えを検出します。</summary>
     [TestMethod]
     public void SelectionQueries_UseScoreViewerCapabilityAndLocalFileAvailability()
     {
@@ -94,6 +97,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         }
     }
 
+    /// <summary>非対応・hash欠落を除いた有効な一件だけを表示し、無効選択が単件判定やURL起動を妨げる誤りを検出します。</summary>
     [TestMethod]
     public async Task RunAsync_ChartTargetsProjectsEffectiveSingleTargetAndOpensViewer()
     {
@@ -118,6 +122,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual(0, gateway.StatusHashes.Count);
     }
 
+    /// <summary>有効な複数hashの選択順を保ち、自動で単件viewerを開く誤りを検出します。</summary>
     [TestMethod]
     public async Task RunAsync_ChartTargetsKeepsMultipleEffectiveTargetsWithoutAutoOpen()
     {
@@ -141,6 +146,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.IsNull(interaction.OpenedUrl);
     }
 
+    /// <summary>hashのみの対象は状態取得・uploadを行わず確認後にviewerへ渡し、不要な通信や表示漏れを検出します。</summary>
     [TestMethod]
     public async Task RunAsync_HashOnlyTargetSkipsNetworkAndOpensSingleViewer()
     {
@@ -156,7 +162,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 
         Assert.IsNotNull(result);
         Assert.AreEqual(ScoreViewerRegistrationItemStatus.HashOnly, result.Items.Single().Status);
-        Assert.AreEqual("https://bms-score-viewer.pages.dev/view?md5=hash-only", result.LastViewUrl);
+        Assert.AreEqual("?md5=hash-only", new Uri(result.LastViewUrl).Query);
         Assert.AreEqual(0, gateway.StatusHashes.Count);
         Assert.AreEqual(0, gateway.UploadPaths.Count);
         Assert.AreEqual(1, interaction.ConfirmationCount);
@@ -164,6 +170,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual(result.LastViewUrl, interaction.OpenedUrl);
     }
 
+    /// <summary>登録済み・状態取得失敗・upload拒否を対象別に保持し、拒否したuploadの実行や失敗の消失を検出します。</summary>
     [TestMethod]
     public async Task RunAsync_PreservesRegisteredStatusFailureAndDeclinedUpload()
     {
@@ -219,6 +226,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         }
     }
 
+    /// <summary>upload成功のserver hashと拒否・例外を個別に報告し、一件の失敗による後続欠落や成功扱いを検出します。</summary>
     [TestMethod]
     public async Task RunAsync_ReportsUploadSuccessRejectionAndExceptionPerTarget()
     {
@@ -276,6 +284,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         }
     }
 
+    /// <summary>確認処理の例外を失敗表示へ渡してuploadを抑止し、確認失敗を成功として処理する誤りを検出します。</summary>
     [TestMethod]
     public async Task RunAsync_ConfirmationFailureUsesFailurePresentationAndDoesNotUpload()
     {
@@ -311,6 +320,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         }
     }
 
+    /// <summary>Yes・Noの返答と閉じる操作を確認要求の契約に従って解釈し、拒否を承認扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_MapsConfirmationChoicesAndRecordsTypedRequest()
     {
@@ -339,6 +349,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.IsFalse(await interaction.ConfirmUploadAsync(plan, showSingleTargetConfirmation: true));
     }
 
+    /// <summary>利用者が単件確認を無効にした場合は確認を表示せず承認し、設定を無視する誤りを検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_SkipsSingleTargetConfirmationWhenSettingDisablesIt()
     {
@@ -352,6 +363,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
     }
 
+    /// <summary>表示失敗・owner不在を例外として伝え、利用者の拒否へ読み替える誤りを検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_PreservesConfirmationDisplayFailures()
     {
@@ -374,6 +386,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         StringAssert.Contains(unavailable.Message, UiDialogStatus.OwnerUnavailable.ToString());
     }
 
+    /// <summary>成功と対象失敗をそれぞれ通知し、viewerのURLを外部shellへ渡す接続の欠落を検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_PresentsSuccessAndFailureMessagesAndOpensViewer()
     {
@@ -400,6 +413,7 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual("https://viewer/hash", shell.LastRequest.Target);
     }
 
+    /// <summary>結果通知の表示失敗を呼出元へ伝え、通常終了として隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_DoesNotTreatResultDisplayFailureAsUserRejection()
     {

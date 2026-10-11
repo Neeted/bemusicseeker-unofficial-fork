@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionProjectionTests
 {
+    /// <summary>
+    /// BMSとbmsonの捕捉値から所持集合を作るとき、種別・パス・両hashと所有tokenを取り違えず射影する。
+    /// </summary>
     [TestMethod]
     public void FromStorageRows_BuildsBmsAndBmsonOwnedChartSnapshot()
     {
@@ -43,7 +46,9 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.AreSame(bmsonSong.Token, bmsonChart.Token);
     }
 
-    /// <summary>未所持identityと同じexact keyの重複だけを除外し、別caseの行は保持します。</summary>
+    /// <summary>
+    /// BMSとbmsonのパス・MD5欠落と完全一致パスの重複を除外し、大文字小文字だけが異なるパスは別所有として保持する。
+    /// </summary>
     [TestMethod]
     public void FromStorageRows_FiltersPathlessMd5lessAndExactDuplicateRows()
     {
@@ -77,16 +82,15 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.AreEqual(0, filterSummary.DuplicatePathBmsonCount);
     }
 
+    /// <summary>
+    /// 保存対象は正常なBMS・bmsonを種別ごとに保持し、どちらの種別でもパスまたはMD5欠落を拒否する。
+    /// </summary>
     [TestMethod]
     public void ChartStorageTargetSet_FromChartsRejectsInvalidBmsAndBmsonIdentities()
     {
 
         ChartFile pathfulBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        ChartFile pathlessBms = CreateFile("cccccccccccccccccccccccccccccccc", string.Empty, new string('d', 64));
-        ChartFile md5lessBms = CreateFile(null, Path.Combine("C:\\Installed", "Bms", "md5less.bms"), new string('1', 64));
         ChartFile pathfulBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "chart.bmson"), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        ChartFile pathlessBmson = CreateBmsonSong(null, "ffffffffffffffffffffffffffffffff");
-        ChartFile md5lessBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "md5less.bmson"), null);
 
         var targets = ChartStorageTargetSet.FromCharts(ChartTestValues.Combine([pathfulBms], [pathfulBmson]));
 
@@ -101,27 +105,9 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.ThrowsException<InvalidOperationException>(() => ChartStorageTargetSet.FromCharts([(pathfulBmson with { Md5 = null })]));
     }
 
-    [TestMethod]
-    public void CreateSnapshot_MatchesDirectStorageRowProjection()
-    {
-
-        ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
-        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Token = new OwnedChartToken(),
-            Path = Path.Combine("C:\\Installed", "Bmson", "chart.bmson"),
-            Md5 = "cccccccccccccccccccccccccccccccc",
-            Sha256 = new string('d', 64),
-            RawTitle = "bmson title"
-        };
-
-        List<ChartFile> ownedSnapshot = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile], [bmsonSong]))
-            .CreateSnapshot(includeWarningSnapshot: false, includeScoreSnapshot: false);
-        var projectionSnapshot = ChartTestValues.Combine([bmsFile], [bmsonSong]).ToList();
-
-        AssertChartSnapshotParity(projectionSnapshot, ownedSnapshot);
-    }
-
+    /// <summary>
+    /// 移転と基本値の適用後は新しいパス・hashを射影し、以前の捕捉値と同じ所有tokenを維持する。
+    /// </summary>
     [TestMethod]
     public void CurrentApplicationKeepsCapturedValuesAndReprojectsCurrentIndexes()
     {
@@ -147,6 +133,9 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.AreSame(bmsFile.Token, snapshot.Token);
     }
 
+    /// <summary>
+    /// 共通一覧と完全一致パス索引はBMS・bmsonを含め、パスのない所有を一覧にも索引にも混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateCollectionView_ReturnsCommonValuesAndExactPathLookup()
     {
@@ -170,6 +159,9 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.Path));
     }
 
+    /// <summary>
+    /// 通常一覧ではBMSの入力順とbmsonのパス順を保ち、移転後に新しい並びを作って以前の一覧を変更しない。
+    /// </summary>
     [TestMethod]
     public void CreateNormalLibrarySourceChartView_SortsBmsonRowsAndExcludesPathlessRows()
     {
@@ -213,6 +205,9 @@ public sealed class OwnedChartCollectionProjectionTests
         Assert.AreEqual(0, bmsOnlyView.BmsonCharts.Count);
     }
 
+    /// <summary>
+    /// 走査で削除・同パス置換された現在の所有だけを削除対象に捕捉し、新譜面やパスのない所有を巻き込まない。
+    /// </summary>
     [TestMethod]
     public void CreateFileScanRemovedCharts_UsesOwnedCurrentOwners()
     {

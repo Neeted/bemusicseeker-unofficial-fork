@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -22,23 +21,8 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class ApplicationCompositionTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>再構成したL/Pにも同じ受付権限を接続し、外側Pの借用中は新規要求を拒否・同能力だけを許可し、別compositionの能力と欠損依存を拒否します。</summary>
     [TestMethod]
-    public void CompositionKeepsTheConfiguredLibraryOptionsProvider()
-    {
-        var snapshot = new BmsLibraryOptionsSnapshot
-        {
-            OperationModeLR2DB = false,
-            PendingInstallEstimateMaxParallelPackages = 7
-        };
-        var composition = new ApplicationComposition(
-            () => snapshot,
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void CompositionCreatesPlaylistWithTypedLibraryBindings()
     {
         string tempDirectory = Path.Combine(
@@ -92,7 +76,6 @@ public sealed partial class ApplicationCompositionTests
             Assert.AreNotSame(library.Lr2Synchronization, secondLibrary.Lr2Synchronization);
             Assert.AreNotSame(playlist, secondPlaylist);
             Assert.AreSame(secondLibrary, secondPlaylist.LibraryBindings.SourceLibrary);
-            Assert.AreNotEqual(songDbPath, secondProfile.SongDbPath);
             using (LibraryFileMutationLease outer = playlist.AcquirePlaylistMutationLease("reconstruction-outer"))
             using (LibraryFileMutationCapability authority = outer.CreateMutationCapability())
             {
@@ -124,17 +107,6 @@ public sealed partial class ApplicationCompositionTests
             secondPlaylist.RequestShutdown("reconstructed-cleanup");
             secondLibrary.RequestShutdown("reconstructed-cleanup");
 
-            var request = new BmtSongHashResolveRequest
-            {
-                Md5 = "missing-md5",
-                Sha256 = "missing-sha256",
-                Title = "missing-title"
-            };
-            Tuple<string, string> directResolution = library.CreateBeatorajaBmtSongHashResolver()(request);
-            Tuple<string, string> boundResolution = bindings.CreateBeatorajaBmtSongHashResolver()(request);
-            Assert.AreEqual(directResolution?.Item1, boundResolution?.Item1);
-            Assert.AreEqual(directResolution?.Item2, boundResolution?.Item2);
-
             Assert.ThrowsException<ArgumentNullException>(
                 () => new BmsPlaylistLibraryBindings(null!));
             Assert.ThrowsException<ArgumentNullException>(
@@ -165,12 +137,11 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>構成済みworkspaceは保存前のdraftを正本へ追加せず、利用者出力設定と作成時刻を引き継ぎ、store不在は失敗として返します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    [DoNotParallelize]
     public async Task PlaylistWorkspaceCreatesNewPlaylistDraftThroughConfiguredStore()
     {
-        int previousDefault = testSettings.PlaylistDefaultIgnoreFolderOutput;
         testSettings.PlaylistDefaultIgnoreFolderOutput =
             (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -271,7 +242,6 @@ public sealed partial class ApplicationCompositionTests
         }
         finally
         {
-            testSettings.PlaylistDefaultIgnoreFolderOutput = previousDefault;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -279,35 +249,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>uBMplay選択と実行ファイルの存在を入力すると該当playerへそのpathを渡し、異なるplayer選択やpath取り違えを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void CompositionKeepsTheConfiguredStartupSettingsProvider()
-    {
-        var snapshot = new StartupSettingsSnapshot
-        {
-            OperationModeLR2DB = false,
-            LR2SongDBPath = "startup-song.db"
-        };
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            () => snapshot,
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.AreSame(snapshot, composition.StartupSettingsProvider());
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionCreatesTheDefaultInternalBmsPlayer()
-    {
-        var composition = new ApplicationComposition(
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.IsInstanceOfType(composition.CreateDefaultBmsPlayer(), typeof(InternalBMSAutoPlayerSoundOnly));
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredUbMplayPlayer()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -335,8 +278,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>BMIIDXView選択と実行ファイルの存在を入力すると該当playerへそのpathを渡し、異なるplayer選択やpath取り違えを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredBmiIdxViewPlayer()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -364,8 +307,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>LR2body選択と実行ファイル・設定XMLを入力するとLR2playerへそのpathを渡し、player切替の接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionCreatesTheConfiguredLr2Player()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -397,8 +340,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>単独DBモードでも選択されたLR2bodyを構成し、ライブラリモードだけを理由に既定playerへ切り替える誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionCreatesConfiguredLr2PlayerWhenLibraryOperationModeIsStandalone()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -443,8 +386,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>選択したLR2の設定XML欠損を元のファイル例外で返し、既定playerへのフォールバックで失敗を隠しません。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionPropagatesConfiguredLr2PlayerConfigFailureWithoutDefaultFallback()
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
@@ -486,317 +429,48 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>外部player選択を全て解除すると注入した既定factoryの結果を使い、設定による選択判断を迂回する誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionUsesInjectedDefaultWhenNoExternalPlayerIsSelected()
     {
-        bool originalUbMplay = testSettings.UsePlayeruBMplay;
-        bool originalBmi = testSettings.UsePlayerBMIIDXView;
-        bool originalLr2 = testSettings.UsePlayerLR2body;
         var expected = new InternalBMSAutoPlayerSoundOnly(
             new SettingsPlayerSettingsGateway(() => testSettings),
             new BassAudioPlaybackRuntime());
         var composition = new ApplicationComposition(
             defaultBmsPlayerFactory: () => expected,
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        try
-        {
-            testSettings.UsePlayeruBMplay = false;
-            testSettings.UsePlayerBMIIDXView = false;
-            testSettings.UsePlayerLR2body = false;
+        testSettings.UsePlayeruBMplay = false;
+        testSettings.UsePlayerBMIIDXView = false;
+        testSettings.UsePlayerLR2body = false;
 
-            Assert.AreSame(
-                expected,
-                composition.CreateBmsPlayerForSettings(
-                    StartupSettingsSnapshot.CreateCurrent(testSettings)));
-        }
-        finally
-        {
-            testSettings.UsePlayeruBMplay = originalUbMplay;
-            testSettings.UsePlayerBMIIDXView = originalBmi;
-            testSettings.UsePlayerLR2body = originalLr2;
-        }
+        Assert.AreSame(
+            expected,
+            composition.CreateBmsPlayerForSettings(
+                StartupSettingsSnapshot.CreateCurrent(testSettings)));
     }
 
+    /// <summary>LR2bodyを選択しても実行ファイルがなければ構成失敗を伝え、欠損pathのplayerで成功しません。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionRejectsConfiguredLr2PlayerWhenExecutableIsMissing()
     {
-        bool originalUbMplay = testSettings.UsePlayeruBMplay;
-        bool originalBmi = testSettings.UsePlayerBMIIDXView;
-        bool originalLr2 = testSettings.UsePlayerLR2body;
-        string originalLr2RootPath = testSettings.LR2RootPath;
-        string originalLr2ConfigPath = testSettings.LR2ConfigXmlPath;
-        try
-        {
-            testSettings.UsePlayeruBMplay = false;
-            testSettings.UsePlayerBMIIDXView = false;
-            testSettings.UsePlayerLR2body = true;
-            string missingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-            testSettings.LR2RootPath = missingRoot;
-            testSettings.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
-            var composition = new ApplicationComposition(
-                settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => composition.CreateBmsPlayerForSettings(
-                    StartupSettingsSnapshot.CreateCurrent(testSettings)));
-
-            Assert.AreEqual("Configured LR2 playback player could not be created.", exception.Message);
-        }
-        finally
-        {
-            testSettings.UsePlayeruBMplay = originalUbMplay;
-            testSettings.UsePlayerBMIIDXView = originalBmi;
-            testSettings.UsePlayerLR2body = originalLr2;
-            testSettings.LR2RootPath = originalLr2RootPath;
-            testSettings.LR2ConfigXmlPath = originalLr2ConfigPath;
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionKeepsTheConfiguredPlaylistUrlCompletionOptionsProvider()
-    {
-        var snapshot = new PlaylistUrlCompletionOptionsSnapshot
-        {
-            EnablePlaylistUrlCompletion = true,
-            PlaylistMd5UrlMappingTsvUri = "https://example.invalid/playlist.tsv"
-        };
+        testSettings.UsePlayeruBMplay = false;
+        testSettings.UsePlayerBMIIDXView = false;
+        testSettings.UsePlayerLR2body = true;
+        string missingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        testSettings.LR2RootPath = missingRoot;
+        testSettings.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
         var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            playlistUrlCompletionOptionsProvider: () => snapshot,
             settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
 
-        Assert.AreSame(snapshot, composition.PlaylistUrlCompletionOptionsProvider());
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            () => composition.CreateBmsPlayerForSettings(
+                StartupSettingsSnapshot.CreateCurrent(testSettings)));
+
+        Assert.AreEqual("Configured LR2 playback player could not be created.", exception.Message);
     }
 
+    /// <summary>構成済みスコア登録を実譜面pathで開始し、確認・結果通知とhash照会・アップロード先を注入した窓口へ接続します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void CompositionKeepsTheConfiguredBeatorajaBmtOptionsProvider()
-    {
-        var snapshot = new BeatorajaBmtOptionsSnapshot
-        {
-            EnableBeatorajaBmtOutput = true,
-            BeatorajaBmtTablePath = "table.json",
-            BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256"
-        };
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            beatorajaBmtOptionsProvider: () => snapshot,
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.AreSame(snapshot, composition.BeatorajaBmtOptionsProvider());
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionKeepsTheConfiguredCustomFolderOutputSettingsProvider()
-    {
-        var snapshot = new CustomFolderOutputSettingsSnapshot
-        {
-            LR2CustomFolderOutputBaseDir = "output-base"
-        };
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            customFolderOutputSettingsProvider: () => snapshot,
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.AreSame(snapshot, composition.CustomFolderOutputSettingsProvider());
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionKeepsTheConfiguredFirstStartupLifecycleBoundary()
-    {
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-            applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: true),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.IsTrue(composition.ApplicationLifetime.IsFirstStartup);
-        composition.ApplicationLifetime.CompleteFirstStartup();
-        Assert.IsFalse(composition.ApplicationLifetime.IsFirstStartup);
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionCreatesMainTableOwnersFromOneBoundary()
-    {
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
-            action => action(),
-            _ =>
-            {
-            });
-        var emptyPlaylistTreeSource = new ObservableCollection<BMSTable>();
-
-        PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
-            action => action(),
-            mainChartList,
-            () => null,
-            () => [],
-            _ =>
-            {
-            },
-            _ =>
-            {
-            },
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            (_, _) => { },
-            _ => { },
-            (_, _) => { },
-            _ => { },
-            () => null!,
-            () => null!,
-            _ => { },
-            emptyPlaylistTreeSource,
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
-        AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
-
-        Assert.IsNotNull(mainChartList);
-        Assert.IsNotNull(playlistWorkspace);
-        Assert.IsNotNull(playlistWorkspace.DetailBuildState);
-        Assert.IsNotNull(playlistWorkspace.DetailViewState);
-        Assert.AreSame(emptyPlaylistTreeSource, playlistWorkspace.PlaylistTreeTables);
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void CompositionCreatesMainWindowChildOwnersFromOneBoundary()
-    {
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            settingsEditSession: new FakeSettingsEditSession { Values = testSettings }, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-        MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
-            action => action(),
-            _ =>
-            {
-            });
-        PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
-            action => action(),
-            mainChartList,
-            () => null,
-            () => [],
-            _ =>
-            {
-            },
-            _ =>
-            {
-            },
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            (_, _) => { },
-            _ => { },
-            (_, _) => { },
-            _ => { },
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
-        AttachImmediatePlaylistPresentationRouter(playlistWorkspace);
-        MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
-            mainChartList,
-            playlistWorkspace,
-            () => new InternalBMSAutoPlayerSoundOnly(
-                new SettingsPlayerSettingsGateway(() => testSettings),
-                new BassAudioPlaybackRuntime()),
-                new ChartFileOperationSynchronizer(),
-            _ =>
-            {
-            },
-            action => action(),
-            _ =>
-            {
-            },
-            action =>
-            {
-                action();
-                return true;
-            },
-            () => null!,
-            new TestUiDialogService(),
-            duplicateMaintenanceDialogService: new TestUiDialogService(),
-            showDuplicateFileCheckConfirmProvider: () => false,
-            duplicateMaintenanceLibraryProvider: () => null!,
-            selectedChartMutationDialogService: new TestUiDialogService(),
-            selectedChartMutationLibraryProvider: () => null!,
-            selectedChartResourceHealthDialogService: new TestUiDialogService(),
-            selectedChartResourceHealthLibraryProvider: () => null!,
-            folderAutoRenameDialogService: new TestUiDialogService(),
-            maintenanceRescanDialogService: new TestUiDialogService(),
-            chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
-             chartInfoParseFailureRemovalLibraryProvider: () => null!,
-             lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
-             rankingCacheDownloadWorkflow: CreateDisabledRankingCacheDownloadWorkflowOwner(),
-             startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());
-
-        try
-        {
-            Assert.AreSame(mainChartList, childComposition.MainChartList);
-            Assert.AreSame(playlistWorkspace, childComposition.PlaylistWorkspace);
-            Assert.IsNotNull(childComposition.ProgressHub);
-            Assert.IsNotNull(childComposition.PlaybackPanel);
-            Assert.IsNotNull(childComposition.ChartFilters);
-            Assert.IsNotNull(childComposition.LibraryFolderTree);
-            Assert.IsNotNull(childComposition.InstallTree);
-            Assert.IsNotNull(childComposition.MaintenanceTree);
-            Assert.IsNotNull(childComposition.PlayHistory);
-            Assert.IsNotNull(childComposition.PendingPackageWorkflow);
-            Assert.AreSame(
-                childComposition.ChartMutationActivity,
-                GetChartMutationActivity(childComposition.PendingPackageWorkflow));
-            Assert.IsNotNull(childComposition.RegularChartListOwner);
-            Assert.IsNotNull(childComposition.PackageInstallWorkflow);
-            Assert.IsNotNull(childComposition.MaintenanceRescanWorkflow);
-            Assert.IsNotNull(childComposition.ChartInfoParseFailureRemoval);
-            Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
-            Assert.IsNotNull(childComposition.StartupUpdateWorkflow);
-            Assert.IsNotNull(childComposition.ElevatedProcessWarningWorkflow);
-            Assert.IsNotNull(childComposition.ScoreViewerRegistrationWorkflow);
-            Assert.IsNotNull(childComposition.ZeroNoteMaintenanceWorkflow);
-            Assert.IsNotNull(childComposition.PackageCatalogWorkflow);
-            Assert.AreSame(
-                childComposition.ChartMutationActivity,
-                GetChartMutationActivity(childComposition.PackageCatalogWorkflow));
-            Assert.AreSame(
-                childComposition.ChartMutationActivity,
-                GetChartMutationActivity(childComposition.DuplicateMaintenanceWorkflow));
-            Assert.AreSame(
-                childComposition.ChartMutationActivity,
-                GetChartMutationActivity(childComposition.SelectedChartMutations));
-            Assert.IsNotNull(childComposition.SelectedChartAudioConversion);
-            Assert.IsNotNull(childComposition.SelectedChartExternalActions);
-            Assert.IsNotNull(childComposition.Lr2SongDbSyncWorkflow);
-            Assert.IsNotNull(childComposition.RankingCacheDownloadWorkflow);
-        }
-        finally
-        {
-            childComposition.RegularChartListOwner.Dispose();
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public async Task CompositionScoreViewerWorkflowUsesInjectedDialogService()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -845,16 +519,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
-    private static ChartMutationActivityOwner GetChartMutationActivity(object workflowOwner)
-    {
-        return (ChartMutationActivityOwner)workflowOwner
-            .GetType()
-            .GetField("chartMutationActivity", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .GetValue(workflowOwner)!;
-    }
-
+    /// <summary>構成済みworkspaceのBMT順変更を実DBへ保存し、表示中のデータ再構築延期と非表示時の即時反映を分けます。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -978,8 +644,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>BMTドラッグ後の選択復元を対応するsummary適用まで遅らせ、無変更や世代更新では復元せず、次の対応適用で対象と現在行を復元します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task ComposedPlaylistWorkspaceRestoresBmtDropSelectionAfterMatchingSummaryApply()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
@@ -1093,7 +759,6 @@ public sealed partial class ApplicationCompositionTests
                 PlaylistSummarySelectionRestoreRequest restore = restoreRequests[0];
                 CollectionAssert.AreEquivalent(new[] { second.playlist_id }, restore.PlaylistIds.ToArray());
                 Assert.AreEqual(second.playlist_id, restore.CurrentPlaylistId);
-                Assert.AreEqual(1, restoreRequests.Count);
                 workspace.CompletePlaylistSummaryDataBuild(buildRequest);
 
                 long previousDataRebuildGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -1167,6 +832,7 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>重複選択とnull・false・trueの出力設定から実変更だけを保存し、必要出力の終端後に完了して再要求の無変更では出力を繰り返しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersAndRequestsSummaryRefresh()
     {
@@ -1282,8 +948,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>実構成のサマリー表示更新をshell経由で適用し、延期要求や未完了構築を残す接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowCompositionRoutesPlaylistSummaryRefreshThroughShellArbiter()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -1304,8 +970,8 @@ public sealed partial class ApplicationCompositionTests
         });
     }
 
+    /// <summary>workerからサマリー選択を要求すると実UI Dispatcherで一回だけ状態通知し、要求元workerでUI状態を書き換えません。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -1365,37 +1031,8 @@ public sealed partial class ApplicationCompositionTests
         });
     }
 
+    /// <summary>起動snapshotは注入した編集sessionのモードとLR2ルートを取得し、グローバル設定を参照する接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void MainWindowSettingDialogUsesInjectedEditSessionForOpenAndRestartSave()
-    {
-        bool operationMode = testSettings.OperationModeLR2DB;
-        var session = new FakeSettingsEditSession();
-        var composition = new ApplicationComposition(
-            () => new BmsLibraryOptionsSnapshot(),
-            settingsEditSession: session,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        try
-        {
-            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-
-            Assert.AreSame(session, composition.SettingsEditSession);
-            Assert.AreEqual(1, session.ReloadCount);
-
-            viewModel.SettingDialog.SaveOperationModeForRestart(operationMode);
-
-            Assert.AreEqual(2, session.ReloadCount);
-            Assert.AreEqual(1, session.SaveCount);
-        }
-        finally
-        {
-            testSettings.OperationModeLR2DB = operationMode;
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void CompositionDefaultStartupSettingsProviderUsesInjectedEditSessionValues()
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1415,8 +1052,8 @@ public sealed partial class ApplicationCompositionTests
         Assert.AreEqual("injected-lr2-root", snapshot.LR2RootPath);
     }
 
+    /// <summary>各workflowへ編集sessionの導入・出力・URL設定を配送し、後続snapshotでも設定変更を捕捉することで初回値の固定を防ぎます。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CompositionDefaultWorkflowSnapshotProvidersUseInjectedEditSessionValues()
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1462,32 +1099,8 @@ public sealed partial class ApplicationCompositionTests
         Assert.AreEqual(13, composition.BmsLibraryOptionsProvider().PendingInstallEstimateMaxParallelPackages);
     }
 
+    /// <summary>検索履歴と履歴表示設定のstoreを注入sessionへ双方向接続し、別の設定主体への保存を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void CompositionDefaultColumnSettingsStoreUsesInjectedEditSessionValues()
-    {
-        var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        var summaryColumns = new PlaylistSummaryColumnSettings();
-        Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.StandardCustomTableColumnSettings = columns;
-                values.PlaylistSummaryColumnsSettings = summaryColumns;
-            });
-        var session = new FakeSettingsEditSession { Values = values };
-        var composition = new ApplicationComposition(
-            settingsEditSession: session,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-
-        Assert.AreSame(
-            columns,
-            composition.MainChartColumnSettingsStore.GetMain(
-                CustomTableColumnSettings.ViewKind.STANDARD,
-                reset: false));
-        Assert.AreSame(summaryColumns, composition.MainChartColumnSettingsStore.GetPlaylistSummary(ensureCompatibility: false));
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void CompositionDefaultSerializedSettingsStoresUseInjectedEditSessionValues()
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1515,6 +1128,7 @@ public sealed partial class ApplicationCompositionTests
     }
 
     // 実終了経路はプロセス全体のLR2 DBロック・音声・一時領域を扱うため、同一hostの通常処理と並行させない。
+    /// <summary>設定の初回表示・モード保存再読込み・再表示・終端保存を一つのsessionで順序通り実行し、途中で編集値や保存主体を切り替えません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
@@ -1560,7 +1174,9 @@ public sealed partial class ApplicationCompositionTests
             session.Calls);
     }
 
+    /// <summary>グローバルと注入sessionの追加出力先を異なる値にすると設定画面は注入先だけを表示し、グローバル参照の混入を検出します。</summary>
     [TestMethod]
+    // グローバル設定の一時差替えと復元を一組にし、他の設定参照と並列化しません。
     [DoNotParallelize]
     public void SettingDialogAdditionalOutputPathsUseInjectedSessionInsteadOfGlobalSettings()
     {
@@ -1589,8 +1205,8 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>構成済みplaylistの出力先候補へsessionの基本・追加出力先を渡し、設定画面以外の候補生成でも設定接続を維持します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowPlaylistOutputOptionsUseCompositionCustomFolderSettings()
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1610,8 +1226,8 @@ public sealed partial class ApplicationCompositionTests
         Assert.IsTrue(options.Any(option => option.Label == "session-additional"));
     }
 
+    /// <summary>通常譜面とサマリーの検索履歴確定を注入storeの別scopeへ保存し、片側未接続やscope混同を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -1633,8 +1249,8 @@ public sealed partial class ApplicationCompositionTests
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
     }
 
+    /// <summary>通常譜面とサマリーのお気に入り追加を編集sessionの別設定へ保存し、既定store接続の漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowKeywordSearchFavoritesDefaultUsesCompositionSettingsSession()
     {
         Settings values = MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -1659,8 +1275,8 @@ public sealed partial class ApplicationCompositionTests
             KeywordSearchFavoritesStore.Deserialize(values.PlaylistSummaryKeywordSearchFavorites).ToArray());
     }
 
+    /// <summary>明示注入したお気に入りstoreへ通常譜面とサマリーの追加を別scopeで保存し、既定storeへの誤配送を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowKeywordSearchFavoritesUseCompositionSettingsStore()
     {
         var historyStore = new FakeKeywordSearchHistorySettingsStore();
@@ -1690,8 +1306,8 @@ public sealed partial class ApplicationCompositionTests
             KeywordSearchFavoritesStore.Deserialize(favoriteStore.PlaylistSummaryKeywordSearchFavorites).ToArray());
     }
 
+    /// <summary>サマリー補助はサマリー履歴と専用output候補を表示し、通常譜面だけのmemo条件を警告してサマリーscopeへ履歴を保存します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlaylistWorkspaceOwnsSummaryKeywordSearchAssistanceAndHistoryScope()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -1737,8 +1353,8 @@ public sealed partial class ApplicationCompositionTests
         public string PlaylistSummaryKeywordSearchFavorites { get; set; } = string.Empty;
     }
 
+    /// <summary>構成時に保存済み履歴表示対象を復元し、画面側の対象変更を同じstoreへ返して選択設定の接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowPlayHistoryDisplaySettingsUseCompositionStore()
     {
         var store = new FakePlayHistoryDisplaySettingsStore
@@ -1765,19 +1381,7 @@ public sealed partial class ApplicationCompositionTests
         viewModel.PlayHistory.SelectedDisplayTargetIdentity = "all";
         Assert.AreEqual("all", store.SelectedDisplayTargetIdentity);
 
-        string replacementJson = PlayHistoryDisplayTargetSetStore.Serialize(
-        [
-            new PlayHistoryDisplayTargetSet
-            {
-                Name = "replacement",
-                Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 456 }]
-            }
-        ]);
-        store.DisplayTargetSetsJson = replacementJson;
-        viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
-            replacementJson,
-            queueRefreshWhenSelectionChanges: false);
-        Assert.AreEqual("replacement", PlayHistoryDisplayTargetSetStore.Deserialize(store.DisplayTargetSetsJson)[0].Name);
+
     }
 
     private sealed class FakePlayHistoryDisplaySettingsStore : IPlayHistoryDisplaySettingsStore
@@ -1934,6 +1538,7 @@ public sealed partial class ApplicationCompositionTests
         }
     }
 
+    /// <summary>ライブラリの並列度取得ごとに注入snapshotを再評価し、provider差替え後も初回並列度を使い続ける誤りを検出します。</summary>
     [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {

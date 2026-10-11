@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Runtime.ExceptionServices;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -10,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UpdateDownloadServiceTests
 {
+    /// <summary>
+    /// 更新ツールだけを作業領域へコピーして旧payloadを除き、未起動の型付き要求に指定パスを渡して配置・起動順の誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PrepareUpdaterLaunchCopiesUpdaterAndPublishesTypedRequest()
     {
@@ -68,6 +74,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 以前のdownloadsを掃除してもcurrent配下のpayloadファイルを保持する。実processの受付・終了はUpdaterPackageSyncTestsが分担する。
+    /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload()
     {
@@ -101,6 +110,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 未完了journalがあれば作業領域のツールへ復旧を委譲し、ツールを保持したまま古い復旧記録を処理して復旧経路の切断を検出する。
+    /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryRecoversIncompleteTransactionThroughUpdaterGateway()
     {
@@ -139,6 +151,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 更新失敗receiptを原因付きで通知し、確認されるまで実ファイルを保持して確認後に消費し、失敗を黙って消す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt()
     {
@@ -172,6 +187,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 一時ファイルだけの更新失敗receiptも通知と確認後の消費へ接続し、公開途中の失敗情報を取り落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CleanupPreviousWorkDirectoryReadsTemporaryUpdaterFailureReceipt()
     {
@@ -205,9 +223,13 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 実配布ツールを準備先のcurrent領域から起動してprotocol応答と正常終端を得られ、配布payloadの起動不能を検出する。
+    /// </summary>
+    /// <remarks>本番の自己完結payloadと実プロセスを観測するReleaseAcceptance。公開出力の指定がない通常実行では既存のInconclusiveを維持する。</remarks>
     [TestMethod]
     [TestCategory("ReleaseAcceptance")]
-    public void PreparedUpdaterPayloadStartsFromCurrentDirectory()
+    public async Task PreparedUpdaterPayloadStartsFromCurrentDirectory()
     {
         string? updaterPublishOutput = Environment.GetEnvironmentVariable("BMS_SCD_UPDATER_PUBLISH_ROOT");
         if (string.IsNullOrWhiteSpace(updaterPublishOutput))
@@ -217,58 +239,120 @@ public sealed class UpdateDownloadServiceTests
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_UpdateDownloadServiceTests", Guid.NewGuid().ToString("N"));
         string applicationPath = Path.Combine(root, "BeMusicSeeker.exe");
         string packagePath = Path.Combine(root, "update_work", "downloads", "app.zip");
-        string[] payloadFileNames =
+        Process? process = null;
+        Task? exitTask = null;
+        Task<string>? outputTask = null;
+        Task<string>? errorTask = null;
+        Exception? primaryFailure = null;
+        try
         {
-            "BeMusicSeeker.Updater.exe"
-        };
-
-        Directory.CreateDirectory(Path.GetDirectoryName(packagePath)!);
-        File.WriteAllText(applicationPath, string.Empty);
-        File.WriteAllText(packagePath, "package");
-        foreach (string fileName in payloadFileNames)
-        {
-            string sourcePath = Path.Combine(updaterPublishOutput!, fileName);
+            Directory.CreateDirectory(Path.GetDirectoryName(packagePath)!);
+            File.WriteAllText(applicationPath, string.Empty);
+            File.WriteAllText(packagePath, "package");
+            string sourcePath = Path.Combine(updaterPublishOutput!, "BeMusicSeeker.Updater.exe");
             if (!File.Exists(sourcePath))
             {
                 Assert.Inconclusive("Self-contained updater payload is missing: " + sourcePath);
             }
-            File.Copy(sourcePath, Path.Combine(root, fileName));
-        }
+            File.Copy(sourcePath, Path.Combine(root, "BeMusicSeeker.Updater.exe"));
 
-        try
-        {
             var gateway = new RecordingUpdaterProcessGateway();
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
                 gateway);
             service.PrepareUpdaterLaunch(packagePath);
-
-            var startInfo = new ProcessStartInfo(gateway.Request.ExecutablePath)
+            string expectedWorkingDirectory = Path.Combine(root, "update_work", "current");
+            string expectedExecutablePath = Path.Combine(expectedWorkingDirectory, "BeMusicSeeker.Updater.exe");
+            Assert.AreEqual(expectedExecutablePath, gateway.Request.ExecutablePath);
+            Assert.AreEqual(expectedWorkingDirectory, gateway.Request.WorkingDirectory);
+            var startInfo = new ProcessStartInfo(expectedExecutablePath)
             {
                 UseShellExecute = false,
-                WorkingDirectory = gateway.Request.WorkingDirectory,
+                WorkingDirectory = expectedWorkingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
             startInfo.ArgumentList.Add("--version");
-            using Process process = Process.Start(startInfo)
+            process = Process.Start(startInfo)
                 ?? throw new InvalidOperationException("The prepared updater payload did not start.");
-            Assert.IsTrue(process.WaitForExit(30000), "The prepared updater payload did not exit.");
-            string standardOutput = process.StandardOutput.ReadToEnd();
-            string standardError = process.StandardError.ReadToEnd();
-            Assert.AreEqual(0, process.ExitCode, standardError);
-            StringAssert.Contains(standardOutput, "1");
+            exitTask = process.WaitForExitAsync();
+            outputTask = process.StandardOutput.ReadToEndAsync();
+            errorTask = process.StandardError.ReadToEndAsync();
+            try
+            {
+                // 実rootと両pipeのEOFで一つの既存30秒期限を共有する。
+                await Task.WhenAll(exitTask, outputTask, errorTask).WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail("The prepared updater payload did not exit or drain within 30 seconds.");
+            }
+            Assert.AreEqual(0, process.ExitCode, await errorTask);
+            StringAssert.Contains(await outputTask, "1");
+        }
+        catch (Exception exception)
+        {
+            primaryFailure = exception;
         }
         finally
         {
-            if (Directory.Exists(root))
+            try
             {
-                Directory.Delete(root, recursive: true);
+                if (process is not null)
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    Task[] ownedTasks = new Task?[] { exitTask, outputTask, errorTask }
+                        .Where(task => task is not null).Cast<Task>().ToArray();
+                    await Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(5));
+                }
             }
+            catch (Exception cleanupFailure)
+            {
+                if (primaryFailure is null)
+                {
+                    primaryFailure = cleanupFailure;
+                }
+                else
+                {
+                    primaryFailure.Data["ProcessSecondaryDiagnostics"] = cleanupFailure.ToString();
+                }
+            }
+            finally
+            {
+                process?.Dispose();
+                try
+                {
+                    if (Directory.Exists(root))
+                    {
+                        Directory.Delete(root, recursive: true);
+                    }
+                }
+                catch (Exception cleanupFailure)
+                {
+                    if (primaryFailure is null)
+                    {
+                        primaryFailure = cleanupFailure;
+                    }
+                    else
+                    {
+                        primaryFailure.Data["DirectorySecondaryDiagnostics"] = cleanupFailure.ToString();
+                    }
+                }
+            }
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
     }
 
+    /// <summary>
+    /// currentがシンボリックリンクならツール準備を拒否し、リンク先の実sentinelを保って作業領域外の書換えを検出する。
+    /// </summary>
     [TestMethod]
     public void PrepareUpdaterLaunchRejectsReparsePointInCurrentWorkDirectory()
     {
@@ -318,6 +402,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// 指定パッケージがdownloads外なら起動準備を拒否し、検証用領域外のZIPを更新対象にする誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PrepareUpdaterLaunchRejectsPackageOutsideDownloadDirectory()
     {
@@ -350,6 +437,9 @@ public sealed class UpdateDownloadServiceTests
         }
     }
 
+    /// <summary>
+    /// downloadsがシンボリックリンクなら削除を警告付きで止め、リンク先のパッケージを消す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void TryDeleteDownloadedPackageRejectsReparsePointDownloadsDirectory()
     {

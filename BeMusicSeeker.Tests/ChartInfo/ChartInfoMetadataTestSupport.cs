@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -14,6 +15,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using ChartInfoExportTool;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
 using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
@@ -44,10 +46,11 @@ internal static class ChartInfoMetadataTestSupport
 
 
 
+    /// <summary>補完の実保存件数を読み取り専用接続で観測し、検査側でDBを更新しません。</summary>
     internal static long CountChartInfoRows(string songDbPath, string sha256)
     {
-        using var songDb = new LR2SongDBExtended(songDbPath);
-        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = '" + sha256 + "';");
+        using var songDb = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+        return songDb.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256);
     }
 
     internal static void AssertJavaDoubleParseBits(string value, string expectedHexBits)
@@ -152,6 +155,7 @@ internal static class ChartInfoMetadataTestSupport
         return null;
     }
 
+    /// <summary>同期の抽出portで実7zの退出と両pipe終端を同じ期限内に回収し、失敗を保持します。</summary>
     internal static string RunSevenZip(string sevenZipPath, string arguments)
     {
         var startInfo = new ProcessStartInfo
@@ -163,13 +167,75 @@ internal static class ChartInfoMetadataTestSupport
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-        using var process = Process.Start(startInfo);
-        Assert.IsNotNull(process, "Failed to start 7z.exe.");
-        string stdout = process.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        Assert.IsTrue(process.WaitForExit(30000), "7z.exe timed out." + Environment.NewLine + stdout + Environment.NewLine + stderr);
-        Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
-        return stdout + Environment.NewLine + stderr;
+        Process? process = null;
+        Task[] ownedTasks = [];
+        Exception? primaryFailure = null;
+        string output = string.Empty;
+        try
+        {
+            process = Process.Start(startInfo) ?? throw new AssertFailedException("Failed to start 7z.exe.");
+            Task exitTask = process.WaitForExitAsync();
+            Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+            Task<string> stderrTask = process.StandardError.ReadToEndAsync();
+            ownedTasks = [exitTask, stdoutTask, stderrTask];
+            try
+            {
+                // このportはUIを使わない同期抽出callbackからだけ呼ぶ。
+                Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+            }
+            catch (TimeoutException)
+            {
+                Assert.Fail("7z.exe timed out before exit and both output streams finished.");
+            }
+            string stdout = stdoutTask.GetAwaiter().GetResult();
+            string stderr = stderrTask.GetAwaiter().GetResult();
+            Assert.AreEqual(0, process.ExitCode, stdout + Environment.NewLine + stderr);
+            output = stdout + Environment.NewLine + stderr;
+        }
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+        }
+        finally
+        {
+            Exception? cleanupFailure = null;
+            try
+            {
+                if (process is not null && !process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                cleanupFailure = ex;
+            }
+            try
+            {
+                Task.WhenAll(ownedTasks).WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                cleanupFailure = cleanupFailure is null ? ex : new AggregateException(cleanupFailure, ex);
+            }
+            process?.Dispose();
+            if (cleanupFailure is not null)
+            {
+                if (primaryFailure is null)
+                {
+                    primaryFailure = cleanupFailure;
+                }
+                else
+                {
+                    primaryFailure.Data["seven-zip.cleanup"] = cleanupFailure;
+                }
+            }
+        }
+        if (primaryFailure is not null)
+        {
+            ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+        }
+        return output;
     }
 
     internal static string QuoteProcessArgument(string value)
@@ -331,6 +397,7 @@ internal static class ChartInfoMetadataTestSupport
         }
     }
 
+    /// <summary>取込み条件を作る入力行を一括準備し、本番exportの保存形式で局所bundleを生成します。</summary>
     internal static string CreateChartInfoMetadataBundle(
         string tempRootPath,
         IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfos,
@@ -339,19 +406,21 @@ internal static class ChartInfoMetadataTestSupport
         string sourceDirectoryPath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-source");
         Directory.CreateDirectory(sourceDirectoryPath);
         string sourcePath = Path.Combine(sourceDirectoryPath, "song.db");
-        File.WriteAllBytes(sourcePath, []);
         using (var sourceDb = new LR2SongDBExtended(sourcePath))
         {
             BmsLibraryDbGateway.EnsureBmsonSchema(sourceDb);
             BmsLibraryDbGateway.EnsureChartInfoSchema(sourceDb);
-            foreach (BeMusicSeeker.Models.ChartDetails row in chartInfos ?? [])
+            sourceDb.RunInTransaction(() =>
             {
-                sourceDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
-            }
-            foreach (LR2SongDBExtended.chart_digest_map row in chartDigests ?? [])
-            {
-                sourceDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
-            }
+                foreach (BeMusicSeeker.Models.ChartDetails row in chartInfos ?? [])
+                {
+                    sourceDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(row), typeof(LR2SongDBExtended.chart_info));
+                }
+                foreach (LR2SongDBExtended.chart_digest_map row in chartDigests ?? [])
+                {
+                    sourceDb.InsertOrReplace(row, typeof(LR2SongDBExtended.chart_digest_map));
+                }
+            });
         }
 
         string bundlePath = Path.Combine(tempRootPath, Guid.NewGuid().ToString("N") + "-chart-info-metadata.db");
@@ -408,7 +477,7 @@ internal static class ChartInfoMetadataTestSupport
             nameof(BMSLibrary.ChartInfoHydrationRunning));
     }
 
-    private static async Task AwaitChartInfoStateAsync(
+    private static Task AwaitChartInfoStateAsync(
         BMSLibrary library,
         Func<BMSLibrary, bool> isComplete,
         params string[] observedPropertyNames)
@@ -421,33 +490,29 @@ internal static class ChartInfoMetadataTestSupport
             {
                 if (isComplete(library))
                 {
+                    library.PropertyChanged -= OnPropertyChanged;
                     completion.TrySetResult(null);
                 }
             }
             catch (Exception exception)
             {
+                library.PropertyChanged -= OnPropertyChanged;
                 completion.TrySetException(exception);
             }
         }
 
-        PropertyChangedEventHandler propertyChangedHandler = delegate (object? sender, PropertyChangedEventArgs args)
+        void OnPropertyChanged(object? sender, PropertyChangedEventArgs args)
         {
             if (args.PropertyName is null || Array.IndexOf(observedPropertyNames, args.PropertyName) >= 0)
             {
                 CompleteIfReady();
             }
-        };
+        }
 
-        library.PropertyChanged += propertyChangedHandler;
-        try
-        {
-            CompleteIfReady();
-            await completion.Task;
-        }
-        finally
-        {
-            library.PropertyChanged -= propertyChangedHandler;
-        }
+        library.PropertyChanged += OnPropertyChanged;
+        CompleteIfReady();
+        // 状態を受信したTask自体を返し、後続continuationの実行遅延を通知欠落と誤認しない。
+        return completion.Task;
     }
 
     internal static int ReadPositiveIntEnvironmentVariable(string name, int defaultValue)

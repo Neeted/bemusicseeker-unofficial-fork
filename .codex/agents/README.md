@@ -13,4 +13,4 @@
 | [repo-static-review.toml](repo-static-review.toml) | 通常変更の独立レビュー。 |
 | [critical-static-review.toml](critical-static-review.toml) | 重大変更の独立レビュー。 |
 
-予備レビューは毎回新しい `preflight-static-review` を使い、指摘がなくなってから通常用または重大用の最終レビューへ進みます。最終レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。`developer_instructions` には役割固有の補足だけを書き、共通契約・順序・検証規則を複製しません。
+予備レビューは新規コンテキストの `preflight-static-review` で開始し、契約を保つ局所修正は同じ独立担当が再確認します。再計画後の新規担当と領域単位の凍結は、開発作業の仕様に従います。指摘がなくなってから通常用または重大用の最終レビューへ進みます。最終レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。`developer_instructions` には役割固有の補足だけを書き、共通契約・順序・検証規則を複製しません。

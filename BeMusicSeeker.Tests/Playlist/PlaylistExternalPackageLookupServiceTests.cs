@@ -7,11 +7,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>外部照会応答の解析と候補取得の順序・重複・取消を検証する。</summary>
+/// <remarks>解析規則と取得制御へ入力を直接渡す。実HTTPと導入後の通知はURL取得所有者のテストへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistExternalPackageLookupServiceTests
 {
     private const string SampleMd5 = "f8dcdfe070630bbb365323c662561a1a";
 
+    /// <summary>Ginger応答のHTTPアーカイブURLとファイル情報を抽出し、大文字MD5を正規化する。応答フィールドの誤対応と照会対象の取り違えを検出する。</summary>
     [TestMethod]
     public void GingerProvider_ParsesValidDownloadUrl()
     {
@@ -32,6 +35,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(18927067L, result.FileSize);
     }
 
+    /// <summary>URL欠損・不正形式・FTP・案内ページ・拡張子なし・不正JSONを取得候補にしない。取得可能なアーカイブと案内URLを混同する解析を検出する。</summary>
     [TestMethod]
     public void GingerProvider_RejectsMissingInvalidAndNonHttpDownloadUrl()
     {
@@ -43,6 +47,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, "not-json", out _));
     }
 
+    /// <summary>Konmai成功応答のネストしたsong_urlと曲名を取得し、大文字MD5を正規化する。別階層の解析や対象ハッシュの誤配送を検出する。</summary>
     [TestMethod]
     public void KonmaiProvider_ParsesSuccessSongUrl()
     {
@@ -64,6 +69,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual("星の器～STAR OF ANDROMEDA", result.FileName);
     }
 
+    /// <summary>失敗応答・URL欠損・不正形式・ローカルファイル・案内ページ・拡張子なし・不正JSONを候補にしない。成功判定の無視や非アーカイブ取得を検出する。</summary>
     [TestMethod]
     public void KonmaiProvider_RejectsNonSuccessMissingInvalidAndNonHttpSongUrl()
     {
@@ -76,6 +82,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, "not-json", out _));
     }
 
+    /// <summary>先頭候補の取得が成功すると後続提供元を照会しない。成功後の重複取得や提供元順序の逆転を検出する。</summary>
     [TestMethod]
     public async Task LookupService_StopsAtFirstProviderWhenDownloadSucceeds()
     {
@@ -96,6 +103,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(0, second.LookupCount);
     }
 
+    /// <summary>先頭候補の取得失敗後だけ次の候補を順に試して成功を返す。失敗での早期打切りや同じ候補の再試行を検出する。</summary>
     [TestMethod]
     public async Task LookupService_TriesNextProviderWhenDownloadFails()
     {
@@ -122,6 +130,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         CollectionAssert.AreEqual(new[] { "A", "B" }, attemptedProviders);
     }
 
+    /// <summary>利用者取消なしの照会タイムアウトは提供元の失敗として次へ進む。通信タイムアウトを全体取消に置換する誤りを検出する。</summary>
     [TestMethod]
     public async Task LookupService_TreatsProviderTimeoutAsFailureAndTriesNextProvider()
     {
@@ -142,6 +151,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(1, second.LookupCount);
     }
 
+    /// <summary>利用者取消なしの取得タイムアウトは失敗結果を返す。通信タイムアウトと利用者取消の混同を検出する。</summary>
     [TestMethod]
     public async Task LookupService_TreatsDownloadTimeoutAsFailureWhenUserDidNotCancel()
     {
@@ -159,6 +169,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Failed, result.Kind);
     }
 
+    /// <summary>既に取得済みの先頭URLでは取得も下位提供元の照会も行わず重複結果を返す。同一作業内の重複取得を検出する。</summary>
     [TestMethod]
     public async Task LookupService_SkipsAlreadyDownloadedUrlWithoutTryingLowerPriorityProvider()
     {
@@ -187,6 +198,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.AreEqual(0, second.LookupCount);
     }
 
+    /// <summary>一度失敗したURLを別MD5の照会が返しても再取得せず、失敗URLの重複結果を返す。ハッシュ単位だけで失敗を記憶する誤りを検出する。</summary>
     [TestMethod]
     public async Task LookupService_DoesNotRetryFailedUrlInSameRun()
     {
@@ -225,6 +237,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsTrue(failedKeys.Contains(failedUri.AbsoluteUri));
     }
 
+    /// <summary>取得元とリダイレクト先の両方を失敗URLとして記録し、後続提供元が最終URLを返しても再取得しない。転送先による重複判定の抜けを検出する。</summary>
     [TestMethod]
     public async Task LookupService_DoesNotRetryRedirectedFailedUrlInSameRun()
     {
@@ -256,6 +269,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsTrue(failedKeys.Contains(finalUri.AbsoluteUri));
     }
 
+    /// <summary>照会完了時に利用者取消が成立したら取得へ進まず取消例外を返す。照会後の取消確認漏れを検出する。</summary>
     [TestMethod]
     public async Task LookupService_DoesNotStartDownloadWhenCanceledAfterLookup()
     {

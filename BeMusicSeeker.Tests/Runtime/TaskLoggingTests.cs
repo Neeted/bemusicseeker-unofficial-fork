@@ -10,12 +10,14 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class TaskLoggingTests
 {
+    /// <summary>成功したTaskをログ経由でも成功として待てることを確認し、ログ処理による終端の変質を防ぎます。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_PreservesSuccessfulCompletion()
     {
         await Task.CompletedTask.LoggingAndPropagate();
     }
 
+    /// <summary>失敗Taskをログ経由で待っても元の例外instanceを返し、失敗の置換や隠蔽を防ぎます。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_RethrowsOriginalFailure()
     {
@@ -27,6 +29,7 @@ public sealed class TaskLoggingTests
         Assert.AreSame(failure, exception);
     }
 
+    /// <summary>取消Taskをログ経由で待ってもCanceledを保持し、Faultedへ誤分類しません。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_PreservesCancellation()
     {
@@ -41,6 +44,7 @@ public sealed class TaskLoggingTests
         Assert.IsFalse(propagated.IsFaulted);
     }
 
+    /// <summary>結果を持つ成功Taskをログ経由で待っても同じ結果を返し、結果の欠落を防ぎます。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_PreservesGenericResult()
     {
@@ -51,6 +55,7 @@ public sealed class TaskLoggingTests
         Assert.AreEqual(expected, actual);
     }
 
+    /// <summary>元Taskのgateが未解放なら転送Taskも未完了で、解放後に元結果を返して早期完了を防ぎます。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_DoesNotCompleteBeforeGenericSource()
     {
@@ -66,6 +71,7 @@ public sealed class TaskLoggingTests
         Assert.AreEqual(17, await propagated);
     }
 
+    /// <summary>loggerが失敗しても元Taskの成功結果を保持し、診断失敗で本体結果を上書きしません。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_GenericLoggerFailureDoesNotReplaceResult()
     {
@@ -78,6 +84,7 @@ public sealed class TaskLoggingTests
         Assert.AreEqual(expected, actual);
     }
 
+    /// <summary>loggerと本体が共に失敗しても本体の元例外を保持し、診断側の例外へ置換しません。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_GenericLoggerFailurePreservesOriginalFailure()
     {
@@ -91,6 +98,7 @@ public sealed class TaskLoggingTests
         Assert.AreSame(failure, exception);
     }
 
+    /// <summary>loggerが失敗しても本体の取消分類を保持し、診断失敗をFaultedとして漏らしません。</summary>
     [TestMethod]
     public async Task LoggingAndPropagate_GenericLoggerFailurePreservesCancellation()
     {
@@ -107,6 +115,7 @@ public sealed class TaskLoggingTests
         Assert.IsFalse(propagated.IsFaulted);
     }
 
+    /// <summary>未完了Taskから失敗通知を先行させず、本体失敗後に同じTaskを通知して監視対象の取り違えを防ぎます。</summary>
     [TestMethod]
     public async Task ObserveFault_ReportsGenericFailureWithoutReturningAwaitableTask()
     {
@@ -132,6 +141,7 @@ public sealed class TaskLoggingTests
         Assert.IsTrue(operation.Task.IsFaulted);
     }
 
+    /// <summary>失敗監視のloggerが投げても本体の元失敗を保持し、ログ処理が本体状態を変更しません。</summary>
     [TestMethod]
     public async Task ObserveFault_ContainsLoggerFailureAndPreservesSourceFault()
     {

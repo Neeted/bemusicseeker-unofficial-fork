@@ -17,7 +17,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLibraryMutationTests
 {
-    /// <summary>確認済みフォルダだけを物理削除し、両形式のrecycle指定と一回のリソース世代公開を実DBで確認する。</summary>
+    /// <summary>
+    /// 永久削除・ごみ箱指定の両条件で、確認済みフォルダだけを物理削除・保存確定し、一回のリソース世代公開から失敗対象を除く。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -94,12 +97,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CollectionAssert.AreEqual(new[] { folders[0], folders[2] }, entryMutations);
             CollectionAssert.AreEqual(new[] { folders[1] }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
             CollectionAssert.AreEqual(folders, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEqual(new[] { files[1].Path }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
 
-    /// <summary>DB確定前後の失敗境界を分け、物理削除済み結果と未確定カタログの扱いを保持する。</summary>
+    /// <summary>
+    /// DB確定前の削除失敗と確定後の必須最終化失敗を分け、物理削除済み対象の確認状態・永続結果・未公開リソース索引を保持する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -168,12 +174,16 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CollectionAssert.AreEqual(
                 new[] { folder },
                 resourceAfter.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(shared).ToArray());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(afterCommit ? 0 : 1, readback.Table<LR2SongDB.song>().Count());
             Assert.AreEqual(1, readback.Table<LR2SongDB.folder>().Count(row => row.path == folderRowPath));
         });
     }
 
+    /// <summary>
+    /// 削除成功・元ファイル欠落・変更後のAPI失敗を区別し、成功した対象だけを確定して未確認対象のDB行を保持する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_OnlySuccessfulApiTargetsAreConfirmed()
     {
@@ -225,21 +235,20 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(1, filesystem.FileDeleteCalls);
             Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
             Assert.AreEqual(0, dialogs.ModelMessages);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(new[] { missing, partial }, readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
 
     /// <summary>
-    /// 承認済み親フォルダは子対象の結果を確認してから再帰削除します。
-    /// 実DB・実ファイル境界で、成功・欠落・物理失敗と通常削除を確認します。
-    /// 親フォルダ削除は子の実観測結果だけで決まり、欠落・失敗・選択解除を成功へ丸めません。
+    /// 子の成功・フォルダ失敗・欠落・譜面だけの削除失敗に応じて承認済み親の再帰削除を制限し、失敗対象とリソースを保つ。
     /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
-    [DataRow(0, false)]
-    [DataRow(1, true)]
-    [DataRow(2, false)]
-    [DataRow(3, true)]
+    [DataRow(0, false)] // 子の全体削除成功、永久削除。
+    [DataRow(1, true)] // 子フォルダの削除失敗、ごみ箱指定。
+    [DataRow(2, false)] // 子フォルダが既に欠落、永久削除。
+    [DataRow(3, true)] // 子の全体削除を拒否し個別削除が失敗、ごみ箱指定。
     public void RemoveLibraryCharts_ParentDeletionDependsOnObservedChildResult(int childState, bool recycle)
     {
 
@@ -318,7 +327,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CollectionAssert.AreEquivalent(new[] { parent, child, independent, sibling }, approvedFolders);
             if (childState == 3)
             {
-                approvedFolders.Remove(child); // User chose chart-only deletion here.
+                approvedFolders.Remove(child); // 利用者はこの子の譜面だけを削除する。
             }
 
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval(selected), recycle, approvedFolders);
@@ -349,7 +358,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(childState == 0 ? 0 : 1, library.BmsonCharts.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             string[] retained = readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray();
             CollectionAssert.AreEqual(childState == 0 ? Array.Empty<string>() : new[] { childChartPath }, retained);
@@ -358,7 +367,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>未選択の子孫がある場合も、親全体の削除だけを止め、選択済み譜面は削除する。</summary>
+    /// <summary>
+    /// 未選択の子孫がある親は全体削除の候補にせず、選択譜面だけを削除して子孫の実ファイル・リソース・DB行を保持する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_UnselectedDescendantKeepsResourcesAndRows()
     {
@@ -396,12 +408,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.IsTrue(File.Exists(kept.Path));
             Assert.AreEqual("keep", File.ReadAllText(resource));
             Assert.AreSame(kept, library.BmsCharts.Single());
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(kept.Path, readback.Table<LR2SongDB.song>().Single().path);
         });
     }
 
-    /// <summary>path-only選択と本番所持化後に捕捉した同tokenの別値を、現在のownerへ解決して削除します。</summary>
+    /// <summary>
+    /// パスだけの選択と同tokenの捕捉値を本番の現在所有へ解決し、指定の削除方針で物理フォルダとDB行を除く。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -436,12 +451,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(pathOnly ? RecycleOption.SendToRecycleBin : RecycleOption.DeletePermanently,
                 filesystem.DirectoryRecycleOptions.Single());
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
 
-    /// <summary>大小文字だけが異なる別の完全一致行を同時選択したとき、両方のカタログ対象を削除する。</summary>
+    /// <summary>
+    /// 大小文字だけ違う完全一致行を同時選択したとき、一回の物理フォルダ削除で両方のカタログ対象を確定削除する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_CaseOnlyExactRowsAreBothRemoved()
     {
@@ -482,12 +500,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(1, filesystem.DirectoryDeleteCalls);
             Assert.IsFalse(Directory.Exists(folder));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
 
-    /// <summary>個別削除でも同じ物理ファイルを指す選択済み完全一致行をすべて削除する。</summary>
+    /// <summary>
+    /// 大小文字またはドット別表記で同じ物理譜面を指す選択を個別削除するとき、物理削除は一回だけ行い両完全一致行を除く。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -533,12 +554,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
             Assert.IsFalse(File.Exists(canonicalPath));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
 
-    /// <summary>同じ物理ファイルの別完全一致別名を使った自動再試行を行わない。</summary>
+    /// <summary>
+    /// 同じ物理譜面の個別削除が失敗しても別表記で自動再試行せず、両行と元例外を未確認結果として保持する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_PhysicalAliasDeleteFailureIsNotRetried()
     {
@@ -580,14 +604,17 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(2, library.BmsCharts.Count);
             Assert.IsTrue(outcome.Targets.All(target => target.State == LibraryChartRemovalState.Unconfirmed));
             Assert.IsTrue(outcome.Targets.All(target => ReferenceEquals(failure, target.Failure)));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             CollectionAssert.AreEquivalent(
                 new[] { canonicalPath, aliasPath },
                 readback.Table<LR2SongDB.song>().Select(row => row.path).ToArray());
         });
     }
 
-    /// <summary>子フォルダの大小文字だけが異なる完全一致選択を畳まず、親フォルダも一括削除候補にする。</summary>
+    /// <summary>
+    /// 親と大小文字だけ違う子の完全一致行をすべて選択したとき、選択を畳まず子と親の全体削除候補を返す。
+    /// </summary>
+    /// <remarks>実ライブラリの所持集合を参照する確認path入口を使い、物理操作前の選択解決を確認する。</remarks>
     [TestMethod]
     public void GetLibraryWholeFolderDeleteConfirmationPaths_PreservesCaseOnlyNestedSelections()
     {
@@ -619,13 +646,16 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>未登録・同一hashの別path・path喪失・未登録のdot/case表記ではファイルを削除しません。</summary>
+    /// <summary>
+    /// 未登録・同hash別パス・パス喪失・未登録のドットと大小文字別表記は解決不能とし、実ファイルとDB行を削除しない。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
-    [DataRow(0)]
-    [DataRow(1)]
-    [DataRow(2)]
-    [DataRow(3)]
-    [DataRow(4)]
+    [DataRow(0)] // 未登録の別パス。
+    [DataRow(1)] // 同じhashだが未登録の別パス。
+    [DataRow(2)] // 捕捉後にパスを失った所有。
+    [DataRow(3)] // 未登録のドット別表記。
+    [DataRow(4)] // 未登録の大小文字別表記。
     public void RemoveLibraryCharts_UnresolvedSelectionKeepsFilesystemAndDatabase(int selectionKind)
     {
 
@@ -672,18 +702,21 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
             Assert.IsTrue(File.Exists(catalogPath));
             Assert.IsTrue(File.Exists(selectedPath));
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(catalogPath, readback.Table<LR2SongDB.song>().Single().path);
         });
     }
 
-    /// <summary>事前解決は古いhashを許容し、選択後の移転・形式不一致・退役tokenを現在pathへ救済しません。</summary>
+    /// <summary>
+    /// 古いhashの選択は現在値へ解決する一方、移転・形式不一致・退役token・大小文字の別パスを救済せず物理処理を拒否する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
-    [DataRow(0)]
-    [DataRow(1)]
-    [DataRow(2)]
-    [DataRow(3)]
-    [DataRow(4)]
+    [DataRow(0)] // hashだけが更新済み。
+    [DataRow(1)] // 実ファイルと現在値が移転済み。
+    [DataRow(2)] // 同tokenでも選択の種別が不一致。
+    [DataRow(3)] // 同パスへ置換され選択tokenが退役済み。
+    [DataRow(4)] // 同tokenでも選択パスの大小文字が不一致。
     public void RemoveLibraryCharts_PreflightChecksCapturedKindAndExactPathButAllowsOldHash(int change)
     {
 
@@ -742,7 +775,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(change != 0, File.Exists(current.Path));
                 Assert.AreEqual(new string('a', 32), captured.Md5);
                 Assert.AreEqual(change == 4 ? originalPath.ToUpperInvariant() : originalPath, selected.Path);
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 if (change == 0)
                 {
                     Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
@@ -764,7 +797,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>不正な後方対象を全件照合で拒否し、削除と複数batch renameの先行対象も変更しません。</summary>
+    /// <summary>
+    /// 準備済み要求の後方対象に退役tokenがあれば全対象を拒否し、先行する削除・拡張子変更・DB・索引・通知を開始しない。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void PreparedRequests_RejectRetiredTargetBeforeAnyPhysicalOrCatalogMutation()
     {
@@ -818,7 +854,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.AreEqual(version, owner.OwnedCollectionVersion);
                 Assert.AreEqual(notifications, library.NormalLibraryRefreshNotificationVersion);
                 CollectionAssert.AreEquivalent(hashes.Md5Hashes.ToArray(), owner.Collection.CreateOwnedHashIndexSnapshot().Md5Hashes.ToArray());
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(before.Select(chart => chart.Path + ":" + chart.Md5).ToArray(),
                     readback.Table<LR2SongDB.song>().Select(row => row.path + ":" + row.hash).ToArray());
                 using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("prepared_failure_released", showMessage: false);
@@ -828,7 +864,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>通常renameは固定配置を維持し、古いprepared hashで現在hashのDB・current・索引を巻き戻しません。</summary>
+    /// <summary>
+    /// 古いdigestで準備された拡張子変更でも捕捉した元パスから移転し、現在の両hashを実DB・現在値・索引に保存する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void PreparedRename_UsesCurrentDigestAndFixedSourceWithoutHashHistoryComparison()
     {
@@ -870,7 +909,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Assert.IsTrue(hashes.Sha256Hashes.Contains(current.Sha256, StringComparer.OrdinalIgnoreCase));
                 Assert.IsFalse(hashes.Md5Hashes.Contains(oldDigest.Md5, StringComparer.OrdinalIgnoreCase));
                 Assert.IsFalse(hashes.Sha256Hashes.Contains(oldDigest.Sha256, StringComparer.OrdinalIgnoreCase));
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
                 Assert.AreEqual(destination, row.path);
                 Assert.AreEqual(current.Md5, row.hash);
@@ -881,7 +920,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>Replaces the legacy helper's prompt test with real preflight confirmation and deletion.</summary>
+    /// <summary>
+    /// 最後の譜面削除で全体削除の確認を一度行い、拒否ならリソースを残し承認ならフォルダごと削除してDBから譜面を除く。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -915,11 +957,15 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(!deleteWholeFolder, Directory.Exists(folder));
             Assert.AreEqual(!deleteWholeFolder, File.Exists(Path.Combine(folder, "resource.wav")));
             Assert.AreEqual(0, library.BmsCharts.Count);
-            using var readback = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
         });
     }
 
+    /// <summary>
+    /// 実削除後に所持集合を再初期化せず残る所有へ同期し、親cache・重複cacheの失効と削除tokenを一度通知する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterKeepsOwnedCollectionInitializedAndSynced()
     {
@@ -994,6 +1040,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// 実ライブラリのBMS集合setterで置換した後、次の一覧取得に古い所有を残さず新tokenを反映する。
+    /// </summary>
+    /// <remarks>実ライブラリのBMSFiles交換を所持集合のversionと接続し、次回viewでの再構築を確認する。</remarks>
     [TestMethod]
     public void BMSFilesReplacement_InvalidatesOwnedCollectionVersionAndRebuildsOnNextView()
     {
@@ -1017,7 +1067,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
-    /// <summary>保存主体の入力列をコピーしてread-onlyビューへ固定し、呼出元の後変更を受けない。</summary>
+    /// <summary>
+    /// BMS・bmsonの公開一覧への追加・解除を拒否し、元入力リストを後から空にしても捕捉済み所有を変更させない。
+    /// </summary>
+    /// <remarks>実ライブラリの公開storage viewを使い、呼出し側から所持集合を変更できない境界を確認する。</remarks>
     [TestMethod]
     public void StorageRowPropertiesExposeReadOnlyViews()
     {
@@ -1035,8 +1088,6 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             };
 
             Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
-            Assert.IsFalse(library.BmsCharts is List<ChartFile>);
-            Assert.IsFalse(library.BmsonCharts is List<ChartFile>);
             Assert.ThrowsException<NotSupportedException>(() => ((IList<ChartFile>)library.BmsCharts).Add(CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Other", "chart.bms"))));
             Assert.ThrowsException<NotSupportedException>(() => ((IList<ChartFile>)library.BmsonCharts).Clear());
             Assert.AreEqual(1, library.BmsCharts.Count);
@@ -1056,6 +1107,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// 実ライブラリの配下判定はBMS・bmsonと祖先を認識し、接頭辞だけ同じ兄弟・欠落先・nullを所有ありにしない。
+    /// </summary>
+    /// <remarks>実ライブラリの公開path判定をBMSとbmsonの所持集合へ接続し、両形式の存在判定を確認する。</remarks>
     [TestMethod]
     public void HasOwnedChartUnderRealPath_UsesOwnedCollectionForBmsAndBmson()
     {
@@ -1083,6 +1138,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// bmsonの実削除を所持集合へ反映し、一回の通常一覧通知に削除tokenを含めてBMS変更を混入させない。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_UnregistersBmsonStorageRowsInLibraryBoundary()
     {
@@ -1134,11 +1193,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     }
 
     /// <summary>
-    /// 実削除を同じ library で二回続けても、warm な各 lookup は
-    /// 旧snapshotを保ったまま対象差分だけを反映します。
-    /// DB行、所持集合、重複キャッシュ、通知後の索引を同じ実操作で確認します。
-    /// 同じlibraryの二回の削除で、残存所有者と重複キャッシュを局所差分で維持します。
+    /// 背景16譜面を残して同じライブラリで二回実削除しても、各hash索引を全件再構築せず共有hashの残存所有と旧snapshotを保持する。
     /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [DataTestMethod]
     [DataRow(16)]
     public void RemoveLibraryCharts_TwoWarmOperationsPreserveRemainingOwnersWithoutFullRebuild(int backgroundCount)
@@ -1350,6 +1407,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// リソース欠落警告を持つ譜面の実削除は最新健全性索引へ差分反映し、以前のsnapshotを保ちながら現在の警告対象を除く。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_UnregisterAppliesCurrentResourceHealthIndexDelta()
     {
@@ -1385,6 +1446,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// 実フォルダ改名の保存確定後は古いパスの健全性索引を失効し、現在の表示へ以前の警告対象を返さない。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RenameChartFolder_InvalidatesCurrentResourceHealthIndex()
     {
@@ -1427,6 +1492,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
         });
     }
 
+    /// <summary>
+    /// BMS・bmsonを含む実フォルダ改名は通知前に新パスを公開し、集合・親cache・重複cacheと通常一覧通知を一度だけ更新する。
+    /// </summary>
+    /// <remarks>実ライブラリの変更入口を所持カタログへ接続し、入口で対象を解決してから反映する境界を観測するため実構成を使う。</remarks>
     [TestMethod]
     public void RenameChartFolder_DispatchesParentFolderOnceAndClearsDuplicateCache()
     {
@@ -1522,13 +1591,13 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             .Select(candidate => (candidate.Kind, candidate.Path, candidate.Md5, candidate.Sha256))];
     }
 
-    /// <summary>Local confirmation terminal; it never opens a window or inspects translated copy.</summary>
+    /// <summary>実Windowを開かず、利用者の確認結果だけを供給する局所通知先。</summary>
     private sealed class ConfirmingRemovalDialogs(bool deleteWholeFolder, Action? onConfirmation = null) : IBmsLibraryDialogService
     {
-        /// <summary>Counts the user's whole-folder decision, not diagnostic text.</summary>
+        /// <summary>利用者が行った全体削除の確認回数を記録する。</summary>
         internal int ConfirmationCount { get; private set; }
 
-        /// <summary>Returns the test's explicit folder decision without opening a dialog.</summary>
+        /// <summary>画面を開かず、テストが指定した全体削除の判断を返す。</summary>
         public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button,
             UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {

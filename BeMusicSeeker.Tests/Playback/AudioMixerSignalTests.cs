@@ -12,7 +12,7 @@ using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>production float source、mixer、SRC の native 信号経路を検証します。</summary>
+/// <summary>本番のfloat source・mixer・SRCを通るnative信号経路を検査します。</summary>
 [TestClass]
 [DoNotParallelize]
 public sealed class AudioMixerSignalTests
@@ -20,6 +20,8 @@ public sealed class AudioMixerSignalTests
     // MSTest が各テストの実行前に注入します。
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>実float入力の過大・微小・無音サンプルを左右出力へbit単位で維持し、native経路のクリップや精度低下を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_FloatInputPreservesOverRangeAndSmallSignal()
     {
@@ -40,6 +42,8 @@ public sealed class AudioMixerSignalTests
         }
     }
 
+    /// <summary>ゼロframe音源を正常に所有し、Playとseekを停止状態のまま扱い、mixer voiceを増やさず通常Disposeでdecoderを解放する。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_EmptyWaveLoadsAsStoppedSeekableSourceWithoutMixerVoice()
     {
@@ -81,6 +85,8 @@ public sealed class AudioMixerSignalTests
         Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
     }
 
+    /// <summary>複数sourceをfloatのまま加算してから最終gainを適用し、sourceごとのクリップで相殺結果を壊さない。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_SumsSourcesBeforeApplyingFinalGain()
     {
@@ -121,6 +127,8 @@ public sealed class AudioMixerSignalTests
         }
     }
 
+    /// <summary>開始と停止後の再開始の最初のframeを保持し、native ramp-inによる先頭音の減衰を防ぐ。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_NoRampinPreservesFirstFrameAndRestartFrame()
     {
@@ -140,6 +148,8 @@ public sealed class AudioMixerSignalTests
         Assert.AreEqual(0.375f, firstRestartFrame[1], 0.000001f);
     }
 
+    /// <summary>複数の昇降rateと帯域内toneで実SRC振幅の誤差を0.01dB以内に保ち、変換時の信号劣化を検出する。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_SrcToneAmplitudeStaysWithinPointZeroOneDecibel()
     {
@@ -181,6 +191,8 @@ public sealed class AudioMixerSignalTests
         }
     }
 
+    /// <summary>96kHzから48kHzへの変換で帯域外toneのaliasを－90dB以下に抑え、低域への折返し漏れを検出する。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_DownsamplingRejectsThirtyToFortyTwoKilohertzAliasesBelowMinusNinetyDecibels()
     {
@@ -219,6 +231,8 @@ public sealed class AudioMixerSignalTests
         }
     }
 
+    /// <summary>全品質・昇降rate・read分割・再演奏で数学的切上げ終端の最終frameを残し、その後にPCMを付け足さない。</summary>
+    /// <remarks>実NULL_DEVICEのsource・mixer・SRC接続を使い、managed代替では見えない出力PCMと資源所有を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeMixer_FiniteSourceEndsAtTheCeilingRateRatioFrame()
     {

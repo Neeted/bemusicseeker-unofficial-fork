@@ -13,6 +13,10 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class DistributionArtifactContractTests
 {
+    /// <summary>
+    /// 今回生成した成果物のmanifestを読み戻し、別実行の成果物や古い発行先を利用側へ渡す誤りを検出する。
+    /// </summary>
+    /// <remarks>実PowerShellで今回成果物のmanifestを生成・読取りする。固定旧版ZIPの識別は後続の二ケースが分担する。</remarks>
     [TestMethod]
     public void ManifestPassesCurrentPublishPathsToConsumers()
     {
@@ -47,6 +51,10 @@ $manifest = Read-DistributionArtifactManifest -ManifestPath $env:BMS_TEST_MANIFE
         Assert.AreEqual(fixture.CurrentPackagePath, document.RootElement.GetProperty("packagePath").GetString());
     }
 
+    /// <summary>
+    /// 固定したv2.1.6の実ZIPをサイズとSHA-256で識別し、別版や別内容を旧版受入試験へ渡さないことを確かめる。
+    /// </summary>
+    /// <remarks>実PowerShellの成果物入力境界を使う。旧版識別は固定配布ZIPそのものを読み、代替ビルドによる同一性確認へ弱めない。</remarks>
     [TestMethod]
     public void V216ArtifactIdentityRequiresPinnedSizeAndHashWithoutFallback()
     {
@@ -75,6 +83,10 @@ $artifact = Assert-V216ArtifactIdentity -MetadataPath {QuotePowerShellLiteral(me
             Path.GetFileName(document.RootElement.GetProperty("path").GetString()));
     }
 
+    /// <summary>
+    /// 固定ZIPのサイズ違い・同サイズの内容改変・候補不在をそれぞれ拒否し、不正キャッシュから代替入力へ切り替える誤りを検出する。
+    /// </summary>
+    /// <remarks>実PowerShellの成果物入力境界を使う。旧版識別は固定配布ZIPそのものを読み、代替ビルドによる同一性確認へ弱めない。</remarks>
     [TestMethod]
     public void V216ArtifactIdentityFailsClosedForSizeHashAndMissingCandidate()
     {

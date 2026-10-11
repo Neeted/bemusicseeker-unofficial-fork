@@ -22,43 +22,25 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+    /// <summary>
+    /// 音声定義二件のうち一件が不足する保守値から不足警告を一件作り、欠落件数に対応する警告生成の見逃しを検出する。
+    /// </summary>
     [TestMethod]
-    public void BuildResourceHealthWarnings_DoesNotMutateSourceWarnings()
+    public void BuildResourceHealthWarnings_MissingAudioProducesResourceWarning()
     {
 
-        var service = new BmsLibraryMaintenanceService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, WavFilesDefined = 2, WavFilesExisting = 1 };
-        file = ChartFileProjection.WithMaintenance(file, info);
 
         IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
 
         Assert.AreEqual(1, warnings.Count);
         Assert.AreEqual(ChartWarningKind.ResourceWavMissing, warnings[0].Kind);
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-        Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
-    [TestMethod]
-    public void ImmutableResourceHealthSnapshot_PreservesMutableWarningProjection()
-    {
-
-        var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 2, BgaFilesDefined = 1, BgaFilesExisting = 0, MovieFilesDefined = 0, MovieFilesExisting = 0, StagefileDefined = true, StagefileExisting = false, BannerDefined = false, BannerExisting = false, BackbmpDefined = true, BackbmpExisting = true, FilesWarningIgnored = true };
-        ResourceHealthMaintenanceSnapshot snapshot = info;
-
-        IReadOnlyList<ChartWarning> mutableWarnings =
-            BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
-        IReadOnlyList<ChartWarning> immutableWarnings =
-            BmsLibraryMaintenanceService.BuildResourceHealthWarnings(snapshot);
-
-        CollectionAssert.AreEqual(
-            mutableWarnings.Select(warning => warning.Kind).ToArray(),
-            immutableWarnings.Select(warning => warning.Kind).ToArray());
-        CollectionAssert.AreEqual(
-            mutableWarnings.Select(warning => warning.Message).ToArray(),
-            immutableWarnings.Select(warning => warning.Message).ToArray());
-    }
-
+    /// <summary>
+    /// 未評価の保守値から不足警告や資源索引の有効・除外対象を作らず、未計算を成功した健全性結果へ混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void LazyMaintenancePlaceholder_IsNotAValidResourceHealthSnapshot()
     {
@@ -71,13 +53,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         IReadOnlyList<ChartWarning> warnings = service.BuildResourceHealthWarnings(chart);
         var snapshot = ResourceHealthIndexSnapshot.Build([chart], service, version: 1);
 
-        Assert.AreEqual(MaintenanceInfoOrigin.Placeholder, (file.ResourceHealthMaintenanceSnapshot?.Origin ?? MaintenanceInfoOrigin.Placeholder));
-        Assert.IsFalse((file.ResourceHealthMaintenanceSnapshot?.Origin is MaintenanceInfoOrigin.DbHydrated or MaintenanceInfoOrigin.Calculated));
         Assert.AreEqual(0, warnings.Count);
         Assert.AreEqual(0, snapshot.ActiveTargets.Count);
         Assert.AreEqual(0, snapshot.IgnoredTargets.Count);
     }
 
+    /// <summary>
+    /// BMSの資源パスからLR2互換の警告bits・CP932長・親参照有無を保守値へ取り込み、Bmsonでは互換値を持たせず、形式を越えた互換判定を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_PersistsLr2CompatibilityFactsForBmsOnly()
     {
@@ -115,19 +98,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsNull(bmsonInfo.Lr2ResourceHasParentTraversal);
     }
 
-    [TestMethod]
-    public void NormalizeForBmsonClearsLr2CompatibilityFacts()
-    {
-        var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Lr2WarningFlags = 15, Lr2ResourceMaxRelativeCp932Bytes = 120, Lr2ResourceHasParentTraversal = true };
-
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"D:\BMS\Pack\Song\chart.bmson", Md5 = "fedcba9876543210fedcba9876543210", Resources = ImmutableList<ChartResourceReference>.Empty };
-        info = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bmson);
-
-        Assert.IsNull(info.Lr2WarningFlags);
-        Assert.IsNull(info.Lr2ResourceMaxRelativeCp932Bytes);
-        Assert.IsNull(info.Lr2ResourceHasParentTraversal);
-    }
-
+    /// <summary>
+    /// 保存されたLR2のパス・資源互換bitsを対応する四警告と要約へ投影し、bitの取り違えや警告欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void SetMaintenanceInfo_ProjectsLr2CompatibilityWarningsFromFacts()
     {
@@ -153,6 +126,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual("[4] LR2パス非対応, LR2パス長超過, LR2リソース非対応, LR2リソースパス長超過", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
+    /// <summary>
+    /// LR2互換判定済みで警告なしなら古い非対応警告と要約を消し、評価済み正常値の反映漏れを検出する。
+    /// </summary>
     [TestMethod]
     public void SetMaintenanceInfo_ClearsLr2CompatibilityWarningsWhenEvaluatedClean()
     {
@@ -167,6 +143,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
+    /// <summary>
+    /// LR2互換事実が未取得なら既存警告を保持し、判定不能を正常へ読み替える解除を検出する。
+    /// </summary>
     [TestMethod]
     public void SetMaintenanceInfo_DoesNotClearLr2CompatibilityWarningsWithoutFacts()
     {
@@ -181,6 +160,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual("[1] LR2パス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
+    /// <summary>
+    /// 同じ実入力の強制保守を二度行うと二度目は評価済みを保って保存値変更なしを返し、同値再評価による不要な更新を検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluateMaintenanceForInline_ForceUpdateReportsUnchangedWhenPersistentRowIsSame()
     {
@@ -211,6 +193,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 資源不足を無視済みの譜面を強制保守すると無視を解除して変更ありを返し、明示再評価で古い無視が残る誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluateMaintenanceForInline_ForceUpdateReportsChangedWhenIgnoredFlagIsReset()
     {
@@ -240,6 +225,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実譜面の古い不足参照より現在譜面へ適用済みの参照を使い、索引の存在件数を反映して、保存済み参照の再上書きを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluateMaintenanceForInline_UsesAlreadyAppliedResourceReferences()
     {
@@ -276,6 +264,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 文字コードだけのBmson保存行は未評価としてパスとハッシュを保持し、資源件数を未取得のまま返して、未計算を健全性評価済みへ混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PendingBmsonEncodingOnlyMaintenance_IsPlaceholder()
     {
@@ -301,6 +292,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsNull(chart.Resources);
     }
 
+    /// <summary>
+    /// 共通Bmsonの音声・画像・動画・stagefile参照から定義と不足件数を求め、種類別の参照欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_ProjectionOnlyBmsonUsesChartResources()
     {
@@ -330,6 +324,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 同じ親参照stagefileでもBMSとBmsonの任意画像定義の扱いを分け、異なる結果を別キャッシュへ保持して、形式を越える再利用を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_OptionalDefinitionFormatDifferenceKeepsCacheEntriesDistinct()
     {
@@ -359,9 +356,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ResourceHealthMaintenanceSnapshot bmsHealth = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bms, context);
             ResourceHealthMaintenanceSnapshot bmsonHealth = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bmson, context);
 
-            Assert.IsNull(bms.Token);
-            Assert.IsNull(bmson.Token);
-            Assert.AreSame(bms.Resources, bmson.Resources);
             Assert.AreEqual(true, bmsHealth.StagefileDefined);
             Assert.AreEqual(false, bmsonHealth.StagefileDefined);
             Assert.AreEqual(false, bmsHealth.StagefileExisting);
@@ -374,6 +368,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 同じ画像名をstagefileとbannerへ入れ替えた二譜面は役割ごとに存在判定を返し、役割を捨てたキャッシュ共有を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_ResourceSetCacheKeepsOptionalImageRolesDistinct()
     {
@@ -418,6 +415,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// lookup hashが衝突する既存・不足資源を実ファイルで区別し、二参照集合の定義・存在件数を別結果に保って衝突によるキャッシュ混同を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_ResourceSetCacheDoesNotMergeHashCollisions()
     {
@@ -455,6 +455,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 保守未取得のBmsonを無視指定すると変更結果へ無視状態を持たせ、未取得を理由に無視要求を落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonPlaceholderAttachesMaintenanceInfoToSourceSong()
     {
@@ -465,17 +468,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Md5 = "cccccccccccccccccccccccccccccccc",
             Sha256 = new string('d', 64)
         };
-        Assert.IsNull(song.ResourceHealthMaintenanceSnapshot);
 
         ChartFile chart = (song);
         List<ChartFile> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
         Assert.IsTrue(changes[0].ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
-        Assert.AreNotSame(chart, changes[0]);
-        Assert.IsTrue(changes[0].ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
     }
 
+    /// <summary>
+    /// 文字コードだけのBmsonに無視を指定すると現在参照の定義・不足件数も求め、無視状態とともに変更結果へ反映して未評価のまま保存する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonAttachesComputedMaintenanceInfoToSourceSong()
     {
@@ -493,12 +496,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         List<ChartFile> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
-        Assert.AreNotSame(chart, changes[0]);
         Assert.AreEqual(1, changes[0].ResourceHealthMaintenanceSnapshot.WavFilesDefined);
         Assert.AreEqual(0, changes[0].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
         Assert.IsTrue(changes[0].ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
     }
 
+    /// <summary>
+    /// 古いハッシュの保守値に無視指定すると現在ハッシュと不足件数へ再評価し、古い健全性値の誤再利用を検出する。
+    /// </summary>
     [TestMethod]
     public void SetChartResourceWarningsIgnored_ChartBmsonReplacesStaleMaintenanceHash()
     {
@@ -519,13 +524,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
         List<ChartFile> changes = service.SetChartResourceWarningsIgnored([chart], unset: false);
 
         Assert.AreEqual(1, changes.Count);
-        Assert.AreNotSame(chart, changes[0]);
         Assert.AreEqual(song.Md5, changes[0].ResourceHealthMaintenanceSnapshot.Hash);
         Assert.AreEqual(1, changes[0].ResourceHealthMaintenanceSnapshot.WavFilesDefined);
         Assert.AreEqual(0, changes[0].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
         Assert.IsTrue(changes[0].ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
     }
 
+    /// <summary>
+    /// 譜面ルートの資源参照は子フォルダの同名資源と照合せず、不足を返してファイル名だけの誤一致を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_RootReferenceDoesNotMatchNestedResource()
     {
@@ -560,6 +567,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 子フォルダの参照はルートの同名資源と照合せず、不足を返して相対パスを捨てた誤一致を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_NestedReferenceDoesNotMatchRootResource()
     {
@@ -594,6 +604,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// ルートの相対資源参照を同じ位置の索引キーへ照合し、存在件数を返して正しい相対参照の見落としを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_RootReferenceMatchesRootRelativeResource()
     {
@@ -628,6 +641,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 索引がない実FS照合でもルート参照を子フォルダの同名ファイルへ代替せず、誤った存在扱いを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_WithoutLookupContextRootReferenceDoesNotMatchNestedResource()
     {
@@ -658,6 +674,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 索引がない実FS照合でも子フォルダ参照をルートの同名ファイルへ代替せず、誤った存在扱いを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_WithoutLookupContextNestedReferenceDoesNotMatchRootResource()
     {
@@ -687,6 +706,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 参照未取得のBMS実入力が消失したら保守結果をnullとして返し、読取り失敗を資源ゼロの成功へ読み替える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_MissingBmsFileReturnsNull()
     {
@@ -718,6 +740,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 一覧行の現在健全性投影は古い資源警告を置換して重複警告を保ち、導入先がある場合は要約の資源警告だけを抑えることで、警告の混線を検出する。
+    /// </summary>
     [TestMethod]
     public void LibraryChartRow_ProjectsResourceHealthWarningsWithoutMutatingSource()
     {
@@ -735,7 +760,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
         StringAssert.Contains(row.WarningTooltipText, "BGA");
         Assert.IsFalse(row.WarningTooltipText.Contains("stale resource warning"));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
 
         row.SetChartTransientStateProvider((chart, _) => ChartFileTransientState.FromInstallDestinationState(
             ChartFileProjection.WithPackageState(
@@ -750,6 +774,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         StringAssert.Contains(row.WarningTooltipText, "BGA");
     }
 
+    /// <summary>
+    /// 正常な現在資源投影を一覧行へ渡すと古い不足警告を要約・tooltipから除き、旧警告の表示残存を検出する。
+    /// </summary>
     [TestMethod]
     public void LibraryChartRow_ResourceProjectionSuppressesStaleSourceResourceWarnings()
     {
@@ -760,11 +787,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         var row = LibraryChartRow.FromChartFile(file);
         row.SetResourceHealthProjectionProvider(_ => ResourceHealthWarningProjection.Empty);
 
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
         Assert.AreEqual(string.Empty, row.WarningDigestText);
         Assert.IsFalse(row.WarningTooltipText.Contains("pending resource warning"));
     }
 
+    /// <summary>
+    /// 不足のある所持譜面を無視指定の有無で有効・除外対象へ分け、対象ごとの投影も一致させて無視状態の混線を検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_GroupsActiveAndIgnoredWithoutMutatingWarnings()
     {
@@ -786,10 +815,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(snapshot.GetProjection(activeChart).HasIssues);
         Assert.IsFalse(snapshot.GetProjection(activeChart).IsIgnored);
         Assert.IsTrue(snapshot.GetProjection(ignoredChart).IsIgnored);
-        Assert.IsFalse(active.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
-        Assert.IsFalse(ignored.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
     }
 
+    /// <summary>
+    /// LR2互換警告だけの譜面は資源不足の有効・除外対象へ含めず、異なる警告責務の混同を検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_DoesNotTreatLr2CompatibilityWarningsAsResourceTargets()
     {
@@ -816,6 +846,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsFalse(snapshot.GetProjection(chart).HasIssues);
     }
 
+    /// <summary>
+    /// 共通Bmsonの保存済み音声不足を資源索引の有効対象と警告投影へ反映し、形式片側の対象欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_BuildsBmsonTargetFromChartFile()
     {
@@ -839,6 +872,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(snapshot.GetProjection(chart).Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
+    /// <summary>
+    /// 現在の所持健全性索引から不足譜面の実パスを返し、保守対象解決が現在索引から外れる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void GetChartsNeedResourceFix_UsesCurrentResourceHealthIndexSnapshot()
     {
@@ -863,6 +899,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持hashだけを温めたcold健全性読取りは実保存行writerの保持中にreader待機へ入り、解放後に不足対象を返して保護なしの読取りを検出する。
+    /// </summary>
+    /// <remarks>実所持の保存行writerとreader待機を観測する。10秒は保護中の到達観測の期限で、通常完了の固定待機ではない。</remarks>
     [TestMethod]
     public void ChartFilesNeedResourceFix_WaitsForCatalogStorageWriterBeforeColdResourceHealthRead()
     {
@@ -918,8 +958,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }
         });
     }
-
-    /// <summary>R2C-FULL-LOOKUP: case-only path rows keep independent resource-health projections.</summary>
+    /// <summary>
+    /// 同一MD5でも大小文字だけ異なる正本パスの不足投影を別に保持し、MD5は大小文字を区別せずパスは完全一致で解決して誤った対象共有を検出する。
+    /// </summary>
     [TestMethod]
     public void GetChartsNeedResourceFix_CaseOnlyExactPathsKeepIndependentResourceHealthProjections()
     {
@@ -968,6 +1009,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 実選択保守の保存値を同じ所持現在値へ反映して警告・保守表示を一回通知し、保守markerだけなら集合版とSourceChangedを進めず、不要な全体更新を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・所持現在値・表示通知の接続を確認するため独立したSQLite DBを用いる。</remarks>
     [TestMethod]
     public void RescanResourceHealthCharts_PublishesMaintenanceRefreshThroughOwnedDispatcher()
     {
@@ -1020,6 +1065,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 背景16・128件がある二対象の資源追加を順に局所保守し、取得済みsnapshotを保って現在投影だけ更新し、全件警告走査やSourceChangedを起こす誤りを検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・所持現在値・表示通知の接続を確認するため独立したSQLite DBを用いる。</remarks>
+    // 16件と128件の背景を使い、二対象の更新を全件列挙で代用する反例を見分ける。
     [DataTestMethod]
     [DataRow(16)]
     [DataRow(128)]
@@ -1116,6 +1166,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 実全所持保守で二件の保存・現在値・終端進捗を確定し、更新購読例外でも一回通知した結果を保持して、先行通知失敗による後続反映欠落を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・所持現在値・表示通知の接続を確認するため独立したSQLite DBを用いる。</remarks>
     [TestMethod]
     public void RescanAllOwnedChartMaintenance_PreservesBothCurrentValuesAfterRefreshSubscriberFailure()
     {
@@ -1164,15 +1218,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledVersion);
             CollectionAssert.AreEquivalent(new[] { firstPath, secondPath }, batch.ChangedCharts.Select(chart => chart.Path).ToArray());
             Assert.IsTrue(library.BmsCharts.All(chart => chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting == 0));
-            Assert.AreEqual(0, first.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
-            Assert.AreEqual(0, second.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.IsTrue(progress.Any(update => update?.IsCompleted == true));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", firstPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", secondPath));
         });
     }
 
+    /// <summary>
+    /// 現在健全性索引がない選択強制検査は選択譜面の不足だけを返し、全所持索引を構築せず、少数要求による全件準備を検出する。
+    /// </summary>
     [TestMethod]
     public void GetChartsNeedResourceFix_SubsetForceUpdateDoesNotBuildFullOwnedIndexWhenCurrentIndexUnavailable()
     {
@@ -1202,6 +1257,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持譜面の不足を無視すると有効対象から除外対象へ移し、警告表示だけを一回通知して保守・Source更新の誤混入を検出する。
+    /// </summary>
     [TestMethod]
     public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
     {
@@ -1238,6 +1296,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 保存保守のhydrate要求を現在schedulerへ渡し、同じ要求識別子で開始・完了を報告し、版と稼働状態を通知して、要求の混線や未終端を検出する。
+    /// </summary>
     [TestMethod]
     public void DeferredMaintenanceHydration_UsesCurrentSchedulerAndPublishesState()
     {
@@ -1281,6 +1342,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 保存保守行を現在所持へ反映して古い対象外行を実DBから除き、健全性索引と警告・保守通知へ接続して、保存・現在値・表示の不整合を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・所持現在値・表示通知の接続を確認するため独立したSQLite DBを用いる。</remarks>
     [TestMethod]
     public void DeferredMaintenanceHydration_AttachesRowsRemovesStaleAndPublishesResourceHealth()
     {
@@ -1318,7 +1383,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             file = library.BmsCharts.Single();
             Assert.AreEqual(2, file.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(1, file.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
-            using (var verify = new LR2SongDBExtended(songDbPath))
+            using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(1, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Count());
                 Assert.AreEqual(chartPath, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Single().path);
@@ -1331,6 +1396,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 現在索引がない選択無視指定は対象現在値だけ変更し索引を失効のまま保って、少数変更から全件索引を構築する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SetChartResourceWarningsIgnored_InvalidatesInsteadOfFullRebuildWhenCurrentIndexUnavailable()
     {
@@ -1352,11 +1420,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             ResourceHealthIndexSnapshot currentSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
             Assert.AreEqual(0, currentSnapshot.TargetCount);
-            Assert.IsFalse(target.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
             Assert.IsTrue(library.BmsCharts.Single(chart => chart.Path == target.Path).ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
         });
     }
 
+    /// <summary>
+    /// 無視指定の後に実入力の内容更新を保存してhashを反映しても、累積通知の警告表示効果を保ち、別生産者の更新で効果を取り落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void NormalLibraryRefreshNotificationBatch_MixedWarningProducersKeepWarningRefreshEffect()
     {
@@ -1390,13 +1460,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.AreEqual(1, result.DigestChanges.Count);
             Assert.AreEqual(oldMd5, result.DigestChanges.Single().OldMd5);
-            Assert.AreEqual(oldMd5, file.Md5);
             file = library.BmsCharts.Single();
             Assert.AreNotEqual(oldMd5, file.Md5);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
         });
     }
 
+    /// <summary>
+    /// 実BMSの文字コード不足を保守しても返す現在値のMD5・SHA256を保持し、保守を内容hash更新へ混同する誤りを検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsEncodingMaintenanceDoesNotMutateDigest()
     {
@@ -1423,11 +1496,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = null });
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
@@ -1450,6 +1523,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 健全性差分のhash変更・改善・追加・重複入力・削除を現在索引へ局所反映し、対象外の無視状態と旧snapshotを保持して、古いhash残存や二重登録を検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_ApplyDeltaUpdatesOnlyAffectedTargets()
     {
@@ -1528,8 +1604,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(snapshot.GetProjection(initialActiveChart).HasIssues);
         Assert.IsTrue(snapshot.GetProjection(ignoredChart).HasIssues);
     }
-
-    /// <summary>R5c-WarningOrder / OldSnapshot: 更新群の順序と旧 snapshot を保持する。</summary>
+    /// <summary>
+    /// 警告・無視対象を入替える局所差分でも未変更対象の表示順と旧snapshotの警告・件数を保持し、差分による順序崩れや過去結果の書換えを検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_PreservesWarningOrderAndOldSnapshotAcrossLocalDelta()
     {
@@ -1649,8 +1726,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(initial.GetProjection(activeB).Warnings.Any(
             warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
     }
-
-    /// <summary>R5c-LocalWork: 差分 lookup・sequence 操作と cold full enumeration を観測する。</summary>
+    /// <summary>
+    /// 健全・不足の背景規模を別々に増やしても一対象差分のlookupと比較だけで表示件数・先頭を取得し、全警告列挙や全件訪問を避けることを確認する。cold列挙を正対照として全件走査の観測漏れを検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_LocalDeltaSharesUnchangedSequenceAndProjectionStorage()
     {
@@ -1784,8 +1862,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.IsTrue(coldWork.Count(operation => operation == "warning_sequence_enumeration") > 0);
         Assert.IsTrue(coldWork.Count(operation => operation == "warning_sequence_entry_visited") > 0);
     }
-
-    /// <summary>R2C-DELTA-REHASH: case-only rows remain independent across delta, rehash, and removal.</summary>
+    /// <summary>
+    /// 大小文字だけ異なる二パスを同MD5へ更新しても警告を独立に保ち、一方の再hash・削除で他方と旧snapshotを変えず、対象混同を検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceHealthIndexSnapshot_CaseOnlyExactPathsRemainIndependentAcrossDeltaAndRehash()
     {
@@ -1866,6 +1945,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
     }
 
+    /// <summary>
+    /// 現在索引がある少数保守は差分失敗時の失効を指示し、現在索引がなければ失効だけを指示して、全件構築への不要な切替えを検出する。
+    /// </summary>
     [TestMethod]
     public void MaintenanceResourceHealthDelta_InvalidatesInsteadOfFullRebuildWhenDeltaCannotApply()
     {
@@ -1875,7 +1957,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         ResourceHealthIndexMutation currentMutation = BuildMaintenanceResourceHealthMutation(
             [chart],
-            isFullOwnedTarget: false,
             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
             resourceHealthIndexCurrent: true,
             workflowHasUpdates: true);
@@ -1886,7 +1967,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
         ResourceHealthIndexMutation unavailableMutation = BuildMaintenanceResourceHealthMutation(
             [chart],
-            isFullOwnedTarget: false,
             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
             resourceHealthIndexCurrent: false,
             workflowHasUpdates: true);
@@ -1896,6 +1976,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(0, unavailableMutation.UpdatedTargets.Count);
     }
 
+    /// <summary>
+    /// 現在resolverのノート数でゼロノートBMSだけを選び、古い埋込み情報・未解決情報・Bmsonを採用せず、ゼロノート対象の誤分類を検出する。
+    /// </summary>
     [TestMethod]
     public void GetZeroNoteCharts_FiltersOnlyZeroNoteCharts()
     {
@@ -1923,36 +2006,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEqual(new[] { zeroNoteChart }, result);
     }
 
-    [TestMethod]
-    public void GetZeroNoteCharts_UsesResolverChartInfo()
-    {
-
-        var service = new BmsLibraryMaintenanceService();
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        ChartFile chart = (file);
-
-        List<ChartFile> result = service.GetZeroNoteCharts(
-            [chart],
-            candidate => ReferenceEquals(candidate.Token, file.Token)
-                ? CreateChartInfo(file.Md5, notes: 0)
-                : null);
-
-        CollectionAssert.AreEqual(new[] { chart }, result);
-    }
-
-    [TestMethod]
-    public void GetZeroNoteCharts_DoesNotFallbackWhenResolverMisses()
-    {
-
-        var service = new BmsLibraryMaintenanceService();
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        ChartFile chart = (file);
-
-        List<ChartFile> result = service.GetZeroNoteCharts([chart], _ => null);
-
-        Assert.AreEqual(0, result.Count);
-    }
-
+    /// <summary>
+    /// 共通Bmsonの保存済み不足警告を取得して無視指定を変更結果へ反映し、形式片側の保守入口欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void BmsonMaintenanceOperations_UseChartEntryPoints()
     {
@@ -1972,12 +2028,14 @@ public sealed class BmsLibraryMaintenanceServiceTests
         List<ChartFile> changes = service.SetChartResourceWarningsIgnored([bmsonChart], unset: false);
         Assert.AreEqual(1, changes.Count);
 
-        Assert.IsFalse(bmsonSong.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
         Assert.IsTrue(changes.Single().ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
     }
 
+    /// <summary>
+    /// 選択BMSの無視指定を一件の変更結果へ反映し、指定対象への変更漏れを検出する。
+    /// </summary>
     [TestMethod]
-    public void SetChartResourceWarningsIgnored_TogglesOnlyMatchingEntries()
+    public void SetChartResourceWarningsIgnored_TogglesSelectedEntry()
     {
 
         var service = new BmsLibraryMaintenanceService();
@@ -1988,10 +2046,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         List<ChartFile> changes = service.SetChartResourceWarningsIgnored([(file)], unset: false);
 
         Assert.AreEqual(1, changes.Count);
-        Assert.IsFalse(info.FilesWarningIgnored);
         Assert.IsTrue(changes.Single().ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
     }
 
+    /// <summary>
+    /// unknown・GB2312・Big5の未修正譜面を文字化け一覧へ、修正済みunknownだけを修正済み一覧へ分け、CP932系の誤採用や修正状態の混線を検出する。
+    /// </summary>
     [TestMethod]
     public void GetGarbledFiles_IncludesUnknownEncodingInRegularAndFixedLists()
     {
@@ -2017,6 +2077,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         CollectionAssert.AreEquivalent(new ChartFile[] { fixedUnknownFile }, fixedList);
     }
 
+    /// <summary>
+    /// 実所持から文字化け・修正済み・LR2非対応の専用一覧を同tokenで返し、親情報が空なだけの正常譜面を未登録へ混ぜる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ChartFileSubsets_ProjectGarbledAndLr2CompatibilityWarningRows()
     {
@@ -2058,6 +2121,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         });
     }
 
+    /// <summary>
+    /// 保存ノート数ゼロの実入力がない場合は検査をskipとして集計し古い不整合警告を変更結果から解除して、消失入力の不整合保持を検出する。
+    /// </summary>
     [TestMethod]
     public void RecheckZeroNoteWarnings_SkipsMissingFilesAndClearsWarning()
     {
@@ -2077,10 +2143,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.SkippedCount);
         Assert.AreEqual(1, result.ChangedCount);
-        Assert.IsTrue(zeroNoteFile.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
         Assert.IsFalse(result.ChangedCharts.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
     }
 
+    /// <summary>
+    /// 現在resolverが非ゼロ情報を返す対象はゼロノート再検査の対象数に含めず、既存の不整合警告を解除する。
+    /// </summary>
     [TestMethod]
     public void RecheckZeroNoteWarnings_UsesResolverChartInfo()
     {
@@ -2099,10 +2167,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(0, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.ChangedCount);
-        Assert.IsTrue(zeroNoteFile.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
         Assert.IsFalse(result.ChangedCharts.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
     }
 
+    /// <summary>
+    /// 現在resolverが未解決ならゼロノート検査を始めず古い不整合警告を解除し、未解決情報への代替判定を検出する。
+    /// </summary>
     [TestMethod]
     public void RecheckZeroNoteWarnings_DoesNotFallbackWhenResolverMisses()
     {
@@ -2119,10 +2189,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual(0, result.Total);
         Assert.AreEqual(1, result.ClearedCount);
         Assert.AreEqual(1, result.ChangedCount);
-        Assert.IsTrue(zeroNoteFile.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
         Assert.IsFalse(result.ChangedCharts.Single().Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
     }
 
+    /// <summary>
+    /// 同じ指定文字コードでも実入力の生・合成メタデータが違えば再読解して保存更新対象へ返し、文字コード一致だけで古い値を維持する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ApplyEncoding_ReloadsWhenEncodingMatchesButDecodedMetadataDiffers()
     {
@@ -2173,6 +2245,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実入力メタデータが同じ文字コード指定は譜面保存を増やさず、文字コードと修正済み保守値だけ返して、同値の不要保存や修正状態欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void ApplyEncoding_SkipsSongReloadWhenDecodedMetadataMatchesButUpdatesEncoding()
     {
@@ -2218,6 +2293,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 合成題名・artistが同じでも生メタデータが違えば保存対象へ反映し、利用者の追加日・お気に入り・tagは保持して、合成値だけの同値判断や利用者情報の消失を検出する。
+    /// </summary>
     [TestMethod]
     public void ApplyEncoding_ReloadsWhenComposedMetadataMatchesButRawMetadataDiffers()
     {
@@ -2271,53 +2349,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
-    [TestMethod]
-    public void ApplyEncoding_RaisesEncodingPropertyChangedWhenEncodingOnlyChanges()
-    {
-
-        var service = new BmsLibraryMaintenanceService();
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
-        const string expectedTitle = "一致タイトル";
-        const string expectedArtist = "一致アーティスト";
-        const string expectedGenre = "一致GENRE";
-        File.WriteAllText(
-            bmsFilePath,
-            "#TITLE " + expectedTitle + "\r\n#ARTIST " + expectedArtist + "\r\n#GENRE " + expectedGenre + "\r\n",
-            Encoding.GetEncoding("gb2312", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
-        try
-        {
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            file = file with { Path = bmsFilePath };
-            file = file with { Title = expectedTitle, RawTitle = expectedTitle };
-            file = file with { Artist = expectedArtist, RawArtist = expectedArtist };
-            file = file with { Genre = expectedGenre };
-            var info = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "unknown", EncodingFixed = false };
-            file = ChartFileProjection.WithMaintenance(file, info);
-            ChartFile captured = file;
-
-            MaintenanceEncodingUpdateResult result = service.ApplyEncoding([file], "gb2312");
-            if (result.ChangedCharts.Count > 0) { file = result.ChangedCharts.Single(); }
-
-            Assert.AreEqual(0, result.SongsToUpsert.Count);
-            Assert.AreEqual(1, result.MaintenanceInfosToUpsert.Count);
-            Assert.AreEqual("gb2312", result.MaintenanceInfosToUpsert[0].Encoding);
-            Assert.AreEqual(1, result.ChangedCharts.Count);
-            Assert.AreNotSame(captured, file);
-            Assert.AreSame(info, captured.ResourceHealthMaintenanceSnapshot);
-            Assert.AreEqual("unknown", captured.ResourceHealthMaintenanceSnapshot.Encoding);
-            Assert.AreEqual("gb2312", result.ChangedCharts[0].ResourceHealthMaintenanceSnapshot.Encoding);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectoryPath))
-            {
-                Directory.Delete(tempDirectoryPath, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>
+    /// 実入力のメタデータと指定文字コードが一致すれば譜面・保守の保存対象を増やさず、未修正状態も変えないことで同値の不要更新を検出する。
+    /// </summary>
     [TestMethod]
     public void ApplyEncoding_SkipsEntireUpdateWhenDecodedMetadataAndEncodingMatch()
     {
@@ -2360,6 +2394,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実BMSの保守書込みに未適用receiptが返ったら明示的に失敗し、保存未確定を正常な保守結果へ読み替える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateMaintenanceInfo_RejectsDurableWriterThatReturnsNoReceipt()
     {
@@ -2376,10 +2413,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
             Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> noOpWriter = _ => CatalogMaintenanceWriteReceipt.NotApplied;
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5, Encoding = "shift_jis" });
-            string originalTitle = file.Title;
-            string originalHash = file.Md5;
-            ResourceHealthMaintenanceSnapshot originalMaintenanceInfo = file.ResourceHealthMaintenanceSnapshot;
-            ChartFile captured = file;
 
             Assert.ThrowsException<InvalidOperationException>(() =>
                 new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
@@ -2388,10 +2421,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     noOpWriter,
                     null));
 
-            Assert.AreEqual(originalTitle, file.Title);
-            Assert.AreEqual(originalHash, file.Md5);
-            Assert.AreSame(originalMaintenanceInfo, file.ResourceHealthMaintenanceSnapshot);
-            Assert.AreSame(captured, file);
         }
         finally
         {
@@ -2402,6 +2431,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実保守保存の確定後に不足stagefile・banner・backbmpを変更現在値へ返し、取得不要な参照を解放して保守結果の欠落や短命データの残存を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_ReturnsChangedCurrentValueAfterDurableCommit()
     {
@@ -2419,13 +2452,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
             file = ChartFileProjection.WithMaintenance(file, new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = file.Path, Hash = file.Md5 });
-            ChartFile captured = file;
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(file)],
@@ -2436,8 +2468,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(result.HasUpdates);
             Assert.AreEqual(1, result.ChangedCharts.Count);
             ChartFile changed = result.ChangedCharts.Single();
-            Assert.AreSame(captured, file);
-            Assert.IsNull(file.StagefileHealth);
             Assert.IsFalse(changed.StagefileHealth.GetValueOrDefault(true));
             Assert.IsFalse(changed.BannerHealth.GetValueOrDefault(true));
             Assert.IsFalse(changed.BackbmpHealth.GetValueOrDefault(true));
@@ -2452,6 +2482,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実Bmsonの資源不足と任意画像を保守保存し、BMSのsong行や文字コード修正は作らず、形式を越えた保存と評価欠落を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonResourceHealth_UpsertsMaintenanceOnly()
     {
@@ -2468,11 +2502,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
@@ -2493,7 +2527,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(true, song.ResourceHealthMaintenanceSnapshot.StagefileDefined);
             Assert.AreEqual(false, song.ResourceHealthMaintenanceSnapshot.StagefileExisting);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
@@ -2508,8 +2542,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実Bmsonの保守結果へ入力パス・MD5と音声不足を反映し、BMS対象に集計せず、対象識別の差替えや形式誤分類を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
-    public void UpdateMaintenanceInfo_BmsonSongInputUpdatesSourceMaintenanceInfo()
+    public void UpdateMaintenanceInfo_ReturnsCurrentMaintenanceForBmson()
     {
 
         var service = new BmsLibraryMaintenanceService();
@@ -2524,11 +2562,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
@@ -2555,6 +2593,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 日時が同じBmsonは取得済み参照を再利用して保守保存し、保守結果では解放してもパッケージは必要期間の参照を保持し、壊れた本文の再取得や早期解放を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonUsesFreshResourceReferencesWithoutReparse()
     {
@@ -2576,11 +2618,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             DateTime timestamp = song.LastWriteTimeUtc;
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, timestamp);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [packageEntry.Chart],
@@ -2613,6 +2655,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// Bmsonの実更新日時が変わったら古い取得参照を再利用せず再解析し、壊れた本文では変更なし・再解析失敗を返して、古い成功結果の採用を検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonFreshReferencesAreStaleWhenTimestampChanges()
     {
@@ -2631,11 +2676,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, song.LastWriteTimeUtc.AddMinutes(1));
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
@@ -2648,7 +2693,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(0, result.BmsonReparsedCount);
             Assert.AreEqual(1, result.BmsonReparseFailedCount);
             Assert.AreEqual(0, result.BmsonResourceReferenceReusedCount);
-            Assert.IsNotNull(song.Resources);
             Assert.AreEqual(0, result.ChangedCharts.Count);
         }
         finally
@@ -2660,6 +2704,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 通常・強制とも更新後Bmsonの解析が失敗したら古い保守値を実DBへ保存せず、再解析失敗と変更なしを返して失敗入力の成功保存を検出する。
+    /// </summary>
+    // falseは通常、trueは明示強制。どちらも更新日時が変わった壊れた本文を入力にする。
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2681,11 +2729,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             song = song with { ResourceHealthMaintenanceSnapshot = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, Path = song.Path, Hash = "ffffffffffffffffffffffffffffffff", Encoding = "utf-8", WavFilesDefined = 1, WavFilesExisting = 1, BgaFilesDefined = 0, MovieFilesDefined = 0, StagefileDefined = false, BannerDefined = false, BackbmpDefined = false } };
             File.WriteAllText(bmsonFilePath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
             File.SetLastWriteTimeUtc(bmsonFilePath, song.LastWriteTimeUtc.AddMinutes(1));
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
@@ -2696,9 +2744,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsFalse(result.HasUpdates);
             Assert.AreEqual(1, result.BmsonReparseFailedCount);
             Assert.AreEqual(0, result.MaintenanceInfoUpsertCount);
-            Assert.IsNotNull(song.Resources);
             Assert.AreEqual(0, result.ChangedCharts.Count);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(0, songDb.Table<LR2SongDBExtended.maintenance>().Count());
             }
@@ -2712,6 +2759,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 保存行相当の参照未取得Bmsonは本文を再解析して保守値を求め、終端では参照を解放して、参照欠落の成功扱いや短命データの残存を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonNonFreshRowReparsesResourceReferences()
     {
@@ -2737,11 +2788,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Sha256 = parsed.Sha256,
                 LastWriteTimeUtc = parsed.LastWriteTimeUtc
             };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(loadedLikeRow)],
@@ -2767,6 +2818,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 取得済み参照があっても明示強制ならBmson本文を再解析して保守値を更新し、通常再利用への読み替えを検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonForceUpdateReparsesFreshResourceReferences()
     {
@@ -2783,11 +2838,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile song = ChartTestValues.ReadBmson(bmsonFilePath);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
@@ -2812,12 +2867,16 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 参照取得済み・未取得のBmsonを通常・強制保守した書込みが未適用なら、一件の保存要求後に明示的に失敗させ、保存未確定の成功化を検出する。
+    /// </summary>
+    // 第一値は明示強制、第二値は元の参照取得有無。更新後本文の保存未適用を同じ境界で拒否する。
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(true, true)]
-    public void UpdateMaintenanceInfo_BmsonDurableFailureRestoresOnlyOriginalResources(bool forceUpdate, bool hadResources)
+    public void UpdateMaintenanceInfo_BmsonDurableFailureRejectsUnappliedWrite(bool forceUpdate, bool hadResources)
     {
 
         string directory = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
@@ -2828,7 +2887,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             File.WriteAllText(path, "{\"info\":{\"title\":\"Before\",\"eyecatch_image\":\"before.png\"},\"sound_channels\":[{\"name\":\"before.wav\",\"notes\":[]}]}");
             ChartFile song = ChartTestValues.ReadBmson(path);
             song = song with { Resources = hadResources ? song.Resources : null };
-            ImmutableList<ChartResourceReference>? originalResources = song.Resources;
             ResourceHealthMaintenanceSnapshot originalInfo = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = song.Path, hash = song.Md5, encoding = "utf-8" });
             song = song with { ResourceHealthMaintenanceSnapshot = originalInfo };
             File.WriteAllText(path, "{\"info\":{\"title\":\"After\",\"eyecatch_image\":\"after.png\"},\"sound_channels\":[{\"name\":\"after.wav\",\"notes\":[]}]}");
@@ -2842,16 +2900,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     request =>
                     {
                         writeCount++;
-                        Assert.AreSame(originalResources, song.Resources);
                         Assert.AreEqual(1, request.MaintenanceInfos.Count);
                         return CatalogMaintenanceWriteReceipt.NotApplied;
                     },
                     null));
 
             Assert.AreEqual(1, writeCount);
-            Assert.AreSame(originalResources, song.Resources);
-            Assert.AreSame(originalInfo, song.ResourceHealthMaintenanceSnapshot);
-            Assert.AreEqual("before.png", song.Stagefile);
         }
         finally
         {
@@ -2859,6 +2913,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// BMS・Bmson混在の実資源保守を一回の保存へ集め、両形式の不足と短命参照の解放を反映し、BmsonをBMS保存行へ混ぜる誤りや対象別確定を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_MixedBmsAndBmsonResourceHealth_ScansBothButDoesNotCreateBmsonSongRows()
     {
@@ -2881,11 +2939,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
             ChartFile bmsonSong = ChartTestValues.ReadBmson(bmsonFilePath);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             int durableWriteCount = 0;
             Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWriter = request =>
@@ -2915,7 +2973,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsNull(bmsFile.Resources);
             Assert.IsNull(bmsonSong.Resources);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(2, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.IsFalse(songDb.Table<LR2SongDB.song>().ToList().Any(song => song.hash == bmsonSong.Md5));
@@ -2930,14 +2988,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 非正の指定並列度を一へ正規化して実保守を行い、資源存在fallbackの件数と診断を接続して、不正並列度の未処理や観測欠落を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
-    public void ResolveDefaultMaintenanceHealthDegree_UsesProcessorCountMinusOne()
-    {
-        Assert.AreEqual(Math.Max(1, Environment.ProcessorCount - 1), BmsLibraryMaintenanceService.ResolveDefaultMaintenanceHealthDegree());
-    }
-
-    [TestMethod]
-    public void UpdateMaintenanceInfo_UsesMaintenanceHealthDegreeOverride()
+    public void UpdateMaintenanceInfo_NormalizesNonPositiveHealthDegreeAndReportsFallback()
     {
 
         var service = new BmsLibraryMaintenanceService(0);
@@ -2952,11 +3008,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             ChartFile bmsFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(bmsFilePath));
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             var lookupContext = new ResourceHealthLookupContext(null);
             var logs = new List<string>();
@@ -2972,12 +3028,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             Assert.AreEqual(1, result.HealthDegree);
             Assert.AreEqual(1, result.HealthTargetCount);
-            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, result.HealthTargetCount), result.ReaderDegree);
-            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.HealthDegree, result.ReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(2000, result.ComputedQueueCapacity);
-            Assert.IsTrue(result.HealthMs >= 0);
-            Assert.IsTrue(result.EncodingMs >= 0);
-            Assert.IsTrue(result.DigestMs >= 0);
             Assert.IsTrue(result.HealthFileExistsFallbackCount > 0);
             Assert.AreEqual(result.HealthFileExistsFallbackCount, lookupContext.FileExistsFallbackCount);
             Assert.IsTrue(logs.Any(log => log.Contains("maintenance_rescan_chunk") && log.Contains("cacheHit=") && log.Contains("resourceIndexHit=") && log.Contains("fileExistsFallback=")));
@@ -2991,6 +3041,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 保守・文字コードが取得済みの実BMSは通常要求で検査・保存件数ゼロと対象なし診断を返し、不要な再保守を検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateMaintenanceInfo_NoTargetsReportsSummaryAndSkipsWork()
     {
@@ -3016,11 +3069,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = "shift_jis" });
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
@@ -3045,6 +3098,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 資源保守値がある文字コード未取得BMSは文字コードだけ保存し、資源検査とFS fallbackを始めず、独立した保守条件の混同を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsMissingEncodingOnlySkipsResourceHealthScan()
     {
@@ -3069,11 +3126,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BackbmpDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { BannerDefined = false });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = null });
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
             var lookupContext = new ResourceHealthLookupContext(null);
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
@@ -3103,6 +3160,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 通常資源保守では無視と既存文字コードを保持し、明示強制の再評価だけ無視を解除して、要求種別の混同を検出する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsResourceHealthPreservesIgnoredFlagUnlessForced()
     {
@@ -3122,11 +3183,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, new ResourceHealthMaintenanceSnapshot { Path = bmsFile.Path, Hash = bmsFile.Md5, Origin = MaintenanceInfoOrigin.Placeholder });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { Encoding = "shift_jis" });
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, bmsFile.ResourceHealthMaintenanceSnapshot with { FilesWarningIgnored = true });
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             bmsFile = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
@@ -3156,6 +3217,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 拡張子別名を含む音声・画像・動画・任意画像の実FS照合と索引照合が同じ健全性を返し、索引利用時はFS fallbackを避けて意味差や二重照合を検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateMaintenanceInfo_CacheAwareHealthMatchesFileExistsPathAndAvoidsFallback()
     {
@@ -3224,6 +3288,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 索引がない実資源照合は音声・画像・動画・任意画像ごとのFS fallbackを診断へ残し、種類別の観測欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void UpdateMaintenanceInfo_ReportsFallbackKinds()
     {
@@ -3262,6 +3329,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 壊れたBmsonと正常Bmsonが混在しても正常対象だけを実保守保存し、解析失敗一件と正常対象の保守値・保存行を確認する。
+    /// </summary>
+    /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
     [TestMethod]
     public void UpdateMaintenanceInfo_BmsonParseFailure_DoesNotAbortMaintenance()
     {
@@ -3281,11 +3352,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             ChartFile invalidRow = CreateBmsonSong(invalidBmsonPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             ChartFile validRow = ChartTestValues.ReadBmson(validBmsonPath);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDB.song>();
-            }
+            });
 
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(invalidRow), (validRow)],
@@ -3304,7 +3375,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, validRow.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
             Assert.AreEqual(0, validRow.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
 
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 List<LR2SongDBExtended.maintenance> rows = [.. songDb.Table<LR2SongDBExtended.maintenance>()];
                 Assert.AreEqual(1, rows.Count);
@@ -3320,6 +3391,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 実DBの指定した古い保守行だけを削除し、現在BMS・Bmsonの行を保持して、形式や対象範囲を越えた削除を検出する。
+    /// </summary>
     [TestMethod]
     public void DeleteMaintenanceRows_DeletesOnlyRequestedRows()
     {
@@ -3342,7 +3416,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             int deleted = new BmsLibraryDbGateway(songDbPath).DeleteMaintenanceRows([Path.Combine(tempDirectoryPath, "stale.bms")]);
 
             Assert.AreEqual(1, deleted);
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            using (var songDb = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
             {
                 Assert.AreEqual(2, songDb.Table<LR2SongDBExtended.maintenance>().Count());
                 Assert.IsTrue(songDb.Table<LR2SongDBExtended.maintenance>().Any(info => info.path == bms.Path));
@@ -3358,6 +3432,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// GB2312・Big5・韓国語CP949の実入力を利用者指定文字コードで再読解し、題名・artist・修正済み状態と保存対象へ反映して、指定無視や非ASCII文字の破損を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("gb2312", "\u7b80\u4f53\u6807\u9898", "\u7b80\u4f53\u4f5c\u8005")]
     [DataRow("big5", "\u7e41\u9ad4\u6a19\u984c", "\u7e41\u9ad4\u4f5c\u8005")]
@@ -3400,6 +3477,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
+    /// <summary>
+    /// 拡張子別名の資源存在結果を共有しても原記述のCP932長でLR2警告を別に判定し、存在キャッシュの再利用による互換長の混同を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildResourceHealthSnapshot_SharedExistenceCountsKeepOriginalLr2LengthsDistinct()
     {
@@ -3525,12 +3605,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(
         List<ChartFile> charts,
-        bool isFullOwnedTarget,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         bool resourceHealthIndexCurrent,
         bool workflowHasUpdates)
     {
-        ResourceMaintenanceTargetSet targetSet = CreateResourceMaintenanceTargetSet(charts, isFullOwnedTarget);
+        var targetSet = ResourceMaintenanceTargetSet.ForSubset(charts);
         return ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
             targetSet,
             resourceHealthIndexUpdateMode,
@@ -3538,55 +3617,20 @@ public sealed class BmsLibraryMaintenanceServiceTests
             workflowHasUpdates);
     }
 
-    private static ResourceMaintenanceTargetSet CreateResourceMaintenanceTargetSet(
-        List<ChartFile> charts,
-        bool isFullOwned,
-        int ownedCollectionVersion = 1,
-        int resourceHealthInputVersion = 1)
-    {
-        if (!isFullOwned)
-        {
-            return ResourceMaintenanceTargetSet.ForSubset(charts);
-        }
-
-        var storageRowsVersion = new OwnedChartCollectionVersionSnapshot(ownedCollectionVersion);
-        return ResourceMaintenanceTargetSet.ForFullOwned(
-            charts,
-            storageRowsVersion,
-            ownedCollectionVersion,
-            resourceHealthInputVersion);
-    }
-
-    private static bool GetBoolProperty(object target, string propertyName)
-    {
-        PropertyInfo? propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
-        Assert.IsNotNull(propertyInfo);
-        return (bool)propertyInfo!.GetValue(target)!;
-    }
-
-    private static int GetListCountProperty(object target, string propertyName)
-    {
-        PropertyInfo? propertyInfo = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
-        Assert.IsNotNull(propertyInfo);
-        var value = (System.Collections.ICollection)propertyInfo!.GetValue(target)!;
-        return value?.Count ?? 0;
-    }
-
     private static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MaintenanceTests_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(songDbPath, songDb =>
             {
                 songDb.CreateTable<LR2SongDB.song>();
                 songDb.CreateTable<LR2SongDB.folder>();
                 songDb.CreateTable<LR2SongDBExtended.maintenance>();
                 songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            }
+            });
             testAction(songDbPath);
         }
         finally

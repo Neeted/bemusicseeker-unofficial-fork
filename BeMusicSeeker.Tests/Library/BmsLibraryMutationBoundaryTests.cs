@@ -16,6 +16,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMutationBoundaryTests
 {
+    /// <summary>
+    /// 保証：同じ操作scopeの確認不要警告は重複を集約してFlushまで保留し、実通知には対象パスを保持する。
+    /// </summary>
+    /// <remarks>実ライブラリのフォルダ変更から警告を生産し、dialog scopeとの実接続と集約を確認する。</remarks>
     [TestMethod]
     public void OperationDialogScope_QueuesOkMessagesUntilFlush()
     {
@@ -38,6 +42,10 @@ public sealed class BmsLibraryMutationBoundaryTests
         });
     }
 
+    /// <summary>
+    /// 保証：事前判断のない強制導入を変更scope内で呼ぶと拒否し、対話確認も保留パッケージの変更も開始しない。
+    /// </summary>
+    /// <remarks>実ライブラリ入口からscope境界の対話拒否と保留状態の保持を確認する。</remarks>
     [TestMethod]
     public void OperationDialogScope_RejectsInteractivePromptWhenPreflightDecisionIsMissing()
     {
@@ -67,7 +75,10 @@ public sealed class BmsLibraryMutationBoundaryTests
         });
     }
 
-    /// <summary>direct preparedの未承認候補をscope内へ持ち込んでも、従来の非OK拒否を緩めません。</summary>
+    /// <summary>
+    /// 保証：フォルダ削除の事前候補があっても明示承認がなければscope内で拒否し、実ファイル・DB・所持状態を保持する。
+    /// </summary>
+    /// <remarks>実事前準備と削除入口を接続し、手動の候補入力だけでは分からない承認不足時の無副作用を確認する。</remarks>
     [TestMethod]
     public void OperationDialogScope_RejectsPreparedRemovalWithoutExplicitFolderDecision()
     {
@@ -100,7 +111,7 @@ public sealed class BmsLibraryMutationBoundaryTests
                 Assert.AreEqual(0, filesystem.FileDeleteCalls);
                 Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
                 Assert.IsTrue(File.Exists(path));
-                using var readback = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(path, readback.Table<LR2SongDB.song>().Single().path);
                 Assert.AreEqual(1, library.BmsCharts.Count);
             }
@@ -111,6 +122,10 @@ public sealed class BmsLibraryMutationBoundaryTests
         });
     }
 
+    /// <summary>
+    /// 保証：強制導入を明示的に不承認としたら変更scope内でも再確認せず、対象保留パッケージを保持する。
+    /// </summary>
+    /// <remarks>実強制導入入口で事前決定とdialog scopeの接続を確認する。</remarks>
     [TestMethod]
     public void ForceInstallPendingPackages_WithExplicitOverrideDecisionDoesNotPromptInsideMutationScope()
     {
@@ -143,7 +158,10 @@ public sealed class BmsLibraryMutationBoundaryTests
         return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
-    /// <summary>表が0でも保存済み管理基点の実src/dst/祖先再帰変更はP競合で無副作用、非交差の変更はP保持中にも確定します。</summary>
+    /// <summary>
+    /// 保証：保存済み通常・追加・ルート形式の管理出力と移動元・移動先・祖先が交差する変更だけをP活動中に拒否し、非交差は確定する。
+    /// </summary>
+    /// <remarks>実ディレクトリ移動とDB更新を使い、交差拒否時の無副作用およびP解放後の明示再要求成功を観測する。</remarks>
     [DataTestMethod]
     [DataRow("normal", "source")]
     [DataRow("normal", "destination")]

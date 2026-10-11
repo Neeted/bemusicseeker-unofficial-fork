@@ -16,6 +16,10 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
 {
     private static readonly DateTime GeneratedAtUtc = new(2026, 6, 12, 0, 0, 0, DateTimeKind.Utc);
 
+    /// <summary>
+    /// 実LR2の91フォルダ定義を投影し、お気に入り・新曲・コース・ランダム・難易度分類の保存値と親階層を照合して実配布入力との互換退行を検出する。
+    /// </summary>
+    /// <remarks>実LR2定義の読取りとSQLiteへの反映を接続し、合成入力だけでは確認できない互換性を観測する。</remarks>
     [TestMethod]
     public void RealBuiltinCustomFolderFixture_ProjectsKnownLr2FolderRows()
     {
@@ -68,6 +72,10 @@ public sealed class Lr2BuiltinCustomFolderRealFixtureTests
             insane.parent);
     }
 
+    /// <summary>
+    /// 実LR2定義とfolderinfoから98行を保存し、分類タイトル・ディレクトリ時刻・子定義時刻を区別して親生成や時刻の混同を検出する。
+    /// </summary>
+    /// <remarks>実LR2定義の読取りとSQLiteへの反映を接続し、合成入力だけでは確認できない互換性を観測する。</remarks>
     [TestMethod]
     public void RealBuiltinCustomFolderFixture_SyncsCategoryRowsFromFolderInfoAndDirectoryMtime()
     {

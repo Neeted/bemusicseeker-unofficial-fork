@@ -9,6 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartMutationActivityOwnerTests
 {
+    /// <summary>
+    /// 保証：変更処理の入れ子では最外開始・最終解放だけを通知し、内側解放や同じ権限の再解放で活動状態を変えない。
+    /// </summary>
     [TestMethod]
     public void EnterAndRelease_PublishesOnlyOuterTransitions()
     {
@@ -29,6 +32,9 @@ public sealed class ChartMutationActivityOwnerTests
         CollectionAssert.AreEqual(new[] { true, false }, transitions);
     }
 
+    /// <summary>
+    /// 保証：複数threadの受付を保持してから全権限を解放すると非活動へ収束し、途中解放による早期終了や重複通知を防ぐ。
+    /// </summary>
     [TestMethod]
     public void ConcurrentLeases_ConvergeToInactiveWithoutUnderflow()
     {
@@ -70,6 +76,9 @@ public sealed class ChartMutationActivityOwnerTests
         Assert.AreEqual(2, notifications);
     }
 
+    /// <summary>
+    /// 保証：開始通知が失敗した受付は活動状態を戻し、受理されていない操作の活動を残さない。
+    /// </summary>
     [TestMethod]
     public void BeginNotificationFailure_RollsBackToInactive()
     {
@@ -88,6 +97,9 @@ public sealed class ChartMutationActivityOwnerTests
         Assert.IsFalse(owner.IsActive);
     }
 
+    /// <summary>
+    /// 保証：開始通知中に別の受付が成立してから通知が失敗しても、その生きた権限を巻き込んで解放しない。
+    /// </summary>
     [TestMethod]
     public void BeginNotificationFailure_DoesNotReleaseAConcurrentSurvivingLease()
     {
@@ -111,6 +123,9 @@ public sealed class ChartMutationActivityOwnerTests
         Assert.IsFalse(owner.IsActive);
     }
 
+    /// <summary>
+    /// 保証：最終解放通知が失敗しても非活動状態は成立し、同じ権限を再解放して活動数を壊さない。
+    /// </summary>
     [TestMethod]
     public void FinalReleaseNotificationFailure_LeavesOwnerInactive()
     {

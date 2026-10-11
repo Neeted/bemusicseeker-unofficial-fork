@@ -13,6 +13,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupLibraryProfileTests
 {
+    /// <summary>
+    /// 保証：同じプロファイルでライブラリを先に作り、そのライブラリへプレイリストを接続してから適用し、既存検索先に指定検索先を渡す。
+    /// </summary>
+    /// <remarks>本番の作成処理へ委譲して、プロファイルの受渡しだけでなく作成したプレイリストとライブラリの実接続を確認する。</remarks>
     [TestMethod]
     public void StartupLibraryConstructionOwner_CreatesLibraryThenPlaylistFromSameProfile()
     {
@@ -70,6 +74,10 @@ public sealed class StartupLibraryProfileTests
         }
     }
 
+    /// <summary>
+    /// 保証：LR2モードの構築では独立モード用検索先を適用せず、起動プロファイルのルートでLR2検索設定を上書きしない。
+    /// </summary>
+    /// <remarks>本番の作成処理へ委譲し、受信側ライブラリの検索先も空のままであることを観測する。</remarks>
     [TestMethod]
     public void StartupLibraryConstructionOwner_DoesNotApplySearchRootsForLr2Profile()
     {

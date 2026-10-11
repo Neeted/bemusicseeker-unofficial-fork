@@ -15,7 +15,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbSyncCommittedInputTests
 {
-    /// <summary>今回DB確定済みのパスだけ読取りを省き、混在する未確定パスの通常読取り・保存を維持します。</summary>
+    /// <summary>
+    /// 今回確定済みの一件だけ再読取りを省き、混在する未確定の一件は実読取り・解析・保存を通して対象全体を省略する誤りを検出します。
+    /// </summary>
+    /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
     [TestMethod]
     public void CommittedInputSongRowsSkipReaderAndCurrentnessRead()
     {
@@ -67,7 +70,11 @@ public sealed class Lr2SongDbSyncCommittedInputTests
         Assert.AreEqual("receipt processed", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", processedPath));
     }
 
-    /// <summary>空・単件・チャンク境界・順序枠超過でも確定入力の件数、cursor、永続完了と利用者属性を維持します。</summary>
+    /// <summary>
+    /// 空・単件・チャンク境界・順序枠超過の確定入力を再解析せず完了・カーソル・件数を保存し、末尾の処理欠落と利用者列の上書きを検出します。
+    /// </summary>
+    /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
+    /// <param name="rowCount">0と1、1000件の境界と末尾1001件、順序枠を超える10001件を分担します。</param>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(1)]

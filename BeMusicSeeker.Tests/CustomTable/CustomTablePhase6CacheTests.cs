@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTablePhase6CacheTests
 {
+    /// <summary>三列の指定幅と水平移動から可視列・対象列・幅変更の端を解決することを確認し、配置キャッシュの座標や表示範囲の計算誤りを検出します。</summary>
     [TestMethod]
     public void ColumnLayoutSnapshot_ResolvesVisibleColumnsAndResizeEdges()
     {
@@ -39,6 +40,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual(26d, resizeRect.X);
     }
 
+    /// <summary>移動量・可視幅・列参照のいずれかが変わると配置キャッシュを再利用しないことを確認し、古い配置で描画やヒット判定を行う誤りを検出します。</summary>
     [TestMethod]
     public void ColumnLayoutSnapshot_MatchesOnlySameViewportAndColumns()
     {
@@ -51,6 +53,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.IsFalse(snapshot.Matches([CreateColumn("A", 50)], 0d, 100d));
     }
 
+    /// <summary>行のReset通知では列配置キャッシュを保ってセル値だけ一世代失効させることを確認し、不要な配置再構築や更新後のセル値再利用を検出します。</summary>
     [TestMethod]
     public void CustomTableView_DataResetKeepsColumnLayoutSnapshot()
     {
@@ -82,6 +85,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>列条件を変えず行集合だけ交換したときは列配置キャッシュを再利用することを確認し、行更新のたびに列配置まで再構築する性能上の誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_DataOnlySourceSwapKeepsColumnLayoutSnapshot()
     {
@@ -99,6 +103,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>非表示中の行集合交換でセル値が失効した後は、再表示だけで追加失効せず列配置も保つことを確認し、同じ更新でキャッシュを二重に捨てる誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_HiddenSourceSwapDoesNotInvalidateAgainWhenShown()
     {
@@ -125,8 +130,9 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>非表示中に更新通知を観測しなかった場合は再表示でセル値を一回失効させることを確認し、見えない間の値変更を古いキャッシュで表示する誤りを検出します。</summary>
     [TestMethod]
-    public void CustomTableView_ShowAfterHiddenUntrackedMutationInvalidatesCellValuesOnce()
+    public void CustomTableView_ShowWithoutObservedHiddenChangeInvalidatesCellValuesOnce()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -148,6 +154,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>小さすぎる文字と行・見出し寸法は許容最小へ、NaNや無限大は既定へ補正することを確認し、保存設定の異常値で描画領域を壊す誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_CoercesAppearanceMetricsToSupportedRanges()
     {
@@ -174,8 +181,9 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <remarks>購読の開始と解除はWPFのLoaded・Unloadedで起きるため実Windowを使います。キャッシュの条件判断と値失効は同じクラスの下位ケースが担います。</remarks>
+    /// <summary>実表示した表の行交換状態が現在のDataContextだけに追随し、変更前とUnloaded後の主体からは通知を受けないことを確認し、古い主体の購読残留を検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CustomTableView_MainChartListLifecycleFollowsLoadedDataContext()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -221,6 +229,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>同じ行の文字とブラシは再取得せず、行失効後だけ更新して未定義背景も解除することを確認し、重複計算や古い強調表示の残留を検出します。</summary>
     [TestMethod]
     public void CellValueCache_ReusesValuesUntilRowInvalidated()
     {
@@ -276,6 +285,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual(2, backgroundCalls);
     }
 
+    /// <summary>sourceとセル失効の各世代が変わるたびに文字値を取り直すことを確認し、行参照が同じために旧世代の値を再利用する誤りを検出します。</summary>
     [TestMethod]
     public void CellValueCache_TreatsGenerationChangesAsMisses()
     {
@@ -307,6 +317,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual("3", third.Text);
     }
 
+    /// <summary>テキストセルの指定色を全文の描画区間へ変換することを確認し、描画経路でセル全体の強調色を失う誤りを検出します。</summary>
     [TestMethod]
     public void CellValueCreate_NormalizesColoredTextCellsToTextRuns()
     {
@@ -330,6 +341,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreSame(Brushes.Red, value.TextRuns[0].Foreground);
     }
 
+    /// <summary>既定色と同色の別ブラシ・アイコン・チェックセルには不要な文字区間を作らないことを確認し、通常描画や非文字セルへ強調用描画を混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void CellValueCreate_KeepsDefaultForegroundAndNonTextCellsWithoutSyntheticTextRuns()
     {
@@ -384,6 +396,7 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreEqual(0, CustomTableCellValue.Create(row, checkBoxColumn).TextRuns.Count);
     }
 
+    /// <summary>全文色があっても指定済みの部分色区間をそのまま採用することを確認し、履歴の前後など個別の強調範囲を全文色で上書きする誤りを検出します。</summary>
     [TestMethod]
     public void CellValueCreate_PreservesExplicitTextRuns()
     {
@@ -410,6 +423,8 @@ public sealed class CustomTablePhase6CacheTests
         Assert.AreSame(Brushes.Blue, value.TextRuns[0].Foreground);
     }
 
+    /// <remarks>区間色の変換は下位ケース、選択時にも見えることは実WPF描画で分担します。</remarks>
+    /// <summary>二つの文字区間の色が実描画に現れ、行選択と現在セルでも残ることを確認し、選択色で意味を持つ文字区間を消す誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_RendersCellTextRunsAndPreservesRunsForSelection()
     {
@@ -488,6 +503,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>幅指定なしのtooltipは元文字列、指定ありは指定幅で折り返す実TextBlockへ変換することを確認し、長い詳細の幅指定や折り返しを落とす誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_CreatesWrappedTooltipContentWhenWidthIsSpecified()
     {

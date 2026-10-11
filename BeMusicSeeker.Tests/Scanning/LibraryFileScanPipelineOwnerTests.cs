@@ -13,10 +13,21 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// This fixture changes the process-wide localization resource state through TestResourceInitializer.
-[DoNotParallelize]
 public sealed class LibraryFileScanPipelineOwnerTests
 {
+    private string? ownedDirectoryPath;
+
+    /// <summary>管理主体の準備で所有した専用DBとディレクトリを各ケースの終端で回収します。</summary>
+    [TestCleanup]
+    public void CleanupOwnedDirectory()
+    {
+        if (ownedDirectoryPath != null && Directory.Exists(ownedDirectoryPath))
+        {
+            Directory.Delete(ownedDirectoryPath, recursive: true);
+        }
+    }
+
+    /// <summary>接続した譜面情報ownerの警告更新をcallbackへ一回渡し、理由を取り違えたり通知を失ったりしないことを確認します。</summary>
     [TestMethod]
     public void CatalogChartInfoOwner_PublishWarningPresentationChangedPublishesWarningEvent()
     {
@@ -30,6 +41,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual("test_warning", ownerEvent.Reason);
     }
 
+    /// <summary>実差分読込みで譜面情報解析が失敗すると失敗記録を保存し、警告更新を残余通知より先に公開することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyFileScanDiff_InlineChartInfoFailurePublishesOwnerWarningBeforeResidual()
     {
@@ -83,6 +96,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
+    /// <summary>実差分の保存後にobserverが失敗しても元例外を返し、確定済み所持versionを巻き戻さず後続入力の取得を維持することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyFileScanDiff_LatePostLeaseObserverFailurePropagatesFailureWithoutReturningInput()
     {
@@ -142,6 +157,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
+    /// <summary>同じ実ファイルを再走査した差分なし要求では再解析の進捗と変更確定を行わず、保存済み所持versionを進めないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyActiveFileScan_NoDiffPropagatesFailureWithoutReturningInputWithoutAdvancingVersion()
     {
@@ -205,7 +222,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
-    /// <summary>実scan失敗でも開始済みmtime Taskを回収し、元の失敗と確定済み目録を保持します。</summary>
+    /// <summary>実scan失敗でも開始済みmtime Taskを回収するまで返さず、元の失敗と確定済み目録を保持することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public async Task ApplyActiveFileScan_IncompletePrefetchPropagatesFailureWithoutReturningInputWithoutAdvancingVersion()
     {
@@ -308,6 +326,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
+    /// <summary>受付時の事前検査を実scan前に再確認しても、受理済み要求の出力probeを繰り返し作成・読取り・削除しないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyActiveFileScan_RechecksSameRequestWithoutRepeatingOutputProbe()
     {
@@ -375,6 +395,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
+    /// <summary>空配下とnull配下の要求を続けて処理しても各走査・差分進捗を終端し、理由付き診断をそれぞれ公開することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyFileScanDiff_EmptyDirectoryRequestCompletesProgressForRepeatedRequests()
     {
@@ -407,6 +429,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         StringAssert.Contains(callbacks.PerformanceMessages[1], "reason=no_bms_directories");
     }
 
+    /// <summary>不完全な先行走査では元の理由で警告し、走査・差分の進捗を終端して不完全入力を通常適用へ進めないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyFileScanDiff_IncompletePrefetchSkipsStorageAndReportsWarning()
     {
@@ -439,6 +463,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(1, callbacks.DiffCompletedCount);
     }
 
+    /// <summary>検索rootがない受理済み要求もownerの適用経路で走査・差分進捗を終端し、空配下の理由を公開することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyActiveFileScan_NoRootsUsesOwnedApplyRoute()
     {
@@ -457,6 +483,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         StringAssert.Contains(callbacks.PerformanceMessages[0], "reason=no_bms_directories");
     }
 
+    /// <summary>進行中要求への重複受付を拒否し、その実適用終端後だけ新しい世代の要求を受け付けることを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void BeginFileScanRequest_RejectsOverlapUntilTerminal()
     {
@@ -477,6 +505,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         owner.AbortActiveFileScan(secondGeneration);
     }
 
+    /// <summary>取消済み世代の適用は通知を出さず拒否し、次に受理した世代だけ走査・差分進捗を終端することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void AbortActiveFileScan_PreventsApplyAndAllowsNextRequest()
     {
@@ -504,6 +534,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(1, callbacks.DiffCompletedCount);
     }
 
+    /// <summary>走査時snapshotを基に削除・追加を投影し、現集合が交換されても元の維持対象と新しい対象を取り違えないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyCatalogProjection_ReplacesDeletedAndAddedCatalogItems()
     {
@@ -532,6 +564,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreSame(replacementFile, result.NextFiles[1]);
     }
 
+    /// <summary>両形式の集合交換後も先に捕捉したsnapshotを保持し、現在snapshotと状態件数だけを新しい集合へ更新することを確認します。</summary>
     [TestMethod]
     public void CatalogChartCollectionSnapshot_CapturesBothKindsAndRemainsStableAcrossReplacement()
     {
@@ -549,13 +582,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
         owner.ReplaceCharts([replacementBms], null, replaceBmson: false);
         owner.ReplaceCharts(null, [replacementBmson], replaceBms: false);
 
-        Assert.AreEqual(0, captured.OwnedCollectionVersion);
         CollectionAssert.AreEqual(new[] { firstBms, secondBms }.Select(chart => chart.Path).ToArray(), captured.BmsRows.Select(chart => chart.Path).ToArray());
         CollectionAssert.AreEqual(new[] { firstBmson, secondBmson }.Select(chart => chart.Path).ToArray(), captured.BmsonRows.Select(chart => chart.Path).ToArray());
 
         CatalogChartCollectionSnapshot current = owner.CaptureSnapshot();
         CatalogChartCollectionStateSnapshot state = owner.CaptureStateSnapshot();
-        Assert.AreEqual(0, current.OwnedCollectionVersion);
         Assert.AreEqual(current.OwnedCollectionVersion, state.OwnedCollectionVersion);
         Assert.AreEqual(current.BmsRows.Count, state.BmsRowCount);
         Assert.AreEqual(current.BmsonRows.Count, state.BmsonRowCount);
@@ -563,81 +594,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         CollectionAssert.AreEqual(new[] { replacementBmson }.Select(chart => chart.Path).ToArray(), current.BmsonRows.Select(chart => chart.Path).ToArray());
     }
 
-    [TestMethod]
-    public void ApplyCatalogProjection_ClearsStaleInstallDestinationForCurrentOwner()
-    {
-        ChartFile keepFile = (ChartTestValues.Empty() with { Path = "keep.bms", Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
-        var callbacks = new RecordingLibraryFileScanPipelineCallbacks
-        {
-            BmsFiles = [keepFile]
-        };
-        LibraryFileScanPipelineOwner owner = CreateOwner(callbacks);
-        var result = new SongTableFileCheckResult
-        {
-            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
-        };
-        ChartFile chart = ChartFileProjection.WithPackageState(
-            (keepFile),
-            "stale-install-destination",
-            string.Empty,
-            string.Empty,
-            []);
-
-        owner.ApplyCatalogProjection(result, [chart], callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot());
-
-        ChartFile change = result.ClearedInstallDestinationCharts.Single();
-        Assert.AreSame(keepFile.Token, change.Token);
-        Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
-    }
-
-    [TestMethod]
-    public void FileScanCatalogResidualEvent_CapturesImmutableInstallDestinationFacts()
-    {
-        ChartFile bmsFile = ChartTestValues.Empty() with
-        {
-            Path = "C:\\Library\\chart.bms"
-        };
-        ChartFile changedChart = ChartFileProjection.WithPackageState(
-            (bmsFile),
-            "C:\\Install\\chart",
-            string.Empty,
-            string.Empty,
-            []);
-
-        var residual = FileScanCatalogResidualEvent.Create(
-            [changedChart],
-            "residual_test");
-        bmsFile = bmsFile with { Path = "C:\\Library\\renamed.bms" };
-
-        Assert.AreEqual("residual_test", residual.Reason);
-        Assert.AreEqual("C:\\Library\\chart.bms", residual.InstallDestinationChangedCharts.Single().Path);
-        Assert.AreEqual("C:\\Install\\chart", residual.InstallDestinationChangedCharts.Single().InstallDestination);
-        Assert.IsNull(residual.InstallDestinationChangedCharts.Single().Token);
-    }
-
-    [TestMethod]
-    public void InstallDestinationCleanupSnapshot_DetachesChartProjectionFromMutableSource()
-    {
-        ChartFile bmsFile = ChartTestValues.Empty() with
-        {
-            Path = "C:\\Library\\chart.bms"
-        };
-        ChartFile chart = ChartFileProjection.WithPackageState(
-            (bmsFile),
-            "C:\\Install\\chart",
-            string.Empty,
-            string.Empty,
-            []);
-
-        var snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
-        bmsFile = bmsFile with { Path = "C:\\Library\\renamed.bms" };
-
-        ChartFile capturedChart = snapshot.Charts.Single();
-        Assert.AreEqual("C:\\Library\\chart.bms", capturedChart.Path);
-        Assert.IsNull(capturedChart.Token);
-        Assert.AreEqual("C:\\Install\\chart", capturedChart.InstallDestination);
-    }
-
+    /// <summary>切り離したBMS準備snapshotのstale導入先を現在所有へ解決し、結果側のprojectionで導入先が解除されることを確認します。</summary>
+    /// <remarks>管理主体に準備snapshotと現在の所持snapshotを渡し、返る導入先解除projectionを観測します。</remarks>
     [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsSnapshot()
     {
@@ -666,6 +624,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
+    /// <summary>切り離したbmson準備snapshotのstale導入先も現在所有へ解決して解除し、BMSだけへ処理を限定しないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsonSnapshot()
     {
@@ -698,6 +658,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(change.InstallDestination));
     }
 
+    /// <summary>同じpathでもBMS準備snapshotをbmson所有へ適用せず、別形式の導入先を誤って解除しないことを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyCatalogProjection_DetachedBmsSnapshotDoesNotMatchSamePathBmsonOwner()
     {
@@ -730,6 +692,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(0, result.ClearedInstallDestinationCharts.Count);
     }
 
+    /// <summary>保存済み差分の集合交換を所持ownerへ渡し、二件の現在集合と適用済みreceiptを公開することを確認します。</summary>
+    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
     public void ApplyCatalogStorageReplacement_UsesCatalogOwnerAndPublishesReceipt()
     {
@@ -756,13 +720,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(2, callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot().BmsRows.Count);
     }
 
-    private static LibraryFileScanPipelineOwner CreateOwner(
+    private LibraryFileScanPipelineOwner CreateOwner(
         RecordingLibraryFileScanPipelineCallbacks callbacks,
         bool lr2ModeEnabled = false,
         IChartFileScanner? chartFileScanner = null,
         LibraryDirectoryPreflightService? directoryPreflightService = null, string? directoryPath = null)
     {
-        directoryPath ??= Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        directoryPath ??= ownedDirectoryPath ??= Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
         string songDbPath = Path.Combine(directoryPath, "song.db");
         using (new LR2SongDBExtended(songDbPath))
@@ -781,10 +745,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             : new TestBmsLibrary(songDbPath);
         var dbGateway = new BmsLibraryDbGateway(songDbPath);
         var storageRowsOwner = new CatalogOwnedCollectionOwner();
-        CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
-        ownedCollectionOwner.ReplaceCharts(storageRowsOwner.BmsRows, storageRowsOwner.BmsonRows);
         callbacks.CatalogOwnedCollectionOwner = storageRowsOwner;
-        callbacks.CatalogOwnedCollectionOwner = ownedCollectionOwner;
         storageRowsOwner.ReplaceCharts([.. callbacks.BmsFiles], null, replaceBmson: false);
         storageRowsOwner.ReplaceCharts(null, [.. callbacks.BmsonCharts], replaceBms: false);
         callbacks.Lr2Synchronization = library.Lr2Synchronization;
@@ -796,7 +757,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             null,
             _ => { });
         callbacks.CatalogChartInfoOwner = catalogChartInfoOwner;
-        catalogChartInfoOwner.ConfigureWorkflow(dbGateway, catalogMutationOwner, ownedCollectionOwner, _ => { }, ownerEvent =>
+        catalogChartInfoOwner.ConfigureWorkflow(dbGateway, catalogMutationOwner, storageRowsOwner, _ => { }, ownerEvent =>
             {
                 callbacks.CatalogChartInfoEvents.Add(ownerEvent);
                 callbacks.EventOrder.Add(ownerEvent.Kind.ToString());

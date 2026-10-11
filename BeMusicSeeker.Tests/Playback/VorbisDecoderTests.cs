@@ -25,6 +25,8 @@ public sealed class VorbisDecoderTests
         BassAudioRuntime.Shutdown();
     }
 
+    /// <summary>固定mono／stereo Oggをpinしたfloat参照PCMとbit単位で比較し、フレーム欠落・レート／配置変更・過大レベルのクリップを検出する。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow("nvorbis-1test.ogg", "nvorbis-1test-reference.f32", 1, 17318L)]
     [DataRow("nvorbis-3test.ogg", "nvorbis-3test-reference.f32", 2, 288094L)]
@@ -55,6 +57,8 @@ public sealed class VorbisDecoderTests
         }
     }
 
+    /// <summary>同形式の連結Oggの各linkを参照PCMと照合し、後半linkの欠落や境界での重複を防ぐ。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
     [TestMethod]
     public void DecodeOgg_ConcatenatesAValidSameFormatChain()
     {
@@ -80,6 +84,8 @@ public sealed class VorbisDecoderTests
         }
     }
 
+    /// <summary>チャンネル配置の異なる連結Oggを復号失敗として返し、単一形式に見せて音声を取り違えない。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
     [TestMethod]
     public void DecodeOgg_RejectsAChainedFormatChange()
     {
@@ -99,6 +105,8 @@ public sealed class VorbisDecoderTests
         }
     }
 
+    /// <summary>符号化入力がmanaged配列上限を超える場合に確保前に復号失敗を返し、桁あふれと巨大確保を防ぐ。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
     [TestMethod]
     public void DecodeOgg_PreservesEncodedInputArrayLimitWithoutAllocatingTheInput()
     {
@@ -108,6 +116,8 @@ public sealed class VorbisDecoderTests
         Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
     }
 
+    /// <summary>実native bridgeのABI・依存版・x64 Release構成をpinに照合し、異なる配布物の混入を検出する。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeBridge_ReportsThePinnedAbiAndBuild()
     {

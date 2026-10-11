@@ -14,11 +14,13 @@ using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>通常一覧の実folder rename、共有受付、失敗通知と停止時の収束を検証します。</summary>
+/// <remarks>実FS・SQLite・LR2終端を用い、物理成功後の終端失敗と表示通知の分担を確認します。compiled編集入口はMainWindowの混在選択caseが分担します。</remarks>
 [TestClass]
 public sealed class RegularChartFolderRenameTests
 {
 
-    /// <summary>実libraryの管理領域交差は、共有Pの競合を停止より先に検出し、物理変更・DB反映・予約を行いません。</summary>
+    /// <summary>実libraryの管理領域交差は共有Pの競合を再生停止前に拒否し、物理・DBを保持して予約せず、解放後の新しい明示要求だけを成功させることを確認します。</summary>
     [TestMethod]
     public void FolderRename_ManagedPlaylistBusyRejectsBeforePlaybackStopAndFreshRequestSucceeds()
     {
@@ -66,7 +68,9 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
+    /// <summary>終端抑止解除をgateで保持した実renameを停止が待ち、成功と永続終端失敗の両方で物理変更・通知回数・元失敗を回収して途中終了を検出します。</summary>
     [TestMethod]
+    // falseは正常終端、trueはfolder INSERT triggerによる永続終端失敗です。
     [DataRow(false)]
     [DataRow(true)]
     public void StopAsync_DrainsInFlightFolderRename(bool finalizationFails)
@@ -160,51 +164,72 @@ public sealed class RegularChartFolderRenameTests
             };
 
             Task renameTask = owner.RenameChartFolderAsync(request, destinationFolder);
-            suppressionEntered.Wait();
-
-            using var stopStarted = new ManualResetEventSlim();
-            Task stopTask = StartLongRunningAsync(async delegate
+            Task? stopTask = null;
+            try
             {
-                stopStarted.Set();
-                await owner.StopAsync();
-            });
-            stopStarted.Wait();
-            Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
-            Assert.IsFalse(renameTask.IsCompleted, "The rename must still be in flight while shutdown begins draining it.");
+                suppressionEntered.Wait();
 
-            releaseSuppression.Set();
-            stopTask.GetAwaiter().GetResult();
-            if (finalizationFails)
+                using var stopStarted = new ManualResetEventSlim();
+                stopTask = StartLongRunningAsync(async delegate
+                {
+                    stopStarted.Set();
+                    await owner.StopAsync();
+                });
+                stopStarted.Wait();
+                Assert.IsFalse(stopTask.Wait(TimeSpan.FromMilliseconds(250)));
+                Assert.IsFalse(renameTask.IsCompleted, "The rename must still be in flight while shutdown begins draining it.");
+
+                releaseSuppression.Set();
+                stopTask.GetAwaiter().GetResult();
+                if (finalizationFails)
+                {
+                    Exception? renameFailure = null;
+                    try
+                    {
+                        renameTask.GetAwaiter().GetResult();
+                    }
+                    catch (Exception exception)
+                    {
+                        renameFailure = exception;
+                    }
+                    Assert.IsNotNull(renameFailure, "The in-flight durable finalization failure must remain observable on the rename task.");
+                    StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
+                }
+                else
+                {
+                    renameTask.GetAwaiter().GetResult();
+                }
+                Assert.IsFalse(Directory.Exists(sourceDirectory));
+                Assert.IsTrue(Directory.Exists(destinationDirectory));
+                Assert.IsTrue(File.Exists(destinationChartPath));
+                Assert.AreEqual(
+                    finalizationFails ? 0 : 1,
+                    Volatile.Read(ref appliedCount),
+                    finalizationFails
+                        ? "A durable finalization failure must not apply a success refresh."
+                        : "The mutation notification must apply once after the gate is released.");
+                Assert.AreEqual(finalizationFails ? 1 : 0, dialogs.Messages.Count);
+            }
+            finally
             {
-                Exception? renameFailure = null;
+                releaseSuppression.Set();
                 try
                 {
                     renameTask.GetAwaiter().GetResult();
                 }
-                catch (Exception exception)
+                catch when (finalizationFails)
                 {
-                    renameFailure = exception;
+                    // 本文が元の永続終端失敗を検査済みで、ここでは開始Taskを回収します。
                 }
-                Assert.IsNotNull(renameFailure, "The in-flight durable finalization failure must remain observable on the rename task.");
-                StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
+                finally
+                {
+                    stopTask?.GetAwaiter().GetResult();
+                }
             }
-            else
-            {
-                renameTask.GetAwaiter().GetResult();
-            }
-            Assert.IsFalse(Directory.Exists(sourceDirectory));
-            Assert.IsTrue(Directory.Exists(destinationDirectory));
-            Assert.IsTrue(File.Exists(destinationChartPath));
-            Assert.AreEqual(
-                finalizationFails ? 0 : 1,
-                Volatile.Read(ref appliedCount),
-                finalizationFails
-                    ? "A durable finalization failure must not apply a success refresh."
-                    : "The mutation notification must apply once after the gate is released.");
-            Assert.AreEqual(finalizationFails ? 1 : 0, dialogs.Messages.Count);
         });
     }
 
+    /// <summary>共有LがBusyなら案内一回で物理変更と表示更新を行わず、解放だけでは再実行せず次の明示renameだけを成功させることを確認します。</summary>
     [TestMethod]
     public void FolderRename_FailsFastWhenSharedChartFileGateIsBusyWithoutRefresh()
     {
@@ -255,6 +280,7 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
+    /// <summary>管理領域外のrenameはplaylist通信とP受付が稼働中でも実ファイルを移し、無関係なPによる操作拒否を検出します。</summary>
     [TestMethod]
     public void FolderRename_RemainsAllowedWhilePlaylistCommunicationIsActive()
     {
@@ -306,6 +332,7 @@ public sealed class RegularChartFolderRenameTests
     }
 
 
+    /// <summary>最初のrename終端後は未処理の表示更新を待たず次のrenameを実行し、二つの物理移動と通知集約を確認して描画待ちによる受付停滞を検出します。</summary>
     [TestMethod]
     public void ExplicitFolderRenames_AfterFirstTerminalDoNotWaitForDisplayRefreshDrain()
     {
@@ -355,10 +382,8 @@ public sealed class RegularChartFolderRenameTests
 
             Task firstRename = owner.RenameChartFolderAsync(firstRequest, "first-destination");
             actionQueued.Wait();
-            firstRename.Wait();
             firstRename.GetAwaiter().GetResult();
             Task secondRename = owner.RenameChartFolderAsync(secondRequest, "second-destination");
-            secondRename.Wait();
             secondRename.GetAwaiter().GetResult();
 
             Assert.IsTrue(Directory.Exists(Path.Combine(libraryRoot, "first-destination")));
@@ -375,6 +400,7 @@ public sealed class RegularChartFolderRenameTests
     }
 
 
+    /// <summary>renameの表示更新をexecution laneに保留すると停止は未完了となり、予約処理後にrenameと停止を回収して未処理通知を残した終了を検出します。</summary>
     [TestMethod]
     public void FolderRename_StopAsyncDrainsQueuedRefresh()
     {
@@ -434,7 +460,9 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
+    /// <summary>実LR2終端SQL失敗では物理・譜面DBの成功分を保持して成功更新を出さず、通知失敗の有無によらず元SQL失敗と一回通知、作業解放後も保持するLを確認します。</summary>
     [TestMethod]
+    // falseは案内成功、trueは案内経路もIOExceptionを投げる条件です。
     [DataRow(false)]
     [DataRow(true)]
     public void FolderRename_Lr2FinalizationFailureDoesNotApplySuccessRefresh(bool reporterThrows)
@@ -501,7 +529,6 @@ public sealed class RegularChartFolderRenameTests
 
                 var table = new MainChartListViewModel();
                 int normalRefreshApplyCount = 0;
-                table.DisplayRefreshRequested += (_, _) => { };
                 using RegularChartListOwner owner = CreateOwner(
                     table,
                     CreateWorkspaceForOwner(),

@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -19,10 +20,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// Shutdown composition reaches the process-wide Settings.Default instance and shared dispatcher-owned state.
+// 標準compositionの購読と終端のBassAudioRuntime.Shutdownが共通資源へ到達するため、準備から解放まで並列化しません。
 [DoNotParallelize]
 public sealed class ShellShutdownWorkflowOwnerTests
 {
+    /// <summary>閉じる要求を連続しても同じ準備Taskと終端結果を共有し、二重停止を開始しません。</summary>
     [TestMethod]
     public async Task RepeatedWindowCloseRequestsShareOnePreparationAndCompletion()
     {
@@ -41,6 +43,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(owner.IsShutdownPrepared);
     }
 
+    /// <summary>起動時更新の停止準備に閉じる要求が重なっても、同じ準備理由を維持して閉鎖を許可します。</summary>
     [TestMethod]
     public async Task StartupUpdatePreparationAndWindowCloseShareCanonicalPreparation()
     {
@@ -58,19 +61,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(owner.IsShutdownPrepared);
     }
 
-    [TestMethod]
-    public async Task CoordinatedShutdownIsMarkedBeforePreparationCompletes()
-    {
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
-        bool marked = false;
-        ShellShutdownWorkflowOwner owner = CreateDirectOwner(viewModel, markShutdown: _ => marked = true);
-
-        ShellShutdownWorkflowCompletionReceipt receipt = await owner.RequestWindowCloseAsync();
-
-        Assert.IsTrue(receipt.PreparationSucceeded);
-        Assert.IsTrue(marked);
-    }
-
+    /// <summary>閉鎖準備後に終端処理を繰り返しても設定を一回だけ保存し、UI操作禁止状態を解除します。</summary>
     [TestMethod]
     public async Task TerminalResourceCleanupIsIdempotentAfterClosePreparation()
     {
@@ -87,7 +78,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
     }
 
-    // P09 amendment: production attachment, then latest runtime capture must precede the single durable save.
+    /// <summary>player終了で捕捉した最新の配置を一回だけ実XMLへ保存し、古い保存値・メモリ値の再保存を防ぎます。</summary>
     [TestMethod]
     public async Task TerminalSettingsPersistLatestPlayerCaptureOnlyOnce()
     {
@@ -129,6 +120,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>資源解放だけではアプリを終了せず、明示終了要求を設定保存後に一回だけ実行します。</summary>
     [TestMethod]
     public async Task TerminalApplicationShutdownIsExplicitAndRequestedOnlyOnceAfterCleanup()
     {
@@ -149,10 +141,12 @@ public sealed class ShellShutdownWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "settings_save", "application_shutdown" }, events);
     }
 
+    /// <summary>設定保存が失敗してもplayerを一回解放し、元例外をUIで一回通知して終端終了へ進みます。</summary>
+    /// <remarks>通知と保存の実Dispatcher所属が対象であり、Windowの寿命は不要です。Closeの実接続はMainWindowViewHostTestsが分担します。</remarks>
     [TestMethod]
     public void TerminalSettingsSaveFailureIsWarnedAndCleanupContinues()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             TestUiDispatcherHost.AwaitTaskOnDispatcher(RunAsync(), "settings-save-failure");
 
@@ -204,6 +198,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         });
     }
 
+    /// <summary>更新用停止準備を経由した終端処理でも注入した設定保存主体へ一回だけ保存し、通常Closeと異なる保存経路への逸脱を検出します。</summary>
     [TestMethod]
     public async Task StartupUpdateTerminalPathUsesTheSameSettingsSaveOwner()
     {
@@ -221,6 +216,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, settingsSession.SaveCount);
     }
 
+    /// <summary>UI委譲が失敗しても譜面停止と診断終了を待って元例外を返し、失敗の消費後には準備失敗を保ったままCloseを許可します。</summary>
     [TestMethod]
     public async Task DispatchFailureCompletesOnlyAfterShutdownDrainFallback()
     {
@@ -252,6 +248,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(close.CloseAllowed);
     }
 
+    /// <summary>譜面停止のgate中はCloseを完了せずUI操作を禁止し、gate解放後の終端処理で解除する順序を確認します。</summary>
     [TestMethod]
     public async Task PreparationWaitsForRegularChartStopBeforeAllowingClose()
     {
@@ -303,8 +300,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
         finally
         {
-            // Preserve the body failure if an assertion above aborts before the gate is released,
-            // then await the started shutdown so it cannot continue into another test.
+            // 本体の例外を保ちつつgateを必ず解放し、開始済み停止処理を次のケースへ残しません。
             regularChartStopRelease.TrySetResult(true);
             if (close != null)
             {
@@ -337,6 +333,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>Close準備後に接続したライブラリとプレイリストにも停止を伝え、L/Pの新規受付が再開する漏れを検出します。</summary>
     [TestMethod]
     public async Task LateAttachedCatalogsReceiveShutdownCancellation()
     {
@@ -368,6 +365,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>診断停止のgateを保持した間はCloseを完了せず、診断終端より先に閉鎖を許可する誤りを検出します。</summary>
     [TestMethod]
     public async Task WindowCloseAwaitsPerformanceDiagnosticsDrainOffTerminalExitHandler()
     {
@@ -394,6 +392,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(receipt.CloseAllowed);
     }
 
+    /// <summary>Close準備を経由せず終端処理へ進んでも、接続済みL/Pの取消と新規受付禁止を開始します。</summary>
     [TestMethod]
     public async Task TerminalCleanupStartsCancellationWhenClosePreparationWasBypassed()
     {
@@ -423,6 +422,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>更新確認が稼働中のCloseは更新Taskの終端まで準備を開始せず、更新なしの終端後に閉鎖を許可します。</summary>
     [TestMethod]
     public async Task WindowCloseWaitsForActiveStartupUpdateTerminalBeforePreparation()
     {
@@ -459,6 +459,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(owner.IsCloseAllowed);
     }
 
+    /// <summary>更新起動のhandshake待機中は停止準備を始めず、更新終端後には準備済みとなり、Close要求が成功してCloseを許可することを確認します。</summary>
     [TestMethod]
     public async Task StartupUpdatePublishesReadyBeforePreparationAndTerminalBeforeClose()
     {
@@ -525,6 +526,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(events.IndexOf("terminal") < events.IndexOf("close"));
     }
 
+    /// <summary>先にCloseを受理した後の遅延モード再起動要求は拒否し、設定保存・再起動・終了callbackを追加実行しません。</summary>
     [TestMethod]
     public async Task WindowCloseWinsAgainstDeferredOperationModeRestartRequest()
     {
@@ -563,6 +565,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, applicationShutdownCount);
     }
 
+    /// <summary>更新起動を受理済みのときは後続のモード再起動を保存せず拒否し、受理した更新だけを一回継続します。</summary>
     [TestMethod]
     public async Task AcceptedStartupUpdateRejectsLaterOperationModeRestartWithoutSaving()
     {
@@ -594,6 +597,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, aborted);
     }
 
+    /// <summary>モード再起動の受理後に更新起動handshakeが戻っても更新継続を中止し、再起動用保存と終端保存・明示終了を各一回実行します。</summary>
     [TestMethod]
     public async Task AcceptedOperationModeRestartInvalidatesLaterStartupUpdateContinuation()
     {
@@ -669,6 +673,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, applicationShutdownCount);
     }
 
+    /// <summary>停止開始callbackが例外を投げても取消と停止準備を終え、準備失敗を成功へ置換せずCloseを許可します。</summary>
     [TestMethod]
     public async Task CoordinatedShutdownFailureStillStartsCancellationFallback()
     {
@@ -688,6 +693,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.IsTrue(close.CloseAllowed);
     }
 
+    /// <summary>終端処理を繰り返しても接続済みplayerの終了は一回に留め、二重解放を検出します。</summary>
     [TestMethod]
     public async Task TerminalCleanupClosesPlaybackPlayerExactlyOnce()
     {
@@ -706,10 +712,12 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(1, player.CloseProcessCount);
     }
 
+    /// <summary>playerの非同期解放をUI外で完了してからUIで一回設定保存し、UIの停止待ちと解放前保存を防ぎます。</summary>
+    /// <remarks>実Dispatcherへの復帰とworker所属を観測します。実Windowの応答性はMainWindowViewHostTestsが分担します。</remarks>
     [TestMethod]
     public void TerminalAsyncPlayerCloseRunsOnWorkerBeforeUiSettingsSave()
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             TestUiDispatcherHost.AwaitTaskOnDispatcher(RunAsync(), "terminal-async-player-close");
 
@@ -750,6 +758,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         });
     }
 
+    /// <summary>詳細要求の取消Task終端だけでは停止準備を完了せず、稼働workerのidleを待ってから警告なしで完了します。</summary>
     [TestMethod]
     public async Task PreparationWaitsForDetailWorkerIdleAfterRequestCancellationBecomesTerminal()
     {
@@ -847,6 +856,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, warnings.Count);
     }
 
+    /// <summary>サマリー構築へ停止取消が届いても、構築の終端とidleより先には停止準備を完了しません。</summary>
     [TestMethod]
     public async Task PreparationWaitsForSummaryBuildAfterShutdownCancelsIt()
     {
@@ -923,6 +933,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         Assert.AreEqual(0, warnings.Count);
     }
 
+    /// <summary>実reload cleanupのgate保持中に停止開始を同期公開し、cleanup終端まで準備を完了させずGC・遅延警告も実行しません。</summary>
     [TestMethod]
     public async Task PreparationWaitsForRunningReloadCleanupAfterPendingCancellation()
     {
@@ -938,7 +949,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
             Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
             var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var shutdownMarked = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool shutdownRequested = false;
             int garbageCollectionCount = 0;
             viewModel = MainWindowViewModelTestFactory.Create(settings);
@@ -958,7 +968,6 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 markShutdown: _ =>
                 {
                     Volatile.Write(ref shutdownRequested, true);
-                    shutdownMarked.TrySetResult(true);
                 },
                 logShutdownWarning: warnings.Add);
             Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
@@ -971,7 +980,8 @@ public sealed class ShellShutdownWorkflowOwnerTests
 
             try
             {
-                await shutdownMarked.Task.ConfigureAwait(false);
+                // 同期dispatch委譲が戻った時点で確認し、markの通知待ちによって遅延を見逃しません。
+                Assert.IsTrue(Volatile.Read(ref shutdownRequested), "停止準備開始時点でcoordinated shutdownを公開します。");
                 Assert.IsFalse(cleanupIdle.IsCompleted);
                 Assert.IsFalse(preparation.IsCompleted);
             }
@@ -1023,6 +1033,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>導入処理の実受付内でgateを保持した間は取消後も停止準備を待ち、処理receiptの終端後に遅延警告なしで完了します。</summary>
     [TestMethod]
     public async Task PreparationWaitsForPackageInstallQueueReceiptAfterCancellation()
     {
@@ -1087,6 +1098,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>再走査の実受付内でgateを保持した間は停止準備を完了せず、receipt終端後にも元の準備理由を保ちます。</summary>
     [TestMethod]
     public async Task PreparationWaitsForMaintenanceReceiptAfterCancellation()
     {
@@ -1139,6 +1151,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>フォルダ変更の実受付内でgateを保持した間は停止準備を完了せず、receipt終端後にも元の準備理由を保ちます。</summary>
     [TestMethod]
     public async Task PreparationWaitsForFolderReceiptAfterCancellation()
     {
@@ -1189,6 +1202,7 @@ public sealed class ShellShutdownWorkflowOwnerTests
         }
     }
 
+    /// <summary>実プレイリスト出力の受付中にCloseすると取消後の出力Taskと受付cleanupを待ち、出力副作用を始めず以後のP受付も拒否します。</summary>
     [TestMethod]
     public async Task WindowClose_AwaitsActualPlaylistOutputAndAdmissionCleanupAfterCancellation()
     {
@@ -1245,6 +1259,169 @@ public sealed class ShellShutdownWorkflowOwnerTests
                 if (close != null) { await close; }
             }
             finally { viewModel?.SettingDialog.Dispose(); Directory.Delete(root, true); }
+        }
+    }
+
+    /// <summary>実構成の再起動失敗通知を保持した間は終端を完了せず、通知後に最小保存済みモード・履歴を維持して終了入口を一度実行します。</summary>
+    [TestMethod]
+    public void ComposedOperationModeRestartFailureAwaitsNotificationBeforeTerminalCompletion()
+        => RunComposedRestartFailure(notificationUnavailable: false, notificationThrows: false);
+
+    /// <summary>実構成の再起動失敗を通知できなくてもreportへ到達し、終端を完了してモード・履歴を保存し、無関係なdraftを保存しません。</summary>
+    [TestMethod]
+    public void ComposedOperationModeRestartNotificationUnavailableCompletesTerminal()
+        => RunComposedRestartFailure(notificationUnavailable: true, notificationThrows: false);
+
+    /// <summary>実構成の再起動失敗通知Taskが例外でもreportへ到達し、終端を完了してモード・履歴を保存し、無関係なdraftを保存しません。</summary>
+    [TestMethod]
+    public void ComposedOperationModeRestartNotificationExceptionCompletesTerminal()
+        => RunComposedRestartFailure(notificationUnavailable: false, notificationThrows: true);
+
+    /// <summary>Windowの実Close接続は上位成功ケースへ任せ、実compositionの再起動・通知・report接続と通知待機、専用XMLの最小保存を観測します。</summary>
+    private static void RunComposedRestartFailure(bool notificationUnavailable, bool notificationThrows)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = Path.Combine(Path.GetTempPath(), "composed-restart-failure-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            string settingsPath = Path.Combine(root, "user.config");
+            Settings settings = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+            settings.OperationModeLR2DB = false;
+            settings.PlayHistorySelectedDisplayTargetIdentity = "history-initial";
+            settings.ShowScoreViewerRegisterConfirmMsg = false;
+            settings.Save();
+            var settingsSession = new PersistentRestartSettingsSession(settings);
+            var startFailure = new InvalidOperationException("replacement-process-start-marker");
+            var lifetime = new FailedRestartLifetime(startFailure);
+            var notificationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notificationRelease = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dialogs = new FileDbReportRecordingDialogs
+            {
+                MessageHandler = _ =>
+                {
+                    notificationEntered.TrySetResult();
+                    return notificationRelease.Task;
+                }
+            };
+            var reportedFailures = new List<Exception>();
+            var composition = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                defaultBmsPlayerFactory: () => new FakeBmsPlayer(),
+                uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: lifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
+                restartFailureDialogs: dialogs,
+                reportRestartFailure: reportedFailures.Add);
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
+            ShellShutdownWorkflowOwner owner = viewModel.ShellShutdownWorkflow;
+            Task<bool>? modeRequest = null;
+            Task<ShellShutdownWorkflowCompletionReceipt>? close = null;
+            Task? terminal = null;
+            async Task FinishAcceptedCloseAsync(Task<ShellShutdownWorkflowCompletionReceipt> preparation)
+            {
+                ShellShutdownWorkflowCompletionReceipt receipt = await preparation;
+                Assert.IsTrue(receipt.PreparationSucceeded);
+                Assert.IsTrue(receipt.CloseAllowed);
+                await owner.CompleteTerminalShutdownAsync();
+            }
+            void OnRestartRequested()
+            {
+                close = owner.RequestWindowCloseAsync();
+                terminal = FinishAcceptedCloseAsync(close);
+            }
+            owner.OperationModeRestartRequested += OnRestartRequested;
+            try
+            {
+                // 再起動の最小保存で、この未確定draftをXMLへ混ぜてはいけません。
+                viewModel.SettingDialog.ShowScoreViewerRegisterConfirmMsg = true;
+                modeRequest = owner.RequestOperationModeRestartAsync(new OperationModeRestartRequest(true, "history-initial"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(modeRequest, "composed-restart.mode-admission");
+                Assert.IsTrue(modeRequest.Result);
+                Assert.IsNotNull(close);
+                Assert.IsNotNull(terminal);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, terminal, "composed-restart.failure-notification"),
+                    "composed-restart.notification-arrival");
+                Assert.IsFalse(terminal.IsCompleted, "通知Taskの実終端まで終了処理を待ちます。");
+                Assert.AreEqual(1, lifetime.RestartCount);
+                Assert.AreEqual(0, lifetime.ShutdownCount);
+                Assert.AreEqual(1, settingsSession.ModeSaveCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, Resources.Error_RestartApplicationFailed);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, startFailure.Message);
+                if (notificationThrows)
+                {
+                    notificationRelease.TrySetException(new IOException("restart-notification-marker"));
+                }
+                else
+                {
+                    notificationRelease.TrySetResult(notificationUnavailable
+                        ? UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+                        : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "composed-restart.terminal-completion");
+                Assert.AreEqual(notificationUnavailable || notificationThrows ? 1 : 0, reportedFailures.Count);
+                Assert.AreEqual(0, lifetime.ShutdownCount);
+                // 明示終了入口の呼出し順は上位MainWindow成功ケースが保証し、ここでは入口の一回性を確認します。
+                owner.RequestTerminalApplicationShutdown();
+                owner.RequestTerminalApplicationShutdown();
+                Assert.AreEqual(1, lifetime.ShutdownCount);
+                Assert.AreEqual(1, lifetime.RestartCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
+                Settings persisted = PortableSettingsPersistenceTests.OpenSettings(settingsPath);
+                Assert.IsTrue(persisted.OperationModeLR2DB);
+                Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
+                Assert.IsFalse(persisted.ShowScoreViewerRegisterConfirmMsg);
+            }
+            finally
+            {
+                notificationRelease.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                try
+                {
+                    if (modeRequest != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(modeRequest, "composed-restart.mode-cleanup"); }
+                    close ??= owner.RequestWindowCloseAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(close, "composed-restart.close-cleanup");
+                    terminal ??= owner.CompleteTerminalShutdownAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "composed-restart.terminal-cleanup");
+                }
+                finally
+                {
+                    owner.OperationModeRestartRequested -= OnRestartRequested;
+                    viewModel.SettingDialog.Dispose();
+                    viewModel.RegularChartList.Dispose();
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+        });
+    }
+
+    /// <summary>実再起動境界を失敗させ、最終終了入口の呼出し回数を記録します。</summary>
+    private sealed class FailedRestartLifetime(Exception startFailure) : IApplicationLifetimePort
+    {
+        internal int RestartCount { get; private set; }
+        internal int ShutdownCount { get; private set; }
+        public bool IsFirstStartup => false;
+        public void CompleteFirstStartup() { }
+        public void MarkCoordinatedShutdownStarted(string reason) { }
+        public void RequestShutdown() => ShutdownCount++;
+        public Task RestartApplicationAsync() { RestartCount++; return Task.FromException(startFailure); }
+    }
+
+    /// <summary>実XML保存へ委譲し、通常保存とモード専用保存を区別して記録します。</summary>
+    private sealed class PersistentRestartSettingsSession(Settings settings) : ISettingsEditSession
+    {
+        private readonly SettingsEditSession inner = new(settings);
+        internal int SaveCount { get; private set; }
+        internal int ModeSaveCount { get; private set; }
+        public Settings Values => inner.Values;
+        public void Reload() => inner.Reload();
+        public void Save() { SaveCount++; inner.Save(); }
+        public void SaveOperationModeForRestart(bool mode, string historyIdentity)
+        {
+            ModeSaveCount++;
+            inner.SaveOperationModeForRestart(mode, historyIdentity);
         }
     }
 

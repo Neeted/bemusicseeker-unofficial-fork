@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ThemedMessageBoxTests
 {
+    /// <summary>各ボタン集合と全旧結果を組み合わせ、不成立の既定応答をCancel/Noへ正規化して未承認の肯定を防ぎます。</summary>
     [TestMethod]
     public void NormalizeDefaultResult_CoversEveryButtonAndResultCombination()
     {
@@ -56,6 +57,7 @@ public sealed class ThemedMessageBoxTests
             ThemedMessageBox.NormalizeDefaultResult((MessageBoxButton)999, MessageBoxResult.OK));
     }
 
+    /// <summary>旧結果のOKとYesだけを肯定と扱い、取消・閉鎖・Retry等を操作許可へ誤変換しません。</summary>
     [TestMethod]
     public void IsAffirmative_CoversEveryLegacyMessageBoxResult()
     {
@@ -69,6 +71,7 @@ public sealed class ThemedMessageBoxTests
         Assert.IsFalse(ThemedMessageBox.IsAffirmative(MessageBoxResult.Ignore));
     }
 
+    /// <summary>旧結果の肯定・否定・取消をtrue/false/nullへ分け、取消や閉鎖を明示否定と取り違えません。</summary>
     [TestMethod]
     public void ToConfirmationResponse_CoversEveryLegacyMessageBoxResult()
     {

@@ -32,8 +32,12 @@ public sealed class ReleaseScriptVersionSourceTests
 
     private sealed record ProcessCleanupResult(bool Succeeded, bool FoundResidual, string Diagnostic);
 
+    /// <summary>
+    /// mainより複数commit先でもAssemblyInformationalVersionからdraftと資産manifestを生成し、生成物以外の変更のcommitやremote mainの先行更新を検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
     [TestMethod]
-    public void CreateDraftUsesAssemblyVersionAndCommitsOnlyGeneratedFilesWithMultipleAheadCommits()
+    public void CreateDraftUsesAssemblyInformationalVersionAndCommitsOnlyGeneratedFilesWithMultipleAheadCommits()
     {
         using var fixture = ReleaseFixture.Create(includeMetadata: true, includeCompatibilityFile: false);
         fixture.AddCommit("source-a.txt", "first ahead commit");
@@ -65,6 +69,10 @@ public sealed class ReleaseScriptVersionSourceTests
         AssertManifestAsset(assets[1], fixture.MetadataPackagePath, "app-with-metadata", true);
     }
 
+    /// <summary>
+    /// 互換versionファイルがない通常packageだけの入力でdraftを作成し、退役した版取得経路を必須にする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void CreateDraftDoesNotRequireCompatibilityVersionFile()
     {
@@ -77,6 +85,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreEqual(fixture.HeadCommit(), fixture.LocalTagCommit(Tag));
     }
 
+    /// <summary>
+    /// 互換versionファイルが残る入力でもその内容を保持し、新版の正本値で旧互換データを書き換える誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void CreateDraftLeavesCompatibilityVersionFileUnchanged()
     {
@@ -90,6 +102,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreEqual(before, File.ReadAllText(compatibilityPath));
     }
 
+    /// <summary>
+    /// 既存manifestが同じreleaseなら公開時刻を保持し、別releaseなら更新することで、再実行による時刻の改変と別版の時刻流用を検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -117,6 +133,10 @@ public sealed class ReleaseScriptVersionSourceTests
         }
     }
 
+    /// <summary>
+    /// 通常app・metadata packageがともにない入力はdraft生成を拒否し、tagや生成commitを残さない。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
     [TestMethod]
     public void CreateDraftRequiresNormalPackage()
     {
@@ -130,8 +150,12 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreEqual(fixture.InitialHead, fixture.HeadCommit());
     }
 
+    /// <summary>
+    /// draft公開成功時の公開状態・remote mainのHEAD一致と編集引数を確認し、本文や題名を再指定する誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
     [TestMethod]
-    public void PublishDraftPublishesAssetsBeforePushingMainAndThenVerifiesRemoteHead()
+    public void PublishDraftPublishesReleaseUpdatesRemoteMainAndUsesOnlyDraftEditArgument()
     {
         using var fixture = ReleaseFixture.Create(includeMetadata: true, includeCompatibilityFile: true);
         AssertSuccess(fixture.RunRelease("-CreateDraft"));
@@ -155,6 +179,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.IsFalse(releaseEdits[0].Contains("--title", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// tag・HEAD・ZIPの内容・manifest・remote資産が一致しない各入力で公開とmain更新を止め、未確認資産を正式配信へ進める誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [DataTestMethod]
     [DataRow("head")]
     [DataRow("remote-tag")]
@@ -217,6 +245,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("--draft=false", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// remote mainが独立に進んだ入力では資産公開前に拒否し、非祖先の履歴へ正式releaseを押し込む誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void PublishDraftRejectsNonAncestorRemoteMainBeforePublishingAssets()
     {
@@ -232,6 +264,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("--draft=false", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// 資産公開が失敗したときremote mainを保持し、配信に失敗した版だけを正式履歴へ進める誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void PublishDraftDoesNotPushMainWhenReleasePublicationFails()
     {
@@ -246,6 +282,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreEqual(remoteMainBefore, fixture.RemoteMainCommit());
     }
 
+    /// <summary>
+    /// 既に公開済みの同一releaseを再実行してmainを収束させ、公開操作を重複させたり完了済み状態を拒否したりする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void PublishDraftAllowsRerunAfterReleaseIsAlreadyPublished()
     {
@@ -261,6 +301,10 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreEqual(fixture.HeadCommit(), fixture.RemoteMainCommit());
     }
 
+    /// <summary>
+    /// dev HEADからpreview draftを作成してtagを接続し、正式manifest・互換version・mainの内容をpreview版で変更する誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void PreviewDraftTagsDevHeadAndLeavesTrackedReleaseFilesAndMainUnchanged()
     {
@@ -285,6 +329,10 @@ public sealed class ReleaseScriptVersionSourceTests
                                                         line.Contains("--draft", StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// 同名preview tagが別HEADを指す場合は既存tagを保持して拒否し、過去のpreviewの識別先を上書きする誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
     [TestMethod]
     public void PreviewDraftRejectsExistingPreviewTagAtAnotherHead()
     {

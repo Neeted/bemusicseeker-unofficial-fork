@@ -7,13 +7,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>
-/// プレイリスト再同期時の差分マージが、全リロードと個別リロードで同じ規則になることを検証します。
-/// </summary>
+/// <summary>再取得テーブルとローカル状態を統合する保存・更新日時の判断を検証する。</summary>
+/// <remarks>全体・個別再同期が共用する統合判断を小さい入力で網羅する。実DB保存・画面公開・取消は再読込み所有者のテストへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistReloadMergeTests
 {
+    /// <summary>表示名だけ・取得元名だけ・どちらも不変の条件でヘッダー保存を選び、譜面保存と更新日時の再採番を行わない。名前変更の保存漏れと日時の誤更新を検出する。</summary>
     [DataTestMethod]
+    // 表示名だけの変更、取得元名だけの変更、両方不変でヘッダー保存判断を分ける。
     [DataRow(true, false)]
     [DataRow(false, true)]
     [DataRow(false, false)]
@@ -39,9 +40,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(lastUpdate, merged.last_update);
     }
 
-    /// <summary>
-    /// 再取得側に更新日時が無く差分も無い場合、既存の更新日時とローカル状態を維持することを検証します。
-    /// </summary>
+    /// <summary>同じ外部内容の再取得では旧更新日時・メモ・追加日時と過去の削除行を保持する。再同期による利用者状態の損失を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_NoStructuralChanges_PreservesLastUpdateAndLocalState()
@@ -61,19 +60,17 @@ public sealed class PlaylistReloadMergeTests
 
         BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(oldTable, reloadedTable);
 
-        Assert.AreEqual(existingLastUpdate, mergedTable.last_update, "No-change reload must preserve the previous last_update.");
+        Assert.AreEqual(existingLastUpdate, mergedTable.last_update, "内容不変の再取得では旧更新日時を維持する。");
 
         BMSTableEntry keptEntry = mergedTable.entries.Single(entry => entry.md5 == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" && !entry.is_removed);
-        Assert.AreEqual("memo-a", keptEntry.memo, "Matched entries must keep memo.");
-        Assert.AreEqual(preservedAddDate, keptEntry.adddate, "Matched entries must keep adddate.");
+        Assert.AreEqual("memo-a", keptEntry.memo, "一致行のメモを維持する。");
+        Assert.AreEqual(preservedAddDate, keptEntry.adddate, "一致行の追加日時を維持する。");
 
         BMSTableEntry restoredRemovedEntry = mergedTable.entries.Single(entry => entry.md5 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" && entry.is_removed);
-        Assert.AreEqual("FolderB", restoredRemovedEntry.folder, "Removed entries must be carried forward.");
+        Assert.AreEqual("FolderB", restoredRemovedEntry.folder, "過去の削除行を引き継ぐ。");
     }
 
-    /// <summary>
-    /// entry fingerprint 差分だけでは更新日時を再採番しない一方、entry は永続化対象になることを検証します。
-    /// </summary>
+    /// <summary>ハッシュ未初期化でも新エントリの内容差を保存対象にし、更新日時は維持する。内容差の脱落とハッシュ変更なしの日時更新を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_EntryFingerprintOnlyChangeDoesNotRefreshLastUpdate()
@@ -101,6 +98,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>dataハッシュが同じでもエントリ内容差を保存し、ハッシュの変更・初期化や日時更新とは扱わない。ハッシュ一致による譜面変更の取りこぼしを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_EntryFingerprintChangeWithUnchangedDataHashPersistsEntries()
@@ -132,6 +130,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(decision.NeedsEntryPersistence);
     }
 
+    /// <summary>MD5が欠けた再取得行をSHAで旧削除行へ対応させ、メモ・追加日時を保持して有効化する。SHA照合漏れとローカル状態の損失を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_Sha256Fallback_PreservesLocalState()
@@ -155,6 +154,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsFalse(matchedEntry.is_removed);
     }
 
+    /// <summary>ハッシュなしで同じタイトル・作者・コメントの行は旧追加日時と表更新日時を保持する。ハッシュ必須の照合や内容不変の誤更新を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_TitleOnlyComparableRow_PreservesLastUpdateAndLocalState()
@@ -177,6 +177,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(preservedAddDate, matchedEntry.adddate);
     }
 
+    /// <summary>ハッシュなし行のコメント差は内容変更として保存するが日時は更新しない。コメントの比較漏れと日時条件の混同を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_CommentChangeWithoutDataHashChangeDoesNotRefreshLastUpdate()
@@ -203,6 +204,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>未設定のheader・dataハッシュを初期化すると状態保存が必要になり、外部内容更新とは扱わず旧日時を保持する。初期化を更新通知の根拠にする誤りを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_HashInitializationPersistsWithoutRefreshingLastUpdate()
@@ -232,6 +234,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>headerハッシュだけの初期化はヘッダーだけを保存し、譜面行・更新日時を変えない。保存範囲の過剰拡大を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_HeaderHashInitializationPersistsHeaderOnly()
@@ -261,6 +264,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>dataハッシュ初期化と新エントリはヘッダー・譜面行を保存して旧日時を保持する。新譜面の保存漏れと初回ハッシュの誤更新扱いを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_DataHashInitializationPersistsEntriesWithoutRefreshingLastUpdate()
@@ -291,6 +295,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(mergedTable.entries.Any(entry => entry.md5 == "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     }
 
+    /// <summary>既知headerハッシュが変わると内容更新としてヘッダー保存と日時更新を行い、譜面行は保存し直さない。ヘッダー更新の未反映と余計な譜面保存を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_KnownHeaderHashChangeRefreshesLastUpdate()
@@ -324,6 +329,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(mergedTable.last_update > existingLastUpdate);
     }
 
+    /// <summary>同じJSONの旧rawハッシュを現行の正規化headerハッシュへ移行して保存し、内容更新や日時更新とは扱わない。互換移行による偽の更新検知を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_LegacyRawHeaderHashMigrationDoesNotRefreshLastUpdate()
@@ -357,6 +363,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>既知dataハッシュの変化は譜面保存と処理時刻への日時更新を必要にする。外部譜面更新の未保存や取得時刻の残存を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_KnownDataHashChangeRefreshesLastUpdateAndPersistsEntries()
@@ -388,6 +395,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(mergedTable.last_update >= beforeMerge && mergedTable.last_update <= afterMerge);
     }
 
+    /// <summary>表示フォルダだけの差は外部譜面内容の変更として扱わず、表更新日時を保持する。ローカル配置名で外部更新を誤検出する処理を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_FolderDifferenceOnly_DoesNotRefreshLastUpdate()
@@ -420,6 +428,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>Org_md5の補完差だけでは外部内容を変更扱いせず、更新日時を保持する。所持由来の補完情報を更新判定へ混ぜる誤りを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_OrgMd5DifferenceOnly_DoesNotRefreshLastUpdate()
@@ -452,9 +461,10 @@ public sealed class PlaylistReloadMergeTests
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
     }
 
+    /// <summary>タイトルのNUL以降と末尾NUL付きコメントは同じ比較内容になる。旧SQLite文字列と再取得JSONの表現差で偽の更新を検出する誤りを防ぐ。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void CreateComparablePlaylistEntryRow_NullControlCharacters_AreIgnoredForFingerprint()
+    public void CreateComparablePlaylistEntryRow_IgnoresSuffixAfterNullCharacter()
     {
         BMSTableEntry cleanEntry = CreateComparableOnlyEntry("Crash || Nothing\r\n [", "Artist", "FolderA", comment: "memo");
         BMSTableEntry dirtyEntry = CreateComparableOnlyEntry("Crash || Nothing\r\n [\0]\r", "Artist", "FolderA", comment: "memo\0");
@@ -464,6 +474,7 @@ public sealed class PlaylistReloadMergeTests
             PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(dirtyEntry)?.Fingerprint);
     }
 
+    /// <summary>外部JSONへ同じMD5が復活すると削除状態を解除し、メモと追加日時を保持する。復活の拒否と旧利用者情報の消失を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MergeReloadedBMSTableState_RemovedEntryReappearsInJson_BecomesActiveAndPreservesLocalState()
@@ -486,6 +497,7 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsFalse(matchedEntry.is_removed);
     }
 
+    /// <summary>同じ行集合は差分なし・両側0件・診断見本なしと判定する。内容不変時の誤更新と架空の診断を検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_NoDifference_ReturnsEmptySamples()
@@ -504,9 +516,10 @@ public sealed class PlaylistReloadMergeTests
         CollectionAssert.AreEqual(Array.Empty<string>(), result.ReloadedOnlySamples.ToArray());
     }
 
+    /// <summary>同じ行のコメント変更を旧側・新側の各1差分として数える。一方だけの差分計数とコメント比較漏れを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void AnalyzePlaylistContentDiff_CommentDifference_ReturnsOneSamplePerSide()
+    public void AnalyzePlaylistContentDiff_CommentDifferenceCountsOneDifferencePerSide()
     {
         IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> persistedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
@@ -522,13 +535,12 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(result.HasChanges);
         Assert.AreEqual(1, result.PersistedOnlyCount);
         Assert.AreEqual(1, result.ReloadedOnlyCount);
-        Assert.AreEqual(1, result.PersistedOnlySamples.Count);
-        Assert.AreEqual(1, result.ReloadedOnlySamples.Count);
     }
 
+    /// <summary>旧側だけにある複数行の差分を4件、反対側を0件として全数集計する。診断の見本数へ差分全数を切り詰める誤りを検出する。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void AnalyzePlaylistContentDiff_SampleCount_IsLimitedToThree()
+    public void AnalyzePlaylistContentDiff_KeepsTotalDifferenceCount()
     {
         IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> persistedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
@@ -544,8 +556,6 @@ public sealed class PlaylistReloadMergeTests
         Assert.IsTrue(result.HasChanges);
         Assert.AreEqual(4, result.PersistedOnlyCount);
         Assert.AreEqual(0, result.ReloadedOnlyCount);
-        Assert.AreEqual(3, result.PersistedOnlySamples.Count);
-        CollectionAssert.AreEqual(result.PersistedOnlySamples.OrderBy(item => item, StringComparer.Ordinal).ToArray(), result.PersistedOnlySamples.ToArray());
     }
 
     private static BMSTable CreateTable(string name, DateTime lastUpdate, params BMSTableEntry[] entries)

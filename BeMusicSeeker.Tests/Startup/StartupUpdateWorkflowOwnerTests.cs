@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupUpdateWorkflowOwnerTests
 {
+    /// <summary>
+    /// 保証：起動時更新確認は一度だけ受理し、旧一時物の清掃後に確認して更新なしの終端を一度公開する。
+    /// </summary>
     [TestMethod]
     public async Task Start_CleansUpChecksAndPublishesNoUpdateTerminal()
     {
@@ -44,6 +47,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.AreEqual(StartupUpdateWorkflowOutcome.NoUpdate, receipt.Outcome);
     }
 
+    /// <summary>
+    /// 保証：更新前の清掃が失敗したら更新確認へ進まず、失敗の提示と元例外を含む終端を返す。
+    /// </summary>
     [TestMethod]
     public async Task CleanupFailurePublishesFailureBeforeCheckingForUpdates()
     {
@@ -71,6 +77,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.AreEqual(0, checkCount);
     }
 
+    /// <summary>
+    /// 保証：永続した更新失敗の提示が成功してから記録を既読化し、提示前に失敗記録を消さない。
+    /// </summary>
     [TestMethod]
     public async Task FailurePresentationAcknowledgesDurableReceiptOnlyAfterPresentationSucceeds()
     {
@@ -96,6 +105,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsTrue(acknowledged);
     }
 
+    /// <summary>
+    /// 保証：更新失敗の提示そのものが失敗した場合は永続記録を既読化せず、次回に提示できる事実を残す。
+    /// </summary>
     [TestMethod]
     public async Task FailurePresentationKeepsDurableReceiptWhenPresentationFails()
     {
@@ -115,6 +127,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsFalse(acknowledged);
     }
 
+    /// <summary>
+    /// 保証：提示側が既読化を延期した更新失敗は終端後も未読として残し、表示要求だけで確認済みとしない。
+    /// </summary>
     [TestMethod]
     public async Task FailurePresentationKeepsDurableReceiptWhenPresentationIsDeferred()
     {
@@ -134,6 +149,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsFalse(acknowledged);
     }
 
+    /// <summary>
+    /// 保証：利用者が更新提示を取消した場合は取消終端を返し、ダウンロードや適用へ勝手に進まない。
+    /// </summary>
     [TestMethod]
     public async Task AvailableUpdate_CancelledPresentationPublishesCancelledTerminal()
     {
@@ -160,6 +178,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Cancelled, receipt.Outcome);
     }
 
+    /// <summary>
+    /// 保証：更新承認後は取得・起動準備・updater開始・終了準備を経て適用終端を公開してからアプリ終了を要求する。
+    /// </summary>
     [TestMethod]
     public async Task AvailableUpdate_CompletesDownloadPrepareShutdownStartBeforeApplicationShutdown()
     {
@@ -223,6 +244,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：予約したUI処理が実行されるまでは終了準備を開始せず、提示・終了準備・終端・終了要求の受信を待つ。
+    /// </summary>
     [TestMethod]
     public async Task AvailableUpdate_WaitsForUiDispatcherBeforeShutdownPreparation()
     {
@@ -296,6 +320,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：更新確認の完了前に閉鎖されたら、後から更新が見つかっても提示せず閉鎖終端で終了する。
+    /// </summary>
     [TestMethod]
     public async Task ClosingWhileCheckIsPendingSuppressesPresentation()
     {
@@ -317,6 +344,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Closing, receipt.Outcome);
     }
 
+    /// <summary>
+    /// 保証：ダウンロード中に閉鎖されたら取得Taskを回収して閉鎖終端へ進み、終了準備を新しく開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ClosingWhileDownloadIsPendingCancelsBeforeShutdownPreparation()
     {
@@ -360,6 +390,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：更新取得の失敗はエラー提示と失敗終端へ返し、終了準備やアプリ終了を要求しない。
+    /// </summary>
     [TestMethod]
     public async Task DownloadFailureRequestsErrorPresentationWithoutApplicationShutdown()
     {
@@ -390,6 +423,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsFalse(receipt.ShutdownPrepared);
     }
 
+    /// <summary>
+    /// 保証：updater開始後の終了準備が失敗した場合は失敗を提示し、適用成功へ読み替えずアプリ終了を要求する。
+    /// </summary>
     [TestMethod]
     public async Task ShutdownPreparationFailureRequestsErrorPresentationAndApplicationShutdown()
     {
@@ -430,6 +466,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：必須の終了準備窓口がない場合は更新を失敗として提示し、成功した終了準備を捏造せずアプリを終端する。
+    /// </summary>
     [TestMethod]
     public async Task AvailableUpdateWithoutShutdownPreparationPortFailsExplicitly()
     {
@@ -468,6 +507,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：更新確認が活動中は終了準備窓口の差替えを拒否し、処理途中に別の終了先へ接続しない。
+    /// </summary>
     [TestMethod]
     public async Task BindShutdownPreparationRejectsReplacementWhileActive()
     {
@@ -502,6 +544,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：終了準備の失敗を遅れたUI受信にも保持し、起動中止を一度行ってから失敗提示とアプリ終了を実際に受信する。
+    /// </summary>
     [TestMethod]
     public async Task ShutdownPreparationFailureRetainsBoundaryForDelayedUiNotification()
     {
@@ -554,6 +599,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：終了準備前にupdater起動が失敗すると取得物を削除して失敗を提示し、アプリを開いたまま終了準備を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ProcessStartFailureBeforeShutdownPreparationDeletesPackageAndKeepsApplicationOpen()
     {
@@ -595,6 +643,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsFalse(applicationShutdown.Task.IsCompleted);
     }
 
+    /// <summary>
+    /// 保証：schedulerへの投入失敗でも失敗提示と終端を公開してidleへ戻り、開始済み状態を永久に残さない。
+    /// </summary>
     [TestMethod]
     public async Task SchedulerFailurePublishesFailureAndLeavesOwnerIdle()
     {

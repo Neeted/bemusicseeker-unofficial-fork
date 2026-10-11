@@ -7,6 +7,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistOperationNotificationOwnerTests
 {
+    /// <summary>情報と警告を順序・重要度付きreceiptへ捕捉し、次の取出しには残さないことで、通知の分類違いと再通知を検出します。</summary>
     [TestMethod]
     public void Session_TakeReceiptCopiesAndDrainsOrderedFacts()
     {
@@ -26,6 +27,7 @@ public sealed class PlaylistOperationNotificationOwnerTests
         Assert.AreEqual(0, session.TakeReceipt().Notifications.Count);
     }
 
+    /// <summary>一session内の別公開段階は独立receiptを持ち、後から積んだ通知が先のreceiptへ混ざる誤りを検出します。</summary>
     [TestMethod]
     public void Session_AllowsIndependentReceiptsForMultiplePresentationBoundaries()
     {
@@ -43,19 +45,7 @@ public sealed class PlaylistOperationNotificationOwnerTests
         Assert.AreEqual("custom-folder", second.Notifications[0].Message);
     }
 
-    [TestMethod]
-    public void Session_DrainedReceiptIsNotReplayedWhenPresentationThrows()
-    {
-        var owner = new PlaylistOperationNotificationOwner();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession session = owner.BeginSession();
-        owner.QueueError("failure", "caption");
-
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-        Assert.ThrowsException<InvalidOperationException>(() => throw new InvalidOperationException(receipt.Notifications[0].Message));
-
-        Assert.AreEqual(0, session.TakeReceipt().Notifications.Count);
-    }
-
+    /// <summary>子sessionの終了は親を復元して前後通知を保持し、他ownerへの通知は拒否して親通知の脱落とowner混入を検出します。</summary>
     [TestMethod]
     public void NestedSessionsRestoreParentAndDoNotMixOwners()
     {
@@ -79,6 +69,7 @@ public sealed class PlaylistOperationNotificationOwnerTests
         Assert.ThrowsException<InvalidOperationException>(() => otherOwner.QueueWarning("must fail"));
     }
 
+    /// <summary>sessionなしの通知要求は失敗し、空sessionは空receiptを返すことで、通知の無所属受付と空通知を検出します。</summary>
     [TestMethod]
     public void QueueWithoutSessionFailsClosedAndEmptyReceiptIsSilent()
     {

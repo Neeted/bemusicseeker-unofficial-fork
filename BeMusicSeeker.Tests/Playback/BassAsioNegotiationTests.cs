@@ -18,6 +18,7 @@ public sealed class BassAsioNegotiationTests
     private static readonly AsioProcedure Callback =
         (input, channel, buffer, length, user) => length;
 
+    /// <summary>ASIO float engineとcallbackを構成し、指定並列数1～4の設定・読戻しと実latencyを結果へ反映する。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(2)]
@@ -44,6 +45,7 @@ public sealed class BassAsioNegotiationTests
             native.MixerThreadCalls);
     }
 
+    /// <summary>並列数の設定失敗・読戻し失敗・不一致を別の初期化失敗として返し、未確認mixerを採用しない。</summary>
     [DataTestMethod]
     [DataRow("set")]
     [DataRow("get")]
@@ -81,6 +83,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(failure == "set" ? 0 : 1, native.MixerThreadCalls.Count(call => call == "get"));
     }
 
+    /// <summary>float callback形式が利用不可なら整数callbackへ代替せず、mixer作成前に元形式失敗を返す。</summary>
     [TestMethod]
     public void Float32Unavailable_FailsInsteadOfFallingBackToInteger()
     {
@@ -99,6 +102,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, native.MixerHandleCreated);
     }
 
+    /// <summary>旧整数形式の再生要求をfloat engine／callbackへ正規化し、指定との差を理由に残してbyte幅不一致を防ぐ。</summary>
     [DataTestMethod]
     [DataRow(SampleFormat.SAMPLE_INT_8BIT)]
     [DataRow(SampleFormat.SAMPLE_INT_24BIT)]
@@ -123,6 +127,7 @@ public sealed class BassAsioNegotiationTests
         StringAssert.Contains(result.FallbackReason, "Requested ASIO endpoint format");
     }
 
+    /// <summary>整数native endpointの容器幅・有効bitを区別し、float callbackにTPDF flagを付けて実精度を診断へ残す。</summary>
     [DataTestMethod]
     [DataRow(16, SampleFormat.SAMPLE_INT_16BIT, 16, 16)]
     [DataRow(17, SampleFormat.SAMPLE_INT_24BIT, 24, 24)]
@@ -168,6 +173,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(string.IsNullOrEmpty(result.FallbackReason));
     }
 
+    /// <summary>DSD・未知・未対応native形式をmixer作成前に拒否し、取得済みASIO／core所有はcleanup用に保持する。</summary>
     [DataTestMethod]
     [DataRow(32)]
     [DataRow(33)]
@@ -194,6 +200,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(session.AsioInitialized);
     }
 
+    /// <summary>endpoint形式read失敗を元native番号付きで返し、取得済みASIO所有を失わずmixerへ進まない。</summary>
     [TestMethod]
     public void EndpointNativeFormatReadFailure_PreservesAcquiredAsioOwnership()
     {
@@ -218,6 +225,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(session.AsioInitialized);
     }
 
+    /// <summary>float要求のreadbackが整数なら不一致を返し、形式名を成功と読み替えてmixerを作らない。</summary>
     [TestMethod]
     public void FloatCallbackFormatReadbackMismatch_FailsBeforeCreatingMixer()
     {
@@ -238,6 +246,7 @@ public sealed class BassAsioNegotiationTests
             "requestedRaw=0x13 actualRaw=0x10");
     }
 
+    /// <summary>float・整数endpointに対応するcallback raw値とdither flagを完全一致で読み戻し、設定診断を結果へ残す。</summary>
     [DataTestMethod]
     [DataRow(19, 0x13)]
     [DataRow(16, 0x113)]
@@ -258,6 +267,7 @@ public sealed class BassAsioNegotiationTests
             + " actualRaw=0x" + expectedRaw.ToString("X"));
     }
 
+    /// <summary>callback raw値の必要flag欠落・余分flag・整数形式を拒否し、基底形式だけの一致を成功と扱わない。</summary>
     [DataTestMethod]
     [DataRow(0x13, 16, 0x113)]
     [DataRow(0x113, 19, 0x13)]
@@ -286,6 +296,7 @@ public sealed class BassAsioNegotiationTests
             + " actualRaw=0x" + reportedRaw.ToString("X"));
     }
 
+    /// <summary>callback形式readがUnknownなら元native番号とraw診断を返し、未観測を形式成功として扱わない。</summary>
     [TestMethod]
     public void FloatCallbackReadbackUnknown_ReportsGetFormatFailureAndNativeError()
     {
@@ -305,6 +316,7 @@ public sealed class BassAsioNegotiationTests
             "requestedRaw=0x13 actualRaw=0xFFFFFFFF");
     }
 
+    /// <summary>Auto rateで現在driver rateの44100Hzが受理されれば、最初の一回の検査・設定で採用し、不要な別rateへの切替えを検出する。</summary>
     [TestMethod]
     public void AutoRate_StartsWithDriverCurrentRateAndRemovesDuplicates()
     {
@@ -320,6 +332,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, result.ActualRate);
     }
 
+    /// <summary>明示rateが利用不可なら要求・現在・標準候補の順で最初の対応rateを採用し、変更値と元native原因を報告する。</summary>
     [TestMethod]
     public void ExplicitRate_TriesRequestedThenCurrentThenStandardRatesInOrder()
     {
@@ -343,6 +356,7 @@ public sealed class BassAsioNegotiationTests
         StringAssert.Contains(result.FallbackReason, "BASSASIO/BASS_ERROR_FORMAT");
     }
 
+    /// <summary>通常再生の明示rate読戻し不一致は実効rateで開始し、正規化理由と要求／実効値を診断へ残す。</summary>
     [TestMethod]
     public void Playback_ExplicitRateReadbackMismatchRetainsNormalizationFallback()
     {
@@ -366,6 +380,7 @@ public sealed class BassAsioNegotiationTests
             result.Attempts.Single(attempt => attempt.Stage == "BASS_ASIO_GetRate").Outcome);
     }
 
+    /// <summary>明示テストのrate不一致は開始前に失敗し、取得済みASIOとcoreを実cleanup順で解放して結果に成功値を公開しない。</summary>
     [TestMethod]
     public void DeviceTest_ExplicitRateReadbackMismatchFailsBeforeMixerAndReleasesPartialSession()
     {
@@ -439,6 +454,7 @@ public sealed class BassAsioNegotiationTests
             native.CleanupCalls);
     }
 
+    /// <summary>明示テストのrate拒否では現在・標準rateへ代替せず、mixer作成前に失敗する。</summary>
     [TestMethod]
     public void DeviceTest_ExplicitRateDoesNotTryCurrentOrStandardFallback()
     {
@@ -462,6 +478,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, native.MixerHandleCreated);
     }
 
+    /// <summary>明示テストのendpoint形式不一致を失敗にし、別形式のmixerを作って成功と見せない。</summary>
     [TestMethod]
     public void DeviceTest_ExplicitFormatMismatchFailsBeforeCreatingMixer()
     {
@@ -481,6 +498,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, native.MixerHandleCreated);
     }
 
+    /// <summary>明示テストの機器ID欠落は名前・Defaultへ代替せず、rate検査やmixer作成前に失敗する。</summary>
     [TestMethod]
     public void DeviceTest_UnavailableDeviceDoesNotSelectNameMatchOrDefault()
     {
@@ -501,6 +519,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, native.MixerHandleCreated);
     }
 
+    /// <summary>通常再生の機器ID欠落はASIO内のDefaultへ進み、機器喪失と代替理由を結果に残す。</summary>
     [TestMethod]
     public void StaleDeviceIdentity_DefaultsWithinAsioAndRecordsIdentityLoss()
     {
@@ -522,6 +541,7 @@ public sealed class BassAsioNegotiationTests
         StringAssert.Contains(result.FallbackReason, "default");
     }
 
+    /// <summary>形式設定失敗はASIO境界と元native番号を返し、coreとASIOの取得済み所有を保持する。</summary>
     [TestMethod]
     public void AsioFormatFailure_CapturesAsioErrorSourceAndRetainsAcquiredOwnership()
     {
@@ -544,6 +564,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, session.MixerHandle);
     }
 
+    /// <summary>ASIO機器一覧read失敗は元境界とnative番号を返し、coreだけを所有して未取得ASIOを解放対象にしない。</summary>
     [TestMethod]
     public void AsioDeviceInfoFailure_ReportsBoundaryErrorBeforeAsioOwnership()
     {
@@ -567,6 +588,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsFalse(session.AsioInitialized);
     }
 
+    /// <summary>出力channel設定が失敗しても作成済みmixerとcallback handleを所有へ残し、未開始状態でcleanupできる。</summary>
     [TestMethod]
     public void ChannelSetupFailure_RecordsMixerBeforeFailureForSessionCleanup()
     {
@@ -591,6 +613,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsFalse(session.IsStarted);
     }
 
+    /// <summary>Enable・Join・Start時にcallback出力handleを公開し、初期化完了後のrendererが同じmixerと所定のレート・ch数を持つことを確認する。</summary>
     [TestMethod]
     public void AsioMixer_IsPublishedBeforeEnableJoinAndStart()
     {
@@ -614,6 +637,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsTrue(session.IsStarted);
     }
 
+    /// <summary>channel Join失敗を専用段階で返し、公開済みmixer所有を保持してStartedへ進めない。</summary>
     [TestMethod]
     public void ChannelJoinFailure_RetainsPublishedMixerOwnership()
     {
@@ -637,6 +661,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsFalse(session.IsStarted);
     }
 
+    /// <summary>native Start失敗を専用段階で返し、公開済みmixer所有を保持して開始成功へ進めない。</summary>
     [TestMethod]
     public void StartFailure_RetainsPublishedMixerOwnership()
     {
@@ -660,6 +685,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsFalse(session.IsStarted);
     }
 
+    /// <summary>能力照会中の取消は次のnative rate検査前に止まり、取得済み所有を保って設定・再生を開始しない。</summary>
     [TestMethod]
     public void CapabilityQuery_CancellationStopsBeforeTheNextNativeRateCheck()
     {
@@ -675,6 +701,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(0, native.SetFormats.Count);
     }
 
+    /// <summary>能力照会は現在rate・保存希望・高rate候補の実対応と左右形式を返し、次回は最新driver値を使い設定やmixer開始をしない。</summary>
     [TestMethod]
     public void CapabilityQuery_ReportsOnlyExplicitRatesAndNativeChannelFormats()
     {
@@ -728,6 +755,7 @@ public sealed class BassAsioNegotiationTests
         Assert.IsFalse(native.CheckedRates.Contains(23456));
     }
 
+    /// <summary>rate非対応とnative検査自体の故障をUnsupported／Failedに分け、故障では未観測endpointを成功情報にしない。</summary>
     [TestMethod]
     public void CapabilityQuery_DistinguishesUnsupportedRatesFromCheckRateFailure()
     {
@@ -754,6 +782,7 @@ public sealed class BassAsioNegotiationTests
         Assert.AreEqual(SampleFormat.UNKNOWN, failed.EndpointFormat);
     }
 
+    /// <summary>照会の選択機器が消えた場合に代替せず、元選択失敗を返してrate検査と設定を呼ばない。</summary>
     [TestMethod]
     public void CapabilityQuery_DoesNotSubstituteAnUnavailableSelectedDevice()
     {

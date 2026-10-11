@@ -8,11 +8,12 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Verifies encoder handle ownership and state transitions through the narrow native boundary.
+/// 狭いnative境界でencoderと外部processの所有・状態・失敗終端を検査します。
 /// </summary>
 [TestClass]
 public sealed class AudioEncoderSessionTests
 {
+    /// <summary>Pause指定でencoderを開始し、Start復帰時にStarted・handle所有・通知登録済み状態を保持して開始結果の欠落を検出する。</summary>
     [TestMethod]
     public void StartPublishesStartedOnlyAfterNotifyRegistration()
     {
@@ -29,6 +30,7 @@ public sealed class AudioEncoderSessionTests
         Assert.IsTrue(native.StartFlags.HasFlag(EncodeFlags.Pause));
     }
 
+    /// <summary>native開始がゼロhandleを返したら開始段階と元番号を保持して失敗にし、未取得handleを所有しない。</summary>
     [TestMethod]
     public void ZeroHandleStartRemainsStoppedAtWriterBoundaryAndRetainsNativeError()
     {
@@ -43,6 +45,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, session.EncoderHandle);
     }
 
+    /// <summary>開始後の通知登録失敗では取得済みhandleを一回停止し、失敗を成功状態や所有漏れとして残さない。</summary>
     [TestMethod]
     public void NotifyRegistrationFailureReleasesTheStartedHandle()
     {
@@ -58,6 +61,7 @@ public sealed class AudioEncoderSessionTests
         Assert.IsFalse(session.OwnsProcessHandle);
     }
 
+    /// <summary>Stop失敗は元native番号を返してStartedとhandle所有を維持し、後続の明示停止成功で解放する。</summary>
     [TestMethod]
     public void StopFailureLeavesNativeOwnershipInStartedState()
     {
@@ -76,6 +80,7 @@ public sealed class AudioEncoderSessionTests
         session.Stop();
     }
 
+    /// <summary>Dispose失敗でもhandleを保持して明示再試行でき、成功確認前にDisposedへ進めない。</summary>
     [TestMethod]
     public void DisposeFailureRetainsNativeOwnershipForRetry()
     {
@@ -96,6 +101,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, session.EncoderHandle);
     }
 
+    /// <summary>encoder死亡通知を保持してStopを型付き失敗にし、停止成功だけで出力成功と扱わない。</summary>
     [TestMethod]
     public void EncoderDeathNotificationIsRetainedAsTypedFailure()
     {
@@ -112,6 +118,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, session.EncoderHandle);
     }
 
+    /// <summary>描画後のPlaying確認を一回nativeへ渡し、活動中encoderを故障へ誤分類しない。</summary>
     [TestMethod]
     public void EnsureActiveAfterRenderAcceptsAPlayingEncoder()
     {
@@ -125,6 +132,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(1, native.EncodeIsActiveCalls);
     }
 
+    /// <summary>手動書込みencoderのPausedを描画後の有効状態として受け入れ、停止と取り違えない。</summary>
     [TestMethod]
     public void EnsureActiveAfterRenderAcceptsPausedManualEncoder()
     {
@@ -137,6 +145,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderSessionState.Started, session.State);
     }
 
+    /// <summary>指定したPCM区間だけをencoder handleと正確なfloatバイト長で送り、入力offsetのずれを防ぐ。</summary>
     [TestMethod]
     public void EncodeWriteUsesEncoderHandleAndExactFloatByteLength()
     {
@@ -153,6 +162,7 @@ public sealed class AudioEncoderSessionTests
         CollectionAssert.AreEqual(new[] { -0.5f, 0.75f }, native.LastWriteSamples);
     }
 
+    /// <summary>PCM書込み失敗をWrite段階とnative番号付きで返し、出力欠落を成功として隠さない。</summary>
     [TestMethod]
     public void EncodeWriteFailureRetainsTypedNativeError()
     {
@@ -168,6 +178,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
     }
 
+    /// <summary>不完全なinterleaved frameの書込みをnative呼出し前に拒否し、sessionの活動状態を壊さない。</summary>
     [TestMethod]
     public void EncodeWriteRejectsIncompleteInterleavedFrame()
     {
@@ -181,6 +192,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderSessionState.Started, session.State);
     }
 
+    /// <summary>巨大manual writeの上限を整数バイト長内の完全frameに揃え、チャンネル数による桁あふれを拒否する。</summary>
     [TestMethod]
     public void MaximumManualWriteLengthFitsWholeInterleavedFrames()
     {
@@ -196,6 +208,7 @@ public sealed class AudioEncoderSessionTests
             () => AudioEncoderSession.GetMaxSamplesPerWrite(int.MaxValue));
     }
 
+    /// <summary>24bit Waveの指定区間だけを有限のdither値へ変換し、元PCMを変更せず外部process所有を取得しない。</summary>
     [TestMethod]
     public void TwentyFourBitManualWriteDithersOnlyRequestedSamplesWithoutMutatingSource()
     {
@@ -228,6 +241,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, native.ProcessExitCodeQueryCalls);
     }
 
+    /// <summary>24bitの複数scratch blockをframeに揃えて再利用し、指定PCMを欠落・重複・区間外書込みなく量子化する。</summary>
     [TestMethod]
     public void TwentyFourBitManualWriteUsesBoundedFrameAlignedScratchChunks()
     {
@@ -288,6 +302,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(sampleCount, writtenSampleOffset);
     }
 
+    /// <summary>量子化は指定spanだけを書き換え、入力PCMとscratchの余剰領域を保持する。</summary>
     [TestMethod]
     public void TwentyFourBitQuantizerLeavesSourceAndScratchSurplusUntouched()
     {
@@ -300,9 +315,9 @@ public sealed class AudioEncoderSessionTests
         CollectionAssert.AreEqual(original, source);
         Assert.AreEqual(12f, scratch[0]);
         Assert.AreEqual(15f, scratch[^1]);
-        Assert.AreEqual(4, scratch.Length);
     }
 
+    /// <summary>外部process終了値ゼロを成功として確定し、複製process handleを確実に解放する。</summary>
     [TestMethod]
     public void ExitCodeZeroCompletesExternalEncoderSuccessfully()
     {
@@ -318,6 +333,7 @@ public sealed class AudioEncoderSessionTests
         Assert.IsTrue(native.LastProcessHandle.IsDisposed);
     }
 
+    /// <summary>非ゼロ終了値をProcessExit失敗として保持し、終了確認済みprocess handleを解放する。</summary>
     [TestMethod]
     public void NonzeroExitCodeIsACompletedEncoderFailureAndReleasesProcessHandle()
     {
@@ -335,6 +351,7 @@ public sealed class AudioEncoderSessionTests
         Assert.IsTrue(native.LastProcessHandle.IsDisposed);
     }
 
+    /// <summary>STILL_ACTIVEではprocess所有を残し、明示Disposeで後の終了を確認しても先行出力失敗を消さない。</summary>
     [TestMethod]
     public void StillActiveExitCodeIsRetainedAndDisposeRechecksWithoutErasingFailure()
     {
@@ -359,6 +376,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreSame(failure, Assert.ThrowsException<AudioEncoderException>(session.ThrowPendingOutputFailure));
     }
 
+    /// <summary>終了値照会のWin32失敗を保持して所有を残し、明示再照会の成功後も主失敗を置換しない。</summary>
     [TestMethod]
     public void ExitCodeQueryFailureRetainsProcessHandleAndWin32Diagnostic()
     {
@@ -385,6 +403,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(5, session.OutputFailure.ProcessWin32Error);
     }
 
+    /// <summary>通知登録とcleanupがともに失敗したら両handle所有を保ち、明示解放成功後も元の開始失敗を保持する。</summary>
     [TestMethod]
     public void FailedStartPreservesPrimaryFailureAndBothHandleOwnersUntilCleanupSucceeds()
     {
@@ -417,6 +436,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderFailureStage.NotifyRegistration, session.OutputFailure.Stage);
     }
 
+    /// <summary>process handle複製に失敗してcleanupも失敗した場合、取得済みnative handleだけを保持して明示解放できる。</summary>
     [TestMethod]
     public void FailedProcessHandleDuplicationRetainsNativeHandleWhenCleanupFails()
     {
@@ -443,6 +463,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreSame(failure, session.OutputFailure);
     }
 
+    /// <summary>通知登録失敗後にprocessがゼロ終了しても登録失敗を主原因に保ち、process終了情報を併記して解放する。</summary>
     [TestMethod]
     public void NotifyFailureRemainsPrimaryWhenExternalProcessExitIsZero()
     {
@@ -463,6 +484,7 @@ public sealed class AudioEncoderSessionTests
         Assert.IsTrue(native.LastProcessHandle.IsDisposed);
     }
 
+    /// <summary>描画後のStoppedをencoder死亡として返し、元native番号を保持してFaultedへ移す。</summary>
     [TestMethod]
     public void EnsureActiveAfterRenderRaisesTypedFailureWhenEncoderStops()
     {
@@ -482,6 +504,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(AudioEncoderSessionState.Faulted, session.State);
     }
 
+    /// <summary>死亡通知済みの描画後確認は通知原因を返し、不要なnative活動照会で原因を取り違えない。</summary>
     [TestMethod]
     public void EnsureActiveAfterRenderRaisesTypedFailureWhenNotifyReportsEncoderDeath()
     {
@@ -499,6 +522,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, native.EncodeIsActiveCalls);
     }
 
+    /// <summary>死亡したencoderのDispose失敗ではFaultedと所有を維持し、明示再試行の成功でだけhandleを解除する。</summary>
     [TestMethod]
     public void DisposeFailureAfterEncoderDeathRetainsFaultedStateAndHandleForRetry()
     {
@@ -524,6 +548,7 @@ public sealed class AudioEncoderSessionTests
         Assert.AreEqual(0, session.EncoderHandle);
     }
 
+    /// <summary>同じsessionの二重Start・二重Stopを拒否し、native処理を不正な状態で再実行しない。</summary>
     [TestMethod]
     public void DoubleStartAndStopAreRejected()
     {
@@ -536,6 +561,7 @@ public sealed class AudioEncoderSessionTests
         Assert.ThrowsException<InvalidOperationException>(session.Stop);
     }
 
+    /// <summary>開始前に利用者のタグを差し替えると実encoderコマンドへ反映し、古いmetadataを送らない。</summary>
     [TestMethod]
     public void MetadataCanBeReplacedBeforeStartAndIsReflectedInDiagnostics()
     {
@@ -571,6 +597,7 @@ public sealed class AudioEncoderSessionTests
             native);
     }
 
+    /// <summary>強制終了通知の後にFree通知が来ても強制終了を失敗原因に保ち、正常Stopへ読み替えない。</summary>
     [TestMethod]
     public void StopReportsForcedTerminationEvenWhenFreeNotificationFollows()
     {

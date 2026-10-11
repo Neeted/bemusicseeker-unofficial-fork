@@ -18,18 +18,22 @@ using SQLite;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// These tests use WPF dispatcher state and the process-wide Settings.Default instance.
-[DoNotParallelize]
 public sealed class Lr2PlayHistorySchemaUiTests
 {
+    /// <summary>
+    /// 現在のLR2スコアDBに一致する検査通知だけを採用し、別パス/非LR2通知を除外する。resetとDispose後は表示状態を保持しない。
+    /// </summary>
+    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public void SettingDialogSchemaStatusReceipt_FiltersPathAndClearsOnResetAndDispose()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
         var statePort = new TestSettingsDialogStatePort(
             owner,
             () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
-        var settingDialog = new SettingsDialogViewModel(
+        using var settingDialog = new SettingsDialogViewModel(
             statePort,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -90,6 +94,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsNull(settingDialog.Lr2PlayHistorySchemaStatusSnapshot);
     }
 
+    /// <summary>
+    /// LR2標準のplayer DB位置を組み立て、実在時だけ返す。未設定・不在・設定読取失敗を存在するDBへ置き換えない。
+    /// </summary>
     [TestMethod]
     public void Lr2ScoreDbPathResolver_ResolvesExistingPlayerScoreDbOnly()
     {
@@ -117,6 +124,9 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>
+    /// 未導入だけ導入、修復可能だけ修復を許可し、導入済み/手動修復/読取不能/対象外は両操作を禁止して状態文言を渡す。
+    /// </summary>
     [TestMethod]
     public void Lr2PlayHistorySchemaStatusPresentation_MapsActionsAndLabels()
     {
@@ -145,6 +155,11 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>
+    /// 初期化中・ライブラリ変更中・playlist変更中は導入確認を出さず受付警告を返す。片側取得だけに成功した排他権も解放する。
+    /// </summary>
+    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    [DoNotParallelize]
     [DataTestMethod]
     [DataRow("initializing")]
     [DataRow("library")]
@@ -152,9 +167,10 @@ public sealed class Lr2PlayHistorySchemaUiTests
     public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog(string blockedDomain)
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
         var dialogs = new RecordingUiDialogService();
-        var settingDialog = new SettingsDialogViewModel(
+        using var settingDialog = new SettingsDialogViewModel(
             owner,
             owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -194,6 +210,11 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>
+    /// trigger解除を設定画面から実DBへ反映し、成功通知・履歴cache失効・score再読込み・Repairable表示を一度接続する。
+    /// </summary>
+    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task SettingDialogViewModel_Uninstall_TriggersOnlyPublishesStateAndReloads()
     {
@@ -204,6 +225,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             SetPrivateField(owner, "hasActiveLibraryProfile", true);
             var dialogs = new RecordingUiDialogService
             {
@@ -220,7 +242,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -251,7 +273,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(1, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Repairable, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = ?;",
                 Lr2PlayHistorySchemaService.PlayHistoryTableName));
@@ -268,6 +290,11 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>
+    /// 完全解除は実履歴objectを除き、score表を残して成功通知・cache失効・NotInstalled表示を渡す。不要なscore再読込みはしない。
+    /// </summary>
+    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task SettingDialogViewModel_Uninstall_TablesAndTriggersRemovesObjects()
     {
@@ -278,6 +305,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             var dialogs = new RecordingUiDialogService
             {
                 AcceptUninstall = true,
@@ -293,7 +321,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -324,7 +352,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(1, playHistory.InvalidationCount);
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.NotInstalled, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(0, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE name LIKE 'bms_lr2_%' OR name LIKE 'idx_bms_lr2_%';"));
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
@@ -339,6 +367,11 @@ public sealed class Lr2PlayHistorySchemaUiTests
         }
     }
 
+    /// <summary>
+    /// 解除確認の取消では通知・再読込み・cache失効を行わず、実triggerとInstalled表示を維持する。
+    /// </summary>
+    /// <remarks>実設定画面VMと構成を使い、受付/状態購読と機能窓口の接続を確認する。共有設定のedit sessionを使うため並列実行しない。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task SettingDialogViewModel_Uninstall_CancelLeavesDurableAndLiveStateUnchanged()
     {
@@ -349,6 +382,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             string scoreDbPath = Path.Combine(directoryPath, "score.db");
             CreateInstalledScoreDb(scoreDbPath);
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
             var dialogs = new RecordingUiDialogService { AcceptUninstall = false };
             int reloadCount = 0;
             var statePort = new TestSettingsDialogStatePort(
@@ -360,7 +394,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
                     return Task.CompletedTask;
                 });
             var playHistory = new RecordingPlayHistoryPort();
-            var settingDialog = new SettingsDialogViewModel(
+            using var settingDialog = new SettingsDialogViewModel(
             statePort,
                 owner.PlaylistWorkspace,
             owner.PlaylistWorkspace,
@@ -389,7 +423,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             Assert.AreEqual(0, reloadCount);
             Assert.AreEqual(0, playHistory.InvalidationCount);
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, settingDialog.Lr2PlayHistorySchemaStatusSnapshot.Status);
-            using var verify = new SQLiteConnection(scoreDbPath);
+            using var verify = new SQLiteConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(1, verify.ExecuteScalar<int>(
                 "SELECT COUNT(1) FROM sqlite_master WHERE type = 'trigger' AND name = ?;",
                 Lr2PlayHistorySchemaService.ScoreInsertTriggerName));

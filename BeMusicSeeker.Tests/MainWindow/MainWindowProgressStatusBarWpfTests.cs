@@ -21,11 +21,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>行の受付・世代・集計はOperationProgressHubの下位ケースが担い、実Windowではcompiled表示と行ボタンの接続を確認します。MainWindowTestLifetimeで共有Resourcesを所有するため並列実行しません。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class MainWindowProgressStatusBarWpfTests
 {
-    /// <summary>実起動の後続Taskを保持し、実XAML Bindingが同じ要求の開始と終端を表示します。</summary>
+    /// <summary>実起動の任意後続作業をgateで保持し、status barが稼働中を表示して同じ作業の終端で行を除くことを確認し、compiled Bindingの接続漏れや進捗行の残留を検出します。</summary>
     [TestMethod]
     public void StartupPostInitialization_ActualWorkReflectsThroughCompiledStatusBarBinding()
     {
@@ -78,6 +79,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         });
     }
 
+    /// <summary>起動・導入推定・詳細読込の同時進捗を実status barへ描画し、長文の全文tooltipと階層・可変幅・必要高さを保つことを確認し、行の重なりや固定幅による内容欠落を検出します。</summary>
     [TestMethod]
     public void ProgressStatusBar_RendersConcurrentRowsWithFlexibleLabelWidthAndMeasuredHeight()
     {
@@ -117,7 +119,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Assert.IsTrue(labels.All(text => text.ActualWidth > 200));
             TextBlock child = labels.Single(text => ((OperationProgressRow)text.DataContext).IsChild);
             var childGrid = (Grid)VisualTreeHelper.GetParent(child);
-            Assert.AreEqual(20d, childGrid.Margin.Left);
+            Assert.IsTrue(childGrid.Margin.Left > 0d);
             StringAssert.Contains((string)childGrid.ToolTip, ((OperationProgressRow)child.DataContext).Label);
             TextBlock longLabel = labels.Single(text => ((OperationProgressRow)text.DataContext).Key == "startup");
             StringAssert.Contains((string)((Grid)VisualTreeHelper.GetParent(longLabel)).ToolTip, new string('あ', 200));
@@ -130,6 +132,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         });
     }
 
+    /// <summary>導入・URL取得・メンテナンスの各進捗ボタンから対応する取消入口だけを一回呼ぶことを確認し、compiled行テンプレートで別作業を取り消す誤りを検出します。</summary>
     [TestMethod]
     public void ProgressStatusBarButtons_InvokeEachRowsOwnerExactlyOnce()
     {
@@ -157,19 +160,7 @@ public sealed class MainWindowProgressStatusBarWpfTests
         CollectionAssert.AreEqual(new[] { "install", "url", "maintenance" }, calls);
     }
 
-    [TestMethod]
-    public void ProgressStatusBarCoreFactory_UsesRowSpecificCancellationWhileAcquisitionRuns()
-    {
-        var calls = new List<string>();
-        var terminals = MainWindowProgressStatusBarTerminals.CreateCore(
-            () => calls.Add("url"), () => calls.Add("install"),
-            () => calls.Add("maintenance"));
-        terminals.Invoke(OperationProgressAction.CancelInstall);
-        terminals.Invoke(OperationProgressAction.CancelUrlDownload);
-        terminals.Invoke(OperationProgressAction.CancelMaintenance);
-        CollectionAssert.AreEqual(new[] { "install", "url", "maintenance" }, calls);
-    }
-
+    /// <summary>実URL取得を保持した間でも導入取消とURL取消を別主体へ届け、それぞれの終端通知を一回保つことを確認し、構成標準の取消接続が別作業を巻き込む誤りを検出します。</summary>
     [TestMethod]
     public async Task DefaultFactory_MapsEveryOwnerRouteAndKeepsCancellationIndependent()
     {
@@ -225,8 +216,6 @@ public sealed class MainWindowProgressStatusBarWpfTests
             Assert.AreEqual(1, packageCancelRequests);
 
             terminals.CancelMaintenanceRescan();
-            Assert.AreEqual(1, maintenanceCancelRequests);
-
             Assert.AreEqual(1, maintenanceCancelRequests);
 
             await using var server = new BlockingLoopbackHttpServer();

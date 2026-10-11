@@ -8,6 +8,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BassAudioDeviceEnumerationTests
 {
+    /// <summary>
+    /// 保証：BASSのDeviceエラーを列挙終端として成功扱いし、それまでに取得した機器だけを番号順に公開する。
+    /// </summary>
     [TestMethod]
     public void DeviceErrorIsTheNormalEndAndPublishesOnlyCollectedDescriptors()
     {
@@ -39,6 +42,9 @@ public sealed class BassAudioDeviceEnumerationTests
         Assert.AreEqual(Errors.OK, errorCode);
     }
 
+    /// <summary>
+    /// 保証：列挙途中のInitエラーでは部分的な機器を公開せず、失敗と元のnativeエラーを返す。
+    /// </summary>
     [TestMethod]
     public void NonTerminalErrorFailsWithoutPublishingPartialDescriptors()
     {
@@ -59,6 +65,9 @@ public sealed class BassAudioDeviceEnumerationTests
         Assert.AreEqual(Errors.Init, errorCode);
     }
 
+    /// <summary>
+    /// 保証：機器readerが投げたBASS例外は通常終端へ変換せず、例外のnativeエラーを保持した失敗として返す。
+    /// </summary>
     [TestMethod]
     public void ReaderBassExceptionUsesItsNativeErrorCode()
     {

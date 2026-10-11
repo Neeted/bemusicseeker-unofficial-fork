@@ -13,14 +13,13 @@ using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>
-/// PLV-2026-08-28-D2 data-source snapshot and dependency invalidation contracts.
-/// </summary>
+/// <summary>ライブラリから集計入力を捕捉するハッシュ補完・履歴障害・更新通知を検証する。</summary>
+/// <remarks>専用SQLiteと実メタデータ取込みで情報源の接続を確認し、カテゴリ計算はPlaylistLampAggregationTestsへ分担する。</remarks>
 [TestClass]
 public sealed class BmsLibraryPlaylistLampDataSourceTests
 {
+    /// <summary>未所持MD5エントリを実chart_infoで補完し、所持SHAとは区別したスコア検索SHAと取込み世代を渡す。補完漏れや所持誤認を検出する。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CaptureAsync_keepsChartInfoShaSeparateAndUsesItForBeatorajaLookup()
     {
 
@@ -70,8 +69,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         });
     }
 
+    /// <summary>履歴源の生成が失敗しても所属入力を維持し、最新は未設定、過去日はスコア利用不可と診断を返す。ビューア全体の終端化や架空のスコアへの置換を検出する。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CaptureAsync_historicalSourceFactoryFailure_is_nonterminal_for_latest_and_historical_queries()
     {
 
@@ -125,8 +124,8 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         });
     }
 
+    /// <summary>購読後の実chart_info取込みを待ち、全プレイリスト向けの世代付き変更通知を受ける。補完情報が更新されても再集計へ通知しない接続漏れを検出する。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task Source_raisesChangedWhenChartInfoIndexVersionChanges()
     {
 

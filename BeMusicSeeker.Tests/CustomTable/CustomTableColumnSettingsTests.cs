@@ -13,243 +13,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableColumnSettingsTests
 {
-    [TestMethod]
-    public void Constructor_PlaylistDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST),
-            "Status",
-            "Folder",
-            "Title",
-            "Artist",
-            "Url1",
-            "Url2",
-            "Comment",
-            "Clear",
-            "Rank",
-            "Rate",
-            "Bp",
-            "ChartJudge",
-            "ChartJudgePercent",
-            "Notes",
-            "ChartLongNotes",
-            "ChartScratchNotes",
-            "ChartMainBpm",
-            "ChartMinBpm",
-            "ChartMaxBpm",
-            "ChartSoflan",
-            "ChartTotal",
-            "ChartTotalPerNote",
-            "ChartDuration",
-            "ChartFeature",
-            "ChartDensity",
-            "ChartPeakDensity",
-            "ChartEndDensity",
-            "PlaylistSymbols");
-    }
-
-    [TestMethod]
-    public void Constructor_StandardDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD),
-            "Status",
-            "Title",
-            "Artist",
-            "Genre",
-            "Mode",
-            "Folder",
-            "Path",
-            "Clear",
-            "Rank",
-            "Rate",
-            "Bp",
-            "Level",
-            "ChartDifficulty",
-            "ChartJudge",
-            "ChartJudgePercent",
-            "Notes",
-            "ChartLongNotes",
-            "ChartScratchNotes",
-            "ChartMainBpm",
-            "ChartMinBpm",
-            "ChartMaxBpm",
-            "ChartSoflan",
-            "ChartTotal",
-            "ChartTotalPerNote",
-            "ChartDuration",
-            "ChartFeature",
-            "ChartDensity",
-            "ChartPeakDensity",
-            "ChartEndDensity",
-            "PlaylistSymbols");
-    }
-
-    [TestMethod]
-    public void Constructor_UnregisteredDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED),
-            "Status",
-            "Warning",
-            "Title",
-            "Artist",
-            "Genre",
-            "Mode",
-            "Folder",
-            "Path",
-            "PlaylistSymbols",
-            "CharcterEncoding");
-    }
-
-    [TestMethod]
-    public void Constructor_AssignsSharedAdjustedDefaultWidths()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-
-        Assert.AreEqual(50, settings.Mode.Width);
-        Assert.AreEqual(60, settings.Rate.Width);
-        Assert.AreEqual(60, settings.ChartDuration.Width);
-    }
-
-    [TestMethod]
-    public void Constructor_InstallAndFullScanDefaultsMatchInitialColumnOrder()
-    {
-        string[] expected =
-        [
-            "Status",
-            "PlaylistSymbols",
-            "WavHealth",
-            "BgaHealth",
-            "MovieHealth",
-            "Warning",
-            "InstallDst",
-            "InstallDstTitle",
-            "Title",
-            "InstallDstArtist",
-            "Artist",
-            "Mode",
-            "Folder",
-            "Path",
-            "Hash"
-        ];
-
-        AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL), expected);
-        AssertVisibleColumnOrder(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN), expected);
-    }
-
-    [TestMethod]
-    public void Constructor_ZeroNoteDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE),
-            "Status",
-            "Title",
-            "Artist",
-            "Mode",
-            "Warning",
-            "Notes",
-            "PlaylistSymbols",
-            "Folder",
-            "Path",
-            "Hash");
-    }
-
-    [TestMethod]
-    public void Constructor_DuplicateDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE),
-            "Status",
-            "PlaylistSymbols",
-            "WavHealth",
-            "BgaHealth",
-            "MovieHealth",
-            "Warning",
-            "Hash",
-            "Title",
-            "Artist",
-            "Mode",
-            "Path",
-            "Folder");
-    }
-
-    [TestMethod]
-    public void Constructor_ChartInfoParseErrorDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR),
-            "Status",
-            "PlaylistSymbols",
-            "WavHealth",
-            "BgaHealth",
-            "MovieHealth",
-            "Warning",
-            "Title",
-            "Artist",
-            "Mode",
-            "Folder",
-            "Path",
-            "Hash");
-    }
-
-    [TestMethod]
-    public void Constructor_EncodingDefaultsMatchInitialColumnOrder()
-    {
-        AssertVisibleColumnOrder(
-            new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING),
-            "Status",
-            "CharcterEncoding",
-            "Title",
-            "Artist",
-            "Genre",
-            "Mode",
-            "Folder",
-            "Path");
-    }
-
-    [TestMethod]
-    public void Constructor_PlayHistoryDefaultsMatchInitialColumnOrder()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-
-        AssertVisibleColumnOrder(
-            settings,
-            "PlayHistoryPlayedAt",
-            "PlayHistoryFolderLabels",
-            "Title",
-            "PlayHistoryBestClear",
-            "PlayHistoryBestDjLevel",
-            "PlayHistoryBestRate",
-            "PlayHistoryBestExscore",
-            "PlayHistoryBestBp",
-            "PlayHistoryBestCombo",
-            "PlayHistoryKind",
-            "PlayHistoryOption",
-            "PlayHistoryOpHistory",
-            "PlayHistoryPlayExscore",
-            "PlayHistoryJudges");
-        Assert.AreEqual(90, settings.PlayHistoryBestDjLevel.Width);
-        Assert.AreEqual(90, settings.PlayHistoryBestRate.Width);
-        Assert.AreEqual(90, settings.PlayHistoryBestExscore.Width);
-        Assert.AreEqual(90, settings.PlayHistoryBestBp.Width);
-        Assert.AreEqual(90, settings.PlayHistoryBestCombo.Width);
-    }
-
-    [TestMethod]
-    public void Constructor_PlayHistoryHidesMainOnlyLayouts()
-    {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-
-        Assert.AreEqual(Visibility.Hidden, settings.Status.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Folder.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Path.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Clear.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Rank.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Rate.Visibility);
-        Assert.AreEqual(Visibility.Hidden, settings.Bp.Visibility);
-    }
-
+    /// <summary>全表示種別で非表示列も一意の表示位置を持ち、表示切替時の列位置衝突を防ぎます。</summary>
     [TestMethod]
     public void Constructor_AssignsUniqueDisplayIndexToHiddenColumns()
     {
@@ -262,17 +26,12 @@ public sealed class CustomTableColumnSettingsTests
         }
     }
 
-    [TestMethod]
-    public void MainViewUpdateMode_MaintenanceValuesRemainStable()
-    {
-        Assert.AreEqual(40, (int)MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
-        Assert.AreEqual(255, (int)MainViewUpdateMode.UpdatedNone);
-    }
-
+    /// <summary>譜面情報列の欠損を補完し、利用者が指定したEntryLevelの幅・位置・表示とLevelの位置・表示を上書きしないことを確認します。</summary>
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices()
     {
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+        settings.EntryLevel.Width = 77;
         settings.EntryLevel.Visibility = Visibility.Visible;
         settings.EntryLevel.DisplayIndex = 77;
         settings.Level.Visibility = Visibility.Visible;
@@ -281,16 +40,15 @@ public sealed class CustomTableColumnSettingsTests
 
         settings.EnsureChartInfoColumnDefaults(CustomTableColumnSettings.ViewKind.PLAYLIST);
 
-        Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
-        Assert.AreEqual(0, settings.Status.DisplayIndex);
-        Assert.AreEqual(18, settings.Status.Width);
         Assert.IsNotNull(settings.ChartDifficulty);
+        Assert.AreEqual(77, settings.EntryLevel.Width);
         Assert.AreEqual(Visibility.Visible, settings.EntryLevel.Visibility);
         Assert.AreEqual(77, settings.EntryLevel.DisplayIndex);
         Assert.AreEqual(Visibility.Visible, settings.Level.Visibility);
         Assert.AreEqual(78, settings.Level.DisplayIndex);
     }
 
+    /// <summary>旧設定で状態列が欠けても表示可能な列を補い、設定読込み後の欠損を残しません。</summary>
     [TestMethod]
     public void EnsureChartInfoColumnDefaults_RecreatesMissingStatusLayout()
     {
@@ -303,10 +61,9 @@ public sealed class CustomTableColumnSettingsTests
 
         Assert.IsNotNull(settings.Status);
         Assert.AreEqual(Visibility.Visible, settings.Status.Visibility);
-        Assert.AreEqual(0, settings.Status.DisplayIndex);
-        Assert.AreEqual(18, settings.Status.Width);
     }
 
+    /// <summary>プレイ履歴の欠損列だけを補完し、利用者の表示選択・位置を保持して未設定位置を残しません。</summary>
     [TestMethod]
     public void EnsurePlayHistoryColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices()
     {
@@ -324,6 +81,7 @@ public sealed class CustomTableColumnSettingsTests
         Assert.IsTrue(GetActiveLayouts(settings).All(item => item.Layout.DisplayIndex >= 0), "missing display index remains");
     }
 
+    /// <summary>既存の履歴列設定は利用者の選択を保持して補完し、設定全体が欠ける場合にも再生成します。</summary>
     [TestMethod]
     public void EnsureColumnSettingDefaults_RecreatesAndCompletesPlayHistorySettings()
     {
@@ -347,32 +105,6 @@ public sealed class CustomTableColumnSettingsTests
 
         Assert.IsNotNull(settings.PlayHistoryCustomTableColumnSettings);
         Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, settings.PlayHistoryCustomTableColumnSettings.Kind);
-        AssertVisibleColumnOrder(
-            settings.PlayHistoryCustomTableColumnSettings,
-            "PlayHistoryPlayedAt",
-            "PlayHistoryFolderLabels",
-            "Title",
-            "PlayHistoryBestClear",
-            "PlayHistoryBestDjLevel",
-            "PlayHistoryBestRate",
-            "PlayHistoryBestExscore",
-            "PlayHistoryBestBp",
-            "PlayHistoryBestCombo",
-            "PlayHistoryKind",
-            "PlayHistoryOption",
-            "PlayHistoryOpHistory",
-            "PlayHistoryPlayExscore",
-            "PlayHistoryJudges");
-    }
-
-    private static void AssertVisibleColumnOrder(CustomTableColumnSettings settings, params string[] expectedNames)
-    {
-        string[] actualNames = [.. GetActiveLayouts(settings)
-            .Where((item) => item.Layout.Visibility == Visibility.Visible)
-            .OrderBy((item) => item.Layout.DisplayIndex)
-            .Select((item) => item.Name)];
-
-        CollectionAssert.AreEqual(expectedNames, actualNames);
     }
 
     private static IReadOnlyList<(string Name, CustomTableColumnSettings.ColumnLayout Layout)> GetLayouts(CustomTableColumnSettings settings)

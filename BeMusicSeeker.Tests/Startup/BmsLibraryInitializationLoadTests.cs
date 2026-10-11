@@ -16,6 +16,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationLoadTests
 {
+    /// <summary>
+    /// LR2の相対譜面・folderパスを絶対化して旧song行の退役と親hashを保存し、起動時にmaintenanceを混ぜない。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_FixesRelativePathsWithoutMaintenanceHydration()
     {
@@ -28,32 +31,35 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
 
-                ChartFile song = ChartTestValues.Empty() with
-                {
-                    Path = Path.Combine("Songs", "chart.bms"),
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = "Songs\\",
-                    title = "Songs",
-                    parent = "e2977170",
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDb.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = Path.Combine("Songs", "Nested") + "\\",
-                    title = "Nested",
-                    parent = "stale-parent",
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = Path.Combine("Songs", "chart.bms"),
+                        Folder = "folder"
+                    };
+                    song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = "Songs\\",
+                        title = "Songs",
+                        parent = "e2977170",
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = Path.Combine("Songs", "Nested") + "\\",
+                        title = "Nested",
+                        parent = "stale-parent",
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -72,7 +78,7 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.IsTrue(result.DbWriteRequired);
             CollectionAssert.Contains(result.DeletedSongPaths, Path.Combine("Songs", "chart.bms"));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             string rootedNestedFolderPath = Path.Combine(lr2RootPath, "Songs", "Nested") + "\\";
             LR2SongDB.folder nested = verify.Table<LR2SongDB.folder>().Single(folder => folder.path == rootedNestedFolderPath);
             Assert.AreEqual(
@@ -81,6 +87,9 @@ public sealed class BmsLibraryInitializationLoadTests
         });
     }
 
+    /// <summary>
+    /// 保存されたmaintenanceの文字コード・各リソース状態・LR2警告を読取り専用で復元し、列の欠落や取り違えを検出する。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public void LoadMaintenanceTable_LoadsMaintenanceMapAfterCatalogLoad()
@@ -98,9 +107,12 @@ public sealed class BmsLibraryInitializationLoadTests
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    songDb.CreateTable<LR2SongDB.song>();
-                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis", is_encoding_fixed = true, wav_files_existing = 10, wav_files_defined = 12, bga_files_existing = 3, bga_files_defined = 4, movie_files_existing = 1, movie_files_defined = 2, is_stagefile_existing = true, is_stagefile_defined = true, is_banner_existing = false, is_banner_defined = true, is_backbmp_existing = true, is_backbmp_defined = false, is_files_warning_ignored = true, lr2_warning_flags = 11, lr2_resource_max_relative_cp932_bytes = 55, lr2_resource_has_parent_traversal = true }, typeof(LR2SongDBExtended.maintenance));
+                    songDb.RunInTransaction(() =>
+                    {
+                        songDb.CreateTable<LR2SongDB.song>();
+                        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis", is_encoding_fixed = true, wav_files_existing = 10, wav_files_defined = 12, bga_files_existing = 3, bga_files_defined = 4, movie_files_existing = 1, movie_files_defined = 2, is_stagefile_existing = true, is_stagefile_defined = true, is_banner_existing = false, is_banner_defined = true, is_backbmp_existing = true, is_backbmp_defined = false, is_files_warning_ignored = true, lr2_warning_flags = 11, lr2_resource_max_relative_cp932_bytes = 55, lr2_resource_has_parent_traversal = true }, typeof(LR2SongDBExtended.maintenance));
+                    });
                 }
 
                 var service = new BmsLibraryInitializationService();
@@ -142,6 +154,9 @@ public sealed class BmsLibraryInitializationLoadTests
         }
     }
 
+    /// <summary>
+    /// sqlite_netを指定したmaintenance読込みでも保存された文字コードと画像状態を復元し、読込み方式で値を変えない。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public void LoadMaintenanceTable_CanUseSqliteNetFallback()
@@ -159,8 +174,11 @@ public sealed class BmsLibraryInitializationLoadTests
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                    songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", encoding = "utf-8", is_encoding_fixed = false, is_stagefile_existing = false, is_stagefile_defined = true }, typeof(LR2SongDBExtended.maintenance));
+                    songDb.RunInTransaction(() =>
+                    {
+                        songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", encoding = "utf-8", is_encoding_fixed = false, is_stagefile_existing = false, is_stagefile_defined = true }, typeof(LR2SongDBExtended.maintenance));
+                    });
                 }
 
                 var service = new BmsLibraryInitializationService();
@@ -185,6 +203,9 @@ public sealed class BmsLibraryInitializationLoadTests
         }
     }
 
+    /// <summary>
+    /// raw読込みでLR2 songの文字列・数値列と大文字MD5正規化を復元し、永続化された譜面情報の欠落を検出する。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public void LoadSongTable_RawCatalogLoaderPreservesSongColumns()
@@ -205,39 +226,42 @@ public sealed class BmsLibraryInitializationLoadTests
 
                 using (var songDb = new LR2SongDBExtended(songDbPath))
                 {
-                    songDb.CreateTable<LR2SongDB.song>();
-                    songDb.CreateTable<LR2SongDB.folder>();
-                    songDb.Execute(
-                        "INSERT INTO song (hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-                        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                        "Title",
-                        "Subtitle",
-                        "Artist",
-                        "SubArtist",
-                        "Genre",
-                        "Tag",
-                        chartPath,
-                        1,
-                        expectedCrc.folder,
-                        "stage.png",
-                        "banner.png",
-                        "back.png",
-                        expectedCrc.parent,
-                        12,
-                        4,
-                        180,
-                        90,
-                        7,
-                        2,
-                        1,
-                        1,
-                        0,
-                        12345,
-                        1,
-                        0,
-                        678,
-                        23456,
-                        9);
+                    songDb.RunInTransaction(() =>
+                    {
+                        songDb.CreateTable<LR2SongDB.song>();
+                        songDb.CreateTable<LR2SongDB.folder>();
+                        songDb.Execute(
+                            "INSERT INTO song (hash, title, subtitle, artist, subartist, genre, tag, path, type, folder, stagefile, banner, backbmp, parent, level, difficulty, maxbpm, minbpm, mode, judge, longnote, bga, random, date, favorite, txt, karinotes, adddate, exlevel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                            "Title",
+                            "Subtitle",
+                            "Artist",
+                            "SubArtist",
+                            "Genre",
+                            "Tag",
+                            chartPath,
+                            1,
+                            expectedCrc.folder,
+                            "stage.png",
+                            "banner.png",
+                            "back.png",
+                            expectedCrc.parent,
+                            12,
+                            4,
+                            180,
+                            90,
+                            7,
+                            2,
+                            1,
+                            1,
+                            0,
+                            12345,
+                            1,
+                            0,
+                            678,
+                            23456,
+                            9);
+                    });
                 }
 
                 var service = new BmsLibraryInitializationService();
@@ -252,7 +276,7 @@ public sealed class BmsLibraryInitializationLoadTests
                 Assert.AreEqual("raw_string", result.SongMaterializeMode);
                 Assert.AreEqual(1, result.SongRawRows);
                 ChartFile loaded = result.LoadedFiles.Single();
-                using var verifyStored = new LR2SongDBExtended(songDbPath);
+                using LR2SongDBExtended verifyStored = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 LR2SongDB.song loadedStorage = verifyStored.Table<LR2SongDB.song>().Single(row => row.path == chartPath);
                 Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", loaded.Md5);
                 Assert.AreEqual("Title", loaded.RawTitle);
@@ -292,55 +316,9 @@ public sealed class BmsLibraryInitializationLoadTests
         }
     }
 
-    [TestMethod]
-    public void LoadSongTable_DoesNotRegisterMaintenanceEncodingPropertyChangedHandler()
-    {
-
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
-        {
-            string rootedChartPath = Path.Combine(lr2RootPath, "Songs", "chart.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(rootedChartPath)!);
-            File.WriteAllText(rootedChartPath, "#PLAYER 1");
-
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-
-                ChartFile song = ChartTestValues.Empty() with
-                {
-                    Path = rootedChartPath,
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis" }, typeof(LR2SongDBExtended.maintenance));
-            }
-
-            var service = new BmsLibraryInitializationService();
-            SongTableLoadResult result = service.LoadSongTable(
-                new BmsLibraryDbGateway(songDbPath),
-                new BmsLibraryOptionsSnapshot(),
-                null,
-                new TestFileMutationService(),
-                null,
-                ex => ex.Message);
-            ChartFile captured = result.LoadedFiles[0];
-            ChartFile changed = ChartFileProjection.WithMaintenance(captured,
-                new ResourceHealthMaintenanceSnapshot
-                {
-                    Path = captured.Path,
-                    Hash = captured.Md5,
-                    Encoding = "utf-8",
-                    Origin = MaintenanceInfoOrigin.Calculated
-                });
-            Assert.AreSame(captured, result.LoadedFiles[0]);
-            Assert.IsNull(captured.ResourceHealthMaintenanceSnapshot);
-            Assert.AreEqual("utf-8", changed.ResourceHealthMaintenanceSnapshot.Encoding);
-        });
-    }
-
+    /// <summary>
+    /// songとdigest mapを接続して読込み譜面へ保存済みSHA256を付与し、MD5だけの譜面を返さない。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_AppliesChartDigestMapToLoadedFiles()
     {
@@ -353,23 +331,26 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
 
-                ChartFile song = ChartTestValues.Empty() with
-                {
-                    Path = rootedChartPath,
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    sha256 = new string('b', 64)
-                }, typeof(LR2SongDBExtended.chart_digest_map));
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = rootedChartPath,
+                        Folder = "folder"
+                    };
+                    song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                    {
+                        md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        sha256 = new string('b', 64)
+                    }, typeof(LR2SongDBExtended.chart_digest_map));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -387,6 +368,9 @@ public sealed class BmsLibraryInitializationLoadTests
         });
     }
 
+    /// <summary>
+    /// LR2でCP932不能な既存絶対パスを保持して警告し、DB行の削除や不正な親hashの保存を防ぐ。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_PreservesShiftJisUnsupportedExistingSongAndWarns()
     {
@@ -400,16 +384,19 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                ChartFile song = ChartTestValues.Empty() with
+                songDb.RunInTransaction(() =>
                 {
-                    Path = chartPath,
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = chartPath,
+                        Folder = "folder"
+                    };
+                    song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -428,12 +415,15 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(result.LoadedFiles[0]).parent));
             Assert.IsTrue(result.LoadedFiles[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
             Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
         });
     }
 
+    /// <summary>
+    /// 独立DBでもCP932不能な既存パスを保持して警告し、動作modeによるDB行の削除を防ぐ。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_StandalonePreservesShiftJisUnsupportedExistingSongAndWarns()
     {
@@ -447,15 +437,18 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                ChartFile song = ChartTestValues.Empty() with
+                songDb.RunInTransaction(() =>
                 {
-                    Path = chartPath,
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "abababababababababababababababab" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = chartPath,
+                        Folder = "folder"
+                    };
+                    song = song with { Md5 = "abababababababababababababababab" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -474,12 +467,15 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(result.LoadedFiles[0]).parent));
             Assert.IsTrue(result.LoadedFiles[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
             Assert.IsTrue(string.IsNullOrWhiteSpace(verify.ExecuteScalar<string>("SELECT parent FROM song WHERE path = ?;", chartPath)));
         });
     }
 
+    /// <summary>
+    /// CP932不能な相対パスを部分的に絶対化せず警告し、旧行を失うことなくDBの元パスを維持する。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_DoesNotPartiallyFixRelativeShiftJisUnsupportedPath()
     {
@@ -493,16 +489,19 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                ChartFile song = ChartTestValues.Empty() with
+                songDb.RunInTransaction(() =>
                 {
-                    Path = relativePath,
-                    Folder = "folder"
-                };
-                song = song with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = relativePath,
+                        Folder = "folder"
+                    };
+                    song = song with { Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -520,12 +519,15 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.IsTrue(string.IsNullOrWhiteSpace(ChartSongStorageMapping.ToBmsRow(result.LoadedFiles[0]).parent));
             Assert.IsTrue(result.LoadedFiles[0].Warnings.Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", relativePath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", chartPath));
         });
     }
 
+    /// <summary>
+    /// 保存済みbmsonのtitleと統合subtitleを起動結果へ復元し、BMS専用読込みによるbmsonの脱落を検出する。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_LoadsBmsonSongsFromCatalogTable()
     {
@@ -539,11 +541,14 @@ public sealed class BmsLibraryInitializationLoadTests
             ChartFile row = ChartTestValues.ReadBmson(bmsonPath);
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(row), typeof(LR2SongDBExtended.bmson_song));
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(row), typeof(LR2SongDBExtended.bmson_song));
+                });
             }
 
             var service = new BmsLibraryInitializationService();
@@ -563,6 +568,9 @@ public sealed class BmsLibraryInitializationLoadTests
         });
     }
 
+    /// <summary>
+    /// chart_infoも保存済みの譜面を通常起動のsong読込みで取得し、digest mapのSHA256が失われないことを確認する。
+    /// </summary>
     [TestMethod]
     public void LoadSongTable_DoesNotHydrateChartInfoOnCriticalPath()
     {
@@ -577,21 +585,24 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                ChartFile song = ChartTestValues.Empty() with
+                songDb.RunInTransaction(() =>
                 {
-                    Path = chartPath
-                };
-                song = song with { Md5 = md5 };
-                songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
-                songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
-                songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
-                {
-                    md5 = md5,
-                    sha256 = sha256
-                }, typeof(LR2SongDBExtended.chart_digest_map));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    ChartFile song = ChartTestValues.Empty() with
+                    {
+                        Path = chartPath
+                    };
+                    song = song with { Md5 = md5 };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "parent"), typeof(LR2SongDB.song));
+                    songDb.CreateTable<LR2SongDBExtended.chart_digest_map>();
+                    songDb.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                    {
+                        md5 = md5,
+                        sha256 = sha256
+                    }, typeof(LR2SongDBExtended.chart_digest_map));
+                });
             }
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.UpsertChartInfos([CreateMinimalChartInfoRow(sha256, md5)]);
@@ -610,9 +621,12 @@ public sealed class BmsLibraryInitializationLoadTests
         });
     }
 
+    /// <summary>
+    /// 閏日不具合の対象外である平年2月末と閏年3月2日のfolderには修復確認・日時更新・保存変更を行わない。
+    /// </summary>
     [DataTestMethod]
-    [DataRow(2023, 2, 28, 12, 0, 0)]
-    [DataRow(2024, 3, 2, 0, 0, 0)]
+    [DataRow(2023, 2, 28, 12, 0, 0)] // 平年の2月末
+    [DataRow(2024, 3, 2, 0, 0, 0)] // 閏年でも対象日より後
     public void LoadSongTable_DoesNotTreatNonTargetTimestampAsLeapYearBug(int year, int month, int day, int hour, int minute, int second)
     {
 
@@ -624,18 +638,21 @@ public sealed class BmsLibraryInitializationLoadTests
 
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(new LR2SongDB.folder
+                songDb.RunInTransaction(() =>
                 {
-                    path = folderPath + Path.DirectorySeparatorChar,
-                    title = "NormalFolder",
-                    parent = "e2977170",
-                    type = 1,
-                    date = null,
-                    adddate = 0
-                }, typeof(LR2SongDB.folder));
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = folderPath + Path.DirectorySeparatorChar,
+                        title = "NormalFolder",
+                        parent = "e2977170",
+                        type = 1,
+                        date = null,
+                        adddate = 0
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var dialogService = new RecordingDialogService

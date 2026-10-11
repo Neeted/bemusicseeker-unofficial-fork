@@ -18,6 +18,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class InstallableMaintenanceAdmissionTests
 {
+    /// <summary>
+    /// 保証：LR2同期が受付を保持する間は受理済み保守を待たせ、同期後に両方の実DB更新を順に公開して次の明示同期も受理する。
+    /// </summary>
+    /// <remarks>実初期化から保守の生産・scheduler接続・LR2worker・DB確定まで通し、手動通知では分からない更新欠落と受付の早期解放を確認する。</remarks>
     [TestMethod]
     public async Task QueuedLr2AndAcceptedMaintenance_WaitForOneAdmissionAndPublishBothActualUpdates()
     {

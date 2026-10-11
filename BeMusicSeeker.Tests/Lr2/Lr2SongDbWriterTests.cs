@@ -11,6 +11,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongDbWriterTests
 {
+    /// <summary>
+    /// 同じ生成行の再反映を変更なしとして一行だけ保存し、重複挿入や無変更更新を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_SkipsUnchangedGeneratedColumns()
     {
@@ -27,6 +31,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 生成タイトルを更新してもお気に入り・追加時刻・タグを保持し、利用者設定の上書きを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_UpdatesChangedGeneratedColumnsAndPreservesUserColumns()
     {
@@ -50,6 +58,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 既存更新と新規追加のバッチを反映し、生成タイトルと件数を更新しながら既存利用者設定を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongs_UpdatesChunkWithSingleExistingLookupAndPreservesUserColumns()
     {
@@ -77,6 +89,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// パス完全一致とMD5大文字小文字同一の既存行だけを解析結果で更新し、欠落行を追加せず他列と利用者設定を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpdateChartInfoSongProjections_UpdatesOnlyMatchedExistingRowsAndNeverInserts()
     {
@@ -188,6 +204,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// songテーブル不在は未照合として報告してテーブルを作らず、解析補完が保存領域を新設する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpdateChartInfoSongProjections_MissingSongTableReportsMissingWithoutCreatingTable()
     {
@@ -214,6 +234,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 大文字小文字だけ異なるパスを別行として保存し、既存利用者設定とメンテナンス行を新規行へ流用しない。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongs_TreatsCaseOnlyPathAsDistinct()
     {
@@ -247,6 +271,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 譜面MD5変更で新しいSHA対応を保存し参照のない旧対応だけを消して、孤立したダイジェストの残留を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongs_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
     {
@@ -273,6 +301,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// BMSのMD5変更後もbmsonが参照する旧SHA対応を残し、別形式の共用ダイジェストを失う誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongs_KeepsPreviousDigestWhenBmsonStillReferencesHash()
     {
@@ -308,6 +340,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期の既存更新・新規追加でタイトルを反映し、既存利用者設定を保持して新規追加時刻を付ける。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_PreservesUserColumnsWithoutExistingRowRead()
     {
@@ -337,6 +373,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期で大文字小文字だけ異なるパスを別行として保存し、既存設定とメンテナンスの同一性を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_TreatsCaseOnlyPathAsDistinct()
     {
@@ -371,6 +411,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期で大文字小文字が違う二行をそれぞれのタイトルへ更新し、実キーの混同や制約違反を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesCaseOnlyVariantsWithoutConstraint()
     {
@@ -397,6 +441,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期の同じ生成列は更新なしとして返し、songとSHA対応を保持して不要な更新を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_SkipsUnchangedGeneratedColumns()
     {
@@ -420,6 +468,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期で同じSHA対応を再反映しても監査トリガーへ書込みを発生させず、無変更時の不要更新を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_SkipsUnchangedDigestMapRows()
     {
@@ -444,6 +496,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// songに変更がなくても欠落したSHA対応を補修し、生成列比較で必要なダイジェスト修復を省く誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_RepairsDigestForUnchangedGeneratedColumns()
     {
@@ -467,6 +523,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// song無変更で古いSHA対応だけを一度更新し、不要な挿入とダイジェスト修復漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_UpdatesChangedDigestWithoutSongWrite()
     {
@@ -495,6 +555,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期で保存済み大文字MD5を小文字へ更新し、既存行のハッシュ正規化漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_NormalizesExistingUppercaseHash()
     {
@@ -517,6 +581,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期のMD5変更で新しいSHA対応を保存し、参照のない旧対応だけを削除する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_UpsertsDigestRowsAndRemovesOrphanedPreviousHash()
     {
@@ -543,6 +611,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期のMD5変更でもbmsonが参照する旧SHA対応を残し、別形式の共用保存行を削除する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_KeepsPreviousDigestWhenBmsonStillReferencesHash()
     {
@@ -578,6 +650,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期の未取得txtは既存の値を保持して変更なしと扱い、情報欠落を保存値消去へ読み替える誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_TreatsNullTextFlagAsUnchanged()
     {
@@ -600,6 +676,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// LR2同期の更新入力に追加時刻がなくても既存時刻と新タイトルを保存し、更新時の履歴消失を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSongsForLr2SongDbSync_PreservesExistingAddDate()
     {
@@ -623,6 +703,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 単行反映の未取得txtは既存の値を保持して変更なしと扱い、未取得入力で保存値を消す誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_TreatsNullTextFlagAsUnchanged()
     {
@@ -643,6 +727,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 単行反映で保存済み大文字MD5を小文字へ更新し、保存キーの正規化漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_NormalizesExistingUppercaseHash()
     {
@@ -664,6 +752,10 @@ public sealed class Lr2SongDbWriterTests
         });
     }
 
+    /// <summary>
+    /// 実ファイルのない新規行でも未取得更新時刻を保持し追加時刻だけを付けて、勝手なファイル時刻取得を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_DoesNotStatMissingDateAndFillsNewAddDate()
     {
@@ -682,10 +774,14 @@ public sealed class Lr2SongDbWriterTests
 
             LR2SongDB.song row = songDb.Table<LR2SongDB.song>().Single();
             Assert.IsFalse(row.date.HasValue);
-            Assert.IsTrue(row.adddate >= before && row.adddate <= after, "New rows should receive a current adddate.");
+            Assert.IsTrue(row.adddate >= before && row.adddate <= after, "新規行には現在の追加時刻が保存される。");
         });
     }
 
+    /// <summary>
+    /// 実ファイルのない既存行を更新し、未取得更新時刻と元追加時刻を保持して履歴の上書きを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteの保存行を反映前後で観測し、SQL更新・削除と利用者データ保持の接続を確認する。</remarks>
     [TestMethod]
     public void UpsertGeneratedSong_DoesNotStatMissingDateButPreservesExistingAddDate()
     {
@@ -767,11 +863,6 @@ public sealed class Lr2SongDbWriterTests
         public void SetSha256(string value)
         {
             sha256 = value;
-        }
-
-        public void SetTitleForTest(string value)
-        {
-            title = value;
         }
 
         public void SetArtistForTest(string value)

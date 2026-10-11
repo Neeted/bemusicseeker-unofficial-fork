@@ -11,6 +11,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionRefreshTests
 {
+    /// <summary>
+    /// タイトル変更後にパスを変更してまとめて通知しても、中間のタイトル依存と最終現在値を保ち導入済み画面の更新を欠落させない。
+    /// </summary>
+    /// <remarks>実ライブラリまたは導入済みownerと索引・通知を接続し、単体の集合更新では欠落する実受付後の反映を確認する。</remarks>
     [TestMethod]
     public void Publisher_PreservesEarlierTitleDependencyAndFinalCurrentInOneBatch()
     {
@@ -90,6 +94,10 @@ public sealed class OwnedChartCollectionRefreshTests
         });
     }
 
+    /// <summary>
+    /// 走査の残存factsに導入先変更があるとき、所持tokenを保持して導入先の射影と通知だけを更新する。
+    /// </summary>
+    /// <remarks>実ライブラリまたは導入済みownerと索引・通知を接続し、単体の集合更新では欠落する実受付後の反映を確認する。</remarks>
     [TestMethod]
     public void ApplyFileScanCatalogResidual_UpdatesInstallDestinationProjectionThroughTypedFacts()
     {
@@ -97,8 +105,6 @@ public sealed class OwnedChartCollectionRefreshTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
-            File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
@@ -127,6 +133,10 @@ public sealed class OwnedChartCollectionRefreshTests
         });
     }
 
+    /// <summary>
+    /// 走査の残存factsが空なら、hash・導入済み・playlist・resource索引と世代・通知を一切変更しない。
+    /// </summary>
+    /// <remarks>実ライブラリまたは導入済みownerと索引・通知を接続し、単体の集合更新では欠落する実受付後の反映を確認する。</remarks>
     [TestMethod]
     public void ApplyFileScanCatalogResidual_EmptyFactsDoNotAddMutationOrNotification()
     {
@@ -134,8 +144,6 @@ public sealed class OwnedChartCollectionRefreshTests
         WithTemporarySongDb(delegate (string songDbPath)
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "Installed", "scan-residual-empty.bms");
-            Directory.CreateDirectory(Path.GetDirectoryName(chartPath)!);
-            File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
             var library = new TestBmsLibrary(songDbPath);
             SetLibraryFilesWithoutNotification(library, [bmsFile]);

@@ -13,6 +13,7 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class NLogWrapperTests
 {
+    /// <summary>実ログで一般・性能出力を分離しBOMを除き、小さい上限でrotationを発生させてarchive生成と保存件数上限を確認します。</summary>
     [TestMethod]
     public void ConfigureApplicationFileLogging_PreservesChannelsEncodingAndRollingArchives()
     {
@@ -64,6 +65,7 @@ public sealed class NLogWrapperTests
         }
     }
 
+    /// <summary>不正なnetwork出力先を登録して実ログ送信し、出力先失敗がアプリの呼出元へ漏れないことを確認します。</summary>
     [TestMethod]
     public void NetworkTargetFailureDoesNotEscapeLoggingCall()
     {

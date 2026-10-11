@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartCollectionLookupMembershipTests
 {
+    /// <summary>
+    /// BMS・bmsonへ新しいhashを適用した後、所持hash索引に現在値を含めて以前のMD5を残さない。
+    /// </summary>
     [TestMethod]
     public void CreateOwnedHashIndexSnapshot_ReprojectsCurrentStorageOwnerHashes()
     {
@@ -38,6 +41,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         CollectionAssert.Contains(new List<string>(snapshot.Sha256Hashes), bmsonSong.Sha256);
     }
 
+    /// <summary>
+    /// 更新後のMD5・SHA-256に合うBMS・bmsonだけを参照として返し、無関係な譜面を混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateLibraryChartRefsForHashes_ReturnsOnlyMatchingCurrentOwnerHashes()
     {
@@ -64,6 +70,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(refs.Any(chart => (chart.Path == unmatchedBms.Path && chart.Md5 == unmatchedBms.Md5 && chart.Kind == ChartFileKind.Bms)));
     }
 
+    /// <summary>
+    /// 更新後のhashで譜面情報の既存・解析失敗・補完候補を分類し、古いhashを用いた件数誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateChartInfoHydrationOwnerSummary_ReprojectsCurrentStorageOwnerHashes()
     {
@@ -88,6 +97,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(1, summary.OwnerApplySkippedCount);
     }
 
+    /// <summary>
+    /// 全件リソース保守の射影にはパスとMD5を持つBMS・bmsonだけを含め、不正な所有入力を除外する。
+    /// </summary>
     [TestMethod]
     public void CreateFullResourceMaintenanceTargetSnapshot_FiltersInvalidOwnedChartsBeforeProjection()
     {
@@ -111,6 +123,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.Token, md5lessBmson.Token)));
     }
 
+    /// <summary>
+    /// BMS・bmsonの移転後に作るパス一覧は新しいパスを返し、古い場所を残さない。
+    /// </summary>
     [TestMethod]
     public void CreatePathSnapshot_ReprojectsCurrentStorageOwnerPaths()
     {
@@ -132,6 +147,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         CollectionAssert.DoesNotContain(paths, Path.Combine("C:\\Installed", "OldBmson", "chart.bmson"));
     }
 
+    /// <summary>
+    /// 導入先の実行時状態keyは現在のパスと両hashを含め、古いkeyや大小文字を変えた別パスへ一致させない。
+    /// </summary>
     [TestMethod]
     public void CreateInstallDestinationRuntimeStateKeySnapshot_ReprojectsCurrentStorageOwnerValues()
     {
@@ -168,6 +186,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.CreatePathKey(ChartFileKind.Bmson, oldBmsonPath)));
     }
 
+    /// <summary>
+    /// 譜面の主実行時状態keyは現在値から作り、導入先用のパスだけの別名keyを混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateChartRuntimeStatePrimaryKeySnapshot_ExcludesInstallDestinationPathAliases()
     {
@@ -198,6 +219,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(keys.Contains(ChartFileRuntimeStateKey.Create(ChartFileKind.Bmson, oldBmsonPath, "cccccccccccccccccccccccccccccccc", new string('d', 64))));
     }
 
+    /// <summary>
+    /// BMSとbmsonの所有tokenで指定された二件を削除し、未指定の所有を保持する。
+    /// </summary>
     [TestMethod]
     public void RemoveChartRequests_UpdateOwnedCollectionMembership()
     {
@@ -222,6 +246,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreSame(second.Token, afterRemove[0].Token);
     }
 
+    /// <summary>
+    /// 古い所有参照が現在のbmsonと同じパスを指しても、別種別・別tokenの譜面を誤削除しない。
+    /// </summary>
     [TestMethod]
     public void RemoveChartRequests_StaleOwnerReferenceDoesNotRemoveSamePathChart()
     {
@@ -248,6 +275,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.Token, bmsonSong.Token)));
     }
 
+    /// <summary>
+    /// パス清掃の要求は一致する所有だけを削除し、無関係なパスの所有を保つ。
+    /// </summary>
     [TestMethod]
     public void RemoveChartRequests_PathCleanupRemovesUniqueOwnedPath()
     {
@@ -266,6 +296,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreSame(other.Token, snapshot[0].Token);
     }
 
+    /// <summary>
+    /// 完全一致の重複行を除外した集合では、有効な所有の削除後に除外済みの別行を復活させない。
+    /// </summary>
     [TestMethod]
     public void RemoveChartRequests_OwnerReferenceRemovesOnlyRequestedOwnerWhenDuplicatePathWasSkipped()
     {
@@ -284,6 +317,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreSame(other.Token, snapshot[0].Token);
     }
 
+    /// <summary>
+    /// 既知譜面の判定は所有tokenまたは種別と完全一致パスで行い、種別の異なる同パスを既知にしない。
+    /// </summary>
     [TestMethod]
     public void ContainsKnownChart_UsesOwnedReferenceAndKindPathExactLookup()
     {
@@ -305,6 +341,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(state.ContainsKnownChart(new ChartFile(ChartFileKind.Bmson, bmsPath, "cccccccccccccccccccccccccccccccc", null, "title", "raw", "artist", string.Empty, Path.GetDirectoryName(bmsPath), string.Empty, string.Empty, null, 0, null)));
     }
 
+    /// <summary>
+    /// 同パス重複の除外後でも、tokenのない完全一致パス参照を唯一の所有として解決する。
+    /// </summary>
     [TestMethod]
     public void ContainsKnownChart_PathExactLookupUsesOwnedUniquePath()
     {
@@ -320,6 +359,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(1, state.CreateSnapshot().Count);
     }
 
+    /// <summary>
+    /// パスのない所有参照を既知譜面として受理しない。
+    /// </summary>
     [TestMethod]
     public void ContainsKnownChart_DoesNotMatchPathlessOwnerBackedChart()
     {
@@ -330,6 +372,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsFalse(state.ContainsKnownChart((bmsFile)));
     }
 
+    /// <summary>
+    /// 所有の削除後は捕捉済み参照を既知にせず、作成済みパス・配下索引にも古い所有を残さない。
+    /// </summary>
     [TestMethod]
     public void ContainsKnownChart_DoesNotMatchOwnerWhoseCurrentPathDisappeared()
     {
@@ -347,6 +392,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(0, index.CountChartRefsUnderRealPath(oldDirectory, null));
     }
 
+    /// <summary>
+    /// 同じ種別・パスの追加は新しいtokenの値に置換し、既存の生存行と新規行を種別ごとの順序で保持する。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_ReplacesExistingSameKindPathRowsAndPreservesStorageOrder()
     {
@@ -383,6 +431,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.IsNotNull(snapshot[5].Token);
     }
 
+    /// <summary>
+    /// BMSの置換と追加では生存行の相対順を保ち、置換行を末尾へ追加して既存の配下索引にも反映する。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_BmsSurvivorsKeepRelativeOrderAndReplacementAppends()
     {
@@ -408,6 +459,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
                 .ToArray());
     }
 
+    /// <summary>
+    /// bmsonの大小文字を区別する捕捉パス順を保ち、同パス置換後の並びを作成済み索引にも反映する。
+    /// </summary>
     [TestMethod]
     public void UpsertStorageRows_CanonicalBmsonUsesCapturedPathAndReplacementAppends()
     {
@@ -441,6 +495,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
                 .ToArray());
     }
 
+    /// <summary>
+    /// bmsonの移転は捕捉済みの相対位置を保ち、パスの変化だけで集合と既存索引の順序を並べ直さない。
+    /// </summary>
     [TestMethod]
     public void ApplyPathChanges_CanonicalBmsonKeepsCapturedSequencePosition()
     {
@@ -478,6 +535,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
                 .ToArray());
     }
 
+    /// <summary>
+    /// 背景BMSが16件・128件の両条件で、準備後の局所追加・置換が全件列挙やbmson再実体化をせず対数のアクセス上限を守る。
+    /// </summary>
     [TestMethod]
     public void CanonicalSequence_Background16And128KeepsWarmMutationWorkBounded()
     {
@@ -630,6 +690,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         int WarmMaterializationCount,
         int WarmAccessCount);
 
+    /// <summary>
+    /// 重複hashのBMS・bmsonを一度捕捉したら行一覧を再複製せず、同じ索引と重複件数を返す。
+    /// </summary>
     [TestMethod]
     public void DuplicateChartRowSnapshot_UsesCachedIndexWithoutCopyingRows()
     {
@@ -655,6 +718,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreSame(bmsFile.Token, bmsRow.Chart.Token);
     }
 
+    /// <summary>
+    /// 削除・移転・BMSとbmson追加後に重複行索引を更新し、以前のsnapshotのパスと行数を変更しない。
+    /// </summary>
     [TestMethod]
     public void DuplicateChartRowSnapshot_TracksRemovePathChangeAndUpsert()
     {
@@ -694,6 +760,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         Assert.AreEqual(0, snapshot.DuplicateHashRowCount);
     }
 
+    /// <summary>
+    /// bmsonだけを削除したとき、残るBMS行一覧を再複製せず対象bmsonだけを除外する。
+    /// </summary>
     [TestMethod]
     public void DuplicateChartRowSnapshot_BmsonOnlyRemoveReusesBmsStorageRows()
     {
@@ -715,6 +784,9 @@ public sealed class OwnedChartCollectionLookupMembershipTests
         CollectionAssert.AreEqual(new[] { bmsFile }, snapshot.BmsCharts.ToArray());
     }
 
+    /// <summary>
+    /// SHA-256だけの変更で主重複hashを変えず、MD5変更では新しいhashへ更新して以前の行を変更しない。
+    /// </summary>
     [TestMethod]
     public void DuplicateChartRowSnapshot_TracksMd5DigestChangesOnly()
     {

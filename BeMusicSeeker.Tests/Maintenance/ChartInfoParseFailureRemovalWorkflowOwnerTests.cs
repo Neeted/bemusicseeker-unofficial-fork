@@ -17,6 +17,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
 {
+    /// <summary>
+    /// 空値を除きMD5をtrim・小文字化して重複をまとめ、対象有無を判断することで同一ハッシュの二重削除や空対象の受理を検出する。
+    /// </summary>
     [TestMethod]
     public void Request_NormalizesAndFreezesSelectedMd5s()
     {
@@ -30,6 +33,9 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         Assert.IsFalse(new ChartInfoParseFailureRemovalRequest([null, " "]).HasTargets);
     }
 
+    /// <summary>
+    /// 承認後にライブラリ取得・worker起動・保存削除の順に進み、保存処理の解放まで終端しないことで、未確定の完了通知を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RemoveAsync_AcceptsConfirmationAndWaitsForBackgroundStore()
     {
@@ -72,8 +78,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             ChartInfoParseFailureRemovalOperation operation = owner.BeginRemove(request);
             ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
             Assert.IsTrue(acceptance.Accepted);
-            // Acceptance completion and the background scheduling continuation are independent
-            // asynchronous phases; use the store gate below to observe their deterministic order.
+            // 受理通知とworker起動は別の非同期段階なので、保存処理の到達を実終端に接続して順序を観測する。
             try
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(storeStarted.Task, operation.Completion, "parse-failure-removal-store");
@@ -106,6 +111,9 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// No・Cancel・未選択閉鎖は拒否で終え、workerと保存削除を始めず、利用者の拒否を承認へ読み替える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task RemoveAsync_UserRejectionDoesNotScheduleOrStore()
     {
@@ -140,6 +148,9 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         }
     }
 
+    /// <summary>
+    /// 確認画面の失敗は元原因を含む未受理失敗として返し、保存削除を呼ばず、表示できなかった確認での実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RemoveAsync_DialogFailureIsExplicitAndDoesNotStore()
     {
@@ -162,6 +173,9 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         Assert.AreEqual(0, store.CallCount);
     }
 
+    /// <summary>
+    /// 利用者の承認後にライブラリがなければ受理済み失敗として返し、workerを始めず、対象消失を成功扱いする誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task RemoveAsync_AcceptedButLibraryUnavailableIsFailure()
     {
@@ -190,6 +204,9 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         Assert.AreEqual(0, scheduleCalls);
     }
 
+    /// <summary>
+    /// 承認済みの保存削除が失敗したら一回実行した元例外を受理済み失敗へ保持し、失敗の破棄や再実行を検出する。
+    /// </summary>
     [TestMethod]
     public async Task RemoveAsync_StoreFailureIsPropagatedAsAcceptedFailure()
     {
@@ -223,7 +240,10 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
         }
     }
 
-    /// <summary>解析失敗削除を実adapter・DBへ接続し、L中Busyで未変更、終端後の明示要求で固定対象だけ削除します。</summary>
+    /// <summary>
+    /// 実DBの解析失敗行は共通排他の保持中に変更せず、解放後の明示要求で選択MD5だけを削除して、対象外削除や受付の残存を検出する。
+    /// </summary>
+    /// <remarks>実adapterと独立したSQLite DBを使い、固定対象の保存削除と受付解放を確認する。</remarks>
     [TestMethod]
     public async Task RealStore_RemovesOnlyAcceptedParseFailureAndReleasesAdmission()
     {
@@ -270,9 +290,7 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     private static BMSLibrary CreateLibrary(string root)
     {
         string songDbPath = Path.Combine(root, "song.db");
-        using (var database = new LR2SongDBExtended(songDbPath))
-        {
-        }
+        File.WriteAllBytes(songDbPath, []);
         return new TestBmsLibrary(songDbPath);
     }
 

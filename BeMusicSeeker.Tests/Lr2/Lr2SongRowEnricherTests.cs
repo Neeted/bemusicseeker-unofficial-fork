@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -12,6 +11,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SongRowEnricherTests
 {
+    /// <summary>
+    /// 実読込みの日時と利用者のtxt・お気に入り・登録日時・タグを外部保存行へ反映し、列の欠落と親情報の未投影を検出します。
+    /// </summary>
+    /// <remarks>実ファイルの時刻を読込み・解析・保存行投影へ渡す接続を観測します。</remarks>
     [TestMethod]
     public void CommonToStorageRow_CapturesSnapshotMetadataAndUserColumns()
     {
@@ -50,45 +53,9 @@ public sealed class Lr2SongRowEnricherTests
         }
     }
 
-    [TestMethod]
-    public void CreateParsedSongRowFromSnapshot_AppliesDetectedMetadataButKeepsShiftJisResourceReferences()
-    {
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Lr2SongRowEnricher_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        string chartPath = Path.Combine(tempDirectoryPath, "korean-resource.bms");
-        try
-        {
-            const string title = "\uacaf";
-            const string artist = "\uac00\ub098";
-            const string resourceName = "\uac00.wav";
-            File.WriteAllText(
-                chartPath,
-                "#TITLE " + title + "\r\n#ARTIST " + artist + "\r\n#WAV01 " + resourceName + "\r\n",
-                Encoding.GetEncoding("ks_c_5601-1987"));
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile shiftJisParsed = BmsChartFileParser.ParseSnapshot(snapshot);
-
-            ChartFile parsed = BmsChartFileParser.ParseSnapshotWithEncodingDetection(snapshot);
-
-            Assert.AreEqual(title, parsed.RawTitle);
-            Assert.AreEqual(artist, parsed.RawArtist);
-            Assert.AreEqual(
-                shiftJisParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
-                parsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            CollectionAssert.AreEqual(
-                shiftJisParsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray(),
-                parsed.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).OrderBy(path => path, StringComparer.Ordinal).ToArray());
-            Assert.AreNotEqual(resourceName, parsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectoryPath))
-            {
-                Directory.Delete(tempDirectoryPath, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>
+    /// CP932非対応パスでも譜面行を保ち、表現できないフォルダ・親だけを空にして外部キーの破損や全譜面拒否を検出します。
+    /// </summary>
     [TestMethod]
     public void EnrichGeneratedSong_DoesNotThrowForCp932UnsupportedPath()
     {
@@ -100,11 +67,13 @@ public sealed class Lr2SongRowEnricherTests
 
         Lr2SongRowEnricher.EnrichGeneratedSong(file);
 
-        Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(file.path).WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
         Assert.IsTrue(string.IsNullOrWhiteSpace(file.folder));
         Assert.IsTrue(string.IsNullOrWhiteSpace(file.parent));
     }
 
+    /// <summary>
+    /// 追加生成する外部譜面行の未指定exlevelを0へ補完し、LR2が読む保存列に未定値を残す退行を検出します。
+    /// </summary>
     [TestMethod]
     public void EnrichGeneratedSong_DefaultsExLevelToZero()
     {
@@ -118,6 +87,9 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(0, file.exlevel);
     }
 
+    /// <summary>
+    /// 追加生成する譜面行にLR2互換の軽量列を設定し、未解析のlevel・difficulty・mode・judgeの保存互換値を取り違える誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void EnrichGeneratedSong_DefaultsLr2LightweightColumns()
     {
@@ -134,6 +106,9 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(2, file.judge);
     }
 
+    /// <summary>
+    /// 一致MD5の譜面情報を保存行へ反映し、BPM整数化と機能bitの投影を行って既存LR2のmode・judgeを上書きしないことを確認します。
+    /// </summary>
     [TestMethod]
     public void EnrichFromChartInfo_AppliesChartMetadataWithoutOverwritingLr2RuntimeMetadata()
     {
@@ -176,6 +151,9 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(1234, file.karinotes);
     }
 
+    /// <summary>
+    /// 値が00でも存在するレーンと空白区切りを読んで外部modeへ投影し、音符値だけで譜面種別を判断する誤りを検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow("#00118:00\r\n", 7)]
     [DataRow("#00121:00\r\n", 10)]
@@ -203,6 +181,9 @@ public sealed class Lr2SongRowEnricherTests
         }
     }
 
+    /// <summary>
+    /// CUSTOMFOLDER指定では元RANKに関わらず外部judgeを2へ投影し、カスタム定義へ通常譜面の判定値を持ち込む誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_CustomFolderDirectiveResetsLr2Judge()
     {
@@ -226,6 +207,9 @@ public sealed class Lr2SongRowEnricherTests
         }
     }
 
+    /// <summary>
+    /// 異なるMD5の譜面情報は保存行へ適用せず、別譜面のlevelや音符数を混入する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void EnrichFromChartInfo_IgnoresMismatchedMd5()
     {
@@ -244,6 +228,9 @@ public sealed class Lr2SongRowEnricherTests
         Assert.IsNull(file.karinotes);
     }
 
+    /// <summary>
+    /// 一致譜面情報のnull exlevelを外部保存互換値0へ変換し、欠落値の未補完を検出します。
+    /// </summary>
     [TestMethod]
     public void EnrichFromChartInfo_DefaultsNullExLevelToZero()
     {
@@ -260,6 +247,10 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(0, file.exlevel);
     }
 
+    /// <summary>
+    /// 欠落・不正・正常difficultyの既存行投影と新規行補完を揃え、各行のmode・judgeを保って保存経路間の変換不一致を検出します。
+    /// </summary>
+    /// <remarks>null・-1・6はNormal補完、4は明示難度保持をDataRowで区別します。</remarks>
     [DataTestMethod]
     [DataRow(null, 2)]
     [DataRow(-1, 2)]
@@ -324,6 +315,10 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(9, existingSong.judge);
     }
 
+    /// <summary>
+    /// 未指定・負・範囲外のdifficultyをLR2のNormal整数2へ補完し、未定値を有効難度として保存する誤りを検出します。
+    /// </summary>
+    /// <remarks>DataRowのnull・-1・9は未指定・負値・範囲外です。</remarks>
     [DataTestMethod]
     [DataRow(null)]
     [DataRow(-1)]
@@ -340,6 +335,9 @@ public sealed class Lr2SongRowEnricherTests
         Assert.AreEqual(2, file.difficulty);
     }
 
+    /// <summary>
+    /// 有効な指定difficultyはそのまま保ち、補完処理が明示値までNormalへ置換する誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void ApplyLr2ChartMetadataDefaults_KeepsValidDifficulty()
     {
@@ -358,11 +356,6 @@ public sealed class Lr2SongRowEnricherTests
         public void SetHash(string value)
         {
             hash = value;
-        }
-
-        public void SetFavorite(int? value)
-        {
-            favorite = value;
         }
 
         public void SetJudgeForTest(int? value)

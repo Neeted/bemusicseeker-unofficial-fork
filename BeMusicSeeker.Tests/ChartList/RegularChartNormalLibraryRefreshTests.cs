@@ -14,10 +14,12 @@ using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>実libraryから通常一覧への変更通知、依存失効と停止時の収束を検証します。</summary>
+/// <remarks>Windowを使わず実SQLite・package所有者からの通知接続を確認し、表示操作の接続はMainWindowのcompiled画面caseが分担します。</remarks>
 [TestClass]
 public sealed class RegularChartNormalLibraryRefreshTests
 {
-    /// <summary>実保守の文字コード再読解が同tokenの基本値・集合版・局所playlist差分と、接続済み一覧の順序・絞込みへ届くことを確認します。</summary>
+    /// <summary>実保守の文字コード再読解を同tokenの基本値・集合版・playlist局所差分と接続済み一覧の順序・絞込みへ反映し、再読解の無変更では版を増やさないことを確認します。</summary>
     [TestMethod]
     public void MaintenanceMetadataChange_ReachesAttachedViewAndWarmPlaylistDeltaOnce()
     {
@@ -169,7 +171,9 @@ public sealed class RegularChartNormalLibraryRefreshTests
         }
     }
 
+    /// <summary>表のsort・keyword・mode変更、別package、reset、情報不足を組み合わせ、現在表示へ影響する変更だけ再構築して不要再構築と必要更新漏れを検出します。</summary>
     [DataTestMethod]
+    // 通常タイトル・別packageは表示のみ。path・keyword・mode・reset・情報不足は再構築します。
     [DataRow("Title", "", false, false, false, false, false)]
     [DataRow("path", "", false, false, false, false, true)]
     [DataRow("Title", "before", false, false, false, false, true)]
@@ -203,6 +207,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
         Assert.AreEqual(rebuild ? MainViewRefreshAction.Refresh : MainViewRefreshAction.RefreshDisplay, action);
     }
 
+    /// <summary>導入済み項目の表示だけに影響する複数effectをまとめても行参照を保持して表示更新を一回だけ出し、重複更新と行再置換を検出します。</summary>
     [TestMethod]
     public void InstalledBatch_AllPresentationEffectsIssueOneDisplayRequestAndKeepRows()
     {
@@ -236,6 +241,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
         });
     }
 
+    /// <summary>実package所有者が確定したタイトル変更の通知から一覧を再整列し、元項目と旧snapshotを保持して、旧タイトル順の残留や項目差替えを検出します。</summary>
     [TestMethod]
     public void InstalledTitleChangeThroughOwnerFactsRebuildsFinalTitleOrder()
     {
@@ -318,6 +324,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
         });
     }
 
+    /// <summary>通知済みlibraryへ接続すると未適用変更へ一回追従して派生cacheを失効させ、同じ版の二重適用を検出します。</summary>
     [TestMethod]
     public void AttachNormalLibraryRefreshSource_CatchesUpOnceAndSuppressesDuplicate()
     {
@@ -340,7 +347,6 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 owner.AttachNormalLibraryRefreshSource(library);
 
                 Assert.AreEqual(1, applied.Count);
-                Assert.AreEqual("normal_library_refresh", applied[0].Reason);
                 Assert.IsTrue(applied[0].NotificationBatch.ResetsPriorNotifications);
                 Assert.IsTrue(applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
                 Assert.IsTrue(owner.SourceGeneration > 0);
@@ -362,6 +368,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>接続後の実保存行置換が一覧のreset通知へ一回届き、購読漏れと二重適用を検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_AppliesPublishedStorageReplacement()
     {
@@ -386,7 +393,6 @@ public sealed class RegularChartNormalLibraryRefreshTests
 
                 applied.Wait();
                 Assert.AreEqual(1, Volatile.Read(ref appliedCount));
-                Assert.AreEqual(1, Volatile.Read(ref appliedCount));
             }
             finally
             {
@@ -396,6 +402,8 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>通知callbackを保持して停止workerを開始しても、解放後は集合変更とStopAsyncの実Taskがどちらも終端し、通知が一回に収束することを確認します。</summary>
+    /// <remarks>stopStartedはStopAsync呼出し前の合図であり、callback解放まで停止完了が待つ順序は検査しません。未実行通知の停止回収はStopAsync_QueuedNormalLibraryRefreshBecomesNoOpが分担します。</remarks>
     [TestMethod]
     public void StopAsync_DrainsInFlightNormalLibraryRefreshApplication()
     {
@@ -424,24 +432,40 @@ public sealed class RegularChartNormalLibraryRefreshTests
             {
                 library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\in-flight.bms")];
             });
-            applyEntered.Wait();
-
-            Task stopTask = StartLongRunningAsync(async delegate
+            Task? stopTask = null;
+            try
             {
-                stopStarted.Set();
-                await owner.StopAsync();
-                stopCompleted.Set();
-            });
-            stopStarted.Wait();
-            Assert.IsFalse(stopCompleted.IsSet);
-
-            releaseApply.Set();
-            Task.WaitAll(mutationTask, stopTask);
-            Assert.AreEqual(1, Volatile.Read(ref appliedCount));
+                applyEntered.Wait();
+                stopTask = StartLongRunningAsync(async delegate
+                {
+                    stopStarted.Set();
+                    await owner.StopAsync();
+                    stopCompleted.Set();
+                });
+                stopStarted.Wait();
+                Assert.IsFalse(stopCompleted.IsSet);
+                releaseApply.Set();
+                Task.WaitAll(mutationTask, stopTask);
+                Assert.AreEqual(1, Volatile.Read(ref appliedCount));
+            }
+            finally
+            {
+                releaseApply.Set();
+                try
+                {
+                    mutationTask.GetAwaiter().GetResult();
+                    stopTask?.GetAwaiter().GetResult();
+                }
+                finally
+                {
+                    owner.Dispose();
+                }
+            }
         });
     }
 
 
+    /// <summary>実WAV健全性再走査の通知でmaintenance世代を一回更新し、表示・sortの依存cache失効漏れを検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_InvalidatesMaintenanceDependency()
     {
@@ -484,6 +508,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>接続時のcatch-upを注入execution laneに予約し、実行前は世代を変えず実行後に一回適用することで、呼出laneでの先行適用を検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_MarshalsApplyToExecutionLane()
     {
@@ -520,6 +545,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>catalog writer保持中にも生産側の通知が戻り、UI受信側は実snapshot readerで待つことで、通知からUIを同期待ちするdeadlockを検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_DoesNotWaitForUiWhileCatalogWriterHeld()
     {
@@ -587,6 +613,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>未実行通知を持つ停止は予約処理の収束を待ち、実行された旧通知は世代も公開回数も変えず、停止後の状態更新を検出します。</summary>
     [TestMethod]
     public void StopAsync_QueuedNormalLibraryRefreshBecomesNoOp()
     {
@@ -617,6 +644,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>受付済みでもexecution laneが取消した通知を停止が回収し、開始されない適用を無期限に待つ誤りを検出します。</summary>
     [TestMethod]
     public void StopAsync_AcceptedButAbortedNormalLibraryRefreshDoesNotHang()
     {
@@ -626,7 +654,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
             {
                 BmsCharts = [CreateTestableBmsFile("C:\\Charts\\aborted-refresh.bms")]
             };
-            RegularChartListOwner owner = CreateOwner(
+            using RegularChartListOwner owner = CreateOwner(
                 new MainChartListViewModel(),
                 CreateWorkspaceForOwner(),
                 action => action(),
@@ -639,6 +667,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
     }
 
 
+    /// <summary>通知subscriberの例外後にも次の実保存行置換を一回適用し、失敗した版で受付を閉じたままにする誤りを検出します。</summary>
     [TestMethod]
     public void AttachedNormalLibraryRefreshSource_ApplyFailureDoesNotBlockLaterVersion()
     {

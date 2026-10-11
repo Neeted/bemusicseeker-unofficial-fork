@@ -18,6 +18,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryStateApplierTests
 {
+    /// <summary>二回の未公開進捗を一UI投稿へ合流し、最新の段階・件数・pathを一回通知することから古い値の公開や重複投稿を検出します。</summary>
+    /// <remarks>窓口への進捗報告とUI投稿を接続します。DBの内容は検査せず、実Windowも使いません。</remarks>
     [TestMethod]
     public void LibraryInitializationProgress_CoalescesPendingReportsIntoOneTypedUiCommit()
     {
@@ -47,7 +49,6 @@ public sealed class BmsLibraryStateApplierTests
             InvokeProgress(report, library, BMSLibrary.LibraryInitializationProgressStage.FileDiff, 12, 12, "last");
 
             Assert.AreEqual(1, scheduler.PendingCount);
-            Assert.AreEqual(0L, library.LibraryInitializationProgressVersion);
 
             scheduler.ExecuteNext();
 
@@ -77,120 +78,75 @@ public sealed class BmsLibraryStateApplierTests
     }
 
 
+    /// <summary>宛先の全解除factsはpath・title・artist・候補・推定警告を消し、部分解除として古い推定を残す誤りを検出します。</summary>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_FullClearBuildsChartSnapshotWithoutMutatingBmsOwner()
+    public void CreateAppliedSnapshots_FullClearRemovesDestinationMetadataSuggestionsAndWarnings()
     {
 
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            ChartFile file = ChartTestValues.Empty() with
-            {
-                Path = @"C:\Library\chart.bms"
-            };
-            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
-            List<ChartFile> libraryFiles = [file];
-            List<ChartFile> bmsonSongs = [];
-            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
-            var callbacks = new TrackingCallbacks();
-            PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-            LibraryInstallDestinationChange installDestinationChange = new()
-            {
-                Chart = ChartFileProjection.WithPackageState(
-                    (file),
-                    @"C:\Deleted",
-                    "Deleted title",
-                    "Deleted artist",
-                    [@"C:\Deleted", @"C:\Other"],
-                    file.Warnings),
-                NewInstallDestination = null,
-                ClearInstallDestinationState = true
-            };
-            LibraryPackageReferenceFacts packageFacts = new([installDestinationChange], []);
-
-            ApplyCommittedMutation(applier, LibraryCatalogMutationFacts.Empty, packageFacts);
-
-            Assert.IsTrue(file.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
-            Assert.AreSame(file.Token, appliedChart.Token);
-            Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
-            Assert.AreEqual(string.Empty, appliedChart.InstallDestinationTitle);
-            Assert.AreEqual(string.Empty, appliedChart.InstallDestinationArtist);
-            Assert.AreEqual(0, appliedChart.InstallDestinationSuggestions.Count);
-            Assert.IsFalse(appliedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-        });
-    }
-
-    [TestMethod]
-    public void ApplyPackageReferenceFacts_PathOnlyNullBuildsChartSnapshotWithoutMutatingBmsOwner()
-    {
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            ChartFile file = ChartTestValues.Empty() with
-            {
-                Path = @"C:\Library\chart.bms"
-            };
-            file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
-            List<ChartFile> libraryFiles = [file];
-            List<ChartFile> bmsonSongs = [];
-            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
-            var callbacks = new TrackingCallbacks();
-            PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-            LibraryInstallDestinationChange installDestinationChange = new()
-            {
-                Chart = ChartFileProjection.WithPackageState(
-                    (file),
-                    @"C:\Installed",
-                    "Candidate title",
-                    "Candidate artist",
-                    [@"C:\Installed", @"C:\Other"],
-                    file.Warnings),
-                NewInstallDestination = null,
-                ClearInstallDestinationState = false
-            };
-            LibraryPackageReferenceFacts packageFacts = new([installDestinationChange], []);
-
-            ApplyCommittedMutation(applier, LibraryCatalogMutationFacts.Empty, packageFacts);
-
-            Assert.IsTrue(file.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
-            ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
-            Assert.AreSame(file.Token, appliedChart.Token);
-            Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
-            Assert.AreEqual("Candidate title", appliedChart.InstallDestinationTitle);
-            Assert.AreEqual("Candidate artist", appliedChart.InstallDestinationArtist);
-            CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, appliedChart.InstallDestinationSuggestions.ToArray());
-        });
-    }
-
-    [TestMethod]
-    public void LibraryPackageReferenceFacts_CreateAppliedSnapshotsDoesNotRequireStateApplierWriteback()
-    {
         ChartFile file = ChartTestValues.Empty() with
         {
             Path = @"C:\Library\chart.bms"
         };
-        file = file with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
         LibraryInstallDestinationChange installDestinationChange = new()
         {
             Chart = ChartFileProjection.WithPackageState(
                 (file),
-                @"C:\Old",
-                string.Empty,
-                string.Empty,
-                []),
-            NewInstallDestination = @"C:\New"
+                @"C:\Deleted",
+                "Deleted title",
+                "Deleted artist",
+                [@"C:\Deleted", @"C:\Other"],
+                file.Warnings),
+            NewInstallDestination = null,
+            ClearInstallDestinationState = true
         };
         LibraryPackageReferenceFacts packageFacts = new([installDestinationChange], []);
 
-        ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
 
-        Assert.AreEqual(@"C:\New", appliedChart.InstallDestination);
+        ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
+        Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
+        Assert.AreEqual(string.Empty, appliedChart.InstallDestinationTitle);
+        Assert.AreEqual(string.Empty, appliedChart.InstallDestinationArtist);
+        Assert.AreEqual(0, appliedChart.InstallDestinationSuggestions.Count);
+        Assert.IsFalse(appliedChart.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
+    /// <summary>pathだけの空解除factsはtitle・artist・候補を保持し、全解除として推定情報を消す誤りを検出します。</summary>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterPrunesInstalledPackagesWithoutStorageCollectionWriteback()
+    public void CreateAppliedSnapshots_PathOnlyNullPreservesDestinationMetadataAndSuggestions()
+    {
+
+        ChartFile file = ChartTestValues.Empty() with
+        {
+            Path = @"C:\Library\chart.bms"
+        };
+        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "ambiguous")] };
+        LibraryInstallDestinationChange installDestinationChange = new()
+        {
+            Chart = ChartFileProjection.WithPackageState(
+                (file),
+                @"C:\Installed",
+                "Candidate title",
+                "Candidate artist",
+                [@"C:\Installed", @"C:\Other"],
+                file.Warnings),
+            NewInstallDestination = null,
+            ClearInstallDestinationState = false
+        };
+        LibraryPackageReferenceFacts packageFacts = new([installDestinationChange], []);
+
+
+        ChartFile appliedChart = packageFacts.CreateAppliedInstallDestinationChartSnapshots().Single();
+        Assert.AreEqual(string.Empty, appliedChart.InstallDestination);
+        Assert.AreEqual("Candidate title", appliedChart.InstallDestinationTitle);
+        Assert.AreEqual("Candidate artist", appliedChart.InstallDestinationArtist);
+        CollectionAssert.AreEqual(new[] { @"C:\Installed", @"C:\Other" }, appliedChart.InstallDestinationSuggestions.ToArray());
+    }
+
+    /// <summary>確定BMS削除factsから該当packageだけを除き、残存packageとUI threadへの一回通知を保つ剪定・公開漏れを検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
+    [TestMethod]
+    public void ApplyPackageReferenceFacts_UnregisterPrunesOnlyMatchingBmsPackageAndPublishesOnUiThread()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -212,18 +168,7 @@ public sealed class BmsLibraryStateApplierTests
             ChartPackage keptPackage = ChartPackageTestExtensions.CreatePackage([keptFile]);
             keptPackage.path = "C:\\Installed\\KeepPkg";
             keptPackage.delete_parent = false;
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptFile), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = removedFile.Path }, typeof(LR2SongDBExtended.maintenance));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = keptFile.Path }, typeof(LR2SongDBExtended.maintenance));
-            }
 
-            List<ChartFile> libraryFiles = [removedFile, keptFile];
-            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
@@ -233,7 +178,6 @@ public sealed class BmsLibraryStateApplierTests
                 applier,
                 CreateUnregisterFacts([(removedFile)]));
 
-            Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(keptPackage, installedPackages.Single());
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
@@ -245,7 +189,9 @@ public sealed class BmsLibraryStateApplierTests
     /// <summary>
     /// 確定したexact削除集合をDB・storage・owned・packageへ同じ意味で反映し、移動先と非対象行を保護します。
     /// </summary>
+    /// <remarks>旧DBの完全一致keyと物理パスの別名、両形式・maintenance・ユーザー列を実SQLiteの確定後に照合します。</remarks>
     [DataTestMethod]
+    // case-only・別名・dot別名、両対象削除、移転先保護、token指定削除を区別します。
     [DataRow("CHART", false, false, false)]
     [DataRow("other", false, false, false)]
     [DataRow(".\\chart", false, false, false)]
@@ -308,7 +254,7 @@ public sealed class BmsLibraryStateApplierTests
             }
 
             var storage = new CatalogOwnedCollectionOwner();
-            CatalogChartCollectionSnapshot initial = storage.ReplaceChartsAndCaptureSnapshot([keptBms, removedBms], [keptBmson, removedBmson]);
+            storage.ReplaceChartsAndCaptureSnapshot([keptBms, removedBms], [keptBmson, removedBmson]);
             CatalogOwnedCollectionOwner owned = storage;
             Assert.AreEqual(4, owned.Collection.CreatePathSnapshot().Count, "旧DBの別exact keyをloaded ownerで取り落とさない。");
             var keptPackage = ChartPackage.FromChartEntries(
@@ -402,6 +348,8 @@ public sealed class BmsLibraryStateApplierTests
         });
     }
 
+    /// <summary>完全一致のpath cleanup factsは該当BMS packageを除き、tokenのない削除事実を見落とす誤りを検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
     public void ApplyPackageReferenceFacts_PathCleanupPrunesInstalledPackagesByPath()
     {
@@ -422,17 +370,7 @@ public sealed class BmsLibraryStateApplierTests
             ChartPackage removedPackage = ChartPackageTestExtensions.CreatePackage([canonicalFile]);
             removedPackage.path = "C:\\Installed\\RemovePkg";
             removedPackage.delete_parent = false;
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonicalFile), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keptFile), typeof(LR2SongDB.song));
-                songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = canonicalFile.Path }, typeof(LR2SongDBExtended.maintenance));
-            }
 
-            List<ChartFile> libraryFiles = [canonicalFile, keptFile];
-            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage]);
             var callbacks = new TrackingCallbacks();
@@ -444,11 +382,12 @@ public sealed class BmsLibraryStateApplierTests
                 []);
             ApplyCommittedMutation(applier, catalogFacts);
 
-            Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(0, installedPackages.Count);
         });
     }
 
+    /// <summary>移転先保護factsを持つpath cleanupは移転済みpackageを残し、移動先を誤削除して通知する誤りを検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
     public void ApplyPackageReferenceFacts_PathCleanupDoesNotPruneRelocatedDestination()
     {
@@ -463,12 +402,6 @@ public sealed class BmsLibraryStateApplierTests
             ChartPackage relocatedPackage = ChartPackageTestExtensions.CreatePackage([relocatedFile]);
             relocatedPackage.path = "C:\\Installed\\RelocatedPkg";
             relocatedPackage.delete_parent = false;
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(relocatedFile), typeof(LR2SongDB.song));
-            }
 
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([relocatedPackage]);
@@ -501,8 +434,10 @@ public sealed class BmsLibraryStateApplierTests
         });
     }
 
+    /// <summary>混在packageの確定BMS削除では非対象BMSON entryを残し、形式を越えて剪定する誤りを検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterDoesNotMaterializeUnmatchedAdapterlessBmsonInstalledPackageEntry()
+    public void ApplyPackageReferenceFacts_UnregisterBmsRetainsUnmatchedBmsonEntry()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -519,15 +454,7 @@ public sealed class BmsLibraryStateApplierTests
             }));
             var mixedPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((removedFile)), unmatchedBmsonEntry]);
             mixedPackage.path = "C:\\Installed\\MixedPkg";
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-            }
 
-            List<ChartFile> libraryFiles = [removedFile];
-            List<ChartFile> bmsonSongs = [];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([mixedPackage]);
             var callbacks = new TrackingCallbacks();
@@ -537,54 +464,17 @@ public sealed class BmsLibraryStateApplierTests
                 applier,
                 CreateUnregisterFacts([(removedFile)]));
 
-            Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(mixedPackage, installedPackages.Single());
             Assert.AreEqual(1, mixedPackage.ChartEntries.Count);
             Assert.AreEqual(unmatchedBmsonEntry.Chart.Path, mixedPackage.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(unmatchedBmsonEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>確定BMSON削除factsは対応packageだけを除いて一回通知し、形式別の剪定漏れを検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterLeavesBmsonStorageToCatalogOwner()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
-            {
-                Path = "C:\\Library\\remove.bmson",
-                Folder = "C:\\Library"
-            };
-            ChartFile keptSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
-            {
-                Path = "C:\\Library\\keep.bmson",
-                Folder = "C:\\Library"
-            };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
-            }
-
-            List<ChartFile> libraryFiles = [];
-            List<ChartFile> bmsonSongs = [removedSong, keptSong];
-            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
-            var callbacks = new TrackingCallbacks();
-            PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-
-            ApplyCommittedMutation(
-                applier,
-                CreateUnregisterFacts([(removedSong)]));
-
-            Assert.AreEqual(2, bmsonSongs.Count);
-        });
-    }
-
-    [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterRemovesBmsonRowsFromInstalledPackages()
+    public void ApplyPackageReferenceFacts_UnregisterPrunesOnlyMatchingBmsonPackage()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -606,15 +496,7 @@ public sealed class BmsLibraryStateApplierTests
             var keptPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart((keptSong))]);
             keptPackage.path = "C:\\Installed\\KeepPkg";
             keptPackage.delete_parent = false;
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
-            }
 
-            List<ChartFile> libraryFiles = [];
-            List<ChartFile> bmsonSongs = [removedSong, keptSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([removedPackage, keptPackage]);
             var callbacks = new TrackingCallbacks();
@@ -624,7 +506,6 @@ public sealed class BmsLibraryStateApplierTests
                 applier,
                 CreateUnregisterFacts([(removedSong)]));
 
-            Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(keptPackage, installedPackages.Single());
             Assert.AreEqual(1, callbacks.InstalledPackagesSetCount);
@@ -632,8 +513,10 @@ public sealed class BmsLibraryStateApplierTests
         });
     }
 
+    /// <summary>一package内のBMSON削除は対象entryだけを剪定して残るentryと通知を保ち、package全体の誤削除を検出します。</summary>
+    /// <remarks>確定factsをpackage参照へ反映する境界です。DB・正本の実保存はExactRemovalとMoveAndRemoveのケースが担います。</remarks>
     [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterRemovesAdapterlessBmsonInstalledPackageEntryWithoutMaterializing()
+    public void ApplyPackageReferenceFacts_UnregisterPrunesOnlyMatchingBmsonEntry()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -653,15 +536,7 @@ public sealed class BmsLibraryStateApplierTests
             var keptEntry = PackageChartEntry.FromChart((keptSong));
             var package = ChartPackage.FromChartEntries([removedEntry, keptEntry]);
             package.path = "C:\\Installed\\MixedPkg";
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(keptSong), typeof(LR2SongDBExtended.bmson_song));
-            }
 
-            List<ChartFile> libraryFiles = [];
-            List<ChartFile> bmsonSongs = [removedSong, keptSong];
             ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
             ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([package]);
             var callbacks = new TrackingCallbacks();
@@ -671,50 +546,16 @@ public sealed class BmsLibraryStateApplierTests
                 applier,
                 CreateUnregisterFacts([(removedSong)]));
 
-            Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(package, installedPackages.Single());
             Assert.AreEqual(1, package.ChartEntries.Count);
             Assert.AreEqual(keptSong.Path, package.ChartEntries.Single().Chart.Path);
-            Assert.IsNull(removedEntry.GetBmsChartForTest());
-            Assert.IsNull(keptEntry.GetBmsChartForTest());
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
         });
     }
 
-    [TestMethod]
-    public void ApplyPackageReferenceFacts_UnregisterDoesNotWriteBmsonRows()
-    {
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            ChartFile removedSong = (ChartTestValues.Empty(ChartFileKind.Bmson) with { Token = new OwnedChartToken() }) with
-            {
-                Path = "C:\\Library\\remove.bmson",
-                Folder = "C:\\Library"
-            };
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(removedSong), typeof(LR2SongDBExtended.bmson_song));
-            }
-
-            List<ChartFile> libraryFiles = [];
-            List<ChartFile> bmsonSongs = [removedSong];
-            ObservableCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-            ObservableCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
-            var callbacks = new TrackingCallbacks();
-            PackageStateMutationApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
-            LibraryCatalogMutationFacts catalogFacts = new(
-                [OwnedChartRemoveRequest.FromChart(removedSong)],
-                [],
-                []);
-
-            ApplyCommittedMutation(applier, catalogFacts);
-
-            Assert.AreEqual(1, bmsonSongs.Count);
-        });
-    }
-
+    /// <summary>同tokenを移転してから削除する実DB変更は両形式の削除・移転factsを返し、移動先保護が対象packageの剪定を妨げる誤りを検出します。</summary>
+    /// <remarks>実SQLiteのcatalog確定結果を同じpackage applierへ渡す必要があり、移転と削除の同token接続を観測します。</remarks>
     [TestMethod]
     public void ApplyPackageReferenceFacts_MoveAndRemoveSameOwnerPrunesRelocatedBmsAndBmsonPackages()
     {

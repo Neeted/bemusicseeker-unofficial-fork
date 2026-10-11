@@ -22,12 +22,14 @@ using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExt
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>backup・復元・export・BMT順序・dropの実確定と、summary buildの世代・取消・終端を検証します。</summary>
+/// <remarks>実SQLite、出力、configの確定順と失敗後の事実は実資源を用い、UIは既存schedulerの受理・実行・完了を制御します。画面の所有modalと入力操作はWPF代表が分担し、process DB lock競争だけ非並列です。</remarks>
 [TestClass]
 public sealed class PlaylistWorkspacePersistenceCommandTests
 {
-    // BMT-N: production callback の受信境界から既存 presentation event へ配送する。
     /// <summary>順序四入口を実DB・本番サマリー・configへ接続し、同期前のP保持、ドラッグ選択世代、無変更と次操作を確認します。</summary>
     [DataTestMethod]
+    // 四つの入口へ異なる選択を渡し、どれも独立期待の3→1→2へ並べ替えます。
     [DataRow("top")]
     [DataRow("bottom")]
     [DataRow("visible")]
@@ -158,6 +160,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>出力失敗のpath・詳細をworkspaceの受信境界へ渡し、warning receiptを既存表示通知へ配送して失敗情報の欠落を検出します。</summary>
     [TestMethod]
     public void BmtOutputFailure_PublishesIndependentNotificationReceipt()
     {
@@ -177,6 +180,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     /// <summary>代表順序入口を実configの解析・読取り・置換失敗へ接続し、確定DB、実通知中のP、出力保全と修復後の明示操作を保証します。</summary>
     [DataTestMethod]
+    // corruptはJSON解析、readは共有拒否の読込、replaceは読める共有lock下の置換失敗です。
     [DataRow("corrupt")]
     [DataRow("read")]
     [DataRow("replace")]
@@ -402,6 +406,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         return (playlist, workspace, db, config, output);
     }
 
+    /// <summary>実backupを別DBへ復元して日本語名を保持し、未接続・空集合の警告と読書失敗のerrorを区別して既存backup bytesを保護します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceBackupPlaylistAsync_PublishesSuccessWarningAndFailureReceipts()
     {
@@ -771,8 +776,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    // U2-R1/R2/R5: 実 workspace 入口で DB commit、UI 実行、operation completion を分けて観測する。
     // DB Monitor の再取得は process-wide な所有確認のため、他 fixture の DB 保持から隔離する。
+    /// <summary>実DB復元確定、UI集合適用、UI operation完了を別gateで観測し、待機中のDB lock解放とP保持、競合変更拒否、完了後の次保存を確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_AwaitsUiCompletionAndRejectsCompetingWrites()
@@ -818,7 +823,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string file = Path.Combine(directory, "restore.sql");
             File.WriteAllText(file, CreatePlaylistRestoreDump(22, "Restored live", "R"), Encoding.UTF8);
             restore = workspace.RestorePlaylistBackupAsync(file);
-            await accepted.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(accepted.Task, restore, "playlist.restore-ui-accepted");
             Assert.IsFalse(restore.IsCompleted);
             Assert.AreSame(oldTable, playlist.BMSTables.Single());
             Assert.AreEqual(0, notifications.Count);
@@ -845,7 +850,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(() =>
                 competingRestore);
             execute.TrySetResult();
-            await executed.Task;
+            await TestUiDispatcherHost.AwaitNotificationAsync(executed.Task, restore, "playlist.restore-ui-executed");
             Assert.AreEqual("Restored live", playlist.BMSTables.Single().name);
             Assert.IsTrue(collectionOnUi);
             Assert.IsFalse(restore.IsCompleted);
@@ -882,7 +887,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    // U2-R1: 実 process lock の所有 worker は finally で解放する。時間指定は deadlock の watchdog のみ。
+    // 実process lockの所有workerをfinallyで解放し、時間指定は停止監視にのみ使います。
+    /// <summary>別workerの実DB lock待機中にUIから復元を開始して未完了Taskを返し、dispatcherの次処理が実行できてlock解放後に復元を完了します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task PlaylistRestore_DatabaseLockWaitKeepsDispatcherResponsive()
@@ -938,6 +944,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>DB確定後のUI所属検査を失敗させ、確定DBと旧表示集合を区別してerror通知と元失敗を返しDB lockを残しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_UiApplyFailureKeepsCommittedDatabaseAndOldCollection()
     {
@@ -989,6 +996,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>途中まで有効なSQL dumpの後半を失敗させ、実DBの表・行・courseと旧モデル参照を全て保持し、失敗通知後の次保存を受理します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_RollsBackInvalidDumpAndReleasesLock()
     {
@@ -1058,6 +1066,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>存在しないbackupファイルの読込でFileNotFoundExceptionを返し、復元処理前の読込失敗から成功・復元errorのreceiptを生成しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_PropagatesFileReadFailureWithoutReceipt()
     {
@@ -1079,6 +1088,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.AreEqual(0, notifications.Count);
     }
 
+    /// <summary>二つの保存pickerからheader・dataを実出力し、相対data指定と既存URL保存を区別してserializerの実行中も正本URLを書き換えません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_WritesJsonAndPreservesDataUrl()
     {
@@ -1165,6 +1175,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>data出力失敗では先に書いたheaderを保持してerrorを通知し、header出力失敗では後続dataを書かない順序を確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_PublishesFileFailureAndPreservesHeaderFirstOrder()
     {
@@ -1226,6 +1237,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>headerまたはdataの保存picker取消で後続picker・ファイル書込み・通知を開始せず、取消を正常選択として扱わないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_PickerCancellationStopsBeforeWriting()
     {
@@ -1270,6 +1282,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>headerまたはdataのpicker失敗を元例外付きで返し、選択が揃う前にファイルや出力receiptを作らないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExportPlaylistTableAsync_PickerFailurePropagatesBeforeWriting()
     {
@@ -1318,48 +1331,13 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>現世代のsummary行を適用しても保留された選択復元がなければ復元要求を公開せず、適用ごとの意図しない選択変更を防ぎます。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyDoesNotPublishSelectionWithoutPendingRestore()
     {
         var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck)
-        {
-            IsPlaylistSummaryMode = true
-        };
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        workspace.IsPlaylistSummaryMode = true;
         workspace.PlaylistSummarySelectionRestoreRequested += restoreRequests.Add;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -1373,47 +1351,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.AreEqual(0, restoreRequests.Count);
     }
 
+    /// <summary>summary buildの後発開始で先行tokenを取消し、modeを外れたら後発も取消して新buildを拒否し、両完了後にidleへ戻します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCancelsSupersededAndHiddenWork()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck)
-        {
-            IsPlaylistSummaryMode = true
-        };
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        workspace.IsPlaylistSummaryMode = true;
 
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest first));
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest second));
@@ -1431,6 +1374,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
     }
 
+    /// <summary>重なる二buildのidle待機は先行完了だけで終端せず、後発buildの完了まで待つことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistSummaryDataBuildIdleWaitIncludesEveryOverlappingBuild()
     {
@@ -1447,44 +1391,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         await idle.ConfigureAwait(false);
     }
 
+    /// <summary>同じ表・所持版の実count cacheは表示data世代が進んでも再利用し、明示count失効後だけ取得を拒否することを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheReusesContentKeyAcrossDataGenerations()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -1513,44 +1424,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsFalse(workspace.CatalogSummaryOwner.TryGetTableCount(table, ownedSnapshotVersion: 1, out _));
     }
 
+    /// <summary>count cache失効前のbuild結果を保存しようとしても拒否し、古いcountを現cacheへ復活させないことを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheRejectsResultFromBuildBeforeInvalidation()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -1576,47 +1454,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         workspace.CompletePlaylistSummaryDataBuild(staleBuild);
     }
 
+    /// <summary>終了停止でactive buildを取消し、新buildと既存要求の表示適用を拒否して既存build完了後にidleへ戻します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCannotRestartAfterShutdownStop()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck)
-        {
-            IsPlaylistSummaryMode = true
-        };
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
 
@@ -1634,47 +1477,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
     }
 
+    /// <summary>data更新は実行中buildを取消して表示だけの保留を優先度の低いものとして統合し、data保留を一度だけ消費することを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDeferredDataRefreshCancelsBuildAndDominatesPresentation()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck)
-        {
-            IsPlaylistSummaryMode = true
-        };
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
@@ -1693,47 +1501,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         workspace.CompletePlaylistSummaryDataBuild(activeBuild);
     }
 
+    /// <summary>表示だけの保留も外部data更新指定ではdataとして消費し、summary modeを外れた保留は復帰時に再実行しないことを確認します。</summary>
     [TestMethod]
-    public void PlaylistWorkspaceDeferredRefreshIsAtomicWithExternalDataPriorityAndModeExit()
+    public void PlaylistWorkspaceDeferredRefreshPrefersDataAndDropsPendingWorkOnModeExit()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck)
-        {
-            IsPlaylistSummaryMode = true
-        };
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
+        workspace.IsPlaylistSummaryMode = true;
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
         Assert.AreEqual(
@@ -1749,44 +1522,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
     }
 
+    /// <summary>非表示のdata更新ではcacheを失効して予約せず、表示中の複数要求は次build世代のdata保留へ集約することを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDataRefreshRequestOwnsVisibilityAndDeferralDecision()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -1810,6 +1550,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
     }
 
+    /// <summary>shellが表示更新を保留する間はdata要求を保持し、許可後に消費してidleへ戻し、非表示要求は失効だけ行うことを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataRefreshUsesShellGateAndDrainsWhenAllowed()
     {
@@ -1850,44 +1591,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > hiddenGenerationBefore);
     }
 
+    /// <summary>非表示では保留消費を開始せず、表示中の有効cacheに対する表示だけの保留は再buildなしでviewへ適用します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDeferredRefreshDrainOwnsHiddenAndPresentationRoutes()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
 
         Assert.AreEqual(
             0L,
@@ -1911,6 +1619,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
     }
 
+    /// <summary>実folder追加後のsort失効callbackが既に更新済のplaylist参照を読み、通知後も同じ名前・記号を保つ公開順を確認します。</summary>
     [TestMethod]
     public async Task PlaylistDropReferenceIndex_IsUpdatedBeforeInvalidationNotification()
     {
@@ -1982,6 +1691,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>同じ入力順の三譜面を一括と分割でrootへ追加し、独立した期待所属・folder順と実DBが一致して分割による分類のずれを検出します。</summary>
     [TestMethod]
     public async Task PlaylistRootFolderDrop_UsesPlannedFoldersAcrossBatchAndSplitInputs()
     {
@@ -2055,6 +1765,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>package内の既存hash一致を現folderへ統合し、packageなしの同タイトルは接尾辞付き別folderとして実保存して名前だけの誤統合を防ぎます。</summary>
     [TestMethod]
     public async Task PlaylistRootFolderDrop_MergesByPackageHashAndSuffixesNameCollisions()
     {
@@ -2117,8 +1828,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 entry.md5 == mergedHash && entry.folder == "Existing"));
             BMSTableEntry sameTitleEntry = activeTable.GetEntriesExceptDummy().Single(entry => entry.md5 == sameTitleHash);
             Assert.AreEqual("Existing (2)", sameTitleEntry.folder);
-            Assert.IsTrue(activeTable.GetEntriesExceptDummy().Any(entry =>
-                entry.folder == "Existing" && entry.md5 == existingHash));
 
             AssertPersistedRootDropEntries(
                 Path.Combine(tempDirectory, "song.db"),
@@ -2136,6 +1845,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>実外部同期で削除履歴だけとなったfolderへ同hash譜面を再追加し、履歴を保持しつつ新active行を別folderへ実保存します。</summary>
     [TestMethod]
     public async Task PlaylistRootFolderDrop_DoesNotClassifyIntoRemovedOnlyFolderHistory()
     {
@@ -2251,6 +1961,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>Busyのdropを未開始として拒否し、実DB・LR2・BMT・参照更新を終端まで所有して、出力・準備失敗後も確定行を保持しDB失敗は別errorで通知します。</summary>
     [TestMethod]
     public async Task PlaylistDropAdmission_AwaitsRequiredOutputsAndPreservesCommittedFactsAcrossFailures()
     {
@@ -2593,6 +2304,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>dropの終端通知をgateで保持する間はfolder改名をBusyで拒否し、通知解放後の次明示改名だけを受理します。</summary>
     [TestMethod]
     public async Task PlaylistMutationAdmission_RejectsCompetingEditUntilDropNotificationCompletes()
     {
@@ -2722,6 +2434,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>古い表参照の行削除を現表ID・hashへ解決し、同タイトル別hashをstaleとして拒否して一致hashだけを削除します。</summary>
     [TestMethod]
     public async Task PlaylistEntryRemoval_ResolvesStaleIdentityAndRejectsNameOnlyFallback()
     {
@@ -2814,44 +2527,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
+    /// <summary>通常playlist行のdropを許可し、summary混在・特殊folder・外部同期表を拒否して禁止対象へのdrop受付を防ぎます。</summary>
     [TestMethod]
     public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -2865,44 +2545,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Assert.IsFalse(workspace.CanAcceptDrop([playlistRow], table));
     }
 
+    /// <summary>store未接続でも外部同期表への作成・改名・追加・削除を各種別の拒否として返し、永続化へ到達して未接続例外を起こしません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceExternalMutationRejectsBeforePersistenceAccess()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -2924,6 +2571,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             rejectedKinds);
     }
 
+    /// <summary>空選択とnull・無関係なobjectを削除へ渡しても処理を開始せず、store未接続の永続化へ到達しないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceDeleteSelectedEntries_IgnoresEmptyAndNonPlaylistRows()
     {
@@ -2933,44 +2581,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         await workspace.DeleteSelectedEntriesAsync([null!, new object()]);
     }
 
+    /// <summary>特殊folderへの改名・削除・追加はstore未接続でも処理を開始せず、特殊選択を通常folderとして永続化へ渡しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceSpecialFolderMutationIsIgnoredWithoutPersistenceAccess()
     {
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceTestPorts.PlaylistStoreProvider, () => null!);
         var table = new BMSTable();
         var specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 

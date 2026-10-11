@@ -91,6 +91,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         failure?.Throw();
     }
 
+    /// <summary>同じ譜面を異なるpull区切りで再生してもwriterと全フレームのPCMが一致し、予約境界で音の欠落・重複が生じないことを検出します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void RealtimeMixer_PreservesWriterFramesAcrossDifferentPullDeadlines()
     {
@@ -180,6 +182,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         writer.DisposeAudioSourcesAfterUse();
     }
 
+    /// <summary>対応速度とcallbackブロックサイズごとに実tempoの先読み量を測り、初回pull前の予約が入力消費を覆い所定の先行幅を超えないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void TempoOutputPullLookAhead_IsMeasuredAtSupportedRatesAndObservedBlockSizes()
     {
@@ -334,6 +338,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>物理出力のcallbackサイズが未観測の場合、scheduler構築とplayer開始の双方が失敗し未準備の予約で再生しないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -366,6 +372,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         finally { session.ActualBackend = originalBackend; }
     }
 
+    /// <summary>callbackブロックが準備した先行幅を超えて増えた場合、tempo入力を進めず失敗を保持し出力を無音にすることを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void CallbackBlockGrowthBeyondPreparedLeadFailsBeforeTempoPull()
     {
@@ -468,6 +476,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         cleanupFailure?.Throw();
     }
 
+    /// <summary>拡張BPM・STOP・小節長変更を含む譜面について独立に求めた開始フレームとPCMをwriter・realtime双方へ照合し、時刻変換の共通誤りも検出します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void ParsedTempoStopAndMeasureChangesMatchIndependentWriterAndRealtimeFrames()
     {
@@ -584,6 +594,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         writer.DisposeAudioSourcesAfterUse();
     }
 
+    /// <summary>自然終了の回収をgateで止めた間は終了通知とCompletionを完了させず、回収後に一回だけ通知して停止状態へ戻ることを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task InternalPlayer_NotifiesExitOnceAfterNaturalPlaybackCleanupCompletes()
     {
@@ -663,6 +675,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
             wrapper.CloseProcess();
         }
     }
+    /// <summary>一時停止中のseekと速度変更では実音声時計と出力を凍結し、再開後は指定位置から進んで自然終了することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task PauseSeekAndRateChangesKeepTheRealtimeGraphFrozenUntilResume()
     {
@@ -803,6 +817,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>一時停止中のスライダーseekでnative位置変更が失敗すると、再生ownerが回収を終えるまで出力を凍結し元の予約失敗で終端することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task PausedSliderSeekFailureEndsPlaybackThroughItsOwnerAndKeepsOutputFrozen()
     {
@@ -925,11 +941,15 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>一時停止から再開する際の予約失敗では、ownerの回収完了まで旧音源を保持して無音を維持し、失敗を隠して再生を続けないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public Task PausedResumeReservationFailureEndsPlaybackThroughItsOwner() =>
         VerifyPausedReservationFailureEndsPlaybackThroughItsOwner(
             static (wrapper, _) => wrapper.PausePlayingBMSfileToggle());
 
+    /// <summary>一時停止中の速度変更による予約失敗でも、ownerが失敗を受け取り回収後に終端し出力の凍結を維持することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public Task PausedPlaybackRateReservationFailureEndsPlaybackThroughItsOwner() =>
         VerifyPausedReservationFailureEndsPlaybackThroughItsOwner(
@@ -1046,6 +1066,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>tickの時計取得後から譜面状態反映までpause・seek・速度変更を完了させず、callbackは進められることと、解放後の状態反映順を確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task RealtimeTickAndControlsAreSerializedThroughChartStateApplication()
     {
@@ -1231,6 +1253,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>自然終了の回収中に届いたseekは回収の後で停止位置だけを変え、新しい音声segmentを開始しないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task SeekAfterNaturalCleanupChangesStoppedPositionWithoutStartingNewAudioSegment()
     {
@@ -1288,6 +1312,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>最初のtickが未実行でも先行したpause・seek・速度変更を受理し、tick開始時に最新の位置・BPM・comboを反映することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task ControlsCompletedBeforeTheFirstTickUseTheNewPausedSeekState()
     {
@@ -1361,6 +1387,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>bmsonの重なるrestart runを各seek位置で復元し、それぞれの音源offsetと有効voice数が一致することで片方の音の欠落を検出します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [DataTestMethod]
     [DataRow(60000L, 2, 60000, 12000)]
     [DataRow(72000L, 2, 72000, 24000)]
@@ -1385,6 +1413,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(activeVoices, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
     }
 
+    /// <summary>bmsonの継続音をrunの起点から復元し、出力レートが異なる場合も物理EOFの半開区間でvoiceを終了することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [DataTestMethod]
     [DataRow(93L, 1, 101L)]
     [DataRow(919L, 0, 0L)]
@@ -1415,6 +1445,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(activeVoices, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
     }
 
+    /// <summary>bmsonで二つのrestart runが重なる位置へseekし、各起点に基づくnative位置と両音源のPCM加算を確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void BmsonSeekRestoresBothRestartRunsFromTheirOwnOrigins()
     {
@@ -1440,6 +1472,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>seek位置を含む半開区間の音源だけをsource側のフレームへ変換して復元し、終了済み音源や未来の開始音を混ぜないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void SeekSegment_RestoresOnlyHalfOpenActiveVoicesAtTheirSourceGrid()
     {
@@ -1505,6 +1539,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         player.DisposeAudioSourcesAfterUse();
     }
 
+    /// <summary>一時停止中のrestartが現在のmixer時計を新しい起点にし、譜面先頭の音を人工的な無音なしで出力することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task InternalPlayerRestart_RebasesAtCurrentMixerFrameWithoutArtificialSilence()
     {
@@ -1578,6 +1614,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>callbackが進行中に二つ目のvoice予約commitが失敗しても、その出力を無音へ置換し全準備voiceを回収して対象イベントの失敗を保持することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public async Task ReservationCommitFailureHidesAnInFlightCallbackAndReleasesPreparedVoices()
     {
@@ -1605,6 +1643,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         const int callbackFrames = 256;
         int callbackBytes = callbackFrames * 2 * sizeof(float);
         IntPtr callbackBuffer = Marshal.AllocHGlobal(callbackBytes);
+        Task<int>? callback = null;
 
         try
         {
@@ -1612,7 +1651,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
             {
                 Marshal.WriteInt32(callbackBuffer, offset, unchecked((int)0x7fc00000));
             }
-            Task<int> callback = Task.Run(() =>
+            callback = Task.Run(() =>
                 BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
             nativePull.PullCompleted.Wait();
 
@@ -1645,11 +1684,23 @@ public sealed class BmsRealtimeAudioSchedulerTests
         finally
         {
             nativePull.AllowCallbackReturn.Set();
-            Marshal.FreeHGlobal(callbackBuffer);
-            player.DisposeAudioSourcesAfterUse();
+            try
+            {
+                if (callback != null)
+                {
+                    await callback;
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(callbackBuffer);
+                player.DisposeAudioSourcesAfterUse();
+            }
         }
     }
 
+    /// <summary>最初のvoiceのresume失敗では最初のイベントを診断に保持し、未実行分も含め準備voiceを回収することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void ReservationCommitFailureAtFirstResumeReportsTheFirstEvent()
     {
@@ -1695,6 +1746,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>stopとdisposeの双方でvoice回収が失敗した場合、所有者と無音状態を保持して元の失敗を返し、同sessionへの再開始を拒否することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1795,6 +1848,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         }
     }
 
+    /// <summary>最後の有効voiceの位置準備に失敗しても元のnative原因を保持し、先に作成したものを含め全playerを回収することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void PreparationFailureOnLastActiveVoiceKeepsPrimaryFailureAndReleasesEveryCreatedPlayer()
     {
@@ -1843,6 +1898,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, ownedSession.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>予約期限を過ぎた失敗は観測済みの譜面フレームを診断に用い、診断目的のmixer時計再取得や音源の即時解放を行わないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void MissedDeadlineFailureUsesObservedSongFrameWithoutReadingMixerAgain()
     {
@@ -1884,6 +1941,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
             "A voice that missed its deadline must not be created or released as an immediate fallback.");
     }
 
+    /// <summary>commit前のnative時計取得が失敗した場合、元の原因を保持して全準備音源を回収し、診断のために失敗した時計を再取得しないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void CommitPositionFailureKeepsNativeCauseAndDoesNotReadPositionAgainForDiagnostics()
     {
@@ -1942,6 +2001,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, ownedSession.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>commit失敗後のrollbackも失敗した場合、commitとrollbackの両原因を保持し、全準備音源の解放を試みることを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void RollbackFailureIsAddedAfterPrimaryCommitFailureAndAllPreparedSourcesAreReleased()
     {
@@ -2007,6 +2068,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, ownedSession.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>voice準備中にsessionが変わるとcommit前に拒否し、native時計の追加取得なしで未commit音源を回収することを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void SessionMismatchAfterPreparingVoicesReleasesEveryUncommittedSourceWithoutPositionRead()
     {
@@ -2078,6 +2141,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, session.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>対応しないchannel配置でmatrix準備が失敗しても、失敗voiceのために作成したplayerを回収し所有handleを増やさないことを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void MatrixPreparationFailureReleasesThePlayerCreatedForTheFailingVoice()
     {
@@ -2111,6 +2176,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, ownedSession.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>予約のunlockが失敗した場合は出力失敗を保持し、所有者のないvoiceを残さずcallbackの全バッファを無音にすることを確認します。</summary>
+    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]
     public void ReservationUnlockFailureFaultsOutputAndRetainsNoUnownedVoice()
     {

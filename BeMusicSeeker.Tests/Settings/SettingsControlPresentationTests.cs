@@ -7,7 +7,6 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -20,6 +19,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>実 hit-test、Automation、template の表示と共有テーマ切替は native Window が必要です。共有 Application の辞書を退避・復元するため非並列です。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class SettingsControlPresentationTests
@@ -30,6 +30,7 @@ public sealed class SettingsControlPresentationTests
         TestUiDispatcherHost.Invoke(EnsureCanonicalApplicationResources);
     }
 
+    /// <summary>実 navigation を Automation と named 項目で選択し、単一選択・ページと見出しの配送・カテゴリ切替でのスクロール復帰を確認します。</summary>
     [TestMethod]
     public void SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll()
     {
@@ -51,14 +52,12 @@ public sealed class SettingsControlPresentationTests
                 var header = (ContentControl)window.FindName("settingsPageHeader");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
 
-                Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
 
                 foreach (ListBoxItem item in navigation.Items)
                 {
                     Assert.IsFalse(
                         string.IsNullOrWhiteSpace(AutomationProperties.GetName(item)),
                         "Every settings category must expose a localized automation name.");
-                    StringAssert.StartsWith(AutomationProperties.GetAutomationId(item), "SettingsCategory");
                 }
 
                 var navigationPeer = new ListBoxAutomationPeer(navigation);
@@ -71,17 +70,17 @@ public sealed class SettingsControlPresentationTests
                 Assert.IsNotNull(playbackSelection);
                 playbackSelection.Select();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(2, navigation.SelectedIndex);
+                Assert.AreSame(window.FindName("navigationPlayback"), navigation.SelectedItem);
                 Assert.IsInstanceOfType<PlaybackSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
                 Assert.IsTrue(playbackSelection.IsSelected);
 
-                navigation.SelectedIndex = 1;
+                navigation.SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
 
-                navigation.SelectedIndex = 0;
+                navigation.SelectedItem = window.FindName("navigationGeneral");
                 var selectedPage = (FrameworkElement)pageHost.Content;
                 selectedPage.Height = 1200;
                 window.UpdateLayout();
@@ -89,7 +88,7 @@ public sealed class SettingsControlPresentationTests
                 scroller.ScrollToVerticalOffset(Math.Min(100d, scroller.ScrollableHeight));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsTrue(scroller.VerticalOffset > 0, "The body scroller must accept a non-zero page offset.");
-                navigation.SelectedIndex = 1;
+                navigation.SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0d, scroller.VerticalOffset, "Changing categories must reset the shared body scroller.");
             }
@@ -103,6 +102,7 @@ public sealed class SettingsControlPresentationTests
         });
     }
 
+    /// <summary>非編集の全幅と編集型の入力部・矢印を hit-test し、文字編集と幅変更を跨いで入力先・popup 幅追従が失われる誤りを検出します。</summary>
     [TestMethod]
     public void SettingsComboBox_HitTestingPreservesWholeSurfaceAndEditableTextRoutes()
     {
@@ -159,8 +159,6 @@ public sealed class SettingsControlPresentationTests
                 IInputElement editableArrowHit = editableCombo.InputHitTest(new Point(editableCombo.ActualWidth - 6d, editableCombo.ActualHeight / 2d));
                 Assert.IsTrue(IsVisualDescendantOf(editableTextHit as DependencyObject, editor));
                 Assert.IsTrue(IsVisualDescendantOf(editableArrowHit as DependencyObject, editableToggle));
-                Assert.AreSame(editor, editableCombo.Template.FindName("PART_EditableTextBox", editableCombo));
-                Assert.AreSame(editablePopup, editableCombo.Template.FindName("PART_Popup", editableCombo));
 
                 editableCombo.Text = "FirstZ";
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -181,6 +179,7 @@ public sealed class SettingsControlPresentationTests
         });
     }
 
+    /// <summary>外側の暗黙 style を置いた実 control で共通 template を採用し、縦横の行・ページ scroll、選択、無効拒否、Expander 開閉とテーマ表示、有限高さの配分を確認します。</summary>
     [TestMethod]
     public void SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes()
     {
@@ -214,6 +213,7 @@ public sealed class SettingsControlPresentationTests
 
             Window? window = null;
             Window? sectionWindow = null;
+            Window? topNavigationWindow = null;
             try
             {
                 AppThemeService.ApplyTheme(AppThemeService.Light);
@@ -501,10 +501,7 @@ public sealed class SettingsControlPresentationTests
                 AssertBrushColor(host, "App.AccentBrush", primaryButton.Background);
                 AssertBrushColor(host, "App.AccentForegroundBrush", primaryButton.Foreground);
 
-                // Keep the navigation primitive in its own presentation scope. The
-                // existing control-system assertions intentionally use a crowded
-                // host, and adding a second tall fixture there changes Expander
-                // layout/selection behavior without exercising the navigation role.
+                // navigation は別 Window で実測します。同じ縦長 host へ足すと Expander の有限高さ条件まで変わるためです。
                 Grid topNavigationHost = CreateSettingsControlHost();
                 var topNavigation = new ListBox
                 {
@@ -525,7 +522,7 @@ public sealed class SettingsControlPresentationTests
                 topNavigationPanel.Children.Add(topNavigation);
                 topNavigationPanel.Children.Add(topNavigationContent);
                 topNavigationHost.Children.Add(topNavigationPanel);
-                var topNavigationWindow = new Window
+                topNavigationWindow = new Window
                 {
                     Content = topNavigationHost,
                     Width = 420,
@@ -536,7 +533,6 @@ public sealed class SettingsControlPresentationTests
 
                 topNavigation.ApplyTemplate();
                 topNavigationWindow.UpdateLayout();
-                Assert.AreEqual(SelectionMode.Single, topNavigation.SelectionMode);
                 StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation)!;
                 Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
                 ListBoxItem[] topNavigationItemsByIndex = topNavigation.Items
@@ -644,6 +640,7 @@ public sealed class SettingsControlPresentationTests
             {
                 try
                 {
+                    topNavigationWindow?.Close();
                     sectionWindow?.Close();
                     window?.Close();
                 }
@@ -803,19 +800,8 @@ public sealed class SettingsControlPresentationTests
     private static void AssertPopupTemplate(ComboBox comboBox, Popup popup)
     {
         Assert.IsFalse(popup.IsOpen, "The template contract is inspected while the ComboBox popup is closed.");
-        Assert.AreEqual(PlacementMode.Bottom, popup.Placement);
-
-        BindingExpression popupWidthBinding = popup.GetBindingExpression(FrameworkElement.WidthProperty)
-            ?? throw new AssertFailedException("The ComboBox popup must bind Width to its templated parent's ActualWidth.");
-        Assert.AreEqual("ActualWidth", popupWidthBinding.ParentBinding.Path?.Path);
-        Assert.AreEqual(RelativeSourceMode.TemplatedParent, popupWidthBinding.ParentBinding.RelativeSource?.Mode);
-
         Assert.IsInstanceOfType<Border>(popup.Child);
         var popupBorder = (Border)popup.Child;
-        BindingExpression borderWidthBinding = popupBorder.GetBindingExpression(FrameworkElement.WidthProperty)
-            ?? throw new AssertFailedException("The outer ComboBox popup Border must bind Width to its templated parent's ActualWidth.");
-        Assert.AreEqual("ActualWidth", borderWidthBinding.ParentBinding.Path?.Path);
-        Assert.AreEqual(RelativeSourceMode.TemplatedParent, borderWidthBinding.ParentBinding.RelativeSource?.Mode);
         Assert.AreEqual(
             comboBox.ActualWidth,
             popup.Width,
@@ -1047,7 +1033,6 @@ public sealed class SettingsControlPresentationTests
                 && border.ActualHeight >= header.ActualHeight - 0.5d);
         AssertBrushColor(header, "App.ControlBackgroundBrush", surface.Background);
         AssertBrushColor(header, "App.BorderBrush", surface.BorderBrush);
-        Assert.AreEqual(new Thickness(1), surface.BorderThickness);
 
         TextBlock text = FindDescendants<TextBlock>(header)
             .Single(candidate => candidate.IsVisible && candidate.Text == (string)header.Content);

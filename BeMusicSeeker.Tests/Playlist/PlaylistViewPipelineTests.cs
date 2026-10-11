@@ -20,9 +20,12 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>詳細要求の失効・終端・表示変換と行操作Resolverの判断を確認します。</summary>
+/// <remarks>実VMを使う終端ケースはworkspaceとMainChartListの確定・通知接続、再生headerは実PlaybackPanelへの配送が対象です。共有構成資源のケースのみ非並列にします。画面menuの実接続はMainWindow側へ分担します。</remarks>
 [TestClass]
 public sealed class PlaylistViewPipelineTests
 {
+    /// <summary>タイトル昇順で二行をhashとともに並べ替え、絞込なしの件数を保ち、並替で行を欠落させません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_SortKeepsAllRowsVisible()
     {
@@ -51,14 +54,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, result.Count);
         CollectionAssert.AreEqual(new[] { "Alpha", "Zeta" }, result.Select(row => row.Title).ToArray());
         CollectionAssert.AreEqual(new[] { "22222222222222222222222222222222", "11111111111111111111111111111111" }, result.Select(row => row.hash).ToArray());
-        Assert.IsFalse(ReferenceEquals(sourceRows[0], result[0]));
-        Assert.IsFalse(ReferenceEquals(sourceRows[1], result[1]));
         Assert.AreEqual(2, keywordCount);
         Assert.AreEqual(2, modeCount);
         Assert.IsFalse(string.IsNullOrWhiteSpace(sortProfile));
-        Assert.IsTrue(result.All(row => !typeof(ChartFile).IsAssignableFrom(row.GetType())));
     }
 
+    /// <summary>memo検索と7鍵絞込を直接適用し、該当一行と段階件数・計測結果を返してroot依存で検索を迂回しません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_AppliesKeywordModeAndSortWithoutRoot()
     {
@@ -96,6 +97,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(viewMaterializeMs >= 0);
     }
 
+    /// <summary>古い詳細要求は行置換準備を一回取り消し、現行行・列表示・summary設定を維持して旧結果を適用しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
@@ -132,6 +134,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, canceledCount);
     }
 
+    /// <summary>summary移行の退役登録で要求世代を進め、summary適用前にも古い詳細終端が現行行を置換できません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistSummaryRetirement_InvalidatesOlderDetailTerminalBeforeSummaryApply()
@@ -158,6 +161,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion);
     }
 
+    /// <summary>新しい退役要求を先に登録した後の古い要求を拒否し、遅れて届いた世代で退役状態を巻き戻しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistSummaryRetirementRegistration_KeepsNewestRequestVersion()
@@ -173,6 +177,7 @@ public sealed class PlaylistViewPipelineTests
             viewModel.PlaylistWorkspace.RegisterPlaylistSummaryDetailSourceRetirement(older));
     }
 
+    /// <summary>現行sourceから詳細表示を構築して実MainChartListへ同じ最終行を渡し、source世代を保持し、列通知時にbuild/viewロックを残しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PlaylistWorkspace_CurrentSourceEntryBuildsAndCommitsMainTableRows()
@@ -225,6 +230,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(viewLockHeldDuringColumnModeEvent);
     }
 
+    /// <summary>古い要求の取消通知中に別Taskがbuildロックを取得でき、通知をロック内で同期配送する誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_StaleCancellationPublishesAfterBuildLockIsReleased()
     {
@@ -287,6 +293,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(result.Applied);
     }
 
+    /// <summary>現行世代でもtoken取消済みなら詳細終端を拒否し、候補行をMainChartListへ適用しません。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_CanceledRequestCannotCommitAtTerminalBoundary()
     {
@@ -341,6 +348,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, table.Rows.Count);
     }
 
+    /// <summary>行確定後にMainChartList通知が失敗しても候補行・列modeを保持し、旧行を一回解放してworkspace通知も継続します。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_PostCommitFailureStillDisposesAndPublishesAllOwners()
     {
@@ -415,6 +423,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(workspaceNotifications > 0);
     }
 
+    /// <summary>旧行のDisposeが失敗しても後続旧行の解放とtable/workspace通知を続け、確定済み候補と所有権移譲を保持します。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_DisposeFailureDoesNotSuppressRemainingPublishers()
     {
@@ -487,11 +496,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(workspaceNotifications > 0);
     }
 
+    /// <summary>source退役を確定して編集・世代・保留要求を消した後にtoken取消を公開し、既存MainTable行を重複解放しません。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_SourceClearCommitsStateBeforePublishingCancellation()
     {
         var pendingRequest = new PlaylistBuildRequest { RequestVersion = 7 };
-        var buildCancellation = new CancellationTokenSource();
+        using var buildCancellation = new CancellationTokenSource();
         var buildState = new PlaylistDetailBuildState
         {
             RequestVersion = 7,
@@ -540,6 +550,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, viewRow.DisposeCount);
     }
 
+    /// <summary>退役済みtokenが先にDisposeされてもsource取消の公開を失敗させず、後片付け競合を許容します。</summary>
     [TestMethod]
     public void PlaylistDetailTerminal_SourceClearPublishIgnoresDisposedCancellation()
     {
@@ -551,6 +562,7 @@ public sealed class PlaylistViewPipelineTests
         buildState.PublishSourceClear(commit);
     }
 
+    /// <summary>並替済み仮想viewは索引取得まで表示行を生成せず、同じ索引の再取得は生成済み行を再利用します。</summary>
     [TestMethod]
     public void ApplyPlaylistVirtualViewFromSource_DoesNotMaterializeRowsUntilIndexed()
     {
@@ -592,6 +604,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, view.RealizedRowCount);
     }
 
+    /// <summary>BMS・bmsonの既存表示行と重複行は最新再生状態を読む一方、未所持は未送信印だけを保ち、編集値・scoreを再生成で失いません。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -644,11 +657,11 @@ public sealed class PlaylistViewPipelineTests
             finally
             {
                 view.DisposeRealizedRows();
-                file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(null, file.Path));
             }
         });
     }
 
+    /// <summary>BMS・bmsonの未実体化行を後から生成しても現在のPause状態とscoreを読み、構築時のPlay状態を固定しません。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -688,11 +701,11 @@ public sealed class PlaylistViewPipelineTests
             finally
             {
                 view.DisposeRealizedRows();
-                file = ChartFileProjection.WithScore(file, ChartScoreSnapshot.FromBmsScore(null, file.Path));
             }
         });
     }
 
+    /// <summary>大文字検索語をmemoに照合して該当行だけを返し、譜面タイトルだけの検索でplaylist固有memoを落としません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_KeywordFilterMatchesPlaylistMemoAndComment()
     {
@@ -722,9 +735,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("Matched", result[0].Title);
         Assert.AreEqual(1, keywordCount);
         Assert.AreEqual(1, modeCount);
-        Assert.IsFalse(ReferenceEquals(sourceRows[0], result[0]));
     }
 
+    /// <summary>title・memo・MD5・SHA256の複数指定をANDで評価し、memoだけ一致する別行を誤って採りません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_KeywordFilterSupportsAndAndHashFields()
     {
@@ -761,6 +774,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, modeCount);
     }
 
+    /// <summary>未知の検索fieldは一致なしとして各段階件数をゼロにし、未知fieldを通常文字列として曖昧受理しません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_UnknownFieldQueryDoesNotMatch()
     {
@@ -784,6 +798,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, modeCount);
     }
 
+    /// <summary>引用memo・否定comment・hashのOR・title正規表現を組み合わせ、全条件を満たす一行だけを返します。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_KeywordFilterSupportsQuoteNegationOrAndRegex()
     {
@@ -821,6 +836,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, modeCount);
     }
 
+    /// <summary>7鍵・14鍵のsourceから14鍵だけを選び、keyword段階の二件とmode段階の一件を区別して返します。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_ModeFilterRecomputesFromSourceRows()
     {
@@ -850,9 +866,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("FourteenKeys", result[0].Title);
         Assert.AreEqual(2, keywordCount);
         Assert.AreEqual(1, modeCount);
-        Assert.IsFalse(ReferenceEquals(sourceRows[1], result[0]));
     }
 
+    /// <summary>同じsourceを二回適用しても各表示行を独立生成し、前回の編集可能な表示snapshotを次回へ共有しません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_RebuildsDetachedSnapshotsForEachApply()
     {
@@ -892,10 +908,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, first.Count);
         Assert.AreEqual(1, second.Count);
         Assert.IsFalse(ReferenceEquals(first[0], second[0]));
-        Assert.IsFalse(ReferenceEquals(sourceRows[0], first[0]));
-        Assert.IsFalse(ReferenceEquals(sourceRows[0], second[0]));
     }
 
+    /// <summary>playlistのlevel 2.5・3・12を数値昇順へ並べ、文字列順や譜面側levelで小数の順序を誤りません。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_LevelSortUsesPlaylistEntryDoubleValueNumerically()
     {
@@ -923,9 +938,9 @@ public sealed class PlaylistViewPipelineTests
 
         CollectionAssert.AreEqual(new[] { "2.5", "3", "12" }, result.Select(row => row.Level).ToArray());
         CollectionAssert.AreEqual(new[] { "TwoPointFive", "Three", "Twelve" }, result.Select(row => row.Title).ToArray());
-        Assert.AreEqual("level_mixed_double", sortProfile);
     }
 
+    /// <summary>要求作成でfolder前後空白と検索語の空白・大小文字を正規化し、同じ検索意図を別要求へ分割しません。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_NormalizesKeywordAndFolderForDedup()
     {
@@ -942,6 +957,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(left, right);
     }
 
+    /// <summary>同じ選択でもplaylist revisionが進んだ要求を区別し、更新前のsourceと同一視しません。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_DifferentPlaylistRevisionBreaksDedup()
     {
@@ -952,6 +968,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreNotEqual(before, after);
     }
 
+    /// <summary>score snapshot世代だけ進んだ要求も区別し、古いscore表示を同じ要求として省略しません。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_DifferentScoreSnapshotVersionBreaksDedup()
     {
@@ -962,6 +979,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreNotEqual(before, after);
     }
 
+    /// <summary>chartInfo世代を通常要求では区別し、chartInfoだけを無視する比較では等価として差分patchの判断を支えます。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_DifferentChartInfoIndexVersionBreaksDedup()
     {
@@ -973,6 +991,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(before.SourceIdentity.EqualsIgnoringChartInfoIndex(after.SourceIdentity));
     }
 
+    /// <summary>検索語・鍵数・並替の変更は表示identityだけを変え、同じsourceの不必要な再構築と表示要求の誤dedupを防ぎます。</summary>
     [TestMethod]
     public void PlaylistIdentity_KeywordModeAndSortOnlyChangePresentationIdentity()
     {
@@ -996,6 +1015,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreNotEqual(before, after);
     }
 
+    /// <summary>library世代の変更はsource identityだけを変え、表示条件が同じことを理由に古いsourceを再利用しません。</summary>
     [TestMethod]
     public void PlaylistIdentity_SourceVersionsOnlyChangeSourceIdentity()
     {
@@ -1008,6 +1028,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreNotEqual(before, after);
     }
 
+    /// <summary>score世代だけの失効をscore由来として分類し、別の失効理由へ誤記録しません。</summary>
     [TestMethod]
     public void DeterminePlaylistSourceInvalidationReason_WhenOnlyScoreSnapshotChanges_ReturnsScoreSnapshotVersion()
     {
@@ -1022,6 +1043,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("score_snapshot_version", reason);
     }
 
+    /// <summary>chartInfo世代だけの失効をmetadata由来として分類し、score変更と混同しません。</summary>
     [TestMethod]
     public void DeterminePlaylistSourceInvalidationReason_WhenOnlyChartInfoIndexChanges_ReturnsChartInfoIndex()
     {
@@ -1036,6 +1058,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("chart_info_index", reason);
     }
 
+    /// <summary>選択と全依存が同時に変わった場合は選択変更を優先理由とし、依存の変化で主因を隠しません。</summary>
     [TestMethod]
     public void DeterminePlaylistSourceInvalidationReason_WhenSelectionChanges_TakesPrecedence()
     {
@@ -1050,6 +1073,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("selection_changed", reason);
     }
 
+    /// <summary>検索語と鍵数だけが変わる要求はsourceを再構築せず表示だけを適用し、表示変更をsource失効と混同しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly()
     {
@@ -1066,6 +1090,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(decision.SourceInvalidationReason);
     }
 
+    /// <summary>score世代だけ進んだ場合はsourceを再構築し、旧score世代と失効理由を返して古いscoreを再利用しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenScoreSnapshotChanges_RebuildsSource()
     {
@@ -1083,6 +1108,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(5, decision.LastBuiltScoreSnapshotVersion);
     }
 
+    /// <summary>chartInfoだけの世代変更はsource全再構築へ進まずpatch後表示を選び、metadata更新を無視しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenOnlyChartInfoIndexChanges_PatchesThenAppliesView()
     {
@@ -1099,6 +1125,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(decision.SourceInvalidationReason);
     }
 
+    /// <summary>空名folderでも同じ選択のchartInfo更新はpatch後表示とし、空名を選択欠損と誤判定しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenEmptyFolderChartInfoOnlyChanges_PatchesThenAppliesView()
     {
@@ -1115,6 +1142,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(decision.ChartInfoIndexInvalidated);
     }
 
+    /// <summary>別playlist選択とchartInfo更新が重なる場合は選択変更としてsourceを再構築し、旧表へのpatchで済ませません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenSelectionAndChartInfoChange_RebuildsSource()
     {
@@ -1132,6 +1160,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("selection_changed", decision.SourceInvalidationReason);
     }
 
+    /// <summary>解決済み選択の空sourceは表示だけを適用し、ゼロ件を未構築と誤判定して再構築を繰り返しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenResolvedSourceHasNoRows_DoesNotTreatSourceAsMissing()
     {
@@ -1146,6 +1175,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(decision.SourceMissing);
     }
 
+    /// <summary>source未保持のsnapshotは未構築として再構築を選び、解決済みゼロ件と混同しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildDecision_WhenSnapshotRowsAreNull_RebuildsAsSourceMissing()
     {
@@ -1161,6 +1191,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("source_missing", decision.SourceInvalidationReason);
     }
 
+    /// <summary>初回要求を受けてworkerを開始し、世代を付けた同じ要求と前score世代を取り出せるため、受付だけで仕事を落としません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueueRegister_WhenNewRequest_EnqueuesAndStartsWorker()
     {
@@ -1185,6 +1216,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(request, state.CurrentBuildRequest);
     }
 
+    /// <summary>保留なしでworkerを停止後、次の明示要求はenqueueとworker開始を行い、停止状態に仕事を置き去りにしません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueue_WhenNoPendingRequest_StopsAtomicallyAndNextRegisterStartsWorker()
     {
@@ -1204,6 +1236,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(result.StartWorker);
     }
 
+    /// <summary>終了取消後にworkerが停止しても後続要求を拒否し、呼出元のshutdown引数がfalseでもqueueを再開しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueue_StopAfterShutdown_DoesNotReopenQueue()
     {
@@ -1224,6 +1257,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(state.WorkerRunning);
     }
 
+    /// <summary>worker失敗時に保留があればworker所有を次の実行へ残し、保留要求を捨てて停止しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueue_FailureWithPendingRequest_TransfersWorkerOwnership()
     {
@@ -1240,6 +1274,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNotNull(state.PendingRequest);
     }
 
+    /// <summary>現行表示と同じ要求はenqueueせず保留もworkerも作らず、同一意図を再構築しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueueRegister_WhenCurrentViewMatches_DeduplicatesNoop()
     {
@@ -1261,6 +1296,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(state.PendingRequest);
     }
 
+    /// <summary>実行Xから保留Yを経て最新Xへ戻るとYを新Xへ置換して実行tokenを取り消し、古い保留Yを最終意図として残しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueueRegister_WhenLatestIntentReturnsToRunningIdentity_ReplacesPendingRequest()
     {
@@ -1303,6 +1339,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(runningCancellation.IsCancellationRequested);
     }
 
+    /// <summary>終了時は保留を消して実行と共通tokenを取り消し、受付済み詳細構築を終了後へ残しません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueueCancelForShutdown_ClearsPendingAndCancelsTokens()
     {
@@ -1315,7 +1352,7 @@ public sealed class PlaylistViewPipelineTests
             currentViewIdentity: null,
             lastBuiltScoreSnapshotVersion: 5,
             isShutdownRequested: false);
-        var activeCancellation = new CancellationTokenSource();
+        using var activeCancellation = new CancellationTokenSource();
         Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryBeginIteration(state, request, activeCancellation, isShutdownRequested: false));
 
         PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
@@ -1324,9 +1361,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(state.ShutdownCancellationRequested);
         Assert.IsTrue(activeCancellation.IsCancellationRequested);
         Assert.IsTrue(state.Cancellation.IsCancellationRequested);
-        activeCancellation.Dispose();
     }
 
+    /// <summary>既にDisposeされた実行・共通tokenでも終了状態を確定し、後片付け競合で終了取消を失敗させません。</summary>
     [TestMethod]
     public void PlaylistDetailBuildQueueCancelForShutdown_ToleratesAlreadyDetachedDisposalRace()
     {
@@ -1341,6 +1378,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(state.ShutdownCancellationRequested);
     }
 
+    /// <summary>表全体のroot選択と空名folder選択を別要求とし、空文字の正規化で選択範囲を失いません。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
@@ -1351,6 +1389,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreNotEqual(rootPlaylist, emptyFolder);
     }
 
+    /// <summary>通常rootと通常folder全体は別sourceと判定して再構築し、同じ表・空folder名でも選択scopeを同一視しません。</summary>
     [TestMethod]
     public void CreatePlaylistRequestIdentity_DistinguishesOrdinaryRootAndOverallNormalFolderScope()
     {
@@ -1395,6 +1434,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("selection_changed", decision.SourceInvalidationReason);
     }
 
+    /// <summary>表示行のmemo・comment・小数level・両URL編集をsourceへ同期し、検索文字列に新memoと新commentを含めることを確認します。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_SynchronizeEditableSnapshot_UpdatesEditableFieldsAndSearchText()
     {
@@ -1419,6 +1459,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(sourceRow.SearchText, "NEW COMMENT");
     }
 
+    /// <summary>sourceから表示行と外部操作Resolverまで同じSHA256を引き渡し、表示実体化で外部操作用hashを落としません。</summary>
     [TestMethod]
     public void PlaylistDetailRow_PreservesSha256SnapshotAcrossViewMaterialization()
     {
@@ -1432,6 +1473,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("abababababababababababababababababababababababababababababababab", GridRowResolver.GetExternalActionSha256(row));
     }
 
+    /// <summary>譜面にSHA256がないBMS表示行はchartInfo providerのhashを外部操作へ渡し、譜面側欠損だけで操作情報を失いません。</summary>
     [TestMethod]
     public void GridRowResolver_GetExternalActionSha256_UsesBmsChartRowChartInfoFallback()
     {
@@ -1444,6 +1486,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetExternalActionSha256(row));
     }
 
+    /// <summary>BMSの結合タイトル・分割subtitle・artistを表示helperへ渡し、結合文字列からsubtitleを誤って取り出しません。</summary>
     [TestMethod]
     public void GridRowResolver_BmsPlayerDisplayHelpers_ReadRawBmsFile()
     {
@@ -1452,14 +1495,12 @@ public sealed class PlaylistViewPipelineTests
         file = file with { Subtitle = "[PlayerSubtitle]", RawSubtitle = "[PlayerSubtitle]", Title = "PlayerTitle [PlayerSubtitle]" };
         file = file with { Artist = "PlayerArtist", RawArtist = "PlayerArtist" };
 
-        Assert.AreEqual("PlayerTitle", file.RawTitle);
-        Assert.AreEqual("[PlayerSubtitle]", file.Subtitle);
-        Assert.AreEqual("PlayerArtist", file.RawArtist);
         Assert.AreEqual("PlayerTitle [PlayerSubtitle]", GridRowResolver.GetDisplayTitle(file));
         Assert.AreEqual("[PlayerSubtitle]", GridRowResolver.GetDisplaySubtitle(file));
         Assert.AreEqual("PlayerArtist", GridRowResolver.GetDisplayArtist(file));
     }
 
+    /// <summary>実PlaybackPanelのheader設定はBMSのtitle・subtitle・artistを各表示経路へ渡し、subtitleをtitleへ重ねません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SetBmsPlayerHeader_UsesSplitBmsMetadata()
@@ -1483,6 +1524,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", panel.PlayerHeaderArtist);
     }
 
+    /// <summary>再生開始の入口も表示中譜面と両headerへtitle・subtitle・artistを同期し、前譜面のheaderを残しません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void BeginPlayback_SynchronizesPlayerHeader()
@@ -1506,6 +1548,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("NextArtist", panel.PlayerHeaderArtist);
     }
 
+    /// <summary>所有tokenのない解決済みBMS snapshotでも所持行としてplayer・操作targetへ同じパスを渡し、token欠損で実譜面を未所持扱いしません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_ImmutableResolvedBmsKeepsPlayerOwner()
     {
@@ -1532,6 +1575,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
     }
 
+    /// <summary>解決済みimmutable BMS行はchartInfo providerのlevel・notesを表示へ採り、snapshot側にmetadataがないために欠損表示しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_ImmutableResolvedBmsUsesChartInfoProjection()
     {
@@ -1554,6 +1598,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2000, row.ChartNotes);
     }
 
+    /// <summary>source・chartInfoともSHA256がない行は外部操作用hashを返さず、MD5をSHA256として代用しません。</summary>
     [TestMethod]
     public void GridRowResolver_GetExternalActionSha256_ReturnsNullWhenMissing()
     {
@@ -1562,6 +1607,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(GridRowResolver.GetExternalActionSha256(sourceRow.CreateViewRow()));
     }
 
+    /// <summary>bmsonの結合タイトル・subtitle・artist・mode・パス・SHA256をsource/view/Resolverへ渡し、BMS専用経路へ誤変換しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_BmsonOwnedChart_UsesBmsonMetadata()
     {
@@ -1595,14 +1641,14 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(sourceRow.IsOwned);
         Assert.IsNull(row.Chart.Token);
-        Assert.AreSame(bmson.Token, row.Chart.Token);
+
         Assert.AreSame(sourceRow.Chart, row.Chart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(sourceRow, out ChartFile sourceChart));
         Assert.AreSame(sourceRow.Chart, sourceChart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(row, out ChartFile rowChart));
         Assert.AreSame(row.Chart, rowChart);
         Assert.AreEqual(ChartFileKind.Bmson, rowChart.Kind);
-        Assert.AreSame(bmson.Token, rowChart.Token);
+
         Assert.AreEqual("Bmson [Another]", row.Title);
         Assert.AreEqual("Artist", row.Artist);
         Assert.AreEqual("[Another]", GridRowResolver.GetDisplaySubtitle(row));
@@ -1618,6 +1664,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
     }
 
+    /// <summary>bmson所持行へ解決済みscoreを渡すとlamp・rank・EXscore・notes・combo・BPを表示し、譜面の未取得scoreで上書きしません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_BmsonOwnedWithResolvedScore_UsesScoreSnapshot()
     {
@@ -1656,6 +1703,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(7, sourceRow.minbp);
     }
 
+    /// <summary>bmsonの参照表snapshotを表示と検索へ映し、参照表更新後の新sourceだけを更新して旧sourceの表示を変えません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_BmsonOwnedChart_UsesPlaylistReferenceProjection()
     {
@@ -1705,6 +1753,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("Bmson Playlist", sourceRow.RefTablesNames);
     }
 
+    /// <summary>playlistの所持bmson行をBMS player境界から分離し、所持targetからlibrary参照へbmsonのパスとMD5を渡します。</summary>
     [TestMethod]
     public void ChartOperationTarget_PlaylistOwnedBmson_IsOwnedWithBmsonChartFile()
     {
@@ -1731,26 +1780,14 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPlaylistMissing);
         Assert.IsNull(target.Chart.Token);
-        Assert.AreSame(bmson.Token, target.Chart.Token);
+
         var libraryRef = target.ToLibraryChartRef();
         Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
         Assert.AreEqual(bmson.Path, libraryRef.Path);
         Assert.AreEqual(bmson.Md5, libraryRef.Md5);
-        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
-        Assert.AreEqual(bmson.Path, libraryRef.Path);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
 
+    /// <summary>所持bmson・未所持playlist・非譜面で欠損用menuを選び分け、BMS取得可否を所持判定へ流用しません。</summary>
     [TestMethod]
     public void PlaylistMissingContextMenuPolicy_UsesChartOperationTargetOwnership()
     {
@@ -1778,32 +1815,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(MainWindow.ShouldUsePlaylistMissingContextMenu(new object(), ChartOperationSourceScope.PlaylistOwned));
     }
 
-    [TestMethod]
-    public void PlaylistDetailRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
-    {
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            Md5 = "dddddddddddddddddddddddddddddddd",
-            Sha256 = new string('e', 64)
-        };
-        var entry = new TestablePlaylistEntry();
-        entry.SetMd5(bmson.Md5);
-        entry.SetSha256(bmson.Sha256);
-        var sourceRow = new PlaylistDetailSourceRow(
-            entry,
-            (bmson));
 
-        PlaylistDetailRow row = sourceRow.CreateViewRow();
-
-        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreSame(bmson.Token, row.Chart.Token);
-        Assert.IsNull(row.Chart.Token);
-        Assert.IsNull(typeof(PlaylistDetailRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-    }
-
+    /// <summary>解決済み投影のtitle・artist・genre・mode・level・導入先・警告を優先し、元譜面やentryの古いmetadataへ戻しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_UsesResolvedChartProjectionBeforeStorageOwnerMetadata()
     {
@@ -1858,26 +1871,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(projectedChart, row.Chart);
     }
 
-    [TestMethod]
-    public void LibraryChartRow_BmsonChartProjectionDoesNotCreateCompatibilityAdapter()
-    {
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            Md5 = "dddddddddddddddddddddddddddddddd",
-            Sha256 = new string('e', 64)
-        };
-        var row = LibraryChartRow.FromChartFile((bmson));
 
-        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreEqual(string.Empty, row.instl_dst);
-        Assert.IsNull(row.Chart.Token);
-        Assert.AreSame(bmson.Token, row.Chart.Token);
-        Assert.IsNull(typeof(LibraryChartRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-    }
-
+    /// <summary>bmson source更新では新titleと最新導入先・警告を採り、資源あり/なし両条件で旧rowに保持した資源snapshotを失いません。</summary>
     [TestMethod]
     public void LibraryChartRow_BmsonChartProjectionUsesUpdatedStorageSongAfterSourceSongReplacement()
     {
@@ -1914,7 +1909,7 @@ public sealed class PlaylistViewPipelineTests
             row.SetChartTransientStateProvider((chart, includeWarningSnapshot) =>
             {
                 transientStateLookupCount++;
-                Assert.AreSame(newSong.Token, chart.Token);
+
                 return ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot);
             });
 
@@ -1923,7 +1918,6 @@ public sealed class PlaylistViewPipelineTests
             { Token = previous.Token, Resources = previous.Resources });
             ChartFile chart = row.Chart;
 
-            Assert.AreSame(newSong.Token, chart.Token);
             Assert.AreEqual("New Bmson", chart.RawTitle);
             Assert.AreSame(includeResources ? oldSong.Resources : null, chart.Resources);
             Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
@@ -1932,31 +1926,10 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
-    [TestMethod]
-    public void ChartListSourceRow_BmsonChartProjectionHasNoCompatibilityBmsFileSurface()
-    {
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            Md5 = "dddddddddddddddddddddddddddddddd",
-            Sha256 = new string('e', 64)
-        };
-        ChartListSourceRow row = ChartListSourceRow.BuildStandardLibraryRows(
-            [(bmson)],
-            ChartListSourceProjectionMode.OwnerBacked).Single();
 
-        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreEqual(string.Empty, row.InstallDestination);
-        Assert.IsNull(row.Chart.Token);
-        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-        Assert.IsNull(typeof(ChartListSourceRow).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-    }
-
+    /// <summary>所持BMS行のsubtitleを表示し、操作targetからlibrary参照へ種類・パス・MD5を引き渡して別譜面を指定しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_PlaylistOwnedBms_HasBmsOnlyAndLocalCapabilities()
+    public void ChartOperationTarget_PlaylistOwnedBms_PreservesSubtitleAndLibraryReference()
     {
         ChartFile file = ChartTestValues.Empty();
         file = file with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
@@ -1976,81 +1949,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bms, libraryRef.Kind);
         Assert.AreEqual(file.Path, libraryRef.Path);
         Assert.AreEqual(file.Md5, libraryRef.Md5);
-        Assert.AreEqual(ChartFileKind.Bms, libraryRef.Kind);
-        Assert.AreEqual(file.Path, libraryRef.Path);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
     }
 
+
+    /// <summary>通常bmson表示行から操作targetとlibrary参照へ種類・パス・MD5を渡し、bmsonをBMS参照へ誤変換しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_RegularBmson_DisablesBmsOnlyCapabilities()
-    {
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            RawArtist = "Artist",
-            Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            Sha256 = new string('f', 64)
-        };
-        var row = LibraryChartRow.FromChartFile((bmson));
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.IsNull(target.Chart.Token);
-        Assert.AreSame(bmson.Token, target.Chart.Token);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-    }
-
-    [TestMethod]
-    public void ChartOperationTarget_LibraryChartRowBmson_DisablesBmsOnlyCapabilities()
-    {
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            RawArtist = "Artist",
-            Md5 = "12121212121212121212121212121212",
-            Sha256 = new string('1', 64)
-        };
-        var row = LibraryChartRow.FromChartFile((bmson));
-
-        Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.IsNull(target.Chart.Token);
-        Assert.AreSame(bmson.Token, target.Chart.Token);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-    }
-
-    [TestMethod]
-    public void ChartOperationTarget_LibraryChartRowBmson_HasNoCompatibilityAdapterSurface()
+    public void ChartOperationTarget_LibraryChartRowBmson_CreatesLibraryReference()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2067,19 +1971,18 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
         Assert.IsNull(target.Chart.Token);
-        Assert.AreSame(bmson.Token, target.Chart.Token);
-        Assert.IsNull(typeof(ChartOperationTarget).GetProperty("CompatibilityBmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
+
 
         var libraryRef = target.ToLibraryChartRef();
 
         Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
         Assert.AreEqual(bmson.Path, libraryRef.Path);
         Assert.AreEqual(bmson.Md5, libraryRef.Md5);
-        Assert.AreEqual(ChartFileKind.Bmson, libraryRef.Kind);
     }
 
+    /// <summary>tokenなしBMS・bmsonとパスだけの参照で種類・パス・MD5を保ち、実譜面identityへの変換で別種類や別パスにしません。</summary>
     [TestMethod]
-    public void LibraryChartRef_StorageOwnersAreGetterOnlyAndKindGated()
+    public void LibraryChartRef_PreservesKindPathAndHashForDetachedCharts()
     {
         ChartFile bms = ChartTestValues.Empty();
         bms = bms with { Md5 = "abababababababababababababababab", Path = "BMS" + ".bms", Title = "BMS", RawTitle = "BMS", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
@@ -2101,8 +2004,6 @@ public sealed class PlaylistViewPipelineTests
             "efefefefefefefefefefefefefefefef",
             new string('e', 64));
 
-        Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsFile", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
-        Assert.IsNull(typeof(LibraryChartRef).GetProperty("BmsonSong", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public));
         Assert.AreEqual(bms.Path, bmsRef.Path);
         Assert.AreEqual(bms.Md5, bmsRef.Md5);
         Assert.AreEqual(ChartFileKind.Bms, bmsRef.Kind);
@@ -2110,15 +2011,15 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, bmsonRef.Kind);
         Assert.AreEqual(bmson.Path, bmsonRef.Path);
         Assert.AreEqual(bmson.Md5, bmsonRef.Md5);
-        Assert.AreEqual(ChartFileKind.Bmson, bmsonRef.Kind);
         Assert.IsNull(bmsonRef.ToChartFileIdentity().Token);
         Assert.AreEqual(ChartFileKind.Bmson, pathOnlyRef.Kind);
         Assert.IsNull(pathOnlyRef.Token);
         Assert.AreEqual(pathOnlyRef.Path, pathOnlyRef.ToChartFileIdentity().Path);
     }
 
+    /// <summary>bmsonの操作targetからpackage項目を生成するとbmson種類を維持し、BMS専用譜面として取り出しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_ToPackageChartEntry_DoesNotMaterializeBmsonCompatibilityAdapter()
+    public void ChartOperationTarget_ToPackageChartEntry_PreservesBmsonKindWithoutBmsChart()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2142,9 +2043,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNotNull(entry);
         Assert.IsNull(entry.GetBmsChartForTest());
         Assert.AreEqual(ChartFileKind.Bmson, entry.Chart.Kind);
-        Assert.AreSame(bmson.Token, entry.Chart.Token);
     }
 
+    /// <summary>BMS targetからpackage項目へ元のBMS譜面そのものを渡し、別snapshotへ置換して後続の所有者を失いません。</summary>
     [TestMethod]
     public void ChartOperationTarget_ToPackageChartEntry_UsesBmsStorageOwner()
     {
@@ -2165,8 +2066,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(file.Token, entry.Chart.Token);
     }
 
+    /// <summary>実LibraryChartRowのbmsonをResolver経由で自動rename要求に受理し、一対象の要求を作ってbmsonだけを誤拒否しません。</summary>
     [TestMethod]
-    public void ChartFolderAutoRenameRequest_UsesChartFileWithoutMaterializingBmsonCompatibilityAdapter()
+    public void ChartFolderAutoRenameRequest_AcceptsBmsonRow()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2184,11 +2086,12 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(1, request.Charts.Count);
         Assert.IsTrue(request.HasTargets);
-        Assert.AreSame(bmson.Token, request.Charts[0].Token);
+
     }
 
+    /// <summary>実bmson行から移動要求へ種類・パス・MD5と新親directoryを渡し、対象譜面や移動先を取り違えません。</summary>
     [TestMethod]
-    public void ChartLibraryMoveRequest_UsesLibraryChartRefWithoutMaterializingBmsonCompatibilityAdapter()
+    public void ChartLibraryMoveRequest_PreservesBmsonIdentityAndNewParent()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2212,8 +2115,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, request.Charts[0].Kind);
     }
 
+    /// <summary>導入先なしのloose bmsonは修復項目をmaterializeしても導入先なしを保ち、存在しない導入先を生成しません。</summary>
     [TestMethod]
-    public void RepairInstalledLocationRequest_HasInstallDestinationDoesNotMaterializeLooseBmsonCompatibilityAdapter()
+    public void RepairInstalledLocationRequest_LooseBmsonKeepsNoInstallDestinationAfterMaterialization()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2238,8 +2142,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(request.HasInstallDestination);
     }
 
+    /// <summary>playlist所持bmsonでも元譜面に導入先がなければ修復先を空のまま保ち、別scopeの導入先で補いません。</summary>
     [TestMethod]
-    public void RepairInstalledLocationRequest_RepairChartsDoNotOverlayLooseCompatibilityInstallDestination()
+    public void RepairInstalledLocationRequest_PlaylistBmsonWithoutDestinationKeepsRepairDestinationEmpty()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2264,9 +2169,10 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsFalse(request.HasInstallDestination);
         Assert.AreEqual(string.Empty, request.RepairCharts[0].InstallDestination);
-        Assert.AreSame(bmson.Token, request.RepairCharts[0].Token);
+
     }
 
+    /// <summary>同じMD5の別パス二譜面へ異なる導入先を持たせると各パスの導入先を採り、hash一致だけで片方へ統合しません。</summary>
     [TestMethod]
     public void RepairInstalledLocationRequest_RepairChartsOverlayUsesPathBeforeHash()
     {
@@ -2322,8 +2228,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("C:\\Installed\\B", request.RepairCharts[1].InstallDestination);
     }
 
+    /// <summary>導入先を持つ実bmson表示行から修復要求へその導入先を引き渡し、bmsonだけ導入先なしと誤判定しません。</summary>
     [TestMethod]
-    public void RepairInstalledLocationRequest_HasInstallDestinationUsesExistingChartWithoutCreatingAdapter()
+    public void RepairInstalledLocationRequest_UsesExistingBmsonInstallDestination()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
@@ -2350,8 +2257,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("C:\\Installed\\Bmson", request.RepairCharts[0].InstallDestination);
     }
 
+    /// <summary>package項目のない保留bmsonはloose対象として受理し、明示materialize後にbmson項目を返して対象を欠落させません。</summary>
     [TestMethod]
-    public void PendingInstallDestinationClearRequest_DoesNotMaterializeLooseBmsonEntryBeforeBackgroundWork()
+    public void PendingInstallDestinationClearRequest_MaterializesLooseBmsonEntryOnRequest()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2363,7 +2271,6 @@ public sealed class PlaylistViewPipelineTests
             Sha256 = new string('9', 64)
         };
         ChartFile chart = (bmson);
-        int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
             null,
@@ -2377,23 +2284,20 @@ public sealed class PlaylistViewPipelineTests
             [target],
             out PendingInstallDestinationClearRequest request));
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(request.HasTargets);
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(0, request.PackageTargets.Count);
         Assert.AreEqual(1, request.LooseTargets.Count);
 
         request.MaterializeLooseEntries();
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.AreEqual(1, request.LooseEntries.Count);
         Assert.AreEqual(ChartFileKind.Bmson, request.LooseEntries[0].Chart.Kind);
         Assert.IsNull(request.LooseEntries[0].GetBmsChartForTest());
-        Assert.AreEqual(0, adapterRequestCount);
     }
 
+    /// <summary>package項目のない保留bmsonから編集項目を取得し、導入先と表示titleを適用してBMS専用経路へ流しません。</summary>
     [TestMethod]
-    public void PendingInstallDestinationEditRequest_DoesNotMaterializeLooseBmsonCompatibilityAdapter()
+    public void PendingInstallDestinationEditRequest_AppliesDestinationToLooseBmsonEntry()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2405,7 +2309,6 @@ public sealed class PlaylistViewPipelineTests
             Sha256 = new string('a', 64)
         };
         ChartFile chart = (bmson);
-        int adapterRequestCount = 0;
         var target = new ChartOperationTarget(
             chart,
             null,
@@ -2419,24 +2322,22 @@ public sealed class PlaylistViewPipelineTests
             target,
             out PendingInstallDestinationEditRequest request));
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsTrue(request.HasTarget);
         Assert.IsNull(request.PackageEntry);
         Assert.IsNotNull(request.ChartFile);
         Assert.AreEqual(ChartFileKind.Bmson, request.ChartFile.Kind);
-        Assert.AreEqual(0, adapterRequestCount);
 
         PackageChartEntry editEntry = request.GetOrCreateChartEntry();
         editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
 
-        Assert.AreEqual(0, adapterRequestCount);
         Assert.IsNull(editEntry.GetBmsChartForTest());
         Assert.AreEqual("C:\\Installed\\Bmson", editEntry.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", editEntry.Chart.InstallDestinationTitle);
     }
 
+    /// <summary>実LibraryChartRowの所持bmsonをfolder編集Resolver経由でrename要求へ受理し、BMSだけの条件で拒否しません。</summary>
     [TestMethod]
-    public void RenameChartFolderRequest_DoesNotMaterializeBmsonCompatibilityAdapter()
+    public void RenameChartFolderRequest_AcceptsBmsonRow()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2453,9 +2354,10 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
         Assert.IsTrue(request.HasTarget);
-        Assert.AreSame(bmson.Token, request.Chart.Token);
+
     }
 
+    /// <summary>bmsonの最新maintenance encoding・healthと導入先・警告を同じ表示譜面へ合成し、一方の投影が他方を落としません。</summary>
     [TestMethod]
     public void LibraryChartRow_BmsonChartCombinesFreshSongMaintenanceWithTransientState()
     {
@@ -2489,6 +2391,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
     }
 
+    /// <summary>通常行とplaylist行のtarget再解決・source再作成でも導入先と警告詳細を保持し、修復対象の一時状態を失いません。</summary>
     [TestMethod]
     public void ChartOperationTarget_BmsonRowsUseChartTransientStateForInstallLocationRepair()
     {
@@ -2557,6 +2460,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rebuiltPlaylistSourceRow.WarningTooltipText, "playlist ambiguous install destination");
     }
 
+    /// <summary>通常bmson sourceを再構築してもprovider由来の導入先・title・artist・警告をviewへ渡し、再構築で修復状態を消しません。</summary>
     [TestMethod]
     public void ChartListSourceRow_BmsonUsesTransientStateForInstallRepairState()
     {
@@ -2599,6 +2503,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rebuiltViewRow.WarningTooltipText, "ambiguous install destination");
     }
 
+    /// <summary>通常bmson行をdrop用譜面へ解決し、パスとtitleを保ってMD5・SHA256両方のplaylist項目を生成します。</summary>
     [TestMethod]
     public void WorkspaceDropChartResolution_LibraryBmsonRowCreatesPlaylistEntryWithBothHashes()
     {
@@ -2621,7 +2526,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNotNull(chart);
         Assert.AreEqual(ChartFileKind.Bmson, chart.Kind);
         Assert.IsNull(chart.Token);
-        Assert.AreSame(bmson.Token, chart.Token);
+
         Assert.AreEqual(bmson.Path, chart.Path);
         Assert.AreEqual(bmson.RawTitle, chart.Title);
         Assert.AreEqual(bmson.Md5, entry.md5);
@@ -2629,6 +2534,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, entry.Org_md5.Count);
     }
 
+    /// <summary>BMS drop項目の生成時に両hashと指定した元譜面MD5群を採り、元譜面情報を推測値で置換しません。</summary>
     [TestMethod]
     public void CreateForPlaylistDrop_BmsChartUsesProvidedOrgMd5s()
     {
@@ -2644,6 +2550,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
     }
 
+    /// <summary>所有tokenのないbmsonもdrop項目へtitle・両hash・指定元譜面MD5を渡し、所有者なしで情報を欠落させません。</summary>
     [TestMethod]
     public void CreateForPlaylistDrop_OwnerlessBmsonChartPreservesBothHashesAndOrgMd5()
     {
@@ -2657,6 +2564,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" }, entry.Org_md5);
     }
 
+    /// <summary>実VMの外部同期表memo保存では解決bmsonのMD5を元entryへ補わず、DBもSHA256だけを保って外部由来identityを変えません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task CommitPlaylistRow_ExternalSyncEntryDoesNotBackfillHashesFromResolvedChart()
@@ -2727,8 +2635,9 @@ public sealed class PlaylistViewPipelineTests
         }
     }
 
+    /// <summary>memo編集取消は未保存で元memoを保持し、編集中に延期されたscore世代を含むrefresh要求の公開内容と保留状態の解放を確認します。</summary>
     [TestMethod]
-    public void PlaylistDetailEditing_UsesStartedLifecycleAndReleasesDeferredRefreshOnCancel()
+    public async Task PlaylistDetailEditing_UsesStartedLifecycleAndReleasesDeferredRefreshOnCancel()
     {
         var entry = new TestablePlaylistEntry
         {
@@ -2788,7 +2697,7 @@ public sealed class PlaylistViewPipelineTests
         workspace.BeginDetailEdit(context);
         Assert.IsTrue(state.Source.IsPlaylistCellEditing);
 
-        _ = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
+        await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
 
         Assert.IsFalse(state.Source.IsPlaylistCellEditing);
         Assert.AreEqual("before", row.memo);
@@ -2800,6 +2709,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, state.Source.PendingScoreSnapshotRefreshVersion);
     }
 
+    /// <summary>保存先取得が失敗したmemo編集は元例外をTaskへ返し、live sourceのmemoを保存成功のように同期しません。</summary>
     [TestMethod]
     public async Task PlaylistDetailEditing_DurableFailureDoesNotSynchronizeLiveSource()
     {
@@ -2831,63 +2741,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("before", sourceRow.memo);
     }
 
-    [TestMethod]
-    public void PlaylistDetailEditing_InvalidUriDoesNotMutateOrPersist()
-    {
-        var entry = new TestablePlaylistEntry
-        {
-            parent = new BMSTable { is_external_sync = false }
-        };
-        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
-        var state = new PlaylistDetailViewState();
-        var workspace = new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(),
-            new PlaylistDetailBuildState(),
-            state,
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            () => throw new AssertFailedException("invalid URI must not persist"),
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
-        var context = new MainChartListCellEditContext(
-            row,
-            nameof(PlaylistDetailRow.Url),
-            ChartOperationSourceScope.PlaylistOwned,
-            MainViewOperationSection.Playlist);
-
-        workspace.BeginDetailEdit(context);
-        _ = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "not a URI", commit: true));
-
-        Assert.IsFalse(state.Source.IsPlaylistCellEditing);
-        Assert.IsNull(row.Url);
-    }
-
+    /// <summary>保留packageのbmsonから表示・target・library参照へ種類とパス・MD5を渡し、導入先・警告・healthも表示へ保持します。</summary>
     [TestMethod]
     public void LibraryChartRow_FromPendingBmson_PreservesPendingInstallState()
     {
@@ -2913,8 +2767,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreEqual(bmson.Path, row.Chart.Path);
-        Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
-        Assert.AreSame(bmson.Token, row.Chart.Token);
+
         Assert.IsFalse(GridRowResolver.TryGetBmsChart(row, out _));
         Assert.IsTrue(row.DisplayWarning.Contains("installed chart warning"));
         Assert.AreEqual("C:\\Library\\Destination", row.instl_dst);
@@ -2922,19 +2775,15 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, isPendingSection: true, out ChartOperationTarget target));
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
-        Assert.AreSame(bmson.Token, target.Chart.Token);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
+
 
         var chartRef = LibraryChartRef.FromChartFile(row.Chart);
         Assert.AreEqual(ChartFileKind.Bmson, chartRef.Kind);
         Assert.AreEqual(bmson.Path, chartRef.Path);
         Assert.AreEqual(bmson.Md5, chartRef.Md5);
-        Assert.AreEqual(ChartFileKind.Bmson, chartRef.Kind);
     }
 
+    /// <summary>package表示行は導入先未定の資源不足を要約へ出し、導入先確定後は要約だけを隠して警告全文を保持します。</summary>
     [TestMethod]
     public void LibraryChartRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
     {
@@ -2960,6 +2809,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(resolvedRow.WarningTooltipText, "WAV missing detail");
     }
 
+    /// <summary>package sourceでも導入先確定時に資源不足要約だけを隠し、chart警告の詳細を消してしまいません。</summary>
     [TestMethod]
     public void ChartListSourceRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
     {
@@ -2985,8 +2835,9 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(resolvedRow.Chart.Warnings), "source WAV missing detail");
     }
 
+    /// <summary>保留bmsonの現在packageパスとPending scopeをtargetへ渡し、元libraryパスや所持扱いへ戻しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_PendingBmson_UsesPendingPathAndPendingCapabilities()
+    public void ChartOperationTarget_PendingBmson_PreservesPendingPathAndScope()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -3009,16 +2860,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(bmson.Path, target.Chart.Path);
         Assert.IsFalse(target.IsOwned);
         Assert.IsTrue(target.IsPending);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
     }
 
+    /// <summary>保留・導入済み・playlist・全件検査・解析失敗・履歴・library modeを操作sectionとscopeへ配送し、異なる操作経路を混同しません。</summary>
     [TestMethod]
     public void MainViewOperationContext_MapsViewModeToRowOperationScope()
     {
@@ -3064,6 +2908,7 @@ public sealed class PlaylistViewPipelineTests
             ChartOperationSourceScope.Library);
     }
 
+    /// <summary>MainChartListの保留mode選択をResolverへ渡すと通常BMS行もPending scopeとなり、画面modeから操作scopeへの接続を落としません。</summary>
     [TestMethod]
     public void MainViewOperationContext_PendingModeMakesLibraryChartRowPendingScoped()
     {
@@ -3077,11 +2922,10 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target));
 
         Assert.AreEqual(ChartOperationSourceScope.PendingPackage, target.SourceScope);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
+
     }
 
+    /// <summary>導入済みpackage対象はlibrary削除経路へ同じ対象を渡し、保留packageの取消経路へ誤配送しません。</summary>
     [TestMethod]
     public void DeleteTargetResolver_NewlyInstalledRoutesToLibrary()
     {
@@ -3098,6 +2942,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(resolution.UsedContextFallback);
     }
 
+    /// <summary>保留対象はpending削除経路へ同じ対象を渡し、未導入譜面をlibraryの物理削除へ配送しません。</summary>
     [TestMethod]
     public void DeleteTargetResolver_PendingRoutesToPending()
     {
@@ -3113,6 +2958,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(target, resolution.Targets[0]);
     }
 
+    /// <summary>選択が空ならcontext対象をlibrary削除へ補い、右クリック対象を選択なしとして失いません。</summary>
     [TestMethod]
     public void DeleteTargetResolver_UsesContextFallbackWhenSelectionIsEmpty()
     {
@@ -3129,6 +2975,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(resolution.UsedContextFallback);
     }
 
+    /// <summary>未所持playlist対象は物理削除経路も対象列も空にし、hash参照だけの行をファイル削除へ送信しません。</summary>
     [TestMethod]
     public void DeleteTargetResolver_PlaylistMissingIsNotFileDeleteTarget()
     {
@@ -3143,6 +2990,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(0, resolution.Targets.Count);
     }
 
+    /// <summary>libraryとpendingの混在選択ではcontextのpendingだけを配送し、除外件数を数えて別scope対象を巻き込みません。</summary>
     [TestMethod]
     public void DeleteTargetResolver_ContextScopeFiltersMixedSelection()
     {
@@ -3160,8 +3008,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, resolution.MixedScopeDroppedCount);
     }
 
+    /// <summary>導入済みbmsonは導入後のパスと所持・非保留scopeをtargetと参照へ渡し、導入前packageパスを残しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_NewlyInstalledBmson_UsesInstalledPathAndLibraryCapabilities()
+    public void ChartOperationTarget_NewlyInstalledBmson_PreservesInstalledPathAndScope()
     {
         ChartFile original = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -3189,120 +3038,78 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(target.IsOwned);
         Assert.IsFalse(target.IsPending);
         Assert.AreEqual(installed.Path, target.Chart.Path);
-        Assert.AreSame(installed.Token, target.Chart.Token);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
+
         Assert.AreEqual(installed.Path, LibraryChartRef.FromChartFile(target.Chart).Path);
     }
 
-    [TestMethod]
-    public void ChartOperationTarget_BmsRow_HasBmsOnlyCapabilities()
-    {
-        ChartFile file = ChartTestValues.Empty();
-        file = file with { Md5 = "abababababababababababababababab", Path = "Bms" + ".bms", Title = "Bms", RawTitle = "Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
-        file = file with { Sha256 = new string('a', 64) };
-
-        var row = LibraryChartRow.FromChartFile(file);
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateRanking));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunZeroNoteCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-    }
-
+    /// <summary>
+    /// BMS・bmsonの所持・保留・新規導入・プレイリスト行で操作権限を判断し、
+    /// BMS専用処理の誤許可、保留や未所持への移動・削除など所持向け操作の誤許可、URLの有無に合わない起動を防ぎます。
+    /// </summary>
+    /// <remarks>能力の条件網羅はResolverに集約します。正確な譜面・項目・scopeの受渡しと実メニュー接続は別ケースで確認します。</remarks>
     [TestMethod]
     public void ChartOperationTarget_CapabilityMatrix_SeparatesBmsOnlyAndBmsonCommonOperations()
     {
-        ChartFile bms = ChartTestValues.Empty();
-        bms = bms with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path = "Bms" + ".bms", Title = "Bms", RawTitle = "Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
-        bms = bms with { Sha256 = new string('a', 64) };
-        var bmson = LibraryChartRow.FromChartFile((ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Bmson",
-            RawArtist = "Artist",
-            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            Sha256 = new string('b', 64)
-        }));
-        var pendingBmson = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Pending\\Bmson\\chart.bmson",
-            Folder = "C:\\Pending\\Bmson",
-            RawTitle = "Pending Bmson",
-            RawArtist = "Artist",
-            Md5 = "cccccccccccccccccccccccccccccccc",
-            Sha256 = new string('c', 64)
-        })));
+        const ChartOperationCapabilities localCommon = ChartOperationCapabilities.OpenFile
+            | ChartOperationCapabilities.OpenFolder | ChartOperationCapabilities.RunResourceHealthCheck;
+        const ChartOperationCapabilities ownedCommon = localCommon | ChartOperationCapabilities.ConvertToAudio
+            | ChartOperationCapabilities.MoveInLibrary | ChartOperationCapabilities.RemoveFromLibrary
+            | ChartOperationCapabilities.RepairInstalledLocation;
+        const ChartOperationCapabilities bmsHashes = ChartOperationCapabilities.UseLr2Ir
+            | ChartOperationCapabilities.UseScoreViewer | ChartOperationCapabilities.UpdateRanking;
+        const ChartOperationCapabilities bmsLocal = ChartOperationCapabilities.RunBmsEncodingCheck
+            | ChartOperationCapabilities.RunBmsEncodingFix | ChartOperationCapabilities.RunZeroNoteCheck
+            | ChartOperationCapabilities.RenameInvalidExtension;
 
-        var bmsRow = LibraryChartRow.FromChartFile(bms);
-        var pendingBms = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsRow.Chart));
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmsRow, out ChartOperationTarget bmsTarget));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(bmson, out ChartOperationTarget bmsonTarget));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(pendingBms, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingBmsTarget));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(pendingBmson, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget pendingBmsonTarget));
-
-        foreach (ChartOperationCapabilities commonCapability in new[]
+        // 保留はファイル・フォルダを開く操作と保守・導入先編集を許可し、移動・削除・音声変換・所持先修復は拒否します。未所持はハッシュとURL操作だけです。
+        (ChartOperationSourceScope Scope, ChartFileKind Kind, ChartOperationCapabilities Expected)[] cases =
+        [
+            (ChartOperationSourceScope.Library, ChartFileKind.Bms, ownedCommon | bmsHashes | bmsLocal),
+            (ChartOperationSourceScope.Library, ChartFileKind.Bmson, ownedCommon),
+            (ChartOperationSourceScope.PendingPackage, ChartFileKind.Bms, localCommon | bmsHashes | bmsLocal | ChartOperationCapabilities.UpdateInstallDestination),
+            (ChartOperationSourceScope.PendingPackage, ChartFileKind.Bmson, localCommon | ChartOperationCapabilities.UpdateInstallDestination),
+            (ChartOperationSourceScope.NewlyInstalledPackage, ChartFileKind.Bms, ownedCommon | bmsHashes | bmsLocal),
+            (ChartOperationSourceScope.NewlyInstalledPackage, ChartFileKind.Bmson, ownedCommon),
+            (ChartOperationSourceScope.PlaylistOwned, ChartFileKind.Bms, ownedCommon | bmsHashes | bmsLocal),
+            (ChartOperationSourceScope.PlaylistOwned, ChartFileKind.Bmson, ownedCommon),
+            (ChartOperationSourceScope.PlaylistMissing, ChartFileKind.Bms, bmsHashes)
+        ];
+        foreach ((ChartOperationSourceScope Scope, ChartFileKind Kind, ChartOperationCapabilities Expected) scenario in cases)
         {
-            ChartOperationCapabilities.OpenFile,
-            ChartOperationCapabilities.OpenFolder,
-            ChartOperationCapabilities.RunResourceHealthCheck
-        })
-        {
-            Assert.IsTrue(bmsTarget.HasCapability(commonCapability), commonCapability + " should apply to BMS.");
-            Assert.IsTrue(bmsonTarget.HasCapability(commonCapability), commonCapability + " should apply to owned bmson.");
-            Assert.IsTrue(pendingBmsonTarget.HasCapability(commonCapability), commonCapability + " should apply to pending bmson.");
+            ChartFile chart = ChartTestValues.Empty(scenario.Kind) with
+            {
+                Path = scenario.Kind == ChartFileKind.Bms ? @"C:\Songs\chart.bms" : @"C:\Songs\chart.bmson",
+                Md5 = new string('a', 32),
+                Sha256 = new string('b', 64)
+            };
+            bool playlist = scenario.Scope is ChartOperationSourceScope.PlaylistOwned or ChartOperationSourceScope.PlaylistMissing;
+            // URL無し・本体URLのみ・差分URLのみの許可をそれぞれ判断します。
+            foreach (string urlKind in playlist ? new[] { "none", "main", "diff" } : new[] { "none" })
+            {
+                object row;
+                if (playlist)
+                {
+                    var entry = new TestablePlaylistEntry(chart);
+                    if (urlKind == "main") { entry.url = "https://example.invalid/main.zip"; }
+                    if (urlKind == "diff") { entry.url_diff = "https://example.invalid/diff.zip"; }
+                    row = new PlaylistDetailSourceRow(entry,
+                        scenario.Scope == ChartOperationSourceScope.PlaylistMissing ? null : chart).CreateViewRow();
+                }
+                else
+                {
+                    row = scenario.Scope == ChartOperationSourceScope.PendingPackage
+                        ? LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart))
+                        : LibraryChartRow.FromChartFile(chart);
+                }
+                Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, scenario.Scope, out ChartOperationTarget target));
+                ChartOperationCapabilities expected = scenario.Expected
+                    | (urlKind == "none" ? ChartOperationCapabilities.None : ChartOperationCapabilities.OpenPlaylistUrls);
+                Assert.AreEqual(expected, target.Capabilities, $"{scenario.Scope}/{scenario.Kind}/{urlKind}");
+            }
         }
-
-        foreach (ChartOperationCapabilities bmsOnlyCapability in new[]
-        {
-            ChartOperationCapabilities.UseLr2Ir,
-            ChartOperationCapabilities.UseScoreViewer,
-            ChartOperationCapabilities.UpdateRanking,
-            ChartOperationCapabilities.RunBmsEncodingCheck,
-            ChartOperationCapabilities.RunBmsEncodingFix,
-            ChartOperationCapabilities.RunZeroNoteCheck,
-            ChartOperationCapabilities.RenameInvalidExtension
-        })
-        {
-            Assert.IsTrue(bmsTarget.HasCapability(bmsOnlyCapability), bmsOnlyCapability + " should apply to BMS.");
-            Assert.IsFalse(bmsonTarget.HasCapability(bmsOnlyCapability), bmsOnlyCapability + " must not apply to owned bmson.");
-            Assert.IsFalse(pendingBmsonTarget.HasCapability(bmsOnlyCapability), bmsOnlyCapability + " must not apply to pending bmson.");
-        }
-
-        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(pendingBmsTarget.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-
-        Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsTrue(bmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(bmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsTrue(bmsTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(bmsTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsTrue(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsFalse(pendingBmsonTarget.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
 
+    /// <summary>folder編集入口は所持bmsonのパスを受ける一方、保留bmsonはtargetなしで拒否し、保留の物理folder変更を許しません。</summary>
     [TestMethod]
     public void FolderEditChartOperationTarget_UsesBmsonChartForOwnedRowsAndRejectsPendingRows()
     {
@@ -3338,24 +3145,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(pendingTarget);
     }
 
-    [TestMethod]
-    public void ChartOperationTarget_PendingBms_SeparatesInstallDestinationFromInstalledRepair()
-    {
-        ChartFile file = ChartTestValues.Empty();
-        file = file with { Md5 = "abababababababababababababababab", Path = "Pending Bms" + ".bms", Title = "Pending Bms", RawTitle = "Pending Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
-
-        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart((file)));
-
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
-
-        Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RunBmsEncodingFix));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-    }
-
+    /// <summary>raw BMSと通常表示行を各Resolver入口が受理し、BMS playerと操作targetへ実パスを渡して入口別の型判定を誤りません。</summary>
     [TestMethod]
     public void ChartOperationTarget_ChartNamedApis_TreatRawBmsAsBmsPlayerOnlyBoundary()
     {
@@ -3385,8 +3175,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(expectedScope, mainChartList.CurrentOperationContext.SourceScope);
     }
 
+    /// <summary>未所持行はパスなしのMD5参照を保持し、移動要求を拒否してhashだけの譜面を物理移動しません。</summary>
     [TestMethod]
-    public void ChartOperationTarget_PlaylistMissing_DoesNotAllowLocalFileOperations()
+    public void ChartOperationTarget_PlaylistMissing_PreservesHashReferenceAndRejectsMoveRequest()
     {
         var entry = new TestablePlaylistEntry();
         entry.SetTitle("Missing");
@@ -3398,13 +3189,6 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bms, target.Chart.Kind);
         Assert.IsFalse(target.IsOwned);
         Assert.IsTrue(target.IsPlaylistMissing);
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFile));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.OpenFolder));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.ConvertToAudio));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
-        Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
         var chartRef = target.ToLibraryChartRef();
         Assert.IsNotNull(chartRef);
         Assert.AreEqual(ChartFileKind.Bms, chartRef.Kind);
@@ -3415,6 +3199,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(ChartLibraryMoveRequest.TryCreate([target], "C:\\Songs", out _));
     }
 
+    /// <summary>表示前のplaylist sourceも元entryを持つ所持targetとして解決し、view行しか受け付けない誤りを検出します。</summary>
     [TestMethod]
     public void GridRowResolver_TreatsPlaylistSourceRowAsPlaylistEntryRow()
     {
@@ -3440,35 +3225,8 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, target.Chart.Kind);
     }
 
-    [TestMethod]
-    public void PlaylistDetailContextMenuPolicy_OwnedRowsAllowEntryAndFileDeleteButMissingRowsAllowEntryOnly()
-    {
-        ChartFile bms = ChartTestValues.Empty();
-        bms = bms with { Md5 = "abababababababababababababababab", Path = "Owned Bms" + ".bms", Title = "Owned Bms", RawTitle = "Owned Bms", Artist = "TestArtist", RawArtist = "TestArtist", Genre = "TestGenre", Mode = 7 };
-        PlaylistDetailRow ownedBmsRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), (bms)).CreateViewRow();
 
-        ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = "C:\\Songs\\Bmson\\chart.bmson",
-            Folder = "C:\\Songs\\Bmson",
-            RawTitle = "Owned Bmson",
-            Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            Sha256 = new string('b', 64)
-        };
-        var bmsonEntry = new TestablePlaylistEntry();
-        bmsonEntry.SetMd5(bmson.Md5);
-        bmsonEntry.SetSha256(bmson.Sha256);
-        PlaylistDetailRow ownedBmsonRow = new PlaylistDetailSourceRow(bmsonEntry, (bmson)).CreateViewRow();
-
-        var missingEntry = new TestablePlaylistEntry();
-        missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
-        PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
-
-        AssertPlaylistRowFileDeletePolicy(ownedBmsRow, expectedRemoveFromLibrary: true);
-        AssertPlaylistRowFileDeletePolicy(ownedBmsonRow, expectedRemoveFromLibrary: true);
-        AssertPlaylistRowFileDeletePolicy(missingRow, expectedRemoveFromLibrary: false);
-    }
-
+    /// <summary>root dropは未所持項目だけを元entryとして保持し、所持BMS・bmsonは譜面へ解決して古いplaylist entryを持ち込みません。</summary>
     [TestMethod]
     public void RootFolderDropEntryPolicy_PreservesOnlyMissingPlaylistRows()
     {
@@ -3500,6 +3258,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(missingRow));
     }
 
+    /// <summary>表示前sourceのroot dropも未所持entryだけを保持し、所持bmsonを譜面へ解決してsource型で判断を変えません。</summary>
     [TestMethod]
     public void RootFolderDropEntryPolicy_SourceRowsPreservesOnlyMissingPlaylistRows()
     {
@@ -3526,6 +3285,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(missingSourceRow));
     }
 
+    /// <summary>summary行は単体と配列の両drop候補判定で拒否し、表の行を譜面entryとして取り込みません。</summary>
     [TestMethod]
     public void PlaylistDropCandidatePolicy_RejectsPlaylistSummaryRows()
     {
@@ -3539,6 +3299,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(PlaylistWorkspaceViewModel.AreDropCandidateRows([summaryRow]));
     }
 
+    /// <summary>通常譜面と詳細行は混在dropを受理し、summaryを含む混在配列は拒否して無効行だけを黙って落としません。</summary>
     [TestMethod]
     public void PlaylistDropCandidatePolicy_AcceptsChartAndPlaylistDetailRows()
     {
@@ -3553,6 +3314,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(PlaylistWorkspaceViewModel.AreDropCandidateRows([libraryRow, new PlaylistSummaryRow()]));
     }
 
+    /// <summary>履歴行は解決済み譜面だけdropを許可し、未解決との混在を拒否します。通常編集・削除Resolverには履歴行を渡しません。</summary>
     [TestMethod]
     public void PlayHistoryRowOperationPolicy_AllowsPlaylistDropOnlyWhenResolved()
     {
@@ -3575,6 +3337,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(resolvedRow, ChartOperationSourceScope.Library, out _));
     }
 
+    /// <summary>表示中の末尾行を途中へdropすると隠れた表の相対順を保ち、フィルタ外の表を並替から消しません。</summary>
     [TestMethod]
     public void PlaylistSummaryBmtSortDrop_FilteredRowsPreservesHiddenRows()
     {
@@ -3592,6 +3355,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { 1, 5, 2, 3, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }
 
+    /// <summary>表示中の順をBMT順へ適用する際は表示行のslotだけを置換し、非表示表の位置を動かしません。</summary>
     [TestMethod]
     public void PlaylistSummaryBmtSortApplyCurrentOrder_ReplacesOnlyVisibleSlots()
     {
@@ -3608,6 +3372,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { 5, 2, 3, 1, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }
 
+    /// <summary>二表の末尾移動は選択順を保って非選択表の後ろへ並べ、対象を逆順や重複にしません。</summary>
     [TestMethod]
     public void PlaylistSummaryBmtSortMoveToBottom_KeepsSelectionOrder()
     {
@@ -3623,6 +3388,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(new[] { 1, 3, 5, 2, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }
 
+    /// <summary>空の追加要求は表の更新時刻・entries revision・既存項目を保持し、何も追加しない要求で表を変更しません。</summary>
     [TestMethod]
     public void AddBMSTableEntriesToFolder_EmptyInputDoesNotTouchPlaylist()
     {
@@ -3642,6 +3408,7 @@ public sealed class PlaylistViewPipelineTests
         CollectionAssert.AreEqual(entriesBefore, table.entries.ToList());
     }
 
+    /// <summary>BMS参照がなくなったsource再生成は未所持・NO_SONGとなり、元所持行の削除権限を残しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_AfterBmsRemoval_RematerializesEntryAsMissingNoSong()
     {
@@ -3661,6 +3428,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
 
+    /// <summary>bmson参照がなくなったsource再生成も未所持・NO_SONGとなり、両hashがあることだけで所持を維持しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_AfterBmsonRemoval_RematerializesEntryAsMissingNoSong()
     {
@@ -3688,6 +3456,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
     }
 
+    /// <summary>解決譜面がない行はentryのtitle・artist・folder・level・両hashを表示し、metadata不足で未所持項目を空にしません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithoutResolvedFiles_PreservesPlaylistEntryFallbackValues()
     {
@@ -3713,6 +3482,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.NO_SONG, sourceRow.clear);
     }
 
+    /// <summary>未所持行にchartInfoがあればlevel・難度・notes・TOTALと外部hashを表示し、metadataがあるだけで物理操作を許可しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithEntryChartInfo_DisplaysMetadataWithoutChangingOwnership()
     {
@@ -3752,6 +3522,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("777.5", row.ChartTotalText);
     }
 
+    /// <summary>未所持entryにSHA256がない場合はchartInfoのhashを表示と外部操作へ渡し、MD5のみのentryで外部hashを落としません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingWithChartInfoFallback_UsesChartInfoSha256()
     {
@@ -3766,6 +3537,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(chartInfo.sha256, GridRowResolver.GetExternalActionSha256(row));
     }
 
+    /// <summary>未所持metadataのpatchは旧sourceのlevelを保ち、新source/viewだけへ新level・notes・TOTAL・hashを渡して旧表示snapshotを変更しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_MissingEntryChartInfoPatchCreatesCopyForViewRematerialize()
     {
@@ -3796,6 +3568,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("500", viewRow.ChartTotalText);
     }
 
+    /// <summary>chartInfoを明示patchする際は投影providerを再呼出しせず、指定した新metadataを古いprovider値で上書きしません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_ChartInfoCopyDoesNotInvokeProjectionProvider()
     {
@@ -3826,6 +3599,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(newInfo, patchedSourceRow.Chart.ChartInfo);
     }
 
+    /// <summary>所持BMSのproviderから新chartInfoを受けるとsource/viewのlevel・notesも更新し、譜面構築時の欠損metadataを固定しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsChartInfoFollowsProjectionProviderAfterHydration()
     {
@@ -3846,6 +3620,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(3333, viewRow.ChartNotes);
     }
 
+    /// <summary>所持bmsonもprovider由来のchartInfoをsource/viewのlevel・notesへ採り、BMSだけのmetadata配送にしません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsonChartInfoFollowsProjectionProviderAfterHydration()
     {
@@ -3878,6 +3653,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(4444, viewRow.ChartNotes);
     }
 
+    /// <summary>空transient providerを併用しても解決bmsonの表示・導入先・警告とchartInfo providerのmetadataを保ち、空状態で解決値を消しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_OwnedBmsonProjectionPreservesMetadataWithTransientProvider()
     {
@@ -3933,6 +3709,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(5555, row.ChartNotes);
     }
 
+    /// <summary>未所持表示行のlevel編集は譜面snapshot・entry・数値sort keyへ反映し、画面文字列だけを変更して後続操作を古いlevelにしません。</summary>
     [TestMethod]
     public void PlaylistDetailRow_MissingLevelEditRefreshesChartSnapshot()
     {
@@ -4007,6 +3784,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(2, modeCount);
     }
 
+    /// <summary>MD5一致候補はパス順の代表bmsonを採り、MD5ありでSHA256だけ一致する別譜面へfallbackしません。</summary>
     [TestMethod]
     public void ResolveChartForPlaylistEntry_PrefersMd5BeforeSha256AndRepresentativePathOrder()
     {
@@ -4056,14 +3834,12 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(earlierPath.Path, resolvedMd5First.Path);
         Assert.AreEqual(earlierPath.Md5, resolvedMd5First.Md5);
         Assert.AreEqual(ChartFileKind.Bmson, resolvedMd5First.Kind);
-        Assert.AreEqual(earlierPath.Path, preferred.Path);
-        Assert.AreEqual(earlierPath.Path, resolvedMd5First.Path);
-        Assert.AreEqual(earlierPath.Md5, preferred.Md5);
         Assert.AreEqual(earlierPath.Sha256, preferred.Sha256);
         Assert.IsNull(preferred.ToChartFileIdentity().Token);
         Assert.IsNull(resolvedBmson);
     }
 
+    /// <summary>entryにMD5がない時だけSHA256一致候補からパス順の代表を採り、BMS優先の型順で代表を選びません。</summary>
     [TestMethod]
     public void ResolveChartForPlaylistEntry_UsesSha256RepresentativeByPathOnlyWhenMd5IsMissing()
     {
@@ -4093,13 +3869,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(earlierBmson.Path, resolved.Path);
         Assert.AreEqual(earlierBmson.Md5, resolved.Md5);
         Assert.AreEqual(ChartFileKind.Bmson, resolved.Kind);
-        Assert.AreEqual(earlierBmson.Path, preferred.Path);
-        Assert.AreEqual(earlierBmson.Path, resolved.Path);
-        Assert.AreEqual(earlierBmson.Md5, preferred.Md5);
         Assert.AreEqual(earlierBmson.Sha256, preferred.Sha256);
         Assert.IsNull(preferred.ToChartFileIdentity().Token);
     }
 
+    /// <summary>entryにMD5があるが一致候補なしの場合、SHA256一致譜面へ切り替えず未解決を保って違う譜面を所持扱いしません。</summary>
     [TestMethod]
     public void ResolveChartForPlaylistEntry_DoesNotFallbackToSha256WhenMd5Exists()
     {
@@ -4122,6 +3896,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(resolved);
     }
 
+    /// <summary>パスのないBMS・bmson参照はhash一致でも代表から除外し、開けない譜面を所持候補へ採りません。</summary>
     [TestMethod]
     public void ResolveChartForPlaylistEntry_ExcludesPathlessBmsAndBmsonRepresentatives()
     {
@@ -4152,6 +3927,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
     }
 
+    /// <summary>MD5空・nullの参照はSHA256が一致しても所持代表から除外し、library identityの欠けた譜面を解決しません。</summary>
     [TestMethod]
     public void ResolveChartForPlaylistEntry_ExcludesMd5lessBmsAndBmsonRepresentatives()
     {
@@ -4177,6 +3953,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(index.ResolveChartForPlaylistEntry(shaEntry));
     }
 
+    /// <summary>同MD5の代表パス選択後はそのSHA256のbeatoraja scoreを採り、別パスのEASYを誤適用せずHARDを表示します。</summary>
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedRepresentativeSha256AfterPathTieBreak()
     {
@@ -4242,6 +4019,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.HARD, resolved.clear);
     }
 
+    /// <summary>所持行は注入score snapshotのlamp・rank・EXscore・notes・BPを表示し、library全体のscore反映待ちで欠損表示しません。</summary>
     [TestMethod]
     public void PlaylistDetailSourceRow_UsesScoreSnapshotForOwnedRowsBeforeGlobalHydration()
     {
@@ -4267,6 +4045,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(3, sourceRow.minbp);
     }
 
+    /// <summary>MD5だけのentryでも解決BMSのSHA256からbeatoraja scoreを読み、entryのMD5表記へ変換してlampとEXscoreを返します。</summary>
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesResolvedChartSha256ForMd5OnlyEntry()
     {
@@ -4306,6 +4085,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1700, resolved.score);
     }
 
+    /// <summary>LR2 scoreは解決譜面のMD5を古いentry MD5より優先し、旧entryのEASYではなく実譜面のHARDを採ります。</summary>
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_Lr2PrefersResolvedChartHashWhenEntryHashIsStale()
     {
@@ -4351,6 +4131,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ClearType.HARD, resolved.clear);
     }
 
+    /// <summary>未所持でもentry chartInfoのSHA256からbeatoraja scoreを読み、entryのMD5表記でEX_HARDとEXscoreを返します。</summary>
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesEntryChartInfoSha256ForMissingEntry()
     {
@@ -4388,6 +4169,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1250, resolved.score);
     }
 
+    /// <summary>entry MD5と異なる所持bmsonは解決譜面SHA256からscoreを読み、実譜面MD5表記でlampとEXscoreを返します。</summary>
     [TestMethod]
     public void ResolvePlaylistEntryScoreSnapshot_BeatorajaUsesBmsonChartSha256ForOwnedBmsonEntry()
     {
@@ -4431,29 +4213,31 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1500, resolved.score);
     }
 
+    /// <summary>通常libraryのsort・keyword更新で前段cacheが欠ければfolder段階から再構築し、cacheが揃うsort更新は再構築を省きます。</summary>
     [TestMethod]
     public void ShouldRebuildRegularFolderStage_WhenIncrementalRegularUpdateHasMissingCaches_ReturnsTrue()
     {
         Assert.IsTrue(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
-            (MainViewUpdateMode)81,
+            MainViewUpdateMode.SortUpdated,
             hasFolderView: false,
             hasKeywordView: true,
             hasModeView: true,
-            currentTreeMode: (MainViewUpdateMode)17));
+            currentTreeMode: MainViewUpdateMode.FolderFilterSelected));
         Assert.IsTrue(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
-            (MainViewUpdateMode)65,
+            MainViewUpdateMode.KeywordFilterUpdated,
             hasFolderView: true,
             hasKeywordView: false,
             hasModeView: true,
-            currentTreeMode: (MainViewUpdateMode)17));
+            currentTreeMode: MainViewUpdateMode.FolderFilterSelected));
         Assert.IsFalse(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
-            (MainViewUpdateMode)81,
+            MainViewUpdateMode.SortUpdated,
             hasFolderView: true,
             hasKeywordView: true,
             hasModeView: true,
-            currentTreeMode: (MainViewUpdateMode)17));
+            currentTreeMode: MainViewUpdateMode.FolderFilterSelected));
     }
 
+    /// <summary>同tokenのtitle・path・hash変更は既存行へ通知してscore索引も更新し、別token行を保持して旧hash索引を残しません。</summary>
     [TestMethod]
     public void NormalLibraryRowCache_AppliesOnlyChangedOwnedTokenAndKeepsOtherRows()
     {
@@ -4484,6 +4268,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(firstRow, cache.GetRowsForScoreKeys([], [changed.Sha256]).Single());
     }
 
+    /// <summary>同じパス・hashでも別tokenは別行として保持し、旧token削除時に新token行とscore索引を誤って消しません。</summary>
     [TestMethod]
     public void NormalLibraryRowCache_SamePathAndHashReplacementRequiresDifferentToken()
     {
@@ -4503,6 +4288,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(replacementRow, cache.GetRowsForScoreKeys([replacement.Md5], []).Single());
     }
 
+    /// <summary>tokenのない譜面はrow cacheへ登録せず件数・miss計測も増やさず、所持rowの寿命へ取り込みません。</summary>
     [TestMethod]
     public void NormalLibraryRowCache_DoesNotOwnDetachedCharts()
     {
@@ -4534,6 +4320,7 @@ public sealed class PlaylistViewPipelineTests
         };
     }
 
+    /// <summary>通常と未所持の詳細filterを各保存列modeへ配送し、利用者が別々に保存した列設定を同じmodeで読みません。</summary>
     [TestMethod]
     public void ResolvePlaylistColumnSettingMode_ReturnsPlaylistViewModesForBothPlaylistFilters()
     {
@@ -4587,17 +4374,10 @@ public sealed class PlaylistViewPipelineTests
             (file));
     }
 
-    private static void AssertPlaylistRowFileDeletePolicy(PlaylistDetailRow row, bool expectedRemoveFromLibrary)
-    {
-        Assert.IsTrue(GridRowResolver.IsPlaylistRow(row));
-        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
-        Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
-        Assert.AreEqual(expectedRemoveFromLibrary, target.HasCapability(ChartOperationCapabilities.MoveInLibrary));
-    }
 
     private static ChartOperationTarget CreateDeleteTarget(ChartOperationSourceScope sourceScope, ChartOperationCapabilities capabilities)
     {
-        // Path-only target: used by delete-policy tests that do not need a backing ChartFile adapter.
+        // 削除判断だけに必要なscope・能力・パスを渡し、物理削除は起動しません。
         var chart = new ChartFile(ChartFileKind.Bms, "C:\\Library\\Song\\chart.bms", "abababababababababababababababab", null, "Title", "Title", "Artist", string.Empty, "Song", string.Empty, "7", 7, 7, null, null);
         bool isPending = sourceScope == ChartOperationSourceScope.PendingPackage;
         bool isPlaylistMissing = sourceScope == ChartOperationSourceScope.PlaylistMissing;

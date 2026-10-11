@@ -9,6 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UbmplaySettingsTests
 {
+    /// <summary>
+    /// 保証：外部プレイヤー起動用の設定をShift_JISと無関係な文字列を保って変更し、復元時には元のバイト列へ戻す。
+    /// </summary>
     [TestMethod]
     public void TemporarilyRewriteSettings_PreservesPlayerContractAndRestoresOriginalBytes()
     {
@@ -56,6 +59,9 @@ public sealed class UbmplaySettingsTests
         }
     }
 
+    /// <summary>
+    /// 保証：不足する設定節を補って指定音量を渡し、元に復元する対象がなかった設定は復元操作で消さない。
+    /// </summary>
     [TestMethod]
     public void TemporarilyRewriteSettings_CreatesMissingSectionsWithoutThrowing()
     {
@@ -87,6 +93,9 @@ public sealed class UbmplaySettingsTests
         }
     }
 
+    /// <summary>
+    /// 保証：外部プレイヤーへ渡す指定音量は範囲内なら保持し、負数と100超過だけを下限・上限へ制限する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(-1, "Volume=0")]
     [DataRow(37, "Volume=37")]

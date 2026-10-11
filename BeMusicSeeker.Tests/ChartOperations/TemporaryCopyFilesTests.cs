@@ -10,6 +10,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class TemporaryCopyFilesTests
 {
     /// <summary>相対配置と同名別ディレクトリを実FSで確認し、既存素材・借用ディレクトリ・追加された非所有ファイルを保全します。所有した空ディレクトリだけを子から回収します。</summary>
+    /// <remarks>実FSのコピー・file lock・借用先の残存を観測し、素材の所有権に応じた回収を確認します。</remarks>
     [TestMethod]
     public void Dispose_PreservesRelativeStructureExistingMaterialsAndUnownedFiles()
     {
@@ -49,6 +50,7 @@ public sealed class TemporaryCopyFilesTests
     }
 
     /// <summary>並列コピー中の実読取り失敗が開始済みコピーを合流してから所有ファイル・ディレクトリを回収し、借用素材と元入力を残すことを確認します。</summary>
+    /// <remarks>実FSのコピー・file lock・借用先の残存を観測し、素材の所有権に応じた回収を確認します。</remarks>
     [TestMethod]
     public void ConstructorFailure_JoinsCopiesAndRemovesOnlyOwnedDestinations()
     {
@@ -74,6 +76,7 @@ public sealed class TemporaryCopyFilesTests
     }
 
     /// <summary>実FSへの256件の並列コピーが全件追跡され、回収後も入力元を保持することを確認します。</summary>
+    /// <remarks>実FSのコピー・file lock・借用先の残存を観測し、素材の所有権に応じた回収を確認します。</remarks>
     [TestMethod]
     public void Dispose_RemovesEveryFileTrackedDuringParallelCopy()
     {

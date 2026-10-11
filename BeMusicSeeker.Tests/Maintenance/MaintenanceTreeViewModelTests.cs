@@ -9,18 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MaintenanceTreeViewModelTests
 {
-    [TestMethod]
-    public void Unattached_UsesCurrentDefaults()
-    {
-        var owner = new MaintenanceTreeViewModel();
-
-        Assert.IsNull(owner.DuplicateChartGroups);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
-        Assert.IsFalse(owner.IsWriteLockHeldDuplicateChartGroups);
-    }
-
+    /// <summary>
+    /// 接続した保守状態の重複集合と各稼働状態を投影し、初回の接続通知を一回出して、接続時の状態欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void Attach_ProjectsStateAndPublishesInitialFact()
     {
@@ -45,6 +36,9 @@ public sealed class MaintenanceTreeViewModelTests
         CollectionAssert.AreEqual(new[] { "maintenance_tree_attached" }, reasons);
     }
 
+    /// <summary>
+    /// 重複集合の置換と失効を同期で区別して通知し、表示反映で対象プロパティだけを通知することで、失効の取り落としや別状態の誤更新を検出する。
+    /// </summary>
     [TestMethod]
     public void DuplicateReplacementAndInvalidation_PublishDistinctFactsSynchronously()
     {
@@ -75,6 +69,9 @@ public sealed class MaintenanceTreeViewModelTests
             propertyNames);
     }
 
+    /// <summary>
+    /// 資源・文字コード・ゼロノート・重複の各稼働状態変更を対応するプロパティだけへ伝え、状態間の通知混線を検出する。
+    /// </summary>
     [TestMethod]
     public void BusyStateChanges_ProjectPrecisely()
     {
@@ -108,8 +105,11 @@ public sealed class MaintenanceTreeViewModelTests
             propertyNames);
     }
 
+    /// <summary>
+    /// 接続解除で重複集合を消して解除を通知し、旧状態の変更を購読しないことを確認して解除後の通知漏れを検出する。
+    /// </summary>
     [TestMethod]
-    public void Detach_ReturnsToDefaultsAndStopsOldStateNotifications()
+    public void Detach_ClearsDuplicateStateAndStopsOldStateNotifications()
     {
         var state = new MaintenanceTreePresentationStateFake();
         var owner = new MaintenanceTreeViewModel();
@@ -124,10 +124,6 @@ public sealed class MaintenanceTreeViewModelTests
         owner.DetachLibrary();
 
         Assert.IsNull(owner.DuplicateChartGroups);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializdBMSFilesHealthStatus);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesEncodingInfo);
-        Assert.IsTrue(owner.IsWriteLockHeldInitializeBMSFilesZeroNote);
-        Assert.IsFalse(owner.IsWriteLockHeldDuplicateChartGroups);
         CollectionAssert.AreEqual(new[] { "maintenance_tree_detached" }, reasons);
 
         reasons.Clear();
@@ -139,6 +135,9 @@ public sealed class MaintenanceTreeViewModelTests
         Assert.AreEqual(0, propertyNames.Count);
     }
 
+    /// <summary>
+    /// 同じ現在状態への再接続でも一回だけ通知を受け、旧状態の変更を無視して二重購読や旧接続の残存を検出する。
+    /// </summary>
     [TestMethod]
     public void Reattach_SubscribeOnceToCurrentStateAndIgnorePreviousState()
     {

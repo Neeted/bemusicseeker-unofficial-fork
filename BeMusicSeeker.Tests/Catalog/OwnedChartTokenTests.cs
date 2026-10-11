@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class OwnedChartTokenTests
 {
+    /// <summary>
+    /// 保証：現行値の更新で所持トークンと捕捉済み値を維持しつつ、現行ハッシュ・索引の参照先を更新して旧値の混在を防ぐ。
+    /// </summary>
     [TestMethod]
     public void CurrentValueApplicationKeepsTokenAndCapturedValueWhileReplacingDigestIndex()
     {
@@ -44,6 +47,9 @@ public sealed class OwnedChartTokenTests
         Assert.AreEqual(current.Md5, state.CreateOwnedHashIndexSnapshot().Md5Hashes.Single());
     }
 
+    /// <summary>
+    /// 保証：内部移動は同じトークンで新パスへ解決し、同パス・同ハッシュの再登録や再読込は旧トークンを退役させて別項目へ読み替えない。
+    /// </summary>
     [TestMethod]
     public void InternalRelocationKeepsTokenButSamePathAndHashReplacementRetiresReference()
     {
@@ -78,7 +84,9 @@ public sealed class OwnedChartTokenTests
         Assert.AreNotSame(replacement.Token, reload.ResolveCurrentChart(LibraryChartRef.FromPath(replacement.Kind, replacement.Path, replacement.Md5, replacement.Sha256)).Token);
     }
 
-    /// <summary>二つのcanonical rootが退役tokenを別項目へ読替えず、tokenなしDB完全一致と物理比較を分けます。</summary>
+    /// <summary>
+    /// 保証：BMS・bmsonの直接解決と索引解決で退役トークンを拒否し、トークンなし完全一致だけを受理して物理パス比較と区別する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]

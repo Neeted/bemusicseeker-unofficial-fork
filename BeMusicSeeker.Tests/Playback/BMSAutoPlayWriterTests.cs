@@ -75,6 +75,8 @@ public sealed class BMSAutoPlayWriterTests
         failure?.Throw();
     }
 
+    /// <summary>bmson継続ノートの挿入は昇降rateでも物理PCMとEOFを変えず、最初の継続指定と後続継続で二重発音しない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow(48000, 48000, 100, 100, 120)]
     [DataRow(48000, 44100, 100, 92, 120)]
@@ -107,6 +109,8 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
+    /// <summary>同一channel同時sliceは一回だけ発音し、別channelの同path音声は重ねて加算する。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BmsonWriterSharedSliceIsOnceButSeparateChannelsOverlap()
     {
@@ -119,6 +123,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0.04f, ReadFloatSample(wave, 10, 0), 1e-6f);
     }
 
+    /// <summary>継続を挟む再開始のPCMと終端を独立再開始入力と一致させ、別channelでは音量を重ねる。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BmsonWriterContinuationRunsPreserveRestartAndSamePathChannelOverlap()
     {
@@ -149,6 +155,8 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
+    /// <summary>後続の再開始が先行継続runのEOF尾部を切らず、重なり区間と最後のframeを出力に残す。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BmsonWriterRestartDoesNotCutAnEarlierContinuationEofTail()
     {
@@ -163,6 +171,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreNotEqual(0f, ReadFloatSample(wave, 191999, 0));
     }
 
+    /// <summary>LNの論理終端で音声を切らず、明示upと孤立upを各pulseで発音し、未対象key／mine音源を混入しない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BmsonWriterLongNoteDoesNotCutAudioAndExplicitOrphanUpSoundsAtItsOwnPulse()
     {
@@ -182,6 +192,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0.02f, ReadFloatSample(wave, 40000, 0), 1e-6f);
     }
 
+    /// <summary>BMS／bmsonの破損先頭候補から正常候補へ代替した実保存は直接正常入力とPCM・長さが一致し、省略に誤計上しない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -217,6 +229,8 @@ public sealed class BMSAutoPlayWriterTests
         return AudioTestWaveFileReader.Read(File.ReadAllBytes(directory.File(name + "-output.wav")));
     }
 
+    /// <summary>欠落・ゼロ・空窓の後続音を音声終端へ含めず、正常な再開始と別channelだけを延長し、全空入力はencoder作成前に拒否する。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow("missing", 480)]
     [DataRow("zero", 480)]
@@ -315,6 +329,8 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
+    /// <summary>初期音を一回描画してpeak正規化し、可聴deviceの音量・muteをオフライン出力に適用も変更もしない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void Write_RendersInitialNoteOnceAndIgnoresDeviceVolumeAndMute()
     {
@@ -362,12 +378,14 @@ public sealed class BMSAutoPlayWriterTests
         Assert.IsTrue(peak <= 0.991f, "Peak normalization must use the rendered PCM without clipping.");
     }
 
+    /// <summary>BGM・可視・LN開始の各音声groupを品質2～6で描画し、有限sourceの切上げ出力長と最終frameを残す。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
-    [DataRow("01", 2)]
-    [DataRow("11", 3)]
-    [DataRow("21", 4)]
-    [DataRow("51", 5)]
-    [DataRow("61", 6)]
+    [DataRow("01", 2)] // BGM。
+    [DataRow("11", 3)] // 1P可視音符。
+    [DataRow("21", 4)] // 2P可視音符。
+    [DataRow("51", 5)] // 1P LN開始。
+    [DataRow("61", 6)] // 2P LN開始。
     public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality)
     {
         const int sourceRate = 44100;
@@ -393,6 +411,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
     }
 
+    /// <summary>各発音の絶対時刻を独立丸めし、downsample後の先頭・再発音・最終frameを欠落させない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void Write_RoundsEachAbsoluteStartAndKeepsTheLastDownsampledFrame()
     {
@@ -426,6 +446,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedEndFrame - 1, 0));
     }
 
+    /// <summary>後から短いvoiceが鳴っても先行長voiceの切上げ終端を保存長へ残す。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void Write_KeepsTheLongerEarlierVoiceThroughItsCeilingEnd()
     {
@@ -446,6 +468,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
     }
 
+    /// <summary>同じsourceの再発音では再開始位置から終端を延ばし、旧発音だけの長さで切らない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void Write_RetriggerExtendsEndFromTheRestartedSource()
     {
@@ -464,6 +488,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedEndFrame - 1, 0));
     }
 
+    /// <summary>後続の欠落BGMやLN終端まで無音を保持し、正常初期PCMを残して保存長を早めない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow("missing-bgm")]
     [DataRow("long-end-1p")]
@@ -502,6 +528,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
     }
 
+    /// <summary>実描画全体からpeak／RMS gainを求め、Noneの固定gainと利用者のamplifierを指定どおり保存PCMへ適用する。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void OfflineNormalizationUsesWholeRenderRmsAndFixedNoneGain()
     {
@@ -535,6 +563,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0.04d, MeasureWave(amplifiedNoneOutput).Peak, 0.002d);
     }
 
+    /// <summary>無音入力のpeak／RMS正規化をゼロのまま保存し、ゼロ除算による非有限PCMを作らない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [DataTestMethod]
     [DataRow(BMSAutoPlayWriter.Normalization.PEAK_LEVEL)]
     [DataRow(BMSAutoPlayWriter.Normalization.RMS_VALUE)]
@@ -549,6 +579,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(0d, rms);
     }
 
+    /// <summary>空描画はencoder作成前に失敗し、既存出力・encoder command・状態を変更せず衝突先も作らない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void EmptyRenderFailsBeforeEncoderCreationWithoutChangingExistingOutput()
     {
@@ -577,6 +609,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.AreEqual(existingState, BassAudioWriter.RecordState);
     }
 
+    /// <summary>負値・非有限amplifierをencoder作成前に拒否し、既存commandと保存先を変更しない。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void InvalidAmplifiersFailBeforeEncoderCreation()
     {
@@ -605,6 +639,8 @@ public sealed class BMSAutoPlayWriterTests
         Assert.IsFalse(File.Exists(directory.File("non-finite-amplifier.wav")));
     }
 
+    /// <summary>整数出力で過大peakの描画を開始前に拒否し、修正に必要な減衰量と整数化／ditherの条件を保持する。</summary>
+    /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void IntegerOutputRejectsAnOverRangeNormalizedRenderBeforeEncoderStart()
     {

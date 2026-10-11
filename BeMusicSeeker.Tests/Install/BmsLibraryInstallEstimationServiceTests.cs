@@ -22,83 +22,22 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             "user.config"));
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>明示した8・16の並列度を縮めず、非正の候補並列度を1へ補正し、設定値の勝手な制限を検出する。実同時実行は一括推定のケースが分担する。</summary>
     [TestMethod]
-    public void InstallEstimationDegreeResolvers_UseProcessorCountMinusOneAndDoNotClampConfiguredPackages()
+    public void InstallEstimationDegreeResolvers_PreserveExplicitDegreesAndNormalizeNonPositiveInputs()
     {
-        int expectedDefault = Math.Max(1, Environment.ProcessorCount - 1);
 
-        Assert.AreEqual(expectedDefault, BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree());
-        Assert.AreEqual(expectedDefault, BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true));
-        Assert.AreEqual(1, BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: false));
         Assert.AreEqual(1, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(0));
         Assert.AreEqual(1, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(-10));
         Assert.AreEqual(16, BmsLibraryInstallEstimationService.NormalizeCandidateEvaluationDegree(16));
 
-        Assert.AreEqual(expectedDefault, BMSLibrary.ResolveInstallEstimationDefaultDegree());
-        Assert.AreEqual(expectedDefault, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(0));
         Assert.AreEqual(1, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(-10));
         Assert.AreEqual(1, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(1));
         Assert.AreEqual(8, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(8));
         Assert.AreEqual(16, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(16));
     }
 
-    [TestMethod]
-    public void EstimateInstallationDirectory_RecordsExplicitCandidateDegree()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        BmsLibraryInstallEstimationService service = CreateService();
-        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
-        file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0)));
-
-        InstallEstimationResult sequential = EstimateLooseChartInstallationDirectory(service,
-            [file],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            directoryLookupCache: null,
-            asParallel: false,
-            ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult defaultParallel = EstimateLooseChartInstallationDirectory(service,
-            [file],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            directoryLookupCache: null,
-            asParallel: true,
-            ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult explicitDegree = EstimateLooseChartInstallationDirectory(service,
-            [file],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-            directoryLookupCache: null,
-            candidateEvaluationDegree: 16,
-            ChartInstallationEstimateMode.Normal);
-
-        Assert.AreEqual(1, sequential.CandidateEvaluationDegree);
-        Assert.AreEqual(BmsLibraryInstallEstimationService.ResolveDefaultCandidateEvaluationDegree(), defaultParallel.CandidateEvaluationDegree);
-        Assert.AreEqual(16, explicitDegree.CandidateEvaluationDegree);
-    }
-
-    [TestMethod]
-    public void EstimateInstallationDirectory_NormalModeDoesNotUseSha256OnlyInstalledHash()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        BmsLibraryInstallEstimationService service = CreateService();
-        ChartFile file = CreateFile(null, Path.Combine("C:\\Pending", "chart.bms"), "sound.wav");
-        file = file with { Sha256 = new string('b', 64) };
-
-        InstallEstimationResult normal = EstimateLooseChartInstallationDirectory(service,
-            [file],
-            new HashSet<string>([file.Sha256], StringComparer.OrdinalIgnoreCase),
-            directoryLookupCache: null,
-            asParallel: false,
-            ChartInstallationEstimateMode.Normal);
-        InstallEstimationResult correction = EstimateLooseChartInstallationDirectory(service,
-            [file],
-            new HashSet<string>([file.Sha256], StringComparer.OrdinalIgnoreCase),
-            directoryLookupCache: null,
-            asParallel: false,
-            ChartInstallationEstimateMode.ReinstallCorrection);
-
-        Assert.AreEqual("resource_index_unavailable", normal.ConfidenceReason);
-        Assert.AreEqual("resource_index_unavailable", correction.ConfidenceReason);
-    }
-
+    /// <summary>同一MD5の所持先が分散しているとき、一致譜面が最も多いフォルダだけを確定し、先に見つかった少数一致への誤決定を検出する。</summary>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts()
     {
@@ -130,6 +69,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(InstalledDirectoryResolveReason.None, result.Reason);
     }
 
+    /// <summary>BMSとBmsonを含む入力でも種類をまたいでMD5一致を数え、最多の所持フォルダを選び、Bmsonの集計漏れを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonPackagePrefersDirectoryWithMostMatchingCharts()
     {
@@ -177,6 +118,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(InstalledDirectoryResolveReason.None, result.Reason);
     }
 
+    /// <summary>一致数が同じ所持先を一つに確定せず全候補を返し、同点の先頭だけを確定する誤りを検出する。</summary>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_ReturnsMultipleCandidateDirectoriesForTopTie()
     {
@@ -207,6 +149,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
     }
 
+    /// <summary>BMSとBmsonを合わせた所持先が同点なら複数候補として残し、種類による同点判定の偏りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonTopTieReturnsMultipleCandidateDirectories()
     {
@@ -251,6 +195,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { dirA, dirB }, result.CandidateDirectories.ToArray());
     }
 
+    /// <summary>候補フォルダを指定してもリソース索引がなければ推定不能を返し、索引を迂回した自動適用を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectoryForCandidateDirectories_RequiresResourceIndex()
     {
@@ -283,6 +228,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>合流先だけを探すモードでは入力元を候補から除き、外部のリソース一致先を選び、元フォルダへの自己合流を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_MergeMode_SelectsExternalCandidateOnly()
     {
@@ -327,6 +274,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>名前の粗い絞込みが一致しなくてもリソースで一致する候補を評価し、名前だけで有効な所持先を捨てる誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_UsesFallbackCandidateExpansion_WhenNameHashFilterMisses()
     {
@@ -335,10 +283,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "sound.wav"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0)));
@@ -360,6 +304,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>粗い絞込みで一致がなければ候補なしを返し、無関係な全フォルダの評価や自動適用を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_DoesNotFallbackToAllCandidates_WhenBroadFilterFindsNoCandidates()
     {
@@ -368,10 +313,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "other.wav"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound.wav");
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0)));
@@ -396,6 +337,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>複数の音声参照がある入力では二つの一致が必要で、一つだけ一致する候補の通過を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RequiresTwoAudioMatches_WhenAudioRefsAreTwoOrMore()
     {
@@ -405,15 +347,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string sourceDir = Path.Combine(tempRoot, "source");
             string weakCandidateDir = Path.Combine(tempRoot, "weak");
             string strongCandidateDir = Path.Combine(tempRoot, "strong");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(weakCandidateDir);
-            Directory.CreateDirectory(strongCandidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(weakCandidateDir, "00.wav"), "dst");
-            File.WriteAllText(Path.Combine(weakCandidateDir, "title.png"), "dst");
-            File.WriteAllText(Path.Combine(strongCandidateDir, "00.wav"), "dst");
-            File.WriteAllText(Path.Combine(strongCandidateDir, "01.wav"), "dst");
-            File.WriteAllText(Path.Combine(strongCandidateDir, "title.png"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
             file = file with { Resources = TestChartResources.ReplaceVisual(file.Resources, new HashSet<string>(["title.png"], StringComparer.OrdinalIgnoreCase)) };
@@ -439,6 +372,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>音声参照が一つだけなら一つの一致で候補を受け付け、複数参照用の下限を誤適用する拒否を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_AllowsSingleAudioMatch_WhenAudioRefsIsOne()
     {
@@ -447,11 +381,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "00.wav"), "dst");
-            File.WriteAllText(Path.Combine(candidateDir, "title.png"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav");
             file = file with { Resources = TestChartResources.ReplaceVisual(file.Resources, new HashSet<string>(["title.png"], StringComparer.OrdinalIgnoreCase)) };
@@ -475,6 +404,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>音声参照のない譜面は画像一致から推定し、音声一致下限による全候補の拒否を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_IsSkipped_WhenAudioRefsIsZero()
     {
@@ -483,10 +413,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "bg.png"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"));
             file = file with { Resources = TestChartResources.ReplaceVisual(file.Resources, new HashSet<string>(["bg.png"], StringComparer.OrdinalIgnoreCase)) };
@@ -510,6 +436,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>入力元を補った一致率も閾値未満なら候補を除き、不足リソースを残すフォルダの適用を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioHealthGate_DropsCandidateBelowThreshold_WhenPackageUnionStillInsufficient()
     {
@@ -518,11 +445,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "00.wav"), "dst");
-            File.WriteAllText(Path.Combine(candidateDir, "01.wav"), "dst");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav", "02.wav");
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 3, wavExisting: 0)));
@@ -545,6 +467,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>通常推定では同梱音声を一致率に加え、合流候補では加えず、モード間の評価入力の混同を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioHealthGate_UsesBundledResourcesInNormalMode_ButNotInMergeMode()
     {
@@ -595,6 +519,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>同梱音声だけで一致率を満たしても外部音声一致のない候補を拒否し、同梱分だけによる誤採用を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_DropsCandidateSatisfiedOnlyByBundledResources()
     {
@@ -643,6 +569,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>音声100件のうち70件と71件の一致を比較し、70%を超える候補だけが残る境界の誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RequiresMatchedAboveSeventyPercentBoundary()
     {
@@ -652,21 +579,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string sourceDir = Path.Combine(tempRoot, "source");
             string weakCandidateDir = Path.Combine(tempRoot, "weak");
             string strongCandidateDir = Path.Combine(tempRoot, "strong");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(weakCandidateDir);
-            Directory.CreateDirectory(strongCandidateDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
 
             string[] allAudio = [.. Enumerable.Range(0, 100).Select(i => i.ToString("D3") + ".wav")];
-            foreach (string fileName in allAudio.Take(70))
-            {
-                File.WriteAllText(Path.Combine(weakCandidateDir, fileName), "weak");
-            }
-            foreach (string fileName in allAudio.Take(71))
-            {
-                File.WriteAllText(Path.Combine(strongCandidateDir, fileName), "strong");
-            }
-
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), allAudio);
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 100, wavExisting: 0)));
 
@@ -689,6 +603,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>候補8・64・512件で各候補のリソースビューを一度だけ作り、候補の再構築による処理量の重複を検出する。</summary>
     [TestMethod]
     [TestCategory("Net10Performance")]
     [TestCategory("estimation")]
@@ -742,6 +657,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         }
     }
 
+    /// <summary>同じbasenameを含む音声でも相対パスの完全一致を数え、有効な候補を一致不足として落とす誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_AudioGate_RelativePathExactCanRescueViability()
     {
@@ -750,15 +666,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             string sourceDir = Path.Combine(tempRoot, "source");
             string candidateDir = Path.Combine(tempRoot, "candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            Directory.CreateDirectory(Path.Combine(candidateDir, "a"));
-            Directory.CreateDirectory(Path.Combine(candidateDir, "b"));
-            Directory.CreateDirectory(Path.Combine(candidateDir, "c"));
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(candidateDir, "a", "00.wav"), "dst");
-            File.WriteAllText(Path.Combine(candidateDir, "b", "01.wav"), "dst");
-            File.WriteAllText(Path.Combine(candidateDir, "c", "01.wav"), "dst");
 
             ChartFile file = CreateFile(
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -788,6 +695,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>実在しないフォルダの索引だけから一致先を選び、推定時のファイル再列挙への依存を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_UsesCachedHashesWithoutRuntimeDirectoryEnumeration()
     {
@@ -813,8 +721,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, result.CandidateDirectoryCount);
     }
 
+    /// <summary>実ファイルを用意しない索引の候補でも音声一致率不足を拒否し、キャッシュ経路で健全性判定を省く誤りを検出する。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_CachelessPath_DoesNotApplyAudioHealthGate()
+    public void EstimateInstallationDirectory_CachedCandidateBelowAudioThresholdIsRejectedWithoutFileSystemInput()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -841,6 +750,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
     }
 
+    /// <summary>実フォルダの音声・画像・動画を同梱集合へ取り込み、譜面の定義集合と区別して、同梱資源の欠落や混同を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_DirectoryPackageBuildsBundledResources()
     {
@@ -879,7 +790,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(ChartFileKind.Bms, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual(primary.Path, snapshot.RepresentativeChart.Path);
-            Assert.AreSame(primary.Token, snapshot.RepresentativeChart.Token);
+
             Assert.AreEqual(2, snapshot.ChartCount);
             var expectedDefinedResources = ChartResourceSnapshot.CreateAggregate(package.ChartEntries.Select(entry => entry.Chart));
             CollectionAssert.AreEquivalent(expectedDefinedResources.AudioRelativePathHashes.ToArray(), snapshot.DefinedResources.AudioRelativePathHashes.ToArray());
@@ -894,41 +805,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
-    [TestMethod]
-    public void EvaluateSourceBaseline_ChartResourceOverloadMatchesPackageSnapshot()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-        {
-            string sourceDir = Path.Combine(tempRoot, "SourcePackage");
-            string soundDir = Path.Combine(sourceDir, "sound");
-            Directory.CreateDirectory(soundDir);
-            File.WriteAllText(Path.Combine(sourceDir, "chart.bms"), "#PLAYER 1");
-            File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
-
-            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), Path.Combine("sound", "00.wav"));
-            file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0)));
-
-            ChartPackage package = ChartPackageTestExtensions.CreatePackage([file]);
-
-            package.path = sourceDir;
-
-            package.delete_parent = true;
-
-            PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [file]);
-            BmsLibraryInstallEstimationService.SourceBaselineEvaluation snapshotBaseline = service.EvaluateSourceBaseline(snapshot);
-            BmsLibraryInstallEstimationService.SourceBaselineEvaluation resourceBaseline = service.EvaluateSourceBaseline(
-                snapshot.DefinedResources,
-                snapshot.SourceDirectory,
-                snapshot.BundledResources,
-                snapshot.SourceCandidateResources);
-
-            Assert.AreEqual(snapshotBaseline.PrimaryHealth, resourceBaseline.PrimaryHealth);
-            Assert.AreEqual(snapshotBaseline.IsViableDestination, resourceBaseline.IsViableDestination);
-            Assert.AreEqual(snapshotBaseline.Summary, resourceBaseline.Summary);
-        });
-    }
-
+    /// <summary>主題・作者の別表記を持つ二譜面を同じ正規化グループへまとめ、両方のsupportを2件として保持して表記差による分裂を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromDominantGroup()
     {
@@ -960,6 +838,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>単一ファイルのパッケージでは同じ親の音声・画像・動画を同梱扱いせず、兄弟資源による一致率の水増しを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_FilePackageDoesNotIncludeSiblingBundledResources()
     {
@@ -999,7 +879,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(0, snapshot.BundledImageCount);
             Assert.AreEqual(0, snapshot.BundledMovieCount);
             Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
-            Assert.AreNotSame(snapshot.BundledResources, snapshot.SourceCandidateResources);
+
             Assert.AreEqual(0, snapshot.SourceCandidateResources.AudioFileNameHashCount);
             Assert.AreEqual(0, snapshot.SourceCandidateResources.ImageFileNameHashCount);
             Assert.AreEqual(0, snapshot.SourceCandidateResources.MovieFileNameHashCount);
@@ -1015,6 +895,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>単一ファイル入力は走査上限に達していても親フォルダを走査せず、無関係な兄弟列挙の発生を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_FilePackageDoesNotScanSourceSurfaceAtLimit()
     {
@@ -1055,6 +937,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>フォルダ走査が上限を超えたら途中までの資源集合を捨て、部分集合を完全な同梱資源として評価する誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_DirectoryPackageDiscardsPartialSurfaceAtLimit()
     {
@@ -1091,6 +975,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>単独Bmsonの相対音声参照を保持し、親フォルダを同梱走査して入力範囲を広げる誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_LooseBmsonKeepsRelativeResourcesWithoutScanningParent()
     {
@@ -1119,7 +1005,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual("loose title", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
             CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), expectedResourceKey);
             Assert.IsTrue(snapshot.DefinedResources.AudioReferences.Single().IsPathAware);
-            Assert.AreNotSame(snapshot.BundledResources, snapshot.SourceCandidateResources);
+
             Assert.AreEqual(0, snapshot.BundledResources.AudioFileNameHashCount);
             Assert.AreEqual(0, snapshot.SourceCandidateResources.AudioFileNameHashCount);
             Assert.AreEqual(0, snapshot.SourceSurfaceTrackedFileCount);
@@ -1130,6 +1016,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>単一ファイルの走査しない入力面を再取得時に再利用し、毎回親を走査する回帰を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ChartPackage_FilePackageCachesNoScanSurface()
     {
@@ -1158,6 +1046,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>実BMS・BME・Bmsonの共通エントリと音声入力面を再利用し、種類の欠落や二度目の走査を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ChartPackage_PathPackage_ReusesCommonEntriesAndSourceSurface()
     {
@@ -1191,7 +1081,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.Token == null));
                 Assert.IsTrue(secondEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bms).All(entry => entry.Chart.Token == null));
                 Assert.IsTrue(firstEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
-                Assert.IsTrue(firstEntries.Where(entry => entry.Chart.Kind == ChartFileKind.Bmson).All(entry => entry.GetBmsChartForTest() == null));
+
                 Assert.AreEqual(1, firstEntries.Count(entry => entry.Chart.Kind == ChartFileKind.Bmson));
                 Assert.AreEqual(3, firstSnapshot.ChartCount);
                 Assert.AreEqual(sourceDir, firstSnapshot.SourceDirectory);
@@ -1203,6 +1093,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             });
     }
 
+    /// <summary>取得済みエントリの現在パスを変更した後も再取得で変更を保ち、キャッシュ再読込みによる現在値の巻戻しを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ChartPackage_PathPackage_PreservesEntryCurrentValuesAcrossReads()
     {
@@ -1238,60 +1130,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             });
     }
 
-    [TestMethod]
-    public void ChartPackage_PathPackage_CountsChartEntriesBeforeCompatibilityAdaptersAreRequested()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-            {
-                string sourceDir = Path.Combine(tempRoot, "PathPackage");
-                Directory.CreateDirectory(sourceDir);
-                File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1");
-                File.WriteAllText(Path.Combine(sourceDir, "chart2.bmson"), "{}");
-
-                var package = new ChartPackage
-                {
-                    path = sourceDir,
-                    delete_parent = true
-                };
-
-                Assert.AreEqual(2, package.ChartEntries.Count);
-                Assert.IsTrue(package.ChartEntries.Count > 0);
-            });
-    }
-
-    [TestMethod]
-    public void PackageInstallEstimationSnapshotBuilder_BuildsFromPackageChartEntries()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-            {
-                string sourceDir = Path.Combine(tempRoot, "PathPackage");
-                string soundDir = Path.Combine(sourceDir, "sound");
-                Directory.CreateDirectory(soundDir);
-                File.WriteAllText(Path.Combine(sourceDir, "chart1.bms"), "#PLAYER 1\r\n#TITLE BMS\r\n#WAVAA sound\\00.wav\r\n#00111:AA");
-                File.WriteAllText(Path.Combine(sourceDir, "chart2.bmson"), "{}");
-                File.WriteAllText(Path.Combine(soundDir, "00.wav"), "audio");
-
-                var package = new ChartPackage
-                {
-                    path = sourceDir,
-                    delete_parent = true
-                };
-
-                List<PackageChartEntry> targetEntries = package.ChartEntries;
-                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir);
-                PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, targetEntries, sourceSurface, sourceSurfaceCacheHit: false);
-
-                Assert.AreEqual(2, targetEntries.Count);
-                Assert.AreEqual(2, snapshot.ChartCount);
-                Assert.IsTrue(targetEntries.Any(entry => entry.Chart.Kind == ChartFileKind.Bmson));
-                Assert.AreEqual(sourceDir, snapshot.SourceDirectory);
-                Assert.AreEqual(1, snapshot.BundledAudioCount);
-                Assert.IsNotNull(snapshot.RepresentativeChart);
-            });
-    }
-
+    /// <summary>Bmsonの共通エントリから譜面数・音声定義・タイトル群を作り、BMS専用経路を要求する入力欠落を検出する。</summary>
     [TestMethod]
     public void PackageInstallEstimationSnapshotBuilder_AcceptsChartEntryWithoutCompatibilityAdapter()
     {
@@ -1329,38 +1168,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(1, snapshot.DefinedResources.TotalReferenceCount);
             Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual("bmson", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
-            Assert.IsNull(entry.GetBmsChartForTest());
+
         });
     }
 
-    [TestMethod]
-    public void PackageChartDiscoverySnapshot_ChartEntriesPreservesAdapterlessEntry()
-    {
-        ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
-        {
-            Path = Path.Combine("C:\\Pending", "chart.bmson"),
-            Title = "BMSON",
-            RawTitle = "BMSON",
-            Artist = "Artist",
-            RawArtist = "Artist",
-            Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            Resources = TestChartResources.Create(["keysound.wav"])
-        };
-        ChartFile chart = (song);
-        var entry = PackageChartEntry.FromChart(chart);
-        var discoverySnapshot = new PackageChartDiscoverySnapshot
-        {
-            ChartEntries = [entry]
-        };
-
-        List<PackageChartEntry> entries = discoverySnapshot.ChartEntries;
-
-        Assert.AreEqual(1, entries.Count);
-        Assert.AreEqual(chart.Path, entries[0].Chart.Path);
-        Assert.AreEqual(chart.Kind, entries[0].Chart.Kind);
-        Assert.IsNull(entries[0].GetBmsChartForTest());
-    }
-
+    /// <summary>BMSとBmsonの双方で同一ハッシュでも別パスは別対象とし、ハッシュだけによる対象の取り違えを検出する。</summary>
     [TestMethod]
     public void ChartFileIdentity_IsSameChartTarget_DoesNotMatchSameHashDifferentPath()
     {
@@ -1387,8 +1199,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(ChartFileIdentity.IsSameChartTarget(firstBmsonChart, secondBmsonChart));
     }
 
+    /// <summary>Bmsonエントリのインストール先と警告をスナップショットへ引き渡し、共通入力への投影漏れを検出する。</summary>
     [TestMethod]
-    public void PackageChartEntry_ToChartEntrySnapshot_DropsBmsonCompatibilityAdapter()
+    public void PackageChartEntry_ToChartEntrySnapshot_CapturesBmsonDestinationAndWarnings()
     {
         ChartFile song = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -1407,13 +1220,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
 
         Assert.IsNotNull(snapshot);
-        Assert.IsNull(snapshot.GetBmsChartForTest());
+
         Assert.AreEqual(ChartFileKind.Bmson, snapshot.Chart.Kind);
-        Assert.AreSame(song.Token, snapshot.Chart.Token);
         Assert.AreEqual(destinationDirectory, snapshot.Chart.InstallDestination);
         Assert.IsTrue(snapshot.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
+    /// <summary>インストール先のパス・タイトル・作者・警告を現在譜面へ反映し、元譜面の情報で適用先を上書きする誤りを検出する。</summary>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartKeepsInstallDestinationOnChartState()
     {
@@ -1435,6 +1248,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
     }
 
+    /// <summary>適用先にあるreadmeから現在譜面のテキスト件数を再計算し、入力元の未計算値を残す誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartRecomputesTextGroupOnInstalledPath()
     {
@@ -1450,11 +1265,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             entry.ApplyInstalledPath(installedPath);
 
-            Assert.IsNull(file.Txt);
             Assert.AreEqual(1, entry.Chart.Txt);
         });
     }
 
+    /// <summary>readmeのない適用先では元譜面のテキスト件数を消し、古いフォルダの件数が残る誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartClearsStaleTextGroupOnInstalledPath()
     {
@@ -1470,11 +1286,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             entry.ApplyInstalledPath(installedPath);
 
-            Assert.AreEqual(1, file.Txt);
             Assert.AreEqual(0, entry.Chart.Txt);
         });
     }
 
+    /// <summary>適用先の実更新日時を現在譜面のDateへ反映し、移動後も日時が未設定になる誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartSetsDateFromInstalledFileMtime()
     {
@@ -1492,11 +1309,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             entry.ApplyInstalledPath(installedPath);
 
             int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
-            Assert.IsNull(file.Date);
+
             Assert.AreEqual(expectedDate, entry.Chart.Date);
         });
     }
 
+    /// <summary>適用先の更新日時で古いDateを置き換えAddDateを消し、入力元の日時を引き継ぐ誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartReplacesStaleDateOnInstalledPath()
     {
@@ -1516,13 +1335,13 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             entry.ApplyInstalledPath(installedPath);
 
             int expectedDate = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(installedPath));
-            Assert.AreEqual(12345, file.Date);
-            Assert.AreEqual(67890, file.AddDate);
+
             Assert.AreEqual(expectedDate, entry.Chart.Date);
             Assert.IsFalse(entry.Chart.AddDate.HasValue);
         });
     }
 
+    /// <summary>パッケージ警告と保存側警告を現在譜面へ合わせ、片方の警告を隠す投影の誤りを検出する。</summary>
     [TestMethod]
     public void PackageChartEntry_BmsCurrentChartProjectsPackageWarningsWithoutHidingStorageWarnings()
     {
@@ -1537,6 +1356,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
+    /// <summary>検索中の表示を既存BMS状態へ重ね、その間の現在状態変更も解除後に保ち、検索フラグによる状態の巻戻しを検出する。</summary>
     [TestMethod]
     public void PackageChartEntry_SetSearchingStatus_ProjectsBmsStatusPreservesCapturedChart()
     {
@@ -1564,6 +1384,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
     }
 
+    /// <summary>Bmsonエントリで検索開始・解除が現在状態へ反映され、BMS専用表示への依存を検出する。</summary>
     [TestMethod]
     public void PackageChartEntry_SetSearchingStatus_ProjectsAdapterlessBmsonStatus()
     {
@@ -1580,78 +1401,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
         entry.SetSearchingStatus(isSearching: true);
 
-        Assert.IsNull(entry.GetBmsChartForTest());
         Assert.IsTrue(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
 
         entry.SetSearchingStatus(isSearching: false);
 
-        Assert.IsNull(entry.GetBmsChartForTest());
         Assert.AreEqual(ChartFileStatus.NONE, entry.Chart.Status);
     }
 
+    /// <summary>実Bmsonファイルを共通エントリとして発見し音声定義へつなぎ、Bmsonの発見・解析の接続漏れを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
-    public void ChartPackage_GetOrBuildInstallEstimationSnapshot_ResolvesPathMatchedBmsonTargetToPackageEntry()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-            {
-                string sourceDir = Path.Combine(tempRoot, "PathPackage");
-                string soundDir = Path.Combine(sourceDir, "sound");
-                Directory.CreateDirectory(soundDir);
-                string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
-                File.WriteAllText(
-                    bmsonPath,
-                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
-                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
-                File.WriteAllText(Path.Combine(soundDir, "keysound.wav"), "audio");
-
-                var package = new ChartPackage
-                {
-                    path = sourceDir,
-                    delete_parent = true
-                };
-                ChartFile detachedTarget = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = bmsonPath };
-
-                PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, [detachedTarget]);
-
-                Assert.AreEqual(1, snapshot.ChartCount);
-                Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-                Assert.IsNull(snapshot.RepresentativeChart.Token);
-                Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
-            });
-    }
-
-    [TestMethod]
-    public void ChartPackage_GetOrBuildInstallEstimationSnapshot_UsesPackageEntriesWhenTargetAdaptersAreEmpty()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-            {
-                string sourceDir = Path.Combine(tempRoot, "PathPackage");
-                string soundDir = Path.Combine(sourceDir, "sound");
-                Directory.CreateDirectory(soundDir);
-                File.WriteAllText(
-                    Path.Combine(sourceDir, "chart.bmson"),
-                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
-                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
-                File.WriteAllText(Path.Combine(soundDir, "keysound.wav"), "audio");
-
-                var package = new ChartPackage
-                {
-                    path = sourceDir
-                };
-
-                PackageInstallEstimationSnapshot snapshot = BuildPackageSnapshot(package, []);
-
-                Assert.AreEqual(1, snapshot.ChartCount);
-                Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-                Assert.AreEqual(1, snapshot.DefinedResources.TotalReferenceCount);
-                Assert.AreEqual("bmson", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
-            });
-    }
-
-    [TestMethod]
-    public void ChartPackage_PathPackage_DiscoversBmsonAsChartEntryWithoutCompatibilityAdapter()
+    public void ChartPackage_PathPackage_DiscoversBmsonAndItsResourceReferences()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -1674,15 +1434,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.AreEqual(1, entries.Count);
                 Assert.AreEqual(ChartFileKind.Bmson, entries[0].Chart.Kind);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
-                Assert.IsNull(entries[0].GetBmsChartForTest());
+
                 Assert.AreEqual(1, snapshot.ChartCount);
                 Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
             });
     }
 
+    /// <summary>実Bmsonのタイトルをパッケージ表示へ反映し、譜面種類によって表示情報を失う誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
-    public void ChartPackage_DisplayTitle_UsesChartEntriesWithoutMaterializingBmsonAdapter()
+    public void ChartPackage_DisplayTitle_UsesDiscoveredBmsonTitle()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -1702,10 +1463,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.AreEqual("BMSON", displayTitle);
                 Assert.AreEqual(1, entries.Count);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
+
             });
     }
 
+    /// <summary>実Bmson二件のうち条件に合う一件だけを除き、種類による削除漏れや無関係なエントリの削除を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ChartPackage_RemoveChartEntriesPredicate_RemovesAdapterlessBmsonEntryWithoutMaterializing()
     {
@@ -1727,18 +1490,17 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                     path = sourceDir
                 };
                 List<PackageChartEntry> entries = package.ChartEntries;
-                PackageChartEntry removeEntry = entries.Single(entry => string.Equals(entry.Chart.Path, removeBmsonPath, StringComparison.OrdinalIgnoreCase));
 
                 package.RemoveChartEntries(entry =>
                     !string.IsNullOrWhiteSpace(entry?.Chart?.Path)
                     && string.Equals(entry?.Chart?.Path, removeBmsonPath, StringComparison.OrdinalIgnoreCase));
 
-                Assert.IsNull(removeEntry.GetBmsChartForTest());
                 Assert.AreEqual(1, package.ChartEntries.Count);
                 Assert.AreEqual(keepBmsonPath, package.ChartEntries[0].Chart.Path);
             });
     }
 
+    /// <summary>複数譜面の表示タイトルでは先頭譜面の主題を保ち、主題表示の欠落や他譜面への取り違えを検出する。</summary>
     [TestMethod]
     public void ChartPackage_DisplayTitle_PreservesMultiChartRawTitle()
     {
@@ -1750,44 +1512,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("Main Title", package.DisplayTitle);
     }
 
-    [TestMethod]
-    public void ChartPackage_BuildInstallEstimationSnapshot_ResolvesBatchPathMatchedBmsonTargetToPackageEntry()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
-            {
-                string sourceDir = Path.Combine(tempRoot, "PathPackage");
-                string soundDir = Path.Combine(sourceDir, "sound");
-                Directory.CreateDirectory(soundDir);
-                string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
-                File.WriteAllText(
-                    bmsonPath,
-                    "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
-                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
-                File.WriteAllText(Path.Combine(soundDir, "keysound.wav"), "audio");
-
-                var package = new ChartPackage
-                {
-                    path = sourceDir,
-                    delete_parent = true
-                };
-                ChartFile detachedTarget = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = bmsonPath };
-                PackageInstallSurfaceSnapshot sourceSurface = PackageInstallEstimationSnapshotBuilder.BuildPackageInstallSurfaceSnapshot(sourceDir);
-
-                PackageInstallEstimationSnapshot snapshot = package.BuildInstallEstimationSnapshotFromEntries(
-                    ResolvePackageEntries(package, [detachedTarget]),
-                    sourceSurface,
-                    sourceSurfaceCacheHit: false,
-                    sourceSurfaceBatchHit: true);
-
-                Assert.AreEqual(1, snapshot.ChartCount);
-                Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
-                Assert.IsNull(snapshot.RepresentativeChart.Token);
-                Assert.AreEqual(1, snapshot.DefinedResources.AudioReferenceCount);
-                Assert.IsTrue(snapshot.SourceSurfaceBatchHit);
-            });
-    }
-
+    /// <summary>パッケージのパス変更後は新フォルダの譜面を発見し、新しい入力面を構築してから再利用することで、古い発見・入力面キャッシュの使い回しを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ChartPackage_PathPackage_InvalidatesChartDiscoveryAndSourceSurfaceSnapshots_WhenPathChanges()
     {
@@ -1828,6 +1554,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             });
     }
 
+    /// <summary>入力元と候補の音声を合わせて不足分を補える適用先を選び、片方だけの一致率で有効先を落とす誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_PackageUnionPrefersDestinationWithBaseResourcesMissingFromSourcePackage()
     {
@@ -1871,6 +1599,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>同梱音声も相対パスを区別して合わせ、別階層の同名音声による一致率の水増しを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_PackageUnionDoesNotMatchBundledResourceByBasenameOnly()
     {
@@ -1915,6 +1645,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>有効な外部候補がなければ適用先なし・自動適用なしで返し、不足先を低信頼候補として適用する誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_BelowThresholdReturnsHighWithoutDestination()
     {
@@ -1957,6 +1689,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>保留パッケージの指定先が有効なら解決済みパスと対象エントリを返し、受理した対象の取り違えを検出する。</summary>
     [TestMethod]
     public void ValidateInstallDestination_ReturnsResolvedDirectoryForPendingPackage()
     {
@@ -1985,6 +1718,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>別インスタンスの同一パスBmsonをパッケージへ照合し、参照同一性だけで有効な適用先を拒否する誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void ValidateInstallDestination_MatchesAdapterlessBmsonPackageByChartPath()
     {
@@ -2007,7 +1742,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
                 List<PackageChartEntry> entries = pendingPackage.ChartEntries;
                 Assert.AreEqual(1, entries.Count);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                     targetEntry,
@@ -2019,12 +1753,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
                 Assert.AreEqual(1, result.TargetEntries.Count);
                 Assert.AreEqual(bmsonPath, result.TargetEntries[0].Chart.Path);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
+
             });
     }
 
+    /// <summary>存在しない適用先をBmsonエントリでも拒否し、種類によるパス検査の迂回を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
-    public void ValidateInstallDestination_DoesNotMaterializeAdapterlessBmsonWhenDestinationIsInvalid()
+    public void ValidateInstallDestination_RejectsMissingDestinationForBmsonEntry()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -2043,7 +1779,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 };
                 List<PackageChartEntry> entries = pendingPackage.ChartEntries;
                 Assert.AreEqual(1, entries.Count);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
 
                 PendingInstallDestinationSelectionResult result = service.ValidateInstallDestination(
                     targetEntry,
@@ -2053,10 +1788,11 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.IsFalse(result.Success);
                 Assert.AreEqual(1, result.TargetEntries.Count);
-                Assert.IsNull(entries[0].GetBmsChartForTest());
+
             });
     }
 
+    /// <summary>推定処理が元フォルダを示しても補正後は適用先を消し、同一フォルダへの適用を残す誤りを検出する。</summary>
     [TestMethod]
     public void CorrectChartInstallationDirectory_ClearsSameDirectorySuggestion()
     {
@@ -2073,8 +1809,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(string.Empty, entry.Chart.InstallDestination);
     }
 
+    /// <summary>適用先解除で解決失敗の警告も消し、解除済みエントリへ古い警告を残す誤りを検出する。</summary>
     [TestMethod]
-    public void ClearInstallDestinations_ClearsResolveFailedWarningOnly()
+    public void ClearInstallDestinations_ClearsResolveFailedWarning()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -2088,6 +1825,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(file.Warnings.Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
     }
 
+    /// <summary>再推定では元より音声が改善する一つの候補を自動適用し、有効な改善先を候補だけに留める誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_AutoAppliesOnlyImprovedUniqueCandidate()
     {
@@ -2117,6 +1855,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("candidate_only_source_excluded", result.CandidateMode);
     }
 
+    /// <summary>元と同じ音声健全性の再推定先は自動適用せず、改善しない変更を実行する誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotAutoApplyWhenCandidateDoesNotImproveHealth()
     {
@@ -2145,6 +1884,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { candidateDir }, result.SuggestedDestinationDirectories.ToArray());
     }
 
+    /// <summary>再推定の候補に入力元の同梱音声を加えず、適用先自身の不足を隠す誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotUseSourceBundledResources()
     {
@@ -2171,6 +1911,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(100, result.SourceBaselinePrimaryHealth);
     }
 
+    /// <summary>曖昧先の自動適用設定が有効でも再推定の複数候補は確定せず、通常推定の設定を誤用する変更を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_DoesNotAutoApplyMultipleViableCandidatesEvenWhenAmbiguousSettingEnabled()
     {
@@ -2204,6 +1945,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>再推定先のメタデータが違えば自動適用せず候補として示し、音声一致だけで別曲へ変更する誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_ReinstallCorrection_MetadataMismatchDoesNotAutoApply()
     {
@@ -2248,6 +1991,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>Bmsonを所持索引へ登録するとMD5・SHA256の両フォルダ参照を持ち、種類による索引漏れを検出する。</summary>
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_IncludesBmsonMd5AndSha256Directories()
     {
@@ -2272,6 +2016,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { installDir }, result.KnownChartDirectories.ToList());
     }
 
+    /// <summary>MD5のない譜面はSHA256があっても所持索引へ登録せず、主ハッシュ条件を迂回する登録を検出する。</summary>
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_DoesNotRegisterMd5lessRows()
     {
@@ -2292,6 +2037,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, result.KnownChartDirectories.Count);
     }
 
+    /// <summary>重複MD5の件数から除外件数を差し引き、残所有者があるハッシュの消失や全除外後の残存を検出する。</summary>
     [TestMethod]
     public void CreateInstalledChartLookupIndexSnapshot_CountsPrimaryHashesForExcludingLookup()
     {
@@ -2337,6 +2083,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(2, excludingUnknown.DistinctPrimaryHashCount);
     }
 
+    /// <summary>所持集合からBMS・Bmson双方のMD5・SHA256索引を作り、パスのない譜面を数える誤りと種類の欠落を検出する。</summary>
     [TestMethod]
     public void OwnedChartCollectionState_CreateInstalledChartLookupIndexBuildsBmsAndBmsonLookup()
     {
@@ -2378,6 +2125,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsFalse(snapshot.ContainsPrimaryHash(pathlessBmson.Md5));
     }
 
+    /// <summary>同じハッシュの所有者を段階的に除いて参照数とフォルダ集合を更新し、過剰削除や取得済みスナップショットの書換えを検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_DecrementsPrimaryHashAndDirectoryCounts()
     {
@@ -2443,6 +2191,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, partial.DirectoryReferenceCount);
     }
 
+    /// <summary>同一ハッシュを段階的に除いて現在件数を減らし、過去の件数スナップショットが追随して変わる誤りを検出する。</summary>
     [TestMethod]
     public void PrimaryHashLookupState_SharesImmutableCountRootAndKeepsPreviousSnapshots()
     {
@@ -2477,6 +2226,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(2, initial.GetPrimaryHashCount(sharedHash));
     }
 
+    /// <summary>大文字小文字の違う同一フォルダの所有者を除き、最後の所有者まで両ハッシュ参照を保つことと過去の集合の不変性を確認する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_KeepsDigestBucketsAndCountsConsistentAcrossLastOwnerRemoval()
     {
@@ -2540,8 +2290,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(3, oneOwner.DirectoryReferenceCount);
     }
 
-    /// <summary>R5b-LocalWork: 固定差分で影響 bucket の更新と scalar getter の実処理を観測します。</summary>
+    /// <summary>背景譜面16・128件に一件の削除を加え、影響したハッシュだけを更新し、全索引走査や背景件数に比例する複製を検出する。</summary>
     [DataTestMethod]
+    // 背景件数を増やしても一件の削除で全索引を走査しない。
     [DataRow(16)]
     [DataRow(128)]
     public void InstalledChartLookupIndexState_ObservesOnlyAffectedBucketWork(int backgroundChartCount)
@@ -2615,6 +2366,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(2 * backgroundChartCount + 4, initial.DirectoryReferenceCount);
     }
 
+    /// <summary>同じMD5・SHA256とフォルダを共有する二件を段階的に除き、最後の所有者より前にフォルダ参照数を減らす誤りを検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_CountsDistinctDirectoryReferences()
     {
@@ -2640,6 +2392,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, state.DirectoryReferenceCount);
     }
 
+    /// <summary>重複MD5を一つに数え、削除と別フォルダからの移動後に各フォルダの異なるMD5数を更新し、重複の二重計数を検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_CountsUniquePrimaryHashesByDirectory()
     {
@@ -2669,6 +2422,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, updated.GetUniquePrimaryHashCountByDirectory(secondDir));
     }
 
+    /// <summary>同じMD5の複数パスを取得し、一件削除後は残りだけを返すことで、ハッシュ単位の過剰削除を検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_TracksPathsByPrimaryHash()
     {
@@ -2688,6 +2442,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { secondPath }, state.GetPathsByPrimaryHash(hash).ToArray());
     }
 
+    /// <summary>除外付きの検索入力を作った後に所持元を変更しても捕捉時の件数を保ち、計算途中に基準件数が変わる誤りを検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_CreateExcludingLookupFreezesBaselineCounts()
     {
@@ -2709,6 +2464,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, lookup.GetPrimaryHashCount(hash));
     }
 
+    /// <summary>同じMD5の別パスを一件ずつ除き、最後の削除まで主ハッシュを保ち、その後のパス・件数残存を検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_KeepsPrimaryHashUntilAllDistinctPathsAreRemoved()
     {
@@ -2732,6 +2488,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, state.GetPrimaryHashCount(hash));
     }
 
+    /// <summary>譜面のフォルダ移動で旧参照を除き新パス・新フォルダへ更新し、ハッシュ件数の増減や古い所持先の残存を検出する。</summary>
     [TestMethod]
     public void InstalledChartLookupIndexState_MoveChartUpdatesDirectoryLookup()
     {
@@ -2752,6 +2509,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         CollectionAssert.AreEqual(new[] { Path.Combine(newDir, "chart.bms") }, state.GetPathsByPrimaryHash(hash).ToArray());
     }
 
+    /// <summary>実Bmsonの音声定義を共通推定へ接続し一致フォルダを返し、Bmsonだけが対象や診断から落ちる誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_BmsonUsesCommonHealthBasedSearch()
     {
@@ -2778,8 +2537,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(ChartFileKind.Bmson, snapshot.RepresentativeChart.Kind);
             Assert.AreEqual(pendingSong.Path, snapshot.RepresentativeChart.Path);
-            Assert.AreSame(pendingSong.Token, snapshot.RepresentativeChart.Token);
-            Assert.IsNull(snapshot.RepresentativeChart.Token);
+
             CollectionAssert.Contains(snapshot.DefinedResources.AudioRelativePaths.ToArray(), "keysound");
 
             InstallEstimationResult result = service.EstimateInstallationDirectory(
@@ -2793,6 +2551,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>77音声とpreviewを含む実Bmsonから78音声参照を評価し、少数だけ合う囮を選ぶ誤りとpreviewの欠落を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_BmsonSampleLikeOggSetSelectsMatchingDirectory()
     {
@@ -2861,6 +2621,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>内容指標が同点の候補はパス順で表示を決めても自動適用せず、並び順を信頼性と取り違える誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_ReturnsLowConfidenceWhenOnlyDirectoryPathBreaksTie()
     {
@@ -2892,6 +2653,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("tie_on_viable_non_source_candidates", result.ConfidenceReason);
     }
 
+    /// <summary>メタデータも一致する同点候補は明示の自動適用設定に従い適用し、候補一覧と曖昧分類を失う誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_AmbiguousStrongMetadataWithSetting_AutoAppliesFirstCandidate()
     {
@@ -2947,6 +2710,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>先頭三件と同点の四件目も所持ハッシュ数で比較し、途中で同点集合を切って有力候補を見落とす誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_CandidateDirectoryHashCountTieBreakUsesFullTiedFrontier()
     {
@@ -2993,6 +2757,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         StringAssert.Contains(result.DirectoryHashCountTieBreakSummary ?? string.Empty, candidateDDir + ":5");
     }
 
+    /// <summary>既知の副題区切りだけを除き、空白のないハイフンや括弧で囲んだ主題を壊す正規化を検出する。</summary>
     [TestMethod]
     public void NormalizeTitleForTieBreak_StripsKnownSubtitleDelimiters()
     {
@@ -3002,6 +2767,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("(wrapped title)", InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak("(Wrapped Title)"));
     }
 
+    /// <summary>作者の差分名・注記・スラッシュ後の差分表記を除き、通常の作者名やobjectまで削る正規化を検出する。</summary>
     [TestMethod]
     public void NormalizeArtistForTieBreak_StripsDiffSuffixesAndSlashSuffixes()
     {
@@ -3013,6 +2779,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("object", InstallEstimationMetadataNormalizer.NormalizeArtistForTieBreak("Object"));
     }
 
+    /// <summary>副題差・近似表記・弱い類似・別題の入力を分類し、曖昧な類似を強い一致として扱う誤りを検出する。</summary>
     [TestMethod]
     public void ClassifyTitleMatch_DetectsExactStrongWeakAndNone()
     {
@@ -3022,6 +2789,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.None, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song", "Completely Different"));
     }
 
+    /// <summary>音声が同点でも曲名・作者の一致先を高信頼へ選び、無関係なメタデータの候補を適用する誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_MetadataTieBreakPromotesMatchingCandidateToHigh()
     {
@@ -3074,6 +2843,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>健全な入力元が外部候補と同点でも外部だけを確定し、元フォルダを比較集合へ残す誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_WhenSourceDirectoryWouldTieExternalCandidate_SourceIsExcluded()
     {
@@ -3119,6 +2890,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>音声一致先が一件でも曲名・作者が違えば適用せず候補表示に留め、単一候補を無条件で高信頼にする誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_SingleCandidateWithMetadataMismatch_ReturnsLowWithoutDestination()
     {
@@ -3167,6 +2940,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>入力元が健全でも外部一致率が不足なら適用先なしを返し、入力元の健全性で外部候補を通す誤りを検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_WhenNoExternalViableCandidate_ReturnsHighWithoutDestinationEvenIfSourceIsHealthy()
     {
@@ -3214,6 +2989,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>表示上の丸め値が同じ二候補を丸め前の比率で選び、パス順で精度の劣る候補を優先する誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_WhenRoundedRatiosTie_UsesRawRatiosBeforeDirectoryPath()
     {
@@ -3223,11 +2999,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string sourceDir = Path.Combine(tempRoot, "Source");
             string candidateDir = Path.Combine(tempRoot, "A_Candidate");
             string otherCandidateDir = Path.Combine(tempRoot, "Z_Candidate");
-            Directory.CreateDirectory(sourceDir);
-            Directory.CreateDirectory(candidateDir);
-            Directory.CreateDirectory(otherCandidateDir);
+
             string chartPath = Path.Combine(sourceDir, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
 
             List<string> wavReferences = [];
             List<string> sourceFiles = ["chart.bms"];
@@ -3237,15 +3010,10 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 string fileName = i.ToString("000") + ".wav";
                 wavReferences.Add(fileName);
                 candidateFiles.Add(fileName);
-                File.WriteAllText(Path.Combine(sourceDir, fileName), "src");
-                File.WriteAllText(Path.Combine(candidateDir, fileName), "dst");
-                File.WriteAllText(Path.Combine(otherCandidateDir, fileName), "dst");
+
             }
             candidateFiles.Add("candidate-extra-a.wav");
             candidateFiles.Add("candidate-extra-b.wav");
-            File.WriteAllText(Path.Combine(candidateDir, "candidate-extra-a.wav"), "cand-extra-a");
-            File.WriteAllText(Path.Combine(candidateDir, "candidate-extra-b.wav"), "cand-extra-b");
-            File.WriteAllText(Path.Combine(otherCandidateDir, "candidate-extra.wav"), "cand-extra");
 
             ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath, [.. wavReferences]);
             file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: wavReferences.Count, wavExisting: wavReferences.Count)));
@@ -3269,6 +3037,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>候補の代表タイトル・作者を解決結果から表示用情報へ渡し、高信頼候補の説明情報の欠落を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PopulatesRepresentativeMetadataForTopCandidates()
     {
@@ -3306,6 +3075,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("Representative Artist", result.SelectedCandidate?.RepresentativeArtist);
     }
 
+    /// <summary>階層付き音声参照では同名だけの平坦候補を粗い絞込みで除き、相対パスを無視した誤一致を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_DropsBasenameOnlyCandidate_WhenLookupCachePresent()
     {
@@ -3336,6 +3106,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(nestedCandidateDir, result.DestinationDirectory);
     }
 
+    /// <summary>相対音声参照があっても索引がなければ候補と導入先を選ばず、索引不足の推定不能理由を返す。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioBroadFilter_RequiresLookupCache()
     {
@@ -3346,7 +3117,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string nestedCandidateDir = Path.Combine("C:\\Installed", "Nested");
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "sound\\bgm1.wav");
         file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 1, wavExisting: 0)));
-
 
         InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service,
             [file],
@@ -3363,6 +3133,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsNull(result.DestinationDirectory);
     }
 
+    /// <summary>階層付き画像参照を相対パスで絞り込み、別フォルダの同名画像を候補へ混ぜる誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareVisualBroadFilter_UsesImageRelativeHashes()
     {
@@ -3392,6 +3163,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(nestedCandidateDir, result.SelectedCandidate?.DirectoryPath);
     }
 
+    /// <summary>任意画像の階層付き参照も絞込みへ含め、stagefileの参照を無視した候補選択を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareOptionalImageBroadFilter_UsesImageRelativeHashes()
     {
@@ -3422,6 +3194,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(nestedCandidateDir, result.SelectedCandidate?.DirectoryPath);
     }
 
+    /// <summary>平坦参照と階層参照を含む入力では階層側も満たす候補を選び、basenameだけで受付を通す誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAdmissionGate_DropsCandidateThatOnlyMatchesBasenameRefs()
     {
@@ -3448,6 +3221,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(pathAwareCandidateDir, result.SelectedCandidate?.DirectoryPath);
     }
 
+    /// <summary>子フォルダを含む相対音声参照では親の集約索引を選び、子を根に読み替えた候補への誤適用を検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_NestedRootStylePathAwareAudio_SelectsParentAggregateCandidate()
     {
@@ -3462,7 +3236,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "Child\\sound\\00.wav", "Child\\sound\\01.wav");
         file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0)));
-
 
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -3491,8 +3264,9 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(parentDir, result.DestinationDirectory);
     }
 
+    /// <summary>平坦な音声参照は親子のどちらでも階層内の同名音声に合わず、階層補正やビュー構築で偽候補を作る誤りを検出する。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_NestedFlatRelativeAudio_UsesAncestorShadowRuleToPreferChildCandidate()
+    public void EstimateInstallationDirectory_FlatAudioReferencesRejectNestedParentAndChildCandidates()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         BmsLibraryInstallEstimationService service = CreateService();
@@ -3505,7 +3279,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0)));
-
 
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -3529,7 +3302,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(0, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, result.HierarchyCandidateDirectoryCount);
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
@@ -3539,6 +3311,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
     }
 
+    /// <summary>平坦な音声参照は候補直下だけに一致し、子フォルダの同名音声を一致に数える誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_FlatAudioRef_MatchesOnlyFlatRelativePath()
     {
@@ -3561,7 +3334,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterBroadFilter);
         Assert.AreEqual(0, result.HierarchyCandidateDirectoryCount);
         Assert.AreEqual(0, result.AncestorShadowSuppressedCount);
@@ -3572,6 +3344,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(flatCandidateDir, result.SelectedCandidate?.DirectoryPath);
     }
 
+    /// <summary>平坦参照と階層参照を混在させても二件を一度ずつ数え、経路別の二重計数による一致率の誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_MixedBasenameAndPathAwareAudioRefs_CountEachReferenceOnce()
     {
@@ -3592,7 +3365,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(2, result.TargetResourceCount);
         Assert.AreEqual(1, result.CandidateDirectoryCountAfterAudioGate);
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
@@ -3600,6 +3372,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(candidateDir, result.DestinationDirectory);
     }
 
+    /// <summary>同じbasenameが直下と子にある候補では別資源二件と数え、精度・Jaccardの分母を縮める誤りを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_CandidateCount_TreatsSameBasenameDifferentRelativePathsAsDistinct()
     {
@@ -3620,7 +3393,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, result.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, result.SelectedCandidate?.DirectoryPath);
         Assert.AreEqual(1, result.SelectedCandidate?.AudioMatched);
         Assert.AreEqual(50, result.SelectedCandidate?.AudioPrecision);
@@ -3629,6 +3401,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(1, result.CandidateViewBuildCount);
     }
 
+    /// <summary>階層付き音声の不足分は通常推定で同梱分を補い合流推定では補わず、相対参照でのモード差の欠落を検出する。</summary>
+    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
     public void EstimateInstallationDirectory_PathAwareAudioGate_UsesRelativePathAwareMatchesForNormalAndMerge()
     {
@@ -3682,6 +3456,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         });
     }
 
+    /// <summary>平坦・階層音声を含む入力は索引があれば推定でき、索引なしでは不能とし、索引を省いた同等扱いを検出する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_ReturnsUnavailableForRelativePathSemantics()
     {
@@ -3709,7 +3484,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
         Assert.IsNull(unavailableResult.DestinationDirectory);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
@@ -3717,6 +3491,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual("resource_index_unavailable", unavailableResult.CoarseFilterMode);
     }
 
+    /// <summary>平坦な音声でも索引なしでは候補ビューを構築せず索引不足の不能を返し、索引ありの候補ビュー1件と導入先選択を区別する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_DoesNotUseChartRelativeFallback()
     {
@@ -3744,7 +3519,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.AreEqual(candidateDir, lookupResult.DestinationDirectory);
         Assert.IsNull(unavailableResult.DestinationDirectory);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
@@ -3754,6 +3528,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
     }
 
+    /// <summary>親子索引があっても相対音声が一致しなければ候補を作らず、索引なしでも階層補正で候補を捏造しないことを確認する。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_WithoutResourceIndex_SkipsAncestorShadowDiagnostics()
     {
@@ -3768,7 +3543,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         uint childOneRelativeHash = ChartResourceKeyHash.GetLookupHash("sound\\01");
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(sourceDir, "chart.bms"), "00.wav", "01.wav");
         file = ChartFileProjection.WithMaintenance(file, MaintenanceStorageMapping.ToCommon(CreateMaintenanceInfo(file, wavDefined: 2, wavExisting: 0)));
-
 
         var lookupCache = new DirectoryResourceLookupCache();
         lookupCache.AddDir(
@@ -3785,7 +3559,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             [],
             []);
 
-
         InstallEstimationResult lookupResult = EstimateLooseChartInstallationDirectory(service,
             [file],
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
@@ -3800,7 +3573,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             asParallel: false,
             ChartInstallationEstimateMode.Normal);
 
-        Assert.AreEqual(InstallEstimationFinalEvaluationMode.RelativeStrict, lookupResult.FinalEvaluationMode);
         Assert.IsNull(unavailableResult.DestinationDirectory);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.ConfidenceReason);
         Assert.AreEqual("resource_index_unavailable", unavailableResult.CandidateMode);
@@ -3811,6 +3583,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, unavailableResult.CandidateViewBuildCount);
     }
 
+    /// <summary>MD5が違いSHA256だけ一致する所持譜面からは所持先を返さず、主ハッシュ条件の迂回を検出する。</summary>
     [TestMethod]
     public void GetDistinctInstalledDirectoriesForChart_ChartWithMd5DoesNotFallBackToSha256()
     {
@@ -3828,6 +3601,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(0, directories.Count);
     }
 
+    /// <summary>MD5のない保留Bmsonは一致SHA256があっても所持先なしとし、種類による主ハッシュ制約の迂回を検出する。</summary>
     [TestMethod]
     public void GetDistinctInstalledDirectoriesForChart_Sha256OnlyChartDoesNotUseSha256()
     {

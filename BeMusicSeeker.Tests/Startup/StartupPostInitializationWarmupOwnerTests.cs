@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupPostInitializationWarmupOwnerTests
 {
+    /// <summary>
+    /// 保証：受理した事前計算は依存する実パス・重ね合わせ・一覧・ハッシュを先に行って仮想一覧へ進み、終端と取消資源を一度だけ確定する。
+    /// </summary>
     [TestMethod]
     public async Task Schedule_RunsAdjacentStagesThenVirtualAndCompletesOnce()
     {
@@ -32,6 +35,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
     }
 
+    /// <summary>
+    /// 保証：依存する途中段階が失敗したら残る依存段階を止め、独立した仮想一覧は試みて元の失敗段階・例外を返す。
+    /// </summary>
     [TestMethod]
     public async Task AdjacentFailure_SkipsRemainingAdjacentStagesButStillAttemptsVirtual()
     {
@@ -49,6 +55,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreSame(failure, harness.Completions[0].Exception);
     }
 
+    /// <summary>
+    /// 保証：同じ起動tokenとscheduler世代の事前計算は二重に権限取得・投入せず、先の受理を維持する。
+    /// </summary>
     [TestMethod]
     public void SameIdentity_IsDeduplicatedBeforeASecondLeaseOrQueue()
     {
@@ -63,6 +72,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.QueueCount);
     }
 
+    /// <summary>
+    /// 保証：schedulerに拒否された事前計算は権限と取消資源を解放し、一度だけ拒否終端を公開する。
+    /// </summary>
     [TestMethod]
     public void SchedulerRejection_CancelsLeaseAndPublishesOneRejectedReceipt()
     {
@@ -79,6 +91,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
     }
 
+    /// <summary>
+    /// 保証：予約時のscheduler世代が要求と異なる場合は権限取得前に拒否し、古い起動の計算を投入しない。
+    /// </summary>
     [TestMethod]
     public void ReservationGenerationMismatchRejectsBeforeLeaseAcquisition()
     {
@@ -94,6 +109,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual("reservation", harness.Completions[0].FailedStage);
     }
 
+    /// <summary>
+    /// 保証：古い世代の新要求を拒否しても、既に受理済みの現行事前計算を取消したり置き換えたりしない。
+    /// </summary>
     [TestMethod]
     public async Task StaleGenerationScheduleDoesNotSupersedeCurrentQueuedWork()
     {
@@ -131,6 +149,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
     }
 
+    /// <summary>
+    /// 保証：リセットは未開始の事前計算と権限を取消し、廃棄callbackと競合しても取消終端・資源解放を一度だけ行う。
+    /// </summary>
     [TestMethod]
     public void Reset_CancelsQueuedLeaseAndDiscardRaceCompletesExactlyOnce()
     {
@@ -148,6 +169,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
     }
 
+    /// <summary>
+    /// 保証：schedulerの重複した廃棄通知でも元の廃棄理由を保ち、権限・取消資源・廃棄終端を一度だけ処理する。
+    /// </summary>
     [TestMethod]
     public void SchedulerDiscard_CancelsLeaseAndPublishesOneDiscardedReceipt()
     {
@@ -166,6 +190,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(1, harness.OwnedCancellations[0].DisposeCount);
     }
 
+    /// <summary>
+    /// 保証：投入例外の後に取消・終端通知・ログ・解放まで失敗しても元の投入例外を保持し、未開始のqueueと権限を回収する。
+    /// </summary>
     [TestMethod]
     public void QueueException_CancelsLeaseAndDisposesPreRunCancellationExactlyOnce()
     {
@@ -199,6 +226,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(0, harness.StageOrder.Count);
     }
 
+    /// <summary>
+    /// 保証：実行中の段階でリセットされると後段へ進まず取消終端を保ち、古いfinallyで完了へ上書きしない。
+    /// </summary>
     [TestMethod]
     public async Task ResetDuringRunningStage_IgnoresStaleFinallyCompletion()
     {
@@ -221,6 +251,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Assert.AreEqual(StartupPostInitializationWarmupCompletionKind.Cancelled, harness.Completions[0].Kind);
     }
 
+    /// <summary>
+    /// 保証：権限取得中のリセットは遅れて返った権限を取消し、古い計算を投入せず次の世代の計算を受理する。
+    /// </summary>
     [TestMethod]
     public async Task ResetDuringLeaseAcquisition_CancelsAttachedLeaseWithoutQueueingStaleWork()
     {
@@ -261,6 +294,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：投入中のリセットが最初の削除に間に合わなくても遅い投入を回収し、旧計算の実段階を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ResetWhileQueueBoundaryIsInFlight_RemovesLateQueueWithoutStartingStaleWork()
     {
@@ -303,6 +339,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：リセット後の遅い旧投入と旧取消は予約単位で扱い、新世代のqueue・取消資源・完了結果を巻き込まない。
+    /// </summary>
     [TestMethod]
     public async Task ResetGenerationRejectsStaleLateSubmitAndStaleCancelLeavesNewWorkQueued()
     {
@@ -362,6 +401,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：予約callbackが外部lock待ちでも所有者のリセットを完了でき、遅れて戻った旧予約を開始せず回収する。
+    /// </summary>
     [TestMethod]
     public async Task ReservationCallbackOutsideOwnerLockAllowsResetAndCleansLateReceipt()
     {
@@ -407,6 +449,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：古い予約が外部lockで止まっている間に新しい要求を受理・投入でき、遅い旧予約では新queueを取消しない。
+    /// </summary>
     [TestMethod]
     public async Task NewerScheduleCommitsWhileOlderReservationIsBlocked()
     {
@@ -456,6 +501,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：低い順序の遅い予約は、新要求の権限取得中でも旧投入・旧取消を起こさず新しい計算の終端を維持する。
+    /// </summary>
     [TestMethod]
     public async Task LowerSequenceLateReservationCannotMutateNewerCommittedWarmup()
     {
@@ -521,6 +569,9 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：低い順序のsubmitを拒否した後でも、高いscheduler予約を確定でき、旧取消による新queueの消去を防ぐ。
+    /// </summary>
     [TestMethod]
     public async Task HigherSchedulerReservationCommitsAfterLowerOwnerSubmitIsRejected()
     {

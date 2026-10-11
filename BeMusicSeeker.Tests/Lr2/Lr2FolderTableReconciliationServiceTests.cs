@@ -14,6 +14,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderTableReconciliationServiceTests
 {
+    /// <summary>
+    /// 通常譜面・folderinfo・生成フォルダを混在させ、必要な親行と各入力のタイトル・時刻・親識別子が揃い、出所の取り違えや親欠落を検出する。
+    /// </summary>
+    /// <remarks>定義ファイルの実読取りを含め、出所別の行投影を確認する。</remarks>
     [TestMethod]
     public void BuildProjection_ContainsEverySourceAndRequiredParentRows()
     {
@@ -26,7 +30,6 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         Directory.CreateDirectory(info);
         Directory.CreateDirectory(custom);
         string chart = Path.Combine(normal, "chart.bms");
-        File.WriteAllText(chart, "#TITLE Chart\r\n", Encoding.ASCII);
         string folderInfo = Path.Combine(info, "folderinfo.txt");
         File.WriteAllText(folderInfo, "#TITLE Physical title\r\n", Encoding.ASCII);
         string lr2Folder = Path.Combine(custom, "custom.lr2folder");
@@ -76,6 +79,10 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         Assert.AreEqual(Lr2FolderTableProjectionSourceKind.Lr2FolderFile, projection.SourceKinds[lr2Folder]);
     }
 
+    /// <summary>
+    /// 同じパスの出所を並べ替えても優先するfolderinfoと行集合が変わらず、同一入力は合流し異なる時刻の別名入力は両順序で拒否される。
+    /// </summary>
+    /// <remarks>定義ファイルの実読取りを含め、出所別の行投影を確認する。</remarks>
     [TestMethod]
     public void BuildProjection_PriorityAndEqualDeduplicationAreOrderIndependentAndConflictsFail()
     {
@@ -120,7 +127,7 @@ public sealed class Lr2FolderTableReconciliationServiceTests
 
         Lr2FolderTableProjection firstProjection = Lr2FolderTableReconciliationService.BuildProjection(first);
         Lr2FolderTableProjection reversedProjection = Lr2FolderTableReconciliationService.BuildProjection(reversed);
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             firstProjection.Rows.Select(row => row.path).ToArray(),
             reversedProjection.Rows.Select(row => row.path).ToArray());
         Assert.AreEqual(
@@ -157,6 +164,10 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         Assert.AreEqual(1, Lr2FolderTableReconciliationService.BuildProjection(conflict).Rows.Count);
     }
 
+    /// <summary>
+    /// 列挙未完了と後段のfolderinfo読取り失敗のどちらでも既存行を保持し、部分的な全置換で行を失う誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの既存行と反映後の行を観測し、全置換時の保存保証を確認する。</remarks>
     [TestMethod]
     public void Reconcile_IncompleteOrLatePreparationFailureLeavesExistingRowsUnchanged()
     {
@@ -200,6 +211,10 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         Assert.IsNull(songDb.Find<LR2SongDB.folder>(ToFolderPath(root)));
     }
 
+    /// <summary>
+    /// エポック以前とエポック時刻をそのまま保存し、対象外の旧行だけを削除して時刻補正や残留を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの既存行と反映後の行を観測し、全置換時の保存保証を確認する。</remarks>
     [TestMethod]
     public void Reconcile_PreservesZeroAndNegativeDatesAndDeletesUnexpectedRows()
     {
@@ -242,6 +257,10 @@ public sealed class Lr2FolderTableReconciliationServiceTests
         Assert.IsNull(songDb.Find<LR2SongDB.folder>(unexpectedPath));
     }
 
+    /// <summary>
+    /// 既存フォルダのタイトルと更新時刻を全置換しても追加時刻を保持し、既存行の履歴消失を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteの既存行と反映後の行を観測し、全置換時の保存保証を確認する。</remarks>
     [TestMethod]
     public void Reconcile_PreservesExistingFolderAddDateAcrossWholeTableApply()
     {

@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class NextSongPreloadOwnerTests
 {
+    /// <summary>
+    /// 保証：新旧bmsonの先読み結果を一度だけ採用し、不正入力の失敗は採用まで保持して再解析や別入力への読み替えをしない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -35,6 +38,9 @@ public sealed class NextSongPreloadOwnerTests
         Assert.IsNull(await owner.TakeAsync(input));
     }
 
+    /// <summary>
+    /// 保証：同じ入力の準備中に採用を求めるとその実Taskを待ち、取消や再デコードなしに一度だけ準備結果を移管する。
+    /// </summary>
     [TestMethod]
     public async Task MatchingPreparation_WaitsForTheSameWorkAndTransfersItOnce()
     {
@@ -74,6 +80,9 @@ public sealed class NextSongPreloadOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：完了済みの同じ先読みを再ロードせず採用し、音声資源の所有権は一度だけ移管する。
+    /// </summary>
     [TestMethod]
     public async Task CompletedPreparation_IsReusedWithoutAnotherLoad()
     {
@@ -92,6 +101,9 @@ public sealed class NextSongPreloadOwnerTests
         Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
     }
 
+    /// <summary>
+    /// 保証：別曲の採用要求は先読みを取消して後片付けの終端まで待ち、取消通知だけで破棄完了を返さない。
+    /// </summary>
     [TestMethod]
     public async Task ChangedTarget_CancelsAndJoinsBeforeDiscardingThePreparation()
     {
@@ -126,6 +138,9 @@ public sealed class NextSongPreloadOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：先読みの入力不正は同じ例外を採用側へ一度の解析で返し、採用時の再試行で元の失敗を隠さない。
+    /// </summary>
     [TestMethod]
     public async Task InputFailure_IsReturnedOnAdoptionWithoutRetry()
     {
@@ -145,6 +160,9 @@ public sealed class NextSongPreloadOwnerTests
         Assert.AreEqual(1, preparations);
     }
 
+    /// <summary>
+    /// 保証：先読み破棄時は通常の入力不正だけを抑制し、decoder解放不能等の致命的失敗は元の例外で表面化させる。
+    /// </summary>
     [TestMethod]
     public async Task DiscardedFailure_SuppressesOnlyOrdinaryInputErrors()
     {
@@ -163,6 +181,9 @@ public sealed class NextSongPreloadOwnerTests
         Assert.AreSame(fatal, await Assert.ThrowsExceptionAsync<AudioSourceFatalException>(() => fatalOwner.InvalidateAsync()));
     }
 
+    /// <summary>
+    /// 保証：先読み後にファイル属性が変わった入力には準備済み結果を渡さず、変更前の譜面を再生しない。
+    /// </summary>
     [TestMethod]
     public async Task ChangedFileAttributes_RejectPreparedSnapshot()
     {

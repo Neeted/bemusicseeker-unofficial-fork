@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ShellActivationWorkflowOwnerTests
 {
+    /// <summary>構成後の起動処理は最初の呼出しだけ受理して更新作業の終端まで回収することを確認し、再呼出しで起動更新を重複実行する誤りを検出します。</summary>
     [TestMethod]
     public void ActivateConstructedShell_StartsStartupUpdateOnce()
     {
@@ -26,6 +27,7 @@ public sealed class ShellActivationWorkflowOwnerTests
         Task.WhenAll(startupUpdate.WaitForIdleAsync(), startupUpdate.WaitForTerminalAsync()).GetAwaiter().GetResult();
     }
 
+    /// <summary>初期化を待ちながら初期選択と警告判定を順に行い、完了後の二度目の表示活性化は選択を繰り返さないことを確認し、起動順序の逆転や二重活性化を検出します。</summary>
     [TestMethod]
     public async Task ActivateRenderedShell_PreservesInitializationSelectionAndWarningOrder()
     {

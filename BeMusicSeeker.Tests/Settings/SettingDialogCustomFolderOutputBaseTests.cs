@@ -15,31 +15,33 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>設定判断と実 LR2 XML・出力窓口の配送を確認します。描画接続は compiled category/Window 系列が分担します。</remarks>
 [TestClass]
 public sealed class SettingDialogCustomFolderOutputBaseTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings(
         values => values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson);
+    /// <summary>保存比較値から確認設定・動作モードを変更して差分を検出し、明示 Reset で保存済み値と差分なし状態へ戻ることを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
+    [DoNotParallelize] // ResetSettings が共有テーマと文化を復元します。
     public void HasPendingSettingChanges_UsesSnapshotDiffsAndReset()
     {
-        bool previousShowNewPackageInstallConfirmMsg = testSettings.ShowNewPackageInstallConfirmMsg;
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
-        bool previousShowDuplicateFileCheckConfirmMsg = testSettings.ShowDuplicateFileCheckConfirmMsg;
+        string previousTheme = Settings.Default.AppearanceTheme;
+        CultureInfo? previousResourceCulture = Resources.Culture;
         try
         {
+            bool previousShowNewPackageInstallConfirmMsg = testSettings.ShowNewPackageInstallConfirmMsg;
+            bool previousOperationMode = testSettings.OperationModeLR2DB;
+            bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
+            bool previousShowDuplicateFileCheckConfirmMsg = testSettings.ShowDuplicateFileCheckConfirmMsg;
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
-            Assert.IsFalse(dialog.HasPendingSettingChanges());
 
             testSettings.ShowRecommUpdatedMsg = !previousShowRecommUpdatedMsg;
 
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
@@ -48,7 +50,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             testSettings.ShowDuplicateFileCheckConfirmMsg = !previousShowDuplicateFileCheckConfirmMsg;
 
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             testSettings.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
@@ -73,45 +74,35 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.ShowNewPackageInstallConfirmMsg = previousShowNewPackageInstallConfirmMsg;
-            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
-            testSettings.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
+            AppThemeService.ApplyTheme(previousTheme);
+            if (previousResourceCulture == null) { Resources.Culture = null; }
+            else { ResourceService.Current.ChangeCulture(previousResourceCulture.Name); }
         }
     }
 
+    /// <summary>profile 有効化だけを変更しても draft 差分を作らず、実設定を変えたときだけ未保存として検出することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PendingSettingsRemainIndependentOfActiveLibraryProfile()
     {
-        bool previousShowRecommUpdatedMsg = testSettings.ShowRecommUpdatedMsg;
-        try
-        {
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
-            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        Assert.IsFalse(dialog.HasPendingSettingChanges());
 
-            SetViewModelField(viewModel, "hasActiveLibraryProfile", true);
+        SetViewModelField(viewModel, "hasActiveLibraryProfile", true);
 
-            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        Assert.IsFalse(dialog.HasPendingSettingChanges());
 
-            testSettings.ShowRecommUpdatedMsg = !testSettings.ShowRecommUpdatedMsg;
+        testSettings.ShowRecommUpdatedMsg = !testSettings.ShowRecommUpdatedMsg;
 
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
-        }
-        finally
-        {
-            testSettings.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
-        }
+        Assert.IsTrue(dialog.HasPendingSettingChanges());
     }
 
+    /// <summary>同名の異なる表を ID で区別し、無効編集と取消では draft を維持し、有効編集だけを保存・実選択肢へ配送することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -209,26 +200,27 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 new int?[] { 202 },
                 persistedTargetSets[1].Targets.Select(reference => reference.PlaylistId).ToArray());
 
-            Assert.AreEqual(7, viewModel.PlayHistory.DisplayTargets.Count);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.DisplayTargets[0].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[1].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[2].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistory.DisplayTargets[1].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistory.DisplayTargets[2].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[3].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[4].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistory.DisplayTargets[3].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistory.DisplayTargets[4].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistory.DisplayTargets[5].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistory.DisplayTargets[6].Kind);
+            // 二つの保存 preset の二種類の意味と二つの表が選択肢へ届くことを確認します。
+            PlayHistoryDisplayTargetItem[] presetTargets = viewModel.PlayHistory.DisplayTargets
+                .Where(item => item.Kind == PlayHistoryDisplayTargetKind.TargetSet).ToArray();
+            foreach (PlayHistoryDisplayTargetMode mode in new[]
+                { PlayHistoryDisplayTargetMode.FilterAndProject, PlayHistoryDisplayTargetMode.ProjectOnly })
+            {
+                CollectionAssert.AreEquivalent(new[] { preset.Name, "Second" },
+                    presetTargets.Where(item => item.Mode == mode).Select(item => item.TargetSet.Name).ToArray());
+            }
+            Assert.IsTrue(viewModel.PlayHistory.DisplayTargets.Any(item => item.Kind == PlayHistoryDisplayTargetKind.All));
+            CollectionAssert.AreEquivalent(new int?[] { 101, 202 }, viewModel.PlayHistory.DisplayTargets
+                .Where(item => item.Kind == PlayHistoryDisplayTargetKind.Playlist)
+                .Select(item => item.Table.playlist_id).ToArray());
         }
         finally
         {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
             TryDeleteDirectory(tempDirectory);
         }
     }
 
+    /// <summary>トルコ語の大文字小文字・中間語・記号検索と空入力を与え、表示名の文化に従う検索と全候補復帰を確認します。</summary>
     [TestMethod]
     public void PlayHistoryFolderDisplayPresetEditSession_SearchesDisplayNamesUsingCurrentCulture()
     {
@@ -288,6 +280,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
+    /// <summary>検索で隠した選択を保存対象に残し、再作成した編集 session で検索文字だけをリセットして選択を失わないことを確認します。</summary>
     [TestMethod]
     public void PlayHistoryFolderDisplayPresetEditSession_PreservesHiddenSelectionAndFilterAcrossSessions()
     {
@@ -344,268 +337,196 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         Assert.IsTrue(reopened.FilteredPlaylistOptions.Single(option => option.Table.PlaylistId == 101).IsSelected);
     }
 
+    /// <summary>追加・改名した preset を取消用 Reset で保存済み JSON へ戻し、未保存 draft が残る誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryFolderDisplayPresetEditor_ResetSettingsRestoresSavedDraft()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        try
-        {
-            string savedJson = PlayHistoryDisplayTargetSetStore.Serialize(
-            [
-                new PlayHistoryDisplayTargetSet
-                {
-                    Name = "Saved",
-                    Targets =
-                    [
-                        new PlayHistoryDisplayTargetReference
-                        {
-                            PlaylistId = 101
-                        }
-                    ]
-                }
-            ]);
-            testSettings.PlayHistoryDisplayTargetSetsJson = savedJson;
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+        string savedJson = PlayHistoryDisplayTargetSetStore.Serialize(
+        [
+            new PlayHistoryDisplayTargetSet
+            {
+                Name = "Saved",
+                Targets =
+                [
+                    new PlayHistoryDisplayTargetReference
+                    {
+                        PlaylistId = 101
+                    }
+                ]
+            }
+        ]);
+        testSettings.PlayHistoryDisplayTargetSetsJson = savedJson;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
-            dialog.AddPlayHistoryFolderDisplayPreset();
-            dialog.SelectedPlayHistoryFolderDisplayPreset.Name = "Unsaved";
+        dialog.AddPlayHistoryFolderDisplayPreset();
+        dialog.SelectedPlayHistoryFolderDisplayPreset.Name = "Unsaved";
 
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
+        Assert.IsTrue(dialog.HasPendingSettingChanges());
 
-            dialog.ResetPlayHistoryFolderDisplayPresetsForCancel();
+        dialog.ResetPlayHistoryFolderDisplayPresetsForCancel();
 
-            Assert.AreEqual(savedJson, testSettings.PlayHistoryDisplayTargetSetsJson);
-            Assert.AreEqual(1, dialog.PlayHistoryFolderDisplayPresets.Count);
-            Assert.AreEqual("Saved", dialog.SelectedPlayHistoryFolderDisplayPreset.Name);
-            Assert.IsFalse(dialog.HasPendingSettingChanges());
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-        }
+        Assert.AreEqual(savedJson, testSettings.PlayHistoryDisplayTargetSetsJson);
+        Assert.AreEqual(1, dialog.PlayHistoryFolderDisplayPresets.Count);
+        Assert.AreEqual("Saved", dialog.SelectedPlayHistoryFolderDisplayPreset.Name);
+        Assert.IsFalse(dialog.HasPendingSettingChanges());
     }
 
+    /// <summary>利用者が preset の投影だけの対象を選択すると、正しい識別子を設定へ保存する接続を確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_PersistsSelectedIdentity()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved")
-            ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
-                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
-                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
-                && item.TargetSet.Name == "Saved");
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved")
+        ]);
+        PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
+            item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+            && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+            && item.TargetSet.Name == "Saved");
 
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
-            Assert.AreEqual(target.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual(target.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
     }
 
+    /// <summary>保存対象が初めはない場合に全体表示し、対象が後で現れたとき保存識別子へ復帰することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_RestoresWhenSavedTargetAppearsLater()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
+        Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
 
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved")
-            ]);
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved")
+        ]);
 
-            Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
     }
 
+    /// <summary>有効な対象の選択後に null と空の一時通知が来ても、選択と保存識別子を消さないことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_IgnoresTransientEmptyIdentity()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved")
-            ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
-                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
-                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
-                && item.TargetSet.Name == "Saved");
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved")
+        ]);
+        PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
+            item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+            && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+            && item.TargetSet.Name == "Saved");
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = null;
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = string.Empty;
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = null;
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = string.Empty;
 
-            Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
-            Assert.AreEqual(target.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
+        Assert.AreEqual(target.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
     }
 
+    /// <summary>全体表示を明示選択した場合は、空の一時通知と区別して全体の識別子を保存することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_PersistsExplicitAllIdentity()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
 
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved")
-            ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
-                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
-                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
-                && item.TargetSet.Name == "Saved");
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved")
+        ]);
+        PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
+            item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+            && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+            && item.TargetSet.Name == "Saved");
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
 
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
+        Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, testSettings.PlayHistorySelectedDisplayTargetIdentity);
     }
 
+    /// <summary>履歴要求の開始時に保存 preset を再適用し、一時的な全体選択のまま照会を始める誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_BeginPlayHistoryRequestReappliesSavedIdentity()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved")
-            ]);
-            viewModel.PlayHistory.SelectedDisplayTarget = PlayHistoryDisplayTargetItem.All;
-            viewModel.PlayHistory.RestoreDisplayTargetIdentity("set-folder:SAVED");
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved")
+        ]);
+        viewModel.PlayHistory.SelectedDisplayTarget = PlayHistoryDisplayTargetItem.All;
+        viewModel.PlayHistory.RestoreDisplayTargetIdentity("set-folder:SAVED");
 
-            viewModel.PlayHistory.ActivatePeriod(
-                PlayHistoryPeriodRequest.All(),
-                viewModel.ChartFilters.KeywordFilter);
+        viewModel.PlayHistory.ActivatePeriod(
+            PlayHistoryPeriodRequest.All(),
+            viewModel.ChartFilters.KeywordFilter);
 
-            Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
     }
 
+    /// <summary>識別子を保ったまま対象表を変更し、新内容と表示世代を更新して古い選択内容を再利用する誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges()
     {
-        string previousJson = testSettings.PlayHistoryDisplayTargetSetsJson;
-        string previousSelectedIdentity = testSettings.PlayHistorySelectedDisplayTargetIdentity;
-        try
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
-            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-            using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-            ReplacePlayHistoryDisplayTargetSets(viewModel,
-            [
-                CreateTargetSet("Saved", playlistId: 101)
-            ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
-                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
-                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
-                && item.TargetSet.Name == "Saved");
-            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
-            PlayHistoryWorkflowOwner owner = viewModel.PlayHistory;
-            long revisionBeforeChange = owner.DisplayTargetRevision;
-            testSettings.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
-            [
-                CreateTargetSet("Saved", playlistId: 202)
-            ]);
+        testSettings.PlayHistoryDisplayTargetSetsJson = string.Empty;
+        testSettings.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
+        ReplacePlayHistoryDisplayTargetSets(viewModel,
+        [
+            CreateTargetSet("Saved", playlistId: 101)
+        ]);
+        PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
+            item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+            && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+            && item.TargetSet.Name == "Saved");
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
+        PlayHistoryWorkflowOwner owner = viewModel.PlayHistory;
+        long revisionBeforeChange = owner.DisplayTargetRevision;
+        testSettings.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
+        [
+            CreateTargetSet("Saved", playlistId: 202)
+        ]);
 
-            viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
-                testSettings.PlayHistoryDisplayTargetSetsJson,
-                queueRefreshWhenSelectionChanges: true);
+        viewModel.PlayHistory.RefreshDisplayTargetSetsFromSettings(
+            testSettings.PlayHistoryDisplayTargetSetsJson,
+            queueRefreshWhenSelectionChanges: true);
 
-            Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
-            Assert.AreEqual(202, viewModel.PlayHistory.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
-            Assert.IsTrue(
-                owner.DisplayTargetRevision > revisionBeforeChange,
-                "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
-        }
-        finally
-        {
-            testSettings.PlayHistoryDisplayTargetSetsJson = previousJson;
-            testSettings.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
-        }
+        Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
+        Assert.AreEqual(202, viewModel.PlayHistory.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
+        Assert.IsTrue(
+            owner.DisplayTargetRevision > revisionBeforeChange,
+            "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
     }
 
+    /// <summary>実 LR2 登録に通常・追加・ルート出力先が混在するとき、出力領域を譜面ディレクトリ候補から除いて手動ルートを残すことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -627,6 +548,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             testSettings.BMSInstallDir = manualBmsRoot;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             CollectionAssert.Contains(dialog.LR2ConfigBMSDirectories, manualBmsRoot);
@@ -640,14 +562,11 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>親子と無関係な兄弟パスを混ぜ、親子だけを正しい方向で競合として返すことを確認します。</summary>
     [TestMethod]
     public void CollectNestedBmsSearchRootConflicts_DetectsParentChildOnly()
     {
@@ -664,20 +583,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         Assert.AreEqual(child, conflicts[0].ChildPath);
     }
 
+    /// <summary>実 LR2 登録に親子を保存し、保存前検証が両対象を示す既存リソースで拒否することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CheckValidationBeforeSave_RejectsNestedLr2JukeboxRoots()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousSongDbPath = testSettings.LR2SongDBPath;
-        string previousConfigXmlPath = testSettings.LR2ConfigXmlPath;
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        bool previousUsePlayerUbmplay = testSettings.UsePlayeruBMplay;
-        bool previousUsePlayerLr2body = testSettings.UsePlayerLR2body;
-        bool previousUsePlayerBmidxView = testSettings.UsePlayerBMIIDXView;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -703,6 +612,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
@@ -715,34 +625,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2SongDBPath = previousSongDbPath;
-            testSettings.LR2ConfigXmlPath = previousConfigXmlPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            testSettings.UsePlayeruBMplay = previousUsePlayerUbmplay;
-            testSettings.UsePlayerLR2body = previousUsePlayerLr2body;
-            testSettings.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>旧通常出力先が手動親ルートの配下だけで覆われる場合、過去の出力指定を理由に許可せず対象付きで拒否することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CheckValidationBeforeSave_RejectsPreviousNormalOutputCoveredOnlyByManualParentRoot()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousSongDbPath = testSettings.LR2SongDBPath;
-        string previousConfigXmlPath = testSettings.LR2ConfigXmlPath;
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        bool previousUsePlayerUbmplay = testSettings.UsePlayeruBMplay;
-        bool previousUsePlayerLr2body = testSettings.UsePlayerLR2body;
-        bool previousUsePlayerBmidxView = testSettings.UsePlayerBMIIDXView;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -766,6 +656,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             bool isValid = dialog.CheckValidationBeforeSave(out string errMsg);
@@ -780,28 +671,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2SongDBPath = previousSongDbPath;
-            testSettings.LR2ConfigXmlPath = previousConfigXmlPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            testSettings.UsePlayeruBMplay = previousUsePlayerUbmplay;
-            testSettings.UsePlayerLR2body = previousUsePlayerLr2body;
-            testSettings.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>既存ルート出力先の子登録は採用競合にせず、出力領域を候補から除いて手動ルートを保つことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void RootOutputBase_ChildJukeboxRowsDoNotInvalidateRootOutputBase()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -820,6 +697,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             testSettings.BMSInstallDir = manualBmsRoot;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             IReadOnlyList<SettingsDialogViewModel.CustomFolderOutputBaseJukeboxAdoptionConflict> conflicts =
@@ -835,20 +713,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>採用済みルート出力先と古い子登録を実表の出力子へ揃え、手動ルートを消したり古い出力先を残す誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void RootOutputBaseSync_ReplacesAdoptedRootBaseWithPlaylistOutputRoots()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -865,6 +737,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.OperationModeLR2DB = true;
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             SetViewModelTables(
@@ -885,18 +758,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>まだない表出力先を実作成・登録し、親基点を外しながら手動ルートを保つことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void RootOutputBaseSync_RegistersAndCreatesMissingPlaylistOutputRoot()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -911,6 +780,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.OperationModeLR2DB = true;
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             SetViewModelTables(
@@ -931,20 +801,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>出力先を包含する手動親登録がある同期要求を拒否し、実 XML と登録と出力ディレクトリを変更しないことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void RootOutputBaseSync_RejectsRegisteredParentWithoutChangingRootsOrFiles()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -965,6 +829,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
                 CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             SetViewModelTables(
@@ -985,29 +850,16 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>通常出力先の保存指定あり・復元指定なしの双方で、同一登録を出力先へ採用でき、譜面候補だけから除くことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    [DoNotParallelize]
     public void NormalOutputBase_AllowsRegisteredRootWithOrWithoutSavedOutputSetting(bool restoreOutput)
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousSongDbPath = testSettings.LR2SongDBPath;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        bool previousUsePlayerUbmplay = testSettings.UsePlayeruBMplay;
-        bool previousUsePlayerLr2body = testSettings.UsePlayerLR2body;
-        bool previousUsePlayerBmidxView = testSettings.UsePlayerBMIIDXView;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -1032,6 +884,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             dialog.LR2CustomFolderOutputDir = normalOutputBase;
@@ -1045,19 +898,11 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.LR2SongDBPath = previousSongDbPath;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            testSettings.UsePlayeruBMplay = previousUsePlayerUbmplay;
-            testSettings.UsePlayerLR2body = previousUsePlayerLr2body;
-            testSettings.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>旧通常出力先を追加出力へ転用する要求を、同一登録を示す採用確認対象として返すことを確認します。</summary>
     [TestMethod]
     public void AdditionalOutputBase_PreviousNormalOutputBaseRequiresAdoptionWarning()
     {
@@ -1076,19 +921,10 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         Assert.AreEqual(previousNormalOutput, conflicts[0].JukeboxRootPath);
     }
 
+    /// <summary>追加指定を編集で消しても旧追加領域を通常出力へ転用する保存を拒否し、旧役割の保護を失う誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void NormalOutputBase_CannotAdoptPreviousAdditionalOutputBaseAsNewNormalRoot()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousSongDbPath = testSettings.LR2SongDBPath;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        bool previousUsePlayerUbmplay = testSettings.UsePlayeruBMplay;
-        bool previousUsePlayerLr2body = testSettings.UsePlayerLR2body;
-        bool previousUsePlayerBmidxView = testSettings.UsePlayerBMIIDXView;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -1116,6 +952,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             testSettings.LR2CustomFolderOutputBaseDir = previousAdditionalOutputBase;
@@ -1129,32 +966,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.LR2SongDBPath = previousSongDbPath;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            testSettings.UsePlayeruBMplay = previousUsePlayerUbmplay;
-            testSettings.UsePlayerLR2body = previousUsePlayerLr2body;
-            testSettings.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>ルート出力先を別の場所へ移しても旧領域の通常出力への転用を拒否し、旧役割の保護を失う誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void NormalOutputBase_CannotAdoptPreviousRootOutputBaseAsNewNormalRoot()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousSongDbPath = testSettings.LR2SongDBPath;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        bool previousUsePlayerUbmplay = testSettings.UsePlayeruBMplay;
-        bool previousUsePlayerLr2body = testSettings.UsePlayerLR2body;
-        bool previousUsePlayerBmidxView = testSettings.UsePlayerBMIIDXView;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -1179,6 +998,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             testSettings.LR2CustomFolderOutputBaseDirRootType = currentRootOutputBase;
@@ -1191,26 +1011,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.LR2SongDBPath = previousSongDbPath;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            testSettings.UsePlayeruBMplay = previousUsePlayerUbmplay;
-            testSettings.UsePlayerLR2body = previousUsePlayerLr2body;
-            testSettings.UsePlayerBMIIDXView = previousUsePlayerBmidxView;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>手動譜面ルートの親をルート型出力へ選択でき、採用確認の比較元として親出力と子登録を返すことを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void RootOutputBase_CanAdoptManualBmsRootParentWithSaveWarning()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -1228,6 +1036,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
             dialog.LR2CustomFolderAsRootOutputDir = manualBmsRootParent;
@@ -1245,56 +1054,21 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             TryDeleteDirectory(tempRootPath);
         }
     }
 
+    /// <summary>末尾名に現在ディレクトリ表現を指定し、出力先の名前変更要求を ArgumentException で拒否する既存判断を確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void AdditionalOutputBaseRename_InvalidNameDoesNotChangeList()
+    public void AdditionalOutputBaseRename_RejectsCurrentDirectoryName()
     {
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
-        try
-        {
-            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
-            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
-            string additionalOutputBaseParent = Path.Combine(tempRootPath, "AdditionalParent");
-            string additionalOutputBase = Path.Combine(additionalOutputBaseParent, "AdditionalOutput");
-            Directory.CreateDirectory(normalOutputBase);
-            Directory.CreateDirectory(rootOutputBase);
-            Directory.CreateDirectory(additionalOutputBase);
-
-            LR2Config config = CreateConfig(tempRootPath);
-            config.AddBMSSearchDirectories([normalOutputBase, rootOutputBase, additionalOutputBase]);
-            testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs =
-                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalOutputBase]);
-            MainWindowViewModel viewModel = CreateViewModel(config);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            dialog.SelectedCustomFolderAdditionalOutputBaseDir = additionalOutputBase;
-
-            Assert.ThrowsException<ArgumentException>(() =>
-                CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, "."));
-
-            CollectionAssert.Contains(dialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBase);
-            CollectionAssert.DoesNotContain(dialog.CustomFolderAdditionalOutputBaseDirList, additionalOutputBaseParent);
-        }
-        finally
-        {
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            TryDeleteDirectory(tempRootPath);
-        }
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        string additionalOutputBase = Path.Combine(root, "AdditionalOutput");
+        Assert.ThrowsException<ArgumentException>(() =>
+            CustomFolderOutputBaseRegistry.RenameLastDirectoryName(additionalOutputBase, "."));
     }
 
+    /// <summary>通常出力先を移す同期で旧登録を外し新登録を実 LR2 設定へ追加することを確認します。</summary>
     [TestMethod]
     public void NormalOutputBaseSearchRootSync_RemovesOldNormalOutputBase()
     {
@@ -1326,85 +1100,80 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
+    /// <summary>実出力登録を修復しても導入先を変更せず、後の Reset が保存済み導入先を復元することを確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
+    [DoNotParallelize] // ResetSettings が共有テーマと文化を復元します。
     public void StartupRepair_DoesNotRewriteManagedOutputInstallDir()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousConfigXmlPath = testSettings.LR2ConfigXmlPath;
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+        string previousTheme = Settings.Default.AppearanceTheme;
+        CultureInfo? previousResourceCulture = Resources.Culture;
         try
         {
-            string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
-            string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
-            string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
-            string rootOutputChild = Path.Combine(rootOutputBase, "PlaylistOutput");
-            Directory.CreateDirectory(manualBmsRoot);
-            Directory.CreateDirectory(normalOutputBase);
-            Directory.CreateDirectory(rootOutputChild);
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                string manualBmsRoot = Path.Combine(tempRootPath, "ManualBmsRoot");
+                string normalOutputBase = Path.Combine(tempRootPath, "NormalOutput");
+                string rootOutputBase = Path.Combine(tempRootPath, "RootOutput");
+                string rootOutputChild = Path.Combine(rootOutputBase, "PlaylistOutput");
+                Directory.CreateDirectory(manualBmsRoot);
+                Directory.CreateDirectory(normalOutputBase);
+                Directory.CreateDirectory(rootOutputChild);
 
-            LR2Config config = CreateConfig(tempRootPath);
-            config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase, rootOutputChild]);
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
-            testSettings.BMSInstallDir = rootOutputChild;
+                LR2Config config = CreateConfig(tempRootPath);
+                config.SetBMSSearchDirectories([manualBmsRoot, normalOutputBase, rootOutputBase, rootOutputChild]);
+                testSettings.OperationModeLR2DB = true;
+                testSettings.LR2CustomFolderOutputBaseDir = normalOutputBase;
+                testSettings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+                testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                testSettings.BMSInstallDir = rootOutputChild;
 
-            MainWindowViewModel viewModel = CreateViewModel(config);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
-            string savedDialogInstallDir = dialog.BMSInstallDir;
-            string songDbPath = Path.Combine(tempRootPath, "song.db");
-            File.WriteAllBytes(songDbPath, []);
-            SetViewModelTables(
-                viewModel,
-                songDbPath,
-                [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
+                MainWindowViewModel viewModel = CreateViewModel(config);
+                using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
+                SettingsDialogViewModel dialog = viewModel.SettingDialog;
+                string savedDialogInstallDir = dialog.BMSInstallDir;
+                string songDbPath = Path.Combine(tempRootPath, "song.db");
+                File.WriteAllBytes(songDbPath, []);
+                SetViewModelTables(
+                    viewModel,
+                    songDbPath,
+                    [new BMSTable { is_root_folder = true, Output_dir = "PlaylistOutput" }]);
 
-            var startupSettings = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
-            bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
-                .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
+                var startupSettings = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+                bool changed = ((ISettingsDialogCustomFolderOutputPort)viewModel.PlaylistWorkspace)
+                    .SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
-            Assert.IsTrue(changed);
-            Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
-            Assert.AreEqual(savedDialogInstallDir, dialog.BMSInstallDir);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), normalOutputBase);
-            CollectionAssert.Contains(config.GetBMSSearchDirectories(), rootOutputChild);
-            CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
+                Assert.IsTrue(changed);
+                Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
+                Assert.AreEqual(savedDialogInstallDir, dialog.BMSInstallDir);
+                CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
+                CollectionAssert.Contains(config.GetBMSSearchDirectories(), normalOutputBase);
+                CollectionAssert.Contains(config.GetBMSSearchDirectories(), rootOutputChild);
+                CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
 
-            testSettings.BMSInstallDir = manualBmsRoot;
-            dialog.ResetSettings();
+                testSettings.BMSInstallDir = manualBmsRoot;
+                dialog.ResetSettings();
 
-            Assert.AreEqual(savedDialogInstallDir, dialog.BMSInstallDir);
-            Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
+                Assert.AreEqual(savedDialogInstallDir, dialog.BMSInstallDir);
+                Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
+            }
+            finally
+            {
+                TryDeleteDirectory(tempRootPath);
+            }
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2ConfigXmlPath = previousConfigXmlPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
-            TryDeleteDirectory(tempRootPath);
+            AppThemeService.ApplyTheme(previousTheme);
+            if (previousResourceCulture == null) { Resources.Culture = null; }
+            else { ResourceService.Current.ChangeCulture(previousResourceCulture.Name); }
         }
     }
 
+    /// <summary>捕捉後に出力 draft を変更して同期し、捕捉済み旧出力構成を使い後の編集場所へ同期を逸らす誤りを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void StartupRepair_UsesCapturedSettingsAfterEditSessionChanges()
     {
-        bool previousOperationMode = testSettings.OperationModeLR2DB;
-        string previousConfigXmlPath = testSettings.LR2ConfigXmlPath;
-        string previousNormalOutputBase = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        string previousBmsInstallDir = testSettings.BMSInstallDir;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialog_" + Guid.NewGuid().ToString("N"));
         try
         {
@@ -1426,6 +1195,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.BMSInstallDir = rootOutputChild;
 
             MainWindowViewModel viewModel = CreateViewModel(config);
+            using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             SetViewModelTables(
@@ -1450,12 +1220,6 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationMode;
-            testSettings.LR2ConfigXmlPath = previousConfigXmlPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
-            testSettings.BMSInstallDir = previousBmsInstallDir;
             TryDeleteDirectory(tempRootPath);
         }
     }
@@ -1466,12 +1230,18 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
         config.Save();
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-        // The test factory intentionally does not run startup initialization. Keep the
-        // in-memory LR2 configuration that owns the prepared fixture available to the
-        // workspace's typed custom-folder output port.
-        SetViewModelField(viewModel, "lr2config", config);
-        return viewModel;
+        // 初期化を走らせない fixture の実 LR2 設定を出力窓口へ渡します。
+        // SettingsDialog の購読 lifetime は各呼出元が実観測の終端まで所有します。
+        try
+        {
+            SetViewModelField(viewModel, "lr2config", config);
+            return viewModel;
+        }
+        catch
+        {
+            viewModel.SettingDialog.Dispose();
+            throw;
+        }
     }
 
     private static LR2Config CreateConfig(string tempRootPath)

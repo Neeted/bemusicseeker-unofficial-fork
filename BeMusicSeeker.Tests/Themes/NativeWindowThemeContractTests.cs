@@ -24,6 +24,7 @@ public sealed class NativeWindowThemeContractTests
         .Select(field => (OpCode)field.GetValue(null)!)
         .ToDictionary(opCode => opCode.Value);
 
+    /// <summary>本番の具体Window型を全件確認し、独自chromeのMainWindow以外が共通テーマ更新・解除の境界を迂回しません。</summary>
     [TestMethod]
     public void ConcreteProductionWindows_UseSharedThemedWindowExceptCustomChromeMainWindow()
     {
@@ -40,6 +41,7 @@ public sealed class NativeWindowThemeContractTests
             "MainWindow must remain the sole concrete production Window outside the shared ThemedWindow contract.");
     }
 
+    /// <summary>本番のXAML rootを実型と照合し、共通Window継承の抜けとprogressのClose抑制・Closing接続の欠落を検出します。</summary>
     [TestMethod]
     public void AuthoredWindowXaml_UsesSharedRootExceptCustomChromeMainWindow()
     {
@@ -87,6 +89,7 @@ public sealed class NativeWindowThemeContractTests
         }
     }
 
+    /// <summary>本番のcompiled生成経路も走査し、型一覧だけでは見逃す直接Window生成によるテーマ境界の迂回を検出します。</summary>
     [TestMethod]
     public void ProductionIl_DoesNotConstructRawSystemWindow()
     {
@@ -105,6 +108,7 @@ public sealed class NativeWindowThemeContractTests
             "Production code must construct ThemedWindow or a derived type instead of System.Windows.Window directly.");
     }
 
+    /// <summary>明色・暗色の両辞書にnative題名部が参照する意味付きbrushがあり、テーマ変更時の資源欠落を防ぎます。</summary>
     [TestMethod]
     public void ThemeDictionaries_DefineNativeWindowSemanticBrushes()
     {
@@ -135,6 +139,7 @@ public sealed class NativeWindowThemeContractTests
         }
     }
 
+    /// <summary>両テーマから往復切替して配色だけを交換し、共通styleの解決・変更通知・版更新とResourceAssemblyを保持します。</summary>
     [DataTestMethod]
     [DoNotParallelize]
     [DataRow("Light", "/BeMusicSeeker;component/Themes/Light.xaml")]

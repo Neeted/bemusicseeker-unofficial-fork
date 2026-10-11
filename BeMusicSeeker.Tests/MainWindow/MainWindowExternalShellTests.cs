@@ -16,10 +16,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-// The composed MainWindow resolves its view model through the process-wide WPF resource dictionary.
+// MainWindowTestLifetimeが共有Application.Resourcesのvmを所有し、終了待機中も復元まで保持します。
 [DoNotParallelize]
 public sealed class MainWindowExternalShellTests
 {
+    /// <summary>実MainWindowのフォルダメニューから存在するディレクトリだけを構成済みExplorer入口へ一回渡すことを確認し、欠損対象の実行やファイル選択経路への誤配送を検出します。</summary>
+    /// <remarks>操作判断は下位の管理主体、ここではcompiledメニューイベントと構成済み入口の接続を実WPFで確認します。</remarks>
     [TestMethod]
     public void LibraryFolderContextMenu_UsesComposedExternalShellGatewayOnlyForExistingDirectory()
     {
@@ -113,6 +115,8 @@ public sealed class MainWindowExternalShellTests
         });
     }
 
+    /// <summary>変更受付中は実メニューの展開と名前修正のクリックを処理済みにして開始せず、終了で操作中表示を戻すことを確認し、画面入口が共有受付を迂回する誤りを検出します。</summary>
+    /// <remarks>操作判断は下位の管理主体、ここではcompiledメニューイベントと構成済み入口の接続を実WPFで確認します。</remarks>
     [TestMethod]
     public void ChartPackageMutationActivity_BlocksContextMenuOpenAndMutationCommands()
     {

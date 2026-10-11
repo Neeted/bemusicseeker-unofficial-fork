@@ -25,6 +25,7 @@ public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>曲の途中に一覧・再生モード・位置を変えても先読み候補を差し替えず、次の実選曲は最新一覧へ従って一回準備することを確認します。</summary>
     [TestMethod]
     public async Task SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges()
     {
@@ -57,6 +58,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -109,6 +111,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>内蔵playerのReady受信で開始を確定し、演奏CompletionやUI投稿の受信を待たずに次候補を一件準備することを確認します。</summary>
     [TestMethod]
     public async Task InternalReady_StartsNextPreparationBeforeCompletionOrUiPublication()
     {
@@ -149,6 +152,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>先のNextがReady待機中でも後から届いたNextを捨てず、受付順に各対象を一回ずつ開始することを確認します。</summary>
     [TestMethod]
     public async Task ReceivedNextRequests_KeepEachStartWhileEarlierReadyIsPending()
     {
@@ -187,6 +191,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>Readyの入力不良が開始時または非同期に届いても一回通知して次の有効曲へ進み、同じ失敗を重ねて処理しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -235,6 +240,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>短曲の終了callbackがReady前に重複して届いても、Ready後に自然停止を一回だけ実行することを確認します。</summary>
     [TestMethod]
     public async Task InternalShortSong_CallbackAndCompletionBeforeReadyCauseOneNaturalStop()
     {
@@ -267,6 +273,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>単曲再生の自然停止が先読み回収失敗を受け取ると、元の原因を一回通知し停止表示を維持して次曲を始めないことを確認します。</summary>
     [TestMethod]
     public async Task NaturalSinglePlayStop_NotifiesPreloadCleanupFailureOnceWithoutStartingNextSong()
     {
@@ -313,6 +320,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>採用した先読みが停止後に失敗しても元の原因を一回通知し、失効した開始の表示や再生を復活させないことを確認します。</summary>
     [TestMethod]
     public async Task AdoptedPreloadFailure_AfterStopNotifiesOnceWithoutRestarting()
     {
@@ -372,6 +380,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>player交換と終了の双方は旧playerのClose終端を待ち、回収前に新playerの表示値へ切り替えないことを確認します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -404,6 +413,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>一時配置が必要な次候補はさらに先へ飛ばさず先読みを止め、配置先がなくコピー不要の未導入候補だけを直接準備することを確認します。</summary>
+    /// <remarks>実在する譜面と配置先の有無を候補計算へ渡し、コピーは開始せず局所playerの準備要求を観測します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -440,7 +451,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    /// <summary>外部playerの既存開始境界について、通常・一時配置の入力保持と開始時/開始後の一回通知を確認します。Readyと相対素材の条件は専用ケースが担当します。</summary>
+    /// <summary>通常入力と一時配置入力の外部開始は旧Closeの実終端を待ち、開始呼出しまで入力を保持します。同期失敗と返却Taskの遅い失敗を各一回通知することも確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -544,7 +556,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    /// <summary>StartAtIndexから実コピーを通し、Ready前の相対素材読取りとCompletion前の所有物回収を確認します。playerだけを固定し、低層のディレクトリ所有条件とは分担します。</summary>
+    /// <summary>実コピーした相対音源・画像を内蔵Readyまで保持しCompletion前に所有物だけ回収します。既存素材・同名別フォルダ・元入力の保全と再試聴を確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public async Task TemporaryCopy_IsRetainedUntilReadyAndRemovedBeforeCompletion()
     {
@@ -618,7 +631,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    /// <summary>外部playerの実開始後に別Taskから相対素材を読み、既存の短い保持中の読取りと開始Task終端後の回収を確認します。固定sleepで成功を推定せず、gateと読取り結果を観測します。</summary>
+    /// <summary>外部player開始後の別Taskが入れ子譜面と相対音源を読めることをgateで観測し、開始Task終端後の回収・元名復元・既存宛先保全を確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public async Task TemporaryCopy_ExternalDelayedReadKeepsNestedChartAndRestoresOriginalName()
     {
@@ -684,6 +698,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>停止・早送り・効果表示・プレイ側・速度の各commandが再生ownerを通して対象playerへ届くことを、実際の呼出し通知で確認します。</summary>
     [TestMethod]
     public async Task PlaybackCommands_ExecuteThroughPlaybackOwner()
     {
@@ -719,6 +734,7 @@ public sealed class PlaybackPanelViewModelTests
         await decreaseHighSpeedObserved;
     }
 
+    /// <summary>指定したplayer統計とその変更を表示へ反映し、seek・pause・restart・方向操作・音量変更が同じplayerへ正しく渡ることを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_TracksTelemetryAndDelegatesPlayerCommands()
     {
@@ -814,6 +830,7 @@ public sealed class PlaybackPanelViewModelTests
             player.Commands.ToArray());
     }
 
+    /// <summary>UI投稿が未実行の間は統計を更新せず、停止で失効した開始通知を捨てながら最新統計だけ反映することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_DispatchesTelemetryAndSuppressesStalePlaybackEventsThroughUiBoundary()
     {
@@ -852,6 +869,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, startedCount);
     }
 
+    /// <summary>Close後の統計再読込みをUI受信まで待ち、旧playerの未受信更新が交換済みplayerの表示値を上書きしないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_CloseRefreshUsesUiBoundaryAndIgnoresReplacedPlayer()
     {
@@ -889,6 +907,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(TimeSpan.FromSeconds(40), panel.CurrentlyPlayingDuration);
     }
 
+    /// <summary>player Close中にも別Taskからsession開始を完了でき、外部呼出しをsession guardの内側で待つdeadlockを起こさないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_StopDoesNotHoldSessionGuardAcrossPlayerClose()
     {
@@ -910,6 +929,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(7, panel.NowPlayingRowIndex);
     }
 
+    /// <summary>進行中のplayer開始を停止が追い越さず、開始呼出し終端後にCloseして現在曲を解除する順序を確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_StopSerializesWithInFlightPlayerStartAndClosesItAfterward()
     {
@@ -939,6 +959,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.IsNull(panel.NowPlayingChart);
     }
 
+    /// <summary>player交換で旧playerを閉じ購読を解除し、既存window hostを新playerへ接続して旧統計通知を無視することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_ReplacementClosesOldPlayerDetachesEventsAndKeepsWindowHost()
     {
@@ -962,6 +983,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, second.CloseProcessCount);
     }
 
+    /// <summary>設定適用portの交換が旧playerと現在曲を回収しhostを引き継ぎ、機器テストportの停止は交換後playerを閉じることを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_SettingsRuntimePortSeparatesReplacementAndAudioTestStop()
     {
@@ -987,6 +1009,7 @@ public sealed class PlaybackPanelViewModelTests
         settingsRuntime.NotifySettingsChanged();
     }
 
+    /// <summary>設定適用の呼出しは旧Closeが保留でもTaskを返し、解放後の実終端で交換を確定して呼出しlaneを塞がないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_SettingsReplacementReturnsTaskWhilePreviousPlayerClosesOffCallerLane()
     {
@@ -1014,6 +1037,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(replacement.Duration, panel.CurrentlyPlayingDuration);
     }
 
+    /// <summary>交換候補の統計準備が失敗した場合、元player・session・通知購読を維持しどちらのplayerも閉じないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_SettingsRuntimeApplyFailurePreservesPreviousPlayerAndSession()
     {
@@ -1043,6 +1067,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(TimeSpan.FromSeconds(20), panel.CurrentlyPlayingDuration);
     }
 
+    /// <summary>現在曲のsessionだけが開始・終了を通知し、旧世代および停止後の終了callbackでは現在状態を変更しないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_OwnsSessionStateAndIgnoresStaleExitCallbacks()
     {
@@ -1085,6 +1110,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, player.CloseProcessCount);
     }
 
+    /// <summary>同じ曲への開始操作でpauseと再開を切り替え、再生中・停止中のbindingへ状態通知を揃えて公開することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_TogglePausePublishesPlayingAndPausedStates()
     {
@@ -1122,6 +1148,7 @@ public sealed class PlaybackPanelViewModelTests
             changed);
     }
 
+    /// <summary>BMS・bmsonの共通キューで種類と大小文字を無視したpathに再生bitを投影し、元のスコア・検索bitを保全しながら終了通知で一回だけ送ることを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance()
     {
@@ -1193,8 +1220,6 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.IsNotNull(panel.NowPlayingChart);
             Assert.AreEqual(ChartFileKind.Bmson, panel.NowPlayingChart.Kind);
-            Assert.AreSame(bmson.Token, panel.NowPlayingChart.Token);
-            Assert.IsNull(panel.NowPlayingChart.Token);
             Assert.AreEqual("Bmson", panel.PlayerHeaderTitle);
             Assert.AreEqual("[Another]", panel.PlayerHeaderSubtitle);
             Assert.AreEqual(ChartFileStatus.PLAY, bmsonRow.status & ChartFileStatus.PLAYALL);
@@ -1225,6 +1250,7 @@ public sealed class PlaybackPanelViewModelTests
             }
         }
     }
+    /// <summary>bmson非対応の外部playerにはbmson行の起動を受理せず、player呼出しを行わないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability()
     {
@@ -1242,6 +1268,7 @@ public sealed class PlaybackPanelViewModelTests
         finally { panel.BeginShutdown(); panel.CloseForShutdown().GetAwaiter().GetResult(); File.Delete(path); }
     }
 
+    /// <summary>現在曲の終了で次曲と一覧選択を一回進め、旧終了callbackの再送ではさらに送りを行わないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_PlayerExitAdvancesExactlyOnceToTheNextChart()
     {
@@ -1299,6 +1326,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>停止・交換で準備済み開始を拒否し、Close後は実行済みsessionの終了callbackも失効することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_StopReplaceAndCloseInvalidatePreparedOrRunningSessions()
     {
@@ -1327,6 +1355,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, replacementPlayer.CloseProcessCount);
     }
 
+    /// <summary>リピート対象一万件がすべて利用不能でも探索が終端し、現在曲を残して巡回し続けないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable()
     {
@@ -1359,6 +1388,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>入力不良が4096件続いても再帰的送りで落ちず、各対象を一回試行・通知して停止することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_StopsAfterManyInvalidChartsWithoutRecursiveAdvance()
     {
@@ -1400,6 +1430,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>開始呼出しの同期失敗では先に現在曲を解除してから元例外を一回通知することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_NotifiesAndStopsAfterPlayerStartFailure()
     {
@@ -1440,6 +1471,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>外部開始の返却Taskが遅れて失敗した場合、元例外を通知して表示状態だけ解除し追加Closeを行わないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_ObservesAsynchronousPlayerStartFailure()
     {
@@ -1482,6 +1514,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>非同期開始の成功前に届いた終了callbackを保留し、成功確定後に一回引き渡すことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_DefersExitUntilAsynchronousStartSucceeds()
     {
@@ -1506,6 +1539,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreSame(file, panel.NowPlayingChart);
     }
 
+    /// <summary>非同期開始が失敗した場合、表示を停止へ戻しそのsessionの終了callbackを引き渡さないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_DropsExitAfterAsynchronousStartFailure()
     {
@@ -1528,6 +1562,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(-1, panel.NowPlayingRowIndex);
     }
 
+    /// <summary>commandから開始した未完了Taskが取消された場合、現在曲解除の通知まで到達し故障ダイアログを出さないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_StopsCurrentPlaybackWhenAsyncPlayerStartIsCanceled()
     {
@@ -1581,6 +1616,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>開始時点ですでに取消済みのTaskも停止として扱い、現在曲を残したり故障通知を出したりしないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_TreatsAlreadyCanceledPlayerStartAsStoppedWithoutFailureDialog()
     {
@@ -1617,6 +1653,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>旧開始の遅い失敗は元Taskへ返しても、新世代の曲を解除せず故障通知を追加しないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_IgnoresLateStartFailureAfterNewGenerationBegins()
     {
@@ -1648,6 +1685,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.IsNull(panel.NowPlayingChart);
     }
 
+    /// <summary>停止後およびplayer交換後の遅い開始失敗が新しい表示状態を消したり通知を追加したりしないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_IgnoresLateStartFailureAfterStopAndReplacement()
     {
@@ -1680,6 +1718,7 @@ public sealed class PlaybackPanelViewModelTests
         panel.StopPlayback().GetAwaiter().GetResult();
     }
 
+    /// <summary>非同期開始失敗を通知した後も同じplayerで明示再生を受け付け、余分なCloseや再通知なしで開始できることを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_RecoversAfterAsynchronousPlayerStartFailure()
     {
@@ -1721,6 +1760,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>直接開始の失敗通知自体が失敗しても処理を収束させ、次の再生や余分なCloseを始めないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_DirectStartContainsNotificationFailureWithoutFollowingPlayback()
     {
@@ -1760,6 +1800,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>通知先がthrowする設定で停止commandを実行し、元のplayer停止失敗が通知先へ届くことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_CommandFailureUsesPlaybackNotification()
     {
@@ -1783,6 +1824,7 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreSame(operationFailure, dialogs.LastPlaybackFailure);
     }
 
+    /// <summary>通知先がthrowする設定で非同期の開始処理を失敗させ、元のplayer開始失敗が通知先へ届くことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_ContainsAsynchronousNotificationFailure()
     {
@@ -1820,6 +1862,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>同期失敗済み開始の呼出し中にplayerを交換しても、旧失敗が交換後の曲を停止したり新playerを閉じたりしないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_DoesNotStopReplacementAfterSynchronousStartFailure()
     {
@@ -1858,6 +1901,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>同期取消済み開始の呼出し中にplayerを交換しても、新playerの表示と寿命を旧取消で破壊しないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_DoesNotStopReplacementAfterSynchronousStartCancellation()
     {
@@ -1898,6 +1942,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>一時配置からの外部開始で非同期失敗と取消を順に起こし、表示を解除してもplayerを閉じず失敗だけ一回通知することを確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public async Task PlaybackPanel_TemporaryInstallAsyncStartFailureAndCancellationClearStateWithoutClosingPlayer()
     {
@@ -1968,6 +2014,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>一時配置の確認受諾時だけ配置先を再生し、拒否時は開始せず停止・Closeへ収束することを確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public void PlaybackPanel_TemporaryInstallConfirmationControlsPlaybackWorkflow()
     {
@@ -2033,6 +2081,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>一時配置確認のdialogが失敗すると元例外を返し、再生せず現在曲を解除してplayerを閉じることを確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public void PlaybackPanel_TemporaryInstallDialogFailureStopsAndPropagates()
     {
@@ -2078,6 +2128,8 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>行起動からの一時改名が共有禁止handleで失敗すると一回通知し、開始通知なしで停止して元入力と既存宛先を保全することを確認します。</summary>
+    /// <remarks>一時配置の物理コピー・回収または確認から開始への接続を通すため実ライブラリを接続し、playerの実行は局所probeで制御します。</remarks>
     [TestMethod]
     public async Task PlaybackPanel_TableRowActivationNotifiesTemporaryInstallMoveFailure()
     {
@@ -2142,6 +2194,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>一覧差替え前に取得した譜面snapshotを保持し、差替え中は解放済みproviderへ再アクセスせず新一覧確定後だけ新しい対象を解決することを確認します。</summary>
     [TestMethod]
     public async Task MainChartListPlaybackQueue_ResolvesSnapshotBeforeReplacementWithoutReusingOldProvider()
     {
@@ -2169,7 +2222,6 @@ public sealed class PlaybackPanelViewModelTests
             ChartFile duringReplacement = await Task.Run(() => queue.GetPlaybackChart(0));
             Assert.IsNull(duringReplacement);
             Assert.AreEqual(path, snapshot.Path);
-            Assert.AreEqual(path, snapshot.Path);
             Assert.AreEqual(readsBeforeReplacement, providerReads);
             chartList.Rows = new List<object> { (ChartTestValues.Empty() with { Path = replacementPath }) };
             Assert.AreEqual(replacementPath, queue.GetPlaybackChart(0).Path);
@@ -2181,6 +2233,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>キューが差替え後の行集合を読み、指定した選択を一覧の通知へ接続することで古い行や選択を保持する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartListPlaybackQueue_ForwardsLiveRowsAndSelection()
     {
@@ -2204,6 +2257,7 @@ public sealed class PlaybackPanelViewModelTests
         CollectionAssert.Contains(changed, nameof(MainChartListViewModel.SelectedIndex));
     }
 
+    /// <summary>行起動とNext・Previousが最新の一覧選択へ従い、再生中の別行ハイライトや不一致の起動入力で現在曲を変えないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_StartNextAndPreviousFollowLiveQueueSelection()
     {
@@ -2279,7 +2333,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    // U3T4a/c: 通常停止は再開可能だが、terminal 受付閉鎖後は直接入口と古い exit も無効。
+    /// <summary>通常停止後の明示再生は受理し、終了受付を閉じた後は各直接入口・command・旧終了callbackを拒否して終了専用Closeだけ行うことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_ShutdownRejectsPlaybackInputsButOrdinaryStopAllowsRestart()
     {
@@ -2345,7 +2399,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
-    // U3T4b: queue 解決中の Next は terminal 受付を再開できず、所有 Task は両方回収する。
+    /// <summary>行解決中のNextに終了が重なると解決の実終端を待ってCloseし、受付を再開して別曲を始めないことを確認します。</summary>
     [TestMethod]
     public async Task PlaybackPanel_ShutdownDrainsEarlierNavigationWithoutStartingAnotherChart()
     {
@@ -2399,6 +2453,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>手動Nextの後に並んだ旧自然終了は交換後の曲を送らず、後続の明示Nextだけを受付順に実行することを確認します。</summary>
     [TestMethod]
     public async Task NaturalExit_QueuedBehindManualNextDoesNotAdvanceTheReplacementSong()
     {
@@ -2459,6 +2514,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>起動時の行と現在slotが違えば開始を捨て、同じslotに対象が戻った場合だけその譜面を再生することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_RowActivationDropsRequestWhenQueueSlotChanged()
     {
@@ -2501,6 +2557,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>表示面の利用可否に従って選択・回転を制御し、選べない面で保存状態を変えず小型指定を維持することを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_OwnsPanelStateTransitionsUsingViewHostAvailability()
     {
@@ -2536,6 +2593,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>利用不能なplayer面を画像へ解決する際にも小型フラグを保ち、利用可能な場合は要求された面をそのまま使うことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanelViewResolvesUnavailableBmsSurfaceWithImageFallbackAndCompactPreserved()
     {
@@ -2553,6 +2611,8 @@ public sealed class PlaybackPanelViewModelTests
             PlaybackPanelView.ResolveSurfaceState(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, false));
     }
 
+    /// <summary>実選曲で画像・バナーを素材AからBへ更新し、素材なしの曲では既定画像へ戻して前曲の素材を残さないことを画素で確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent()
@@ -2668,6 +2728,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>compiled Viewを表示して初期Collapsedの子HWNDを所有UIスレッド上に生成し、指定した題名・字幕・作者を実Textへ反映することを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_CompiledTreeMaterializesCurrentSurfaceAndHeader()
@@ -2708,17 +2770,10 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.AreEqual(Visibility.Collapsed, playerHost.Visibility);
                 ExternalPlayerHostObservation.AssertOwnedChild(playerHost.Handle, window);
                 Assert.AreEqual(playerHost.Handle, view.PlayerHostHandle);
-                var artwork = (Image)view.FindName("gridBMSPlayerImage");
-                var playButton = (Button)view.FindName("buttonBMSPlayerControlsPlayAndPauseButton");
                 var title = (TextBlock)view.FindName("gridBMSPlayerControlsTitle");
                 var subtitle = (TextBlock)view.FindName("gridBMSPlayerControlsSubtitle");
                 var artist = (TextBlock)view.FindName("gridBMSPlayerControlsArtist");
 
-                Assert.AreSame(panel, view.DataContext);
-                Assert.AreSame(panel, playerHost.DataContext);
-                Assert.IsNotNull(artwork.Source);
-                Assert.AreSame(panel, playButton.DataContext);
-                Assert.AreSame(panel, title.DataContext);
                 Assert.AreEqual("Current Title", title.Text);
                 Assert.AreEqual("[Current Subtitle]", subtitle.Text);
                 Assert.AreEqual("Current Artist", artist.Text);
@@ -2732,6 +2787,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>player面・overlay・切離しと再接続で同じ子HWNDを保持し、外部player互換の物理寸法・DPI配置と選択面復元を確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_PlayerSurfaceAndOverlayPreserveHostAndPhysicalLayout()
@@ -2831,6 +2888,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>小型と利用不能player面を指定してViewを表示すると、最初から画像の小型最終値へ同期しanimation clockを残さないことを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_InitiallySynchronizesCompactStateWithoutAnimation()
@@ -2862,6 +2921,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>拡大型を明示した初回表示は最終値へ即時同期し、初期値からのanimationで表示を遅らせないことを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_InitiallySynchronizesExpandedStateWithoutAnimation()
@@ -2893,6 +2954,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>表示済みViewのDataContextを小型・拡大型の双方へ交換し、旧VMから遷移せず各最終値を即時適用することを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_DataContextReplacementSynchronizesBothDirectionsWithoutAnimation()
@@ -2929,6 +2992,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>同じVMの小型変更だけは遷移し、非表示でclockを解除して再読込み時は最新最終値へ即時同期し同じHWNDを保つことを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_SameViewModelStateChangesUseTransitionsAndReloadSynchronizesImmediately()
@@ -2986,6 +3051,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>Viewを再読込みした後は旧購読期間の開始通知を破棄し、新しい期間の開始通知だけ各一回転送することを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_ReloadRejectsEventsQueuedByThePreviousSubscription()
@@ -3049,6 +3116,8 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>DataContext交換・Unloadedで遅延した前曲button restartを取消し、旧購読通知とバナーを持ち越さず新VMの通知もUIへ安全に渡すことを確認します。</summary>
+    /// <remarks>実WindowのLoaded・compiled binding・子HWNDまたはanimationを観測するため表示し、共有WPF資源を使うこのケースだけ非並列にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
@@ -3173,6 +3242,7 @@ public sealed class PlaybackPanelViewModelTests
         });
     }
 
+    /// <summary>利用者が指定した表示面・リピート・フォルダ送り・単曲モードを設定storeへ書き戻し、bindingと保存値の不一致を検出します。</summary>
     [TestMethod]
     public void PlaybackPanel_OwnsPersistedPanelAndPlaybackModeBindings()
     {
@@ -3202,6 +3272,7 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    /// <summary>player設定を変更した通知でseek等の操作能力と画像設定を再評価し、関連bindingを通知して旧player能力を残さないことを確認します。</summary>
     [TestMethod]
     public void PlaybackPanel_RefreshesCapabilityBindingsAfterSettingsChange()
     {

@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class SelectedChartMutationWorkflowOwnerTests
 {
+    /// <summary>確定済み削除のcatalog失敗を受付・活動の解放後に一回報告し、報告例外の有無で元原因と結果が失われる誤りを検出します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -65,6 +66,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
     }
 
+    /// <summary>保留削除の確認を取消した場合は変更せず正常終端し、取消後の削除を検出します。</summary>
     [TestMethod]
     public async Task DeletePendingAsync_RejectedDialogDoesNotMutate()
     {
@@ -85,6 +87,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.PendingDeleteCalls);
     }
 
+    /// <summary>保留削除の確認失敗は失敗として返し、削除への代替を検出します。</summary>
     [TestMethod]
     public async Task DeletePendingAsync_DialogFailureReturnsFailureWithoutMutation()
     {
@@ -106,6 +109,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.PendingDeleteCalls);
     }
 
+    /// <summary>確認結果が欠落した保留削除は失敗として拒否し、承認扱いで変更する誤りを検出します。</summary>
     [TestMethod]
     public async Task DeletePendingAsync_NullDialogResultReturnsFailureWithoutMutation()
     {
@@ -122,6 +126,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.PendingDeleteCalls);
     }
 
+    /// <summary>削除権限のない選択は何も変更せず終え、保留・所有storeへの誤った転送を検出します。</summary>
     [TestMethod]
     public async Task DeleteAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
     {
@@ -137,6 +142,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.PendingDeleteCalls);
     }
 
+    /// <summary>保留削除のfolder指定をstoreへ渡し、活動・再生停止・更新抑制と各解放の順序欠落を検出します。</summary>
     [TestMethod]
     public async Task DeletePendingAsync_AcceptedPreservesFolderCheckboxAndOperationOrder()
     {
@@ -154,15 +160,12 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         Assert.IsTrue(result.Succeeded);
         Assert.IsTrue(store.DeleteContainingPackageFoldersWhenNoBms);
-        Assert.AreEqual(
-            5,
-            presentation.Events.Count,
-            string.Join("|", presentation.Events));
         CollectionAssert.AreEqual(
             new[] { "activity-start", "playback-stop", "pending-refresh-start", "pending-refresh-end", "activity-end" },
             presentation.Events);
     }
 
+    /// <summary>所有譜面だけを削除へ渡して承認済みfolder候補を保持し、保留選択の混入や承認範囲の欠落を検出します。</summary>
     [TestMethod]
     public async Task DeleteLibraryAsync_FiltersScopeAndPassesApprovedWholeFolders()
     {
@@ -188,6 +191,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual("library.bms", Path.GetFileName(store.LibraryCharts[0].Path));
     }
 
+    /// <summary>folder削除は再生停止と抑制開始後に行い、変更後に抑制・活動を解放する順序違反を検出します。</summary>
     [TestMethod]
     public async Task DeleteLibraryAsync_StopsPlaybackBeforeApprovedFolderDeletion()
     {
@@ -213,6 +217,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             events);
     }
 
+    /// <summary>BMS・PMSを対応する拡張子へ分けて一回の所有変更へ渡し、種類の取り違えや対象別確定を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_SplitsBmsAndPmsAndPreservesRouteOrder()
     {
@@ -231,6 +236,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(1, store.RenameCallCount);
     }
 
+    /// <summary>保留BMS・PMSは保留の抑制範囲で個別変更し、所有終端storeへの誤転送や活動解放漏れを検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_PendingUsesPendingRouteAndRefreshScope()
     {
@@ -252,6 +258,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             events);
     }
 
+    /// <summary>二種類の拡張子を一セッションへまとめ、catalog失敗を解放後に元receiptとともに報告する接続漏れを検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_TerminalStoreBatchesFamiliesIntoOneSession()
     {
@@ -302,6 +309,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(1, dialogs.Messages.Count);
     }
 
+    /// <summary>一部の物理変更失敗は確定成功を保持して一回報告し、全体失敗への読み替えや対象通知の欠落を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_ItemFailuresAreAggregatedOnceWithoutChangingSuccessSemantics()
     {
@@ -342,6 +350,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "beta.pms");
     }
 
+    /// <summary>拡張子修正権限のない選択は変更を開始せず終え、対象の受付漏れを検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_WithoutEligibleTargetsDoesNotShowDialogOrMutate()
     {
@@ -356,6 +365,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameCallCount);
     }
 
+    /// <summary>拡張子修正を取消した場合は変更を開始せず正常終端し、承認なしの実行を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_RejectedConfirmationDoesNotMutate()
     {
@@ -376,6 +386,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameCallCount);
     }
 
+    /// <summary>拡張子修正の確認失敗は失敗を返し、確認なしで実行する代替を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_DialogFailureReturnsFailureWithoutMutation()
     {
@@ -391,6 +402,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameCallCount);
     }
 
+    /// <summary>所有の操作へ保留対象を渡した場合は失敗として拒否し、別区画の変更を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_RejectsTargetsFromDifferentOperationSection()
     {
@@ -406,6 +418,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameCallCount);
     }
 
+    /// <summary>保留flagと所有scopeが矛盾する対象は拒否し、不整合な要求の実行を検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_RejectsTargetWithPendingFlagOnly()
     {
@@ -421,6 +434,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, store.RenameCallCount);
     }
 
+    /// <summary>拡張子修正storeの例外後も抑制と活動を終え、変更失敗時に画面の抑制を残す誤りを検出します。</summary>
     [TestMethod]
     public async Task RenameInvalidExtensionsAsync_MutationFailureReleasesSuppressionAndActivity()
     {
@@ -624,6 +638,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
+    /// <summary>一部移動の物理失敗とdurable成功を保持して解放後に報告し、任意通知先の例外で元receiptを失う誤りを検出します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -675,6 +690,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.IsTrue(reportAfterRelease);
     }
 
+    /// <summary>cleanupだけの失敗はdurable成功を保って警告し、表示例外の有無で確定結果を失敗へ戻す誤りを検出します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -704,6 +720,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(1, store.Calls);
     }
 
+    /// <summary>正常なdurable移動は成功して終端ダイアログを増やさず、余分な通知を検出します。</summary>
     [TestMethod]
     public async Task MoveAsync_NormalTerminalReceiptIsSilent()
     {
@@ -720,6 +737,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.Messages.Count);
     }
 
+    /// <summary>移動確認の取消はstoreを呼ばず正常終端し、承認なしの移動を検出します。</summary>
     [TestMethod]
     public async Task MoveAsync_RejectedConfirmationDoesNotMutate()
     {
@@ -740,6 +758,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
+    /// <summary>移動権限不在と宛先空欄は変更なしで終え、不完全な要求をstoreへ渡す誤りを検出します。</summary>
     [TestMethod]
     public async Task MoveAsync_WithoutEligibleTargetsOrDestinationDoesNotShowDialogOrMutate()
     {
@@ -758,6 +777,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
+    /// <summary>文字コード指定が空欄でも維持し、二件のBMSから修正capabilityのある対象だけを要求へ残す選別誤りを検出します。</summary>
     [TestMethod]
     public void SelectedChartEncodingRequest_FiltersBmsCapabilityAndPreservesEncoding()
     {
@@ -780,6 +800,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreSame(eligible.Chart.Token, request.Charts[0].Token);
     }
 
+    /// <summary>文字コードは保存後に専用更新を通知し、一般変更の停止・活動・抑制経路へ誤って入ることを検出します。</summary>
     [TestMethod]
     public void ApplyEncoding_StoresBeforeRefreshWithoutGeneralMutationLifecycle()
     {
@@ -802,6 +823,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "store-encoding", "encoding-refresh" }, events);
     }
 
+    /// <summary>文字コード修正権限がない場合は保存も通知も行わず、不適格な対象の変更を検出します。</summary>
     [TestMethod]
     public void ApplyEncoding_WithoutTargetsDoesNotStoreOrRefresh()
     {
@@ -823,6 +845,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>文字コード保存の例外は失敗を返して更新を通知せず、未保存の値を画面へ公開する誤りを検出します。</summary>
     [TestMethod]
     public void ApplyEncoding_FailureDoesNotRefresh()
     {
@@ -845,6 +868,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>移動storeの例外ではpath更新を行わず抑制と活動を終端させ、失敗後の更新や変更境界の終端漏れを検出します。</summary>
     [TestMethod]
     public async Task MutationFailure_ReleasesSuppressionAndActivity()
     {
@@ -863,6 +887,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             presentation.Events);
     }
 
+    /// <summary>移動確認の表示失敗は変更せず失敗を返し、確認の代替で実行する誤りを検出します。</summary>
     [TestMethod]
     public async Task DialogFailure_DoesNotFallbackToMutation()
     {
@@ -881,6 +906,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
     /// <summary>実storeと実DBを通し、最初の確認前の固定対象が削除・通常拡張子変更へ届くことを確認します。</summary>
     [DataTestMethod]
+    // 0: 初期hashと現hashが違う削除、2: 確認取消、3: 現path変更後の拡張子修正。
     [DataRow(0)]
     [DataRow(2)]
     [DataRow(3)]
@@ -1020,6 +1046,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         });
     }
 
+    /// <summary>準備を保持している間もDispatcherは選択変更を処理でき、成功・失敗とも初期対象と受付終端を保つことからUI停止や後の選択混入を検出します。</summary>
+    /// <remarks>実Dispatcherから受付し、準備portだけを保持して同じUIキューの応答を観測します。DB保存の接続はRealStoreの代表ケースが担います。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1213,10 +1241,6 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
     private static ChartFile CreateChart(string path)
     {
-        ChartFile file = ChartTestValues.Empty() with
-        {
-            Path = path
-        };
         return new ChartFile(ChartFileKind.Bms, path, "hash-" + Path.GetFileNameWithoutExtension(path), null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 

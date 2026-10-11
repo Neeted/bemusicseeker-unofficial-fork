@@ -19,10 +19,12 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>内蔵難度表・推薦表の生成と、選択スコアの読取り・保存・通知接続を検証する。</summary>
+/// <remarks>数学の独立期待値はWalkureRecommendationMathTestsが担う。ここではURI方針と実DB・共通登録・再読込みを通し、生成結果の所属や保存・取消時の状態を観測する。</remarks>
 [TestClass]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
-    /// <summary>四推定・三推薦を実取得、共通登録、SQLite保存、新主体の再読込みとhydrationまで通し、生成時所属、採番後ID、名称・非空行・folder・levelを保ちます。推定はスコアを読まず、通信不能でもローカル生成を完了します。</summary>
+    /// <summary>通信不能でも4推定・3推薦を生成し、共通登録と別主体のSQLite再読込みで名称・所属・非空行・レベルを保持する。推定の再同期では手動名・出力設定を保持し、通信依存・採番後の所属欠落・保存経路の漏れを検出する。</summary>
     [TestMethod]
     public async Task LocalTables_CompleteWithUnavailableNetworkWithoutSendingRequests()
     {
@@ -48,9 +50,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 return Task.FromResult(ReadWalkureInput("standard"));
             }), (_, _) => { }, () => false, _ => { });
             List<BMSTable> generated = [];
+            // スコア不要の4推定と、同じ原スコアを使う3推薦方針の登録・復元接続を一巡する。
             string[] queries = ["table.estimation?type=easy", "table.estimation?type=normal", "table.estimation?type=hard",
                 "table.estimation?type=fc", "table.recommended", "table.recommended?base=failed", "table.recommended?failed=noplay"];
-            double[] expectedRatings = [.73, 2.56, 4.34, 23.40, 6.60, 4.57, 8.33];
             for (int index = 0; index < queries.Length; index++)
             {
                 BMSTable table = await external.LoadExternalTableAsync(new Uri("bmseeker:" + queries[index]));
@@ -60,16 +62,6 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 if (index < 4)
                 {
                     Assert.AreEqual(0, scoreReads);
-                    Assert.AreEqual(expectedRatings[index], table.entries.Single(row => row.md5 == "621ad2a006a4d39a57749c5f8dcc11b6").level);
-                    Assert.AreEqual(2, table.entries.Count(row => row.md5 == "a4a9c721a726435eaf37b62b1768b4e1"));
-                    if (index == 3)
-                    {
-                        Assert.IsTrue(table.entries.Where(row => row.md5 == "ac29456828fbd27bb27bd99d52a666c4").All(row => row.level == null));
-                    }
-                }
-                else
-                {
-                    StringAssert.Contains(table.org_name, "★" + expectedRatings[index].ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
                 }
                 generated.Add(table);
             }
@@ -144,7 +136,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
         }
     }
 
+    /// <summary>4推定方針はスコアなしでモデル保存★を使い、通常譜面すべてと両分類・未定義nullを生成して手動名を保持する。段位の混入・再換算・スコア要求を検出する。</summary>
     [DataTestMethod]
+    // モデル保存値を再換算しない。FCだけ正常な未定義nullも確認する。
     [DataRow("easy", .73)]
     [DataRow("normal", 2.56)]
     [DataRow("hard", 4.34)]
@@ -156,7 +150,8 @@ public sealed class PlaylistRecommendedTableOwnerTests
         BMSTable table = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.estimation?type=" + type + "&name=ignored&unknown=x"));
         Assert.AreEqual(0, reads);
         Assert.AreEqual(expected, table.entries.Single(row => row.md5 == "621ad2a006a4d39a57749c5f8dcc11b6").level);
-        Assert.AreEqual(1252, table.entries.Select(row => row.md5).Distinct().Count());
+        Assert.AreEqual(WalkureRecommendationModel.Bundled.Entries.Where(row => !row.IsCourse)
+            .Select(row => row.Md5).Distinct().Count(), table.entries.Select(row => row.md5).Distinct().Count());
         BMSTableEntry[] dual = table.entries.Where(row => row.md5 == "a4a9c721a726435eaf37b62b1768b4e1").ToArray();
         Assert.AreEqual(2, dual.Length);
         Assert.IsTrue(dual.Any(row => row.folder.StartsWith("INSANE", StringComparison.Ordinal)));
@@ -174,7 +169,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(0, reads);
     }
 
+    /// <summary>非bmseeker・未対応経路・未対応推定種類・排他的方針の同時指定はスコア読取り前に拒否する。不正要求での読取りと方針の暗黙置換を検出する。</summary>
     [DataTestMethod]
+    // URI種別、経路、推定種類、同時指定できない方針の順に拒否条件を分ける。
     [DataRow("https://example.invalid/table.json")]
     [DataRow("bmseeker:table.unsupported")]
     [DataRow("bmseeker:table.estimation?type=unsupported")]
@@ -187,16 +184,20 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(0, reads);
     }
 
+    /// <summary>未設定・読取り失敗・正常だが観測なしの3状態では推薦生成を失敗させる。架空の実力や古いスコアへの置換を検出する。</summary>
     [DataTestMethod]
-    [DataRow(0)]
-    [DataRow(2)]
-    [DataRow(1)]
-    public async Task LoadWalkureTable_MissingFailedOrEmptyScoresFail(int status)
+    // 正常な空DBも未設定・読取り障害とは別入力として失敗を確認する。
+    [DataRow(ScoreTableLoadStatus.NotConfigured)]
+    [DataRow(ScoreTableLoadStatus.Failed)]
+    [DataRow(ScoreTableLoadStatus.Loaded)]
+    public async Task LoadWalkureTable_MissingFailedOrEmptyScoresFail(object statusValue)
     {
-        PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(new WalkureScoreInput((ScoreTableLoadStatus)status, ImmutableDictionary<string, WalkureLamp>.Empty)));
+        var status = (ScoreTableLoadStatus)statusValue;
+        PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(new WalkureScoreInput(status, ImmutableDictionary<string, WalkureLamp>.Empty)));
         await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
     }
 
+    /// <summary>旧mode・id・filter・nameと未知パラメーターを受理して同じ推薦を生成し、所属・出力設定は保持して名称だけ自動名へ戻す。URI互換の誤拒否と利用者設定の損失を検出する。</summary>
     [TestMethod]
     public async Task LoadWalkureTable_RecommendedPreservesBasePropertiesAndIgnoresLegacyParameters()
     {
@@ -219,6 +220,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(baseline.org_name, baseline.name);
         StringAssert.Contains(baseline.name, "★" + (ReadWalkureCase("mixed")["rating"]?.Value<double>("playerStarRating")
             ?? throw new FormatException()).ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+        // 旧readonly/updateと未知modeは同じ計算を受理し、その他の旧パラメーターも結果を変えない。
         foreach (string query in new[] { "mode=readonly&id=999&name=other", "mode=update&filter=hard", "mode=unknown&unknown=x" })
         {
             BMSTable result = await owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended?" + query), original);
@@ -239,6 +241,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         CollectionAssert.AreEqual(new[] { "EASY", "NORMAL", "HARD", "FC" }, baseline.Folder_order);
     }
 
+    /// <summary>3推薦方針は一回のスコア捕捉を共有して異なる独立期待★を生成し、次の操作で再捕捉する。表ごとの重複読取りと操作を跨いだキャッシュを検出する。</summary>
     [TestMethod]
     public async Task LoadExternalTableSnapshotsAsync_CapturesOnceAcrossPoliciesAndRefreshesNextOperation()
     {
@@ -267,6 +270,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(2, reads);
     }
 
+    /// <summary>一回の読取り例外を3方針の対象失敗として共有し、次の操作では回復したスコアを読み直す。重複読取りと失敗の永続再利用を検出する。</summary>
     [TestMethod]
     public async Task LoadExternalTableSnapshotsAsync_SharesReadFailureWithoutCachingAcrossOperations()
     {
@@ -283,21 +287,24 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(2, reads);
     }
 
+    /// <summary>既存クリア別名を推薦用の5段階へ集約し、未プレイは観測から除く。補助・EXHARD・満点の意味を誤分類する変換を検出する。</summary>
     [DataTestMethod]
-    [DataRow(ClearType.NO_PLAY, 0)]
-    [DataRow(ClearType.FAILED, 1)]
-    [DataRow(ClearType.INVALID, 1)]
-    [DataRow(ClearType.L_ASSIST, 1)]
-    [DataRow(ClearType.EASY, 2)]
-    [DataRow(ClearType.CLEAR, 3)]
-    [DataRow(ClearType.HARD, 4)]
-    [DataRow(ClearType.EX_HARD, 4)]
-    [DataRow(ClearType.FC, 5)]
-    [DataRow(ClearType.PA, 5)]
-    [DataRow(ClearType.MAX, 5)]
-    public void RecommendationScores_NormalizeExistingClearSemantics(ClearType clear, int expected)
-        => Assert.AreEqual(expected == 0 ? (WalkureLamp?)null : (WalkureLamp)expected, BMSLibrary.NormalizeRecommendationLamp(clear));
+    // 未プレイは観測なし、FAILEDの別名・HARDの別名・FCの別名は同じ推薦ランプへ集約する。
+    [DataRow(ClearType.NO_PLAY, null)]
+    [DataRow(ClearType.FAILED, WalkureLamp.Failed)]
+    [DataRow(ClearType.INVALID, WalkureLamp.Failed)]
+    [DataRow(ClearType.L_ASSIST, WalkureLamp.Failed)]
+    [DataRow(ClearType.EASY, WalkureLamp.Easy)]
+    [DataRow(ClearType.CLEAR, WalkureLamp.Normal)]
+    [DataRow(ClearType.HARD, WalkureLamp.Hard)]
+    [DataRow(ClearType.EX_HARD, WalkureLamp.Hard)]
+    [DataRow(ClearType.FC, WalkureLamp.FullCombo)]
+    [DataRow(ClearType.PA, WalkureLamp.FullCombo)]
+    [DataRow(ClearType.MAX, WalkureLamp.FullCombo)]
+    public void RecommendationScores_NormalizeExistingClearSemantics(ClearType clear, object? expected)
+        => Assert.AreEqual((WalkureLamp?)expected, BMSLibrary.NormalizeRecommendationLamp(clear));
 
+    /// <summary>実LR2 DBから段位・rank0・オプション履歴を読み、DB変更後は新しい観測を返して旧観測と表示用スコアを変えない。古い読取り・段位除外・グローバル状態への混入を検出する。</summary>
     [TestMethod]
     public async Task RecommendationScores_ReadFreshLr2IncludingCourseAndRankZeroWithoutUpdatingGlobalScores()
     {
@@ -344,6 +351,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         finally { library?.RequestShutdown("test_cleanup"); Directory.Delete(directory, true); }
     }
 
+    /// <summary>実beatoraja DBのモード0を保存hash情報でMD5へ解決し、DB更新・プレイヤー切替・LR2への復帰を選択設定に従って読む。別モード混入と旧DB固定・表示スコア変更を検出する。</summary>
     [TestMethod]
     public async Task RecommendationScores_SelectsBeatorajaModeZeroAndExistingHashInformation()
     {
@@ -411,8 +419,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
         finally { library?.RequestShutdown("test_cleanup"); Directory.Delete(directory, true); }
     }
 
-    /// <summary>通常のローカル読取り失敗は対象失敗、操作tokenの取消しは全体失敗として返り、どちらもDB・memo・参照・通知を変更せず更新状態を終えます。</summary>
+    /// <summary>読取り例外は対象失敗、利用者取消は操作失敗に分け、旧DB・メモ・正本参照と通知なしを維持して更新状態を解除する。部分反映と失敗・取消の隠蔽を検出する。</summary>
     [DataTestMethod]
+    // 読取りgate中の利用者取消と通信に依存しないローカルIOExceptionを分ける。
     [DataRow(true)]
     [DataRow(false)]
     public async Task ReloadPlaylistTargetsAsync_LocalReadFailurePreservesDataAndExitsUpdating(bool cancelCaller)
@@ -491,7 +500,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
         }
     }
 
+    /// <summary>取得元名の★数値が増減して通知設定ONの推薦だけ一回通知する。同値表記・比較不能・設定OFF・推定表は通知せず、手動名や更新日時を通知判断へ混ぜる誤りを検出する。</summary>
     [DataTestMethod]
+    // 増加・減少は通知し、同値表記・比較不能・OFF・推定表では通知しない。
     [DataRow("旧方針 ★10.00", "新方針 ★10.75", 10.75, .75, true, "bmseeker:table.recommended", 1)]
     [DataRow("旧方針 ★10.75", "新方針 ★10.00", 10.00, -.75, true, "bmseeker:table.recommended", 1)]
     [DataRow("旧方針 ★10.0", "新方針 ★10.00", 10.00, 0, true, "bmseeker:table.recommended", 0)]

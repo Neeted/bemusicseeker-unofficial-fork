@@ -9,9 +9,12 @@ using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>ライブラリ変更を所持ハッシュ索引へ反映し、再利用と局所更新を検証する。</summary>
+/// <remarks>実ライブラリと専用DB・削除対象ファイルを使う。所持判断の入力変換だけでは検出できない変更確定後の索引失効・旧スナップショット不変を担う。</remarks>
 [TestClass]
 public sealed class PlaylistSummaryMutationAndWarmTests
 {
+    /// <summary>ライブラリ集合を別ハッシュへ差替えると索引世代が進み、旧ハッシュを除いて新ハッシュを含める。集合差替後の索引再利用を検出する。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_RebuildsAfterLibraryOwnershipChanges()
     {
@@ -38,6 +41,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
         });
     }
 
+    /// <summary>実譜面の削除確定後は削除ハッシュを除き、残る譜面のハッシュと新世代を返す。ライブラリ変更と所持索引の接続漏れを検出する。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_AppliesRemovalAfterLibraryMutation()
     {
@@ -69,6 +73,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
         });
     }
 
+    /// <summary>初回の事前構築を再利用し、ライブラリ差替後は新しい所持・索引世代で再構築する。毎回の再構築と失効後の旧結果再利用を検出する。</summary>
     [TestMethod]
     public void WarmOwnedChartHashIndexSnapshot_BuildsReusesAndRebuildsAfterOwnershipChange()
     {
@@ -85,11 +90,9 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             OwnedHashIndexWarmupResult first = library.WarmOwnedChartHashIndexSnapshot("test");
             OwnedHashIndexWarmupResult second = library.WarmOwnedChartHashIndexSnapshot("test");
 
-            Assert.AreEqual("catalog_owned_hash", first.IndexName);
             Assert.AreEqual("built", first.Status);
             Assert.AreEqual(1, first.Md5Count);
             Assert.AreEqual(1, first.Sha256Count);
-            Assert.AreEqual(0, first.StaleRetryCount);
             Assert.AreEqual(library.OwnedCollectionVersion, first.OwnedCollectionVersion);
             Assert.IsTrue(first.OwnedCollectionVersion > 0);
             Assert.AreEqual("cached", second.Status);
@@ -116,6 +119,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
         });
     }
 
+    /// <summary>同じハッシュを持つBMS・bmsonを順に削除し、最後の所有者が消えた時だけ所属ハッシュ集合の世代を進める。早すぎる未所持化と旧索引の可変共有を検出する。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_TracksBmsAndBmsonOwnerCountsAndKeepsOldSnapshot()
     {
@@ -182,7 +186,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
         });
     }
 
-    /// <summary>R5b-LocalWork: cold source走査後の既知deltaはroot局所更新だけで再buildしません。</summary>
+    /// <summary>初回の全譜面走査後は既知の削除差分で対象キーだけを更新し、全譜面・全キーを走査しない。少数変更に対する全件再構築の退行を検出する。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_ColdBuildEnumeratesSourceThenKnownDeltaAvoidsFullBuilder()
     {

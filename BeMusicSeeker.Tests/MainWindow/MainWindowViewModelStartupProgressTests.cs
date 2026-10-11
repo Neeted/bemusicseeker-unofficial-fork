@@ -16,23 +16,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>純粋な進捗判断はownerへ入力通知を渡して検査します。実起動・設定完了のケースはMainWindowのL/P解放・必須UI・後続scheduler接続の順序を検査するため実構成とDBを使い、Dispatcherでcallbackと終端を回収します。</remarks>
 [TestClass]
 public sealed class MainWindowViewModelStartupProgressTests
 {
-    [TestMethod]
-    public void StartupProgress_RequestForUnexpectedPhaseDoesNotChangeOwnerState()
-    {
-        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.ReloadTables);
 
-        double maximum = owner.Maximum;
-        double value = owner.Value;
-        owner.TrackStartupProgressScoreHydrationRequested(1);
-
-        Assert.AreEqual(maximum, owner.Maximum);
-        Assert.AreEqual(value, owner.Value);
-        Assert.AreEqual(Resources.Statusbar_progress_reload_tables, owner.Label);
-    }
-
+    /// <summary>UI操作禁止を同じ値で繰り返し設定しても、真偽の実遷移だけを各一回通知して重複更新を防ぎます。</summary>
     [TestMethod]
     public void StartupProgress_InteractionBlockPublishesOnlyForStateTransitions()
     {
@@ -83,7 +72,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>ツリー全再初期化でも実必須UIの外側へ後続登録を集約し、別hostやサービス構築を追加しません。</summary>
+    /// <summary>ツリー全再初期化はL/P受付解放後も必須UIの終端まで操作禁止を保ち、その終端後だけ後続登録を閉鎖して開始します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void TreeFullReinitialization_RequiredUiOwnsTerminalBeforeOptionalRegistration()
@@ -118,8 +107,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
+    /// <summary>起動任意workの表示中に別の再読込みを開始すると起動表示latchを解除し、古い起動進捗を残しません。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void NonStartupProgressOperation_ResetsBackgroundPresentationLatch()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
@@ -140,6 +129,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
     }
 
+    /// <summary>進捗操作の開始前に失敗してもUI操作禁止を解除し、active操作がないことを理由に操作不能を残しません。</summary>
     [TestMethod]
     public void StartupProgress_FailureClearsInteractionBlockBeforeActiveOperationCheck()
     {
@@ -151,6 +141,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsFalse(owner.IsStartupUiInteractionBlocked);
     }
 
+    /// <summary>全再初期化が失敗した後は対応tokenのcleanup終端で再試行可へ進み、失敗状態を保ってUI操作禁止を解除します。</summary>
     [TestMethod]
     public void StartupProgress_FullReinitializeFailureBecomesRetryableAfterCleanup()
     {
@@ -168,8 +159,8 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     /// <summary>実入口のUI失敗を親解放後に通知し、通知失敗でも元原因・cleanupを保持して次の明示初期化を受理します。</summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
+    [DataRow(false)] // 元の必須UI失敗を通常の通知先へ渡します。
+    [DataRow(true)] // 通知先の二次失敗でも元原因と再受付を保ちます。
     [DoNotParallelize]
     public void StartupRequiredUi_RealFailurePreservesPrimaryCauseAndNextAdmission(bool presenterThrows)
     {
@@ -254,8 +245,8 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     /// <summary>親解放後のUI待機で終了が先着した場合だけ取消へ分類し、同時に発生した実UI障害は保持します。</summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
+    [DataRow(false)] // 終了による取消だけなら進捗を実失敗へ分類しません。
+    [DataRow(true)] // 終了中に生じた実UI失敗は取消へ置換しません。
     [DoNotParallelize]
     public void StartupRequiredUi_ShutdownWhileAwaitingKeepsRealFailureDistinct(bool realFailure)
     {
@@ -457,6 +448,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
+    /// <summary>スコア再読込みの実要求と対応完了通知で必須進捗を完了し、操作名付きの完了表示へ進みます。</summary>
     [TestMethod]
     public void StartupProgress_ScoreOnlyCompletesThroughRuntimeRoutes()
     {
@@ -469,19 +461,23 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_scores), owner.Label);
     }
 
+    /// <summary>起動から表再読込みへ切り替えた後のスコア要求を受け付けず、現在操作の進捗を変える古い操作判定を検出します。</summary>
     [TestMethod]
     public void StartupProgress_RequestEligibilityUsesCurrentOperationAtomically()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.Startup);
         owner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
 
+        double valueBefore = owner.Value;
+        double maximumBefore = owner.Maximum;
         owner.TrackStartupProgressScoreHydrationRequested(1);
 
-        Assert.AreEqual(5.0, owner.Maximum);
-        Assert.AreEqual(1.0, owner.Value);
+        Assert.AreEqual(maximumBefore, owner.Maximum);
+        Assert.AreEqual(valueBefore, owner.Value);
         Assert.AreEqual(StartupProgressOperationKind.ReloadTables, owner.CurrentOperationKind);
     }
 
+    /// <summary>新しい操作を開始した後の旧token完了通知は進捗と名称を変えず、別操作を誤って完了させません。</summary>
     [TestMethod]
     public void StartupProgress_StaleTokenCannotCompleteNewOperation()
     {
@@ -489,12 +485,16 @@ public sealed class MainWindowViewModelStartupProgressTests
         long staleToken = owner.GetActiveStartupProgressOperationToken();
         owner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
 
+        double valueBefore = owner.Value;
+        double maximumBefore = owner.Maximum;
         owner.MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable, staleToken);
 
-        Assert.AreEqual(1.0, owner.Value);
+        Assert.AreEqual(valueBefore, owner.Value);
+        Assert.AreEqual(maximumBefore, owner.Maximum);
         Assert.AreEqual(Resources.Statusbar_progress_reload_tables, owner.Label);
     }
 
+    /// <summary>旧操作token・scheduler世代の後続callbackを拒否し、現世代の必須登録閉鎖だけが後続workを開始してidleへ進めます。</summary>
     [TestMethod]
     public async Task StartupPostInitialization_StaleCallbackCannotOpenNewGenerationBarrier()
     {
@@ -549,6 +549,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsTrue(scheduler.IsFullyIdle, scheduler.DescribeWaitState());
     }
 
+    /// <summary>準備callbackへ新tokenを渡す前に現在tokenを公開し、callback内で旧操作を参照する順序の誤りを検出します。</summary>
     [TestMethod]
     public void StartupProgress_PublishesNewTokenBeforePrepareCallback()
     {
@@ -573,17 +574,22 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(startedToken, observedToken);
     }
 
+    /// <summary>要求を追跡していないスコア完了通知は再初期化の進捗を進めず、無関係な終端通知の混入を検出します。</summary>
     [TestMethod]
     public void StartupProgress_ScoreCompletionWithoutRequestIsIgnored()
     {
         StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.FullReinitialize);
 
+        double valueBefore = owner.Value;
+        double maximumBefore = owner.Maximum;
         owner.TryCompleteStartupProgressScoreHydration(1);
 
-        Assert.AreEqual(1.0, owner.Value);
+        Assert.AreEqual(valueBefore, owner.Value);
+        Assert.AreEqual(maximumBefore, owner.Maximum);
         Assert.AreEqual(Resources.Statusbar_progress_full_reinitialize, owner.Label);
     }
 
+    /// <summary>ファイル列挙・差分・UI適用・プレイリスト参照とhydrationの実通知を対応付け、ファイル再読込みを完了表示へ進めます。</summary>
     [TestMethod]
     public void StartupProgress_ReloadFileDiffCompletesFileAndPlaylistPhases()
     {
@@ -600,6 +606,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_files), owner.Label);
     }
 
+    /// <summary>必須初期化完了後の表示猶予gate中はactiveを維持し、猶予終端でinactiveを通知して完了表示の寿命を閉じます。</summary>
     [TestMethod]
     public async Task StartupProgress_CompletionHidePublishesInactiveLifecycleChange()
     {
@@ -633,16 +640,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsFalse(owner.IsOperationActive);
     }
 
-    [TestMethod]
-    public void StartupProgress_OperableKeepsOperationLabelAndEmptySubLabel()
-    {
-        StartupProgressWorkflowOwner owner = Start(StartupProgressOperationKind.FullReinitialize);
-        Mark(owner, StartupProgressPhase.StartupReadyOperable);
 
-        Assert.AreEqual(Resources.Statusbar_progress_full_reinitialize, owner.Label);
-        Assert.AreEqual(string.Empty, owner.SubLabel);
-    }
-
+    /// <summary>プレイリスト行の直接hydration要求にも完了通知を対応付け、別経路を通らない要求の進捗欠落を防ぎます。</summary>
     [TestMethod]
     public void StartupProgress_PlaylistEntriesHydrationCanCompleteDirectly()
     {
@@ -653,6 +652,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(2.0, owner.Value);
     }
 
+    /// <summary>実追跡した要求だけを起動親へ所属させ、token・世代・source・機能版の違いと任意順位要求を拒否して親進捗を変えません。</summary>
     [TestMethod]
     public void StartupProgress_RequestMembershipRequiresActualTrackedOriginAndFeatureVersion()
     {
@@ -674,6 +674,7 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     }
 
+    /// <summary>同じ数値版を持つ外部同期・参照・行hydrationをsource別に追跡し、古い参照完了では進めず最新対応版の完了で一段だけ進めます。</summary>
     [TestMethod]
     public void StartupProgress_SharedPlaylistNumericSlotsDoNotConfuseDifferentRequestSources()
     {
@@ -700,8 +701,9 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(before + 1, owner.Value);
     }
 
+    /// <summary>起動進捗が失敗しても別途稼働中のLR2同期行は名称・詳細・分子分母を維持し、親失敗による表示抑止を防ぎます。</summary>
     [TestMethod]
-    public void Lr2SongDbSyncWarningStatus_IsVisibleWhenStartupProgressFailed()
+    public void Lr2SongDbSyncRunningStatus_IsVisibleWhenStartupProgressFailed()
     {
 
         var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
@@ -728,6 +730,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(status.ProgressMaximum, hub.Rows.Single(row => row.Key == "lr2").Maximum);
     }
 
+    /// <summary>DB・列挙・差分の実通知から子行を切り替え、件数と対象pathを表示して完了時に除去し、必須UI中だけUI準備行を表示します。</summary>
     [TestMethod]
     public void StartupProgress_LibraryChildrenFollowActualNotificationsAndUiPreparationBoundary()
     {
@@ -757,6 +760,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.IsFalse(owner.DetailRows.Any());
     }
 
+    /// <summary>旧版の譜面情報進捗を無視し、現版の大量件数を保持して親の必須進捗へ任意workを加算しません。</summary>
     [TestMethod]
     public void StartupProgress_ChartInfoHydrationRejectsOldRequestAndKeepsCurrentCounts()
     {
@@ -795,6 +799,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(parentMaximum, owner.Maximum);
     }
 
+    /// <summary>表再読込みの外部同期と参照適用を対応要求で完了し、不要なhydrationをskipして操作名付き完了表示へ進みます。</summary>
     [TestMethod]
     public void StartupProgress_ReloadTablesCompletesExternalSyncAndReferenceApply()
     {
@@ -810,8 +815,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         Assert.AreEqual(string.Format(Resources.Statusbar_progress_operation_completed_format, Resources.Statusbar_progress_reload_tables), owner.Label);
     }
 
+    /// <summary>起動サービスの実接続でフォルダ修復reporterをHubへ配送し、修復件数と対象表を独立進捗行へ表示します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void StartupServiceAttachmentRoutesCustomFolderRepairProgressToHub()
     {
         string tempDirectory = Path.Combine(
@@ -918,12 +923,6 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
     }
 
-
-
-
-
-
-
     /// <summary>実必須UIは独立folder最終readを待たずに終端し、表示readもmodel writer解放待ちへ接続しません。</summary>
     [TestMethod]
     [DoNotParallelize]
@@ -976,8 +975,8 @@ public sealed class MainWindowViewModelStartupProgressTests
 
     /// <summary>実Score適用のUI失敗はpendingと保存済み値を保持しURLを登録せず、次の明示Applyだけが成功後に実URL workへ進みます。保存通知だけの失敗は成立済み成功を保持します。</summary>
     [DataTestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
+    [DataRow(true)] // 必須UI失敗ではpendingを残し、次の明示ApplyまでURL workを開始しません。
+    [DataRow(false)] // 保存通知だけの失敗では成立済み成功とURL workを維持します。
     [DoNotParallelize]
     public void SettingsScoreCompletion_RequiredUiFailureAndSavedNoticeFailureKeepDistinctFollowUp(bool uiFails)
     {
@@ -1347,20 +1346,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             owner.GetActiveStartupProgressOperationToken());
     }
 
-    private static void SkipAllOptionalStartupPhases(StartupProgressWorkflowOwner owner)
-    {
-        foreach (StartupProgressPhase phase in new[]
-        {
-            StartupProgressPhase.PlaylistReferenceApplied,
-            StartupProgressPhase.ExternalPlaylistSyncDone,
-            StartupProgressPhase.PlaylistEntriesHydrationDone,
-            StartupProgressPhase.ChartInfoHydrationDone,
-            StartupProgressPhase.ScoreHydrationDone,
-        })
-        {
-            Skip(owner, phase);
-        }
-    }
 
     private static void CompleteRequiredProgressForPresentation(StartupProgressWorkflowOwner owner)
     {
@@ -1407,14 +1392,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             .SetValue(target, value);
     }
 
-    private static void InvokePrivate(object target, string name, object[] arguments)
-    {
-        MethodInfo method = target.GetType()
-            .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
-            .Single(candidate => candidate.Name == name
-                && candidate.GetParameters().Length == arguments.Length);
-        method.Invoke(target, arguments);
-    }
 
     private static IDisposable AcquireBmsFileWriterGuard(BMSLibrary library)
     {
@@ -1425,15 +1402,17 @@ public sealed class MainWindowViewModelStartupProgressTests
             .GetMethod("GetWriterGuard", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .Invoke(wrapper, null)!;
     }
+    /// <summary>各操作は実行中と操作可能時の名称を保ち、失敗では操作名と原因詳細を分けて空原因でも名称を失いません。</summary>
     [DataTestMethod]
-    [DataRow(1, "Statusbar_progress_startup")]
-    [DataRow(2, "Statusbar_progress_reload_files")]
-    [DataRow(3, "Statusbar_progress_reload_scores")]
-    [DataRow(4, "Statusbar_progress_full_reinitialize")]
-    [DataRow(5, "Statusbar_progress_reload_tables")]
-    public void StartupProgress_OperationNameAndFailureReasonStayDistinct(int operationKind, string resourceKey)
+    [DataRow(StartupProgressOperationKind.Startup, "Statusbar_progress_startup")]
+    [DataRow(StartupProgressOperationKind.ReloadFileDiff, "Statusbar_progress_reload_files")]
+    [DataRow(StartupProgressOperationKind.ScoreOnly, "Statusbar_progress_reload_scores")]
+    [DataRow(StartupProgressOperationKind.FullReinitialize, "Statusbar_progress_full_reinitialize")]
+    [DataRow(StartupProgressOperationKind.ReloadTables, "Statusbar_progress_reload_tables")]
+    public void StartupProgress_OperationNameAndFailureReasonStayDistinct(object operationKindValue, string resourceKey)
     {
-        StartupProgressWorkflowOwner owner = Start((StartupProgressOperationKind)operationKind);
+        var operationKind = (StartupProgressOperationKind)operationKindValue;
+        StartupProgressWorkflowOwner owner = Start(operationKind);
         string expected = Resources.ResourceManager.GetString(resourceKey) ?? throw new InvalidOperationException(resourceKey);
         Assert.AreEqual(expected, owner.Label);
         Mark(owner, StartupProgressPhase.StartupReadyOperable);

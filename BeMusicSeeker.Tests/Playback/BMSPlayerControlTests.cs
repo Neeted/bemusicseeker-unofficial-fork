@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSPlayerControlTests
 {
+    /// <summary>bmsonの通常／LN衝突を登録順で数え、時刻境界の前後と後退seekでもcomboを二重加算・欠落させない。</summary>
     [DataTestMethod]
     [DataRow("normal-ln", new long[] { 4800000 })]
     [DataRow("ln-normal", new long[] { 4800000, 9600000 })]
@@ -38,6 +39,7 @@ public sealed class BMSPlayerControlTests
         }
     }
 
+    /// <summary>初期位置の重複lineはmeasureを進めず正位置lineを進行へ反映し、ゼロ量子化と戻りseekでも最終measureを保つ。</summary>
     [DataTestMethod]
     [DataRow(0, false)]
     [DataRow(1, false)]
@@ -80,6 +82,7 @@ public sealed class BMSPlayerControlTests
             Assert.AreEqual(quantizedToZero ? 2 : measure, seeker.CurrentMeasure);
         }
     }
+    /// <summary>再生とcleanupがともに失敗しても両元例外を順序付きで返し、一回cleanup後に停止状態へ終端する。</summary>
     [TestMethod]
     public async Task Start_PreservesPlaybackFailureWhenCleanupAlsoFails()
     {
@@ -110,6 +113,7 @@ public sealed class BMSPlayerControlTests
         }
     }
 
+    /// <summary>自然終了後のcleanup失敗を元例外で返し、演奏終了だけを成功と扱わず一回cleanupする。</summary>
     [TestMethod]
     public async Task Start_PropagatesCleanupFailureAfterNaturalCompletion()
     {
@@ -138,6 +142,7 @@ public sealed class BMSPlayerControlTests
         }
     }
 
+    /// <summary>bmsonの論理ノート・BPM・STOPを進行と戻りseekへ反映し、自然終了は表示終端を保ったまま実cleanup完了まで待つ。</summary>
     [TestMethod]
     public async Task BmsonDisplayCountsLogicalPositionsAndNaturalCompletionWaitsForCleanup()
     {
@@ -175,6 +180,7 @@ public sealed class BMSPlayerControlTests
         Assert.AreEqual(PlayState.Stopped, player.PlayState);
     }
 
+    /// <summary>音声frame格子外の再生長でも表示時計がDuration未満なら継続し、到達・超過時だけDurationに揃えて一回終端する。</summary>
     [TestMethod]
     public async Task Start_UsesDurationClockForNonFrameAlignedNaturalCompletion()
     {
@@ -219,6 +225,7 @@ public sealed class BMSPlayerControlTests
         Assert.AreEqual(PlayState.Stopped, overshootPlayer.PlayState);
     }
 
+    /// <summary>開始準備に失敗した場合はtickを始めず元失敗を返し、一回cleanupして停止する。</summary>
     [TestMethod]
     public async Task Start_CleansUpOnceWhenPreparationFails()
     {
@@ -237,6 +244,7 @@ public sealed class BMSPlayerControlTests
         Assert.AreEqual(PlayState.Stopped, player.PlayState);
     }
 
+    /// <summary>Stopは取消後のcleanup実終端まで戻らず、その後に停止状態と時刻ゼロを公開する。</summary>
     [TestMethod]
     public async Task Stop_WaitsForCleanupBeforeResettingPlaybackState()
     {
@@ -266,6 +274,7 @@ public sealed class BMSPlayerControlTests
         Assert.AreEqual(TimeSpan.Zero, player.CurrentTime);
     }
 
+    /// <summary>worker開始前のStopでも取消済みworkerのcleanupを待ち、tickなしで一回終端して開始Taskへ取消を返す。</summary>
     [TestMethod]
     public async Task Stop_CancelsBeforeWorkerStartsAndJoinsItsCleanup()
     {

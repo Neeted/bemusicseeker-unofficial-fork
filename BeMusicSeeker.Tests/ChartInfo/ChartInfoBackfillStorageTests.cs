@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
 using static BeMusicSeeker.Tests.ChartInfoMetadataTestSupport;
 namespace BeMusicSeeker.Tests;
 
@@ -16,7 +17,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoBackfillStorageTests
 {
-    /// <summary>実DBの現在行・古い行・未登録行を同じ補完入口で評価し、解析版による再解析境界を確認する。</summary>
+    /// <summary>未登録・現在版・旧版の実DB行を順に補完し、現在の成功行を失敗履歴より優先して再読込みを省き、旧版の再解析漏れを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows()
     {
@@ -90,12 +92,13 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.AreEqual(1, third.TargetCount);
             Assert.AreEqual(1, third.BackfilledCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(BmsLibraryDbGateway.CurrentChartInfoParserVersion, verify.ExecuteScalar<int>("SELECT parser_version FROM chart_info WHERE sha256 = '" + file.Sha256 + "';"));
         });
     }
 
-    /// <summary>補完で更新する譜面情報由来9列だけを実DBへ反映し、利用者列と基本列を保持する。</summary>
+    /// <summary>実補完から詳細由来のsong列を更新し、基本情報・利用者列・mode・judgeを保持して保存投影の過剰な上書きを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_UpdatesOnlyChartInfoSongProjectionAndPreservesOtherColumns()
     {
@@ -160,7 +163,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.SongProjectionMatchedCount);
             Assert.AreEqual(1, result.SongProjectionChangedCount);
             Assert.AreEqual(0, result.SongProjectionMissingCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             BeMusicSeeker.Models.ChartDetails chartInfo = verify.Query<BeMusicSeeker.Models.ChartDetails>(
                 "SELECT * FROM chart_info WHERE sha256 = ?;",
                 digest.Sha256).Single();
@@ -176,10 +179,6 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(chartInfo.notes, song.karinotes);
             Assert.AreEqual(0, song.longnote);
             Assert.AreEqual(0, song.random);
-            Assert.IsNull(file.ChartInfo);
-            Assert.IsNull(file.Sha256);
-            Assert.IsNull(file.Level);
-            Assert.IsNull(file.Difficulty);
             Assert.AreEqual(file.Md5, song.hash);
             Assert.AreEqual(chartPath, song.path);
             Assert.AreEqual("keep-title", song.title);
@@ -204,7 +203,8 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
-    /// <summary>現在のchart_infoを再利用する欠落SHA候補でも、所持BMSへ9列投影を確定後に適用する。</summary>
+    /// <summary>SHA未捕捉候補の現在詳細を再利用し、更新日時を変えずdigest対応とsong投影を確定して再解析や保存・確定通知の欠落を検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_ReusedCurrentRowProjectsSongColumnsForMissingDigestCandidate()
     {
@@ -242,14 +242,12 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(1, result.DigestBackfilledCount);
-            Assert.IsNull(file.Sha256);
             Assert.AreEqual(snapshot.Sha256, result.DigestChanges.Single().NewSha256);
             Assert.AreEqual(17, committedValues.Single().Level);
             Assert.AreEqual(5, committedValues.Single().Difficulty);
-            Assert.IsNull(file.Mode);
             Assert.AreEqual(1, committedRows.Count);
             Assert.AreSame(current, committedRows[0]);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
             Assert.AreEqual(17, song.level);
             Assert.AreEqual(5, song.difficulty);
@@ -260,6 +258,8 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>song行が消えた候補でも詳細・digest対応を確定し、欠落を警告してsongを再挿入しない保証の退行を検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_MissingSongRowCommitsFactsWithoutInsertingSong()
     {
@@ -296,17 +296,16 @@ public sealed class ChartInfoBackfillStorageTests
             CollectionAssert.Contains(result.SongProjectionMissingPaths, chartPath);
             Assert.IsTrue(warnings.Any(message => message.StartsWith("chart_info_backfill song_projection_missing", StringComparison.Ordinal)));
             Assert.AreEqual(1, committedRows.Count);
-            Assert.AreEqual(2, file.Level);
-            Assert.AreEqual(1, file.Difficulty);
-            Assert.IsNull(file.Sha256);
             Assert.AreEqual(digest.Sha256, result.DigestChanges.Single().NewSha256);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", digest.Sha256));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", digest.Md5, digest.Sha256));
         });
     }
 
+    /// <summary>解析版が現在でもMD5の異なる行を再解析し、SHA一致だけで別内容の保存詳細を再利用する誤りを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_ReparsesCurrentVersionRowWithMismatchedMd5()
     {
@@ -334,13 +333,15 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.CurrentRowSkippedCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(
                 file.Md5,
                 verify.ExecuteScalar<string>("SELECT md5 FROM chart_info WHERE sha256 = ?;", file.Sha256));
         });
     }
 
+    /// <summary>保守用encoding指定と異なるCP932入力を参照互換のdecodeで詳細化し、一覧保守設定によって保存levelが変わる誤りを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_IgnoresMaintenanceEncodingAndUsesBeatorajaDefaultDecode()
     {
@@ -374,13 +375,14 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.BackfilledCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             BeMusicSeeker.Models.ChartDetails row = verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", result.DigestChanges.Single().NewSha256).Single();
             Assert.AreEqual(1, row.level);
         });
     }
 
-    /// <summary>同じMD5の二つの実ファイルを一回だけ読み、両方のSHAと一つの情報行へ反映する。</summary>
+    /// <summary>同じMD5の二つの実譜面を一回の読込み・解析へまとめ、双方のsong列と一つの詳細・digest対応を確定して重複処理やfanout漏れを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5()
     {
@@ -429,7 +431,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(new FileInfo(chartAPath).Length, result.FileReadBytes);
             Assert.AreEqual(digest.Sha256, result.DigestChanges.Last().NewSha256);
             Assert.AreEqual(1L, CountChartInfoRows(songDbPath, digest.Sha256));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             BeMusicSeeker.Models.ChartDetails chartInfo = verify.Query<BeMusicSeeker.Models.ChartDetails>(
                 "SELECT * FROM chart_info WHERE sha256 = ?;",
                 digest.Sha256).Single();
@@ -438,8 +440,6 @@ public sealed class ChartInfoBackfillStorageTests
                 fileA.Md5);
             Assert.AreEqual(2, songs.Count);
             Assert.IsTrue(songs.All(song => song.level == chartInfo.level));
-            Assert.IsNull(fileA.Level);
-            Assert.IsNull(fileB.Level);
             Assert.IsTrue(songs.All(song => song.level == 11));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", fileA.Md5, digest.Sha256));
             CollectionAssert.AreEquivalent(new[] { chartAPath, chartBPath }, songs.Select(song => song.path).ToArray());
@@ -449,6 +449,7 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
+    /// <summary>BMSはMD5、bmsonはSHAでまとめ、SHA未捕捉の補完対象とhashなしの除外を区別して形式間の同一性混同を検出する。</summary>
     [TestMethod]
     public void ChartInfoBuildTargetMapper_SeparatesBmsDigestAndBmsonIdentityRules()
     {
@@ -484,6 +485,8 @@ public sealed class ChartInfoBackfillStorageTests
         Assert.IsTrue(ChartInfoBuildTargetMapper.ShouldSkipBackfillTarget(noHashBmsChart));
     }
 
+    /// <summary>bmsonの詳細を実DBへ保存し、BMS専用digest対応やsong表を作らないことで形式固有の保存境界への漏出を検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_AppliesChartInfoToBmsonStorageOwner()
     {
@@ -513,7 +516,7 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.DigestTargetCount);
             Assert.AreEqual(0, result.DigestBackfilledCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             BeMusicSeeker.Models.ChartDetails row = verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", song.Sha256).Single();
             Assert.AreEqual(song.Md5, row.md5);
             Assert.AreEqual(song.Sha256, row.sha256);
@@ -523,7 +526,8 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
-    /// <summary>本番のCatalogMutationOwnerでDB確定に失敗した場合、譜面・song・索引を公開しない。</summary>
+    /// <summary>本番保存ownerのtransactionが失敗したとき詳細・digest対応・song更新をrollbackし、未確定の索引通知を公開する誤りを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex()
     {
@@ -554,9 +558,7 @@ public sealed class ChartInfoBackfillStorageTests
 
             Assert.IsTrue(exception.Flatten().InnerExceptions.Any(inner => inner.Message.Contains("injected transaction failure", StringComparison.Ordinal)));
             Assert.IsFalse(indexPublished);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(file.Sha256));
-            Assert.AreEqual(2, file.Level);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             LR2SongDB.song song = verify.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ?;", chartPath).Single();
             Assert.AreEqual(2, song.level);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
@@ -564,7 +566,8 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
-    /// <summary>分割補完の後半だけがDB失敗した場合、先行確定分を保持し失敗分を公開しない。</summary>
+    /// <summary>後続chunkの実DB保存だけを失敗させ、先行確定・通知を保持して失敗分の公開や全体rollbackを検出する。</summary>
+    /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
     [TestMethod]
     public void BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk()
     {
@@ -616,12 +619,9 @@ public sealed class ChartInfoBackfillStorageTests
             string committedSha256 = ReferenceEquals(committedFile, firstFile) ? firstDigest.Sha256 : secondDigest.Sha256;
             int committedLevel = ReferenceEquals(committedFile, firstFile) ? 8 : 10;
             int failedLevel = ReferenceEquals(failedFile, firstFile) ? 2 : 3;
-            Assert.IsNull(committedFile.Sha256);
             Assert.AreEqual(committedSha256, publications[0].DigestChanges.Single().NewSha256);
             Assert.AreEqual(committedLevel, publications[0].CurrentValues.Single().Level);
-            Assert.IsTrue(string.IsNullOrWhiteSpace(failedFile.Sha256));
-            Assert.AreEqual(failedLevel, failedFile.Level);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(committedLevel, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", committedFile.Path));

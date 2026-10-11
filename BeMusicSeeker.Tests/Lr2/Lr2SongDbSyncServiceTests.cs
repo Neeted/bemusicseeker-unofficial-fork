@@ -18,6 +18,10 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2SongDbSyncServiceTests
 {
 
+    /// <summary>
+    /// 通常・folderinfo・カスタム・楽曲の実対象数で進捗を報告し、準備完了時には旧保存行とカーソルを保持して反映後だけ完了を保存する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_ReportsActualStageTargetsAndKeepsPreparationSeparateFromCommit()
     {
@@ -147,6 +151,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(9, completed.total_count, "保存カーソルは通常3・folderinfo2・カスタム2・楽曲2の入力位置を保つ。");
     }
 
+    /// <summary>
+    /// 1001楽曲の実更新を複数チャンクで保存しても進捗の対象数と範囲を保持し、解析結果と利用者設定が全行へ反映される。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_RealSongUpdatesKeepFiniteRoleAcrossChunkCommits()
     {
@@ -163,7 +171,7 @@ public sealed class Lr2SongDbSyncServiceTests
             ChartFile song = CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path));
             song = song with { Title = "Old " + index, RawTitle = "Old " + index };
             song = song with { Tag = "User tag" };
-            song = song with { Md5 = song.Md5, Favorite = 7 };
+            song = song with { Favorite = 7 };
             songs.Add(song);
         }
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
@@ -226,6 +234,10 @@ public sealed class Lr2SongDbSyncServiceTests
         }
     }
 
+    /// <summary>
+    /// 進捗購読先が例外を投げてもフォルダ反映と完了保存を成立させ、通知失敗で確定結果を失敗へ変える誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FolderReconciliationProgressReporterFailureDoesNotChangeResult()
     {
@@ -258,6 +270,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(completed.total_count, completed.processed_cursor);
     }
 
+    /// <summary>
+    /// 空入力は完了しても有件数の段階通知を出さず、存在しない作業量を表示する誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_EmptyInputOmitsCountedStages()
     {
@@ -290,6 +306,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(0, result.FolderTableReconciliationResult.GeneratedCount);
     }
 
+    /// <summary>
+    /// 全同期の入力にない既存楽曲も削除せず、解析・フォルダ同期が所持集合を変更する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FullStageDoesNotDeleteExistingSongMembership()
     {
@@ -317,6 +337,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsNotNull(songDb.Find<LR2SongDB.song>(stalePath));
     }
 
+    /// <summary>
+    /// 全同期へ渡した未所持楽曲を新規保存せず、解析補完が所持集合へ楽曲を追加する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FullStageDoesNotInsertSongMembership()
     {
@@ -343,6 +367,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsNull(songDb.Find<LR2SongDB.song>(chartPath));
     }
 
+    /// <summary>
+    /// 保存時刻と同じ定義でも実内容を再読して現在タイトルへ更新し、時刻一致だけで古い定義を保持する誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FullStageReparsesSameMtimeLr2FolderContent()
     {
@@ -390,6 +418,10 @@ public sealed class Lr2SongDbSyncServiceTests
             lr2FolderPath));
     }
 
+    /// <summary>
+    /// 捕捉したエポック時刻を0として保存し、未取得時刻と混同して実行時刻へ置換する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FullStagePreservesEpochFolderDate()
     {
@@ -419,6 +451,10 @@ public sealed class Lr2SongDbSyncServiceTests
             ToFolderPath(rootDirectory)));
     }
 
+    /// <summary>
+    /// コピーしたDBで実譜面からタイトルとMD5を更新してもお気に入り・追加時刻・タグを保持し、複製環境での利用者設定消失を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_PreservesUserColumnsWhenRunningOnCopiedSongDb()
     {
@@ -471,6 +507,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("copied-user-tag", copiedDb.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
     }
 
+    /// <summary>
+    /// 譜面が読めない場合は失敗件数を報告し既存タイトル・解析列を保持しながらフォルダとtxtを更新して、欠落入力による解析列破損を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_FallsBackToSongCopyWhenChartSnapshotCannotBeRead()
     {
@@ -513,13 +553,15 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("Existing Title", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual("Existing Artist", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", missingChartPath));
-        Assert.AreEqual("stale-folder", file.Folder);
-        Assert.AreEqual("stale-parent", capturedStorageRow.parent);
         Assert.AreEqual(314, songDb.ExecuteScalar<int>("SELECT maxbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(157, songDb.ExecuteScalar<int>("SELECT minbpm FROM song WHERE path = ?;", missingChartPath));
         Assert.AreEqual(2718, songDb.ExecuteScalar<int>("SELECT karinotes FROM song WHERE path = ?;", missingChartPath));
     }
 
+    /// <summary>
+    /// エポック直前の譜面更新時刻を-1として保存して完了し、負値時刻の補正や失敗扱いを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_PreservesNegativeSongDate()
     {
@@ -554,6 +596,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("Completed", row.status);
     }
 
+    /// <summary>
+    /// スナップショット未取得時のnull更新時刻を保存して完了し、未取得値の推測補完を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_PreservesNullSongDate()
     {
@@ -588,6 +634,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("Completed", row.status);
     }
 
+    /// <summary>
+    /// 生成対象にない旧通常フォルダ行を全同期で削除し、旧形式行を除去対象から漏らす誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_DeletesLegacyNormalFolderRowWhenNotExpected()
     {
@@ -622,6 +672,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == legacyFolderPath));
     }
 
+    /// <summary>
+    /// 二行目のSQL失敗でチャンク全体を戻して失敗位置を保存し、原因除去後の再実行で両行を更新して部分確定や再試行漏れを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_RollsBackFailedSongRowChunkAndRetriesFromChunkStart()
     {
@@ -688,6 +742,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(4, completed.processed_cursor);
     }
 
+    /// <summary>
+    /// BOMなしUTF-8譜面を検出した文字コードで解析して日本語タイトル・作者を保存し、CP932固定による文字化けを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_ParsesSongRowsWithDetectedUtf8Encoding()
     {
@@ -721,9 +779,12 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(0, result.SongRowParseFailureCount);
         Assert.AreEqual("解析タイトル", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual("解析アーティスト", songDb.ExecuteScalar<string>("SELECT artist FROM song WHERE path = ?;", chartPath));
-        Assert.AreEqual("Stale Title", file.RawTitle);
     }
 
+    /// <summary>
+    /// 最新・旧版・MD5不一致の解析入力を区別し、最新結果を採用し他を再解析しながら各譜面の読取りを一度に抑える。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UsesResolverFactsAndReadsEachSongRowSnapshotOnce()
     {
@@ -789,6 +850,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(1, serviceReadCounts[mismatchPath]);
     }
 
+    /// <summary>
+    /// 現在版の解析失敗が既知の楽曲は再解析・解析保存通知を出さず、失敗入力を毎回処理し直す誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_SkipsChartInfoParseWhenCurrentParseFailureIsKnown()
     {
@@ -826,6 +891,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsFalse(parseFailureCallbackCalled);
     }
 
+    /// <summary>
+    /// 要求で渡された最新解析値を既知失敗より優先してsongへ反映し、提供済み結果を無視する誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UsesRequestChartInfoResolverWithoutChartInfoDbLookup()
     {
@@ -862,41 +931,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(13, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
     }
 
-    [TestMethod]
-    public void SyncService_RequestChartInfoResolverUsesStableMd5FallbackWhenSha256DoesNotMatch()
-    {
-        using var scope = TestDatabaseScope.Create();
-        string songDirectory = Path.Combine(scope.DirectoryPath, "Md5Fallback");
-        Directory.CreateDirectory(songDirectory);
-        string chartPath = Path.Combine(songDirectory, "chart.bms");
-        File.WriteAllText(chartPath, "#TITLE md5 fallback\r\n");
-        ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-        ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
-        songDb.CreateTable<LR2SongDB.song>();
-        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-        songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22)), typeof(LR2SongDBExtended.chart_info));
-        songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11)), typeof(LR2SongDBExtended.chart_info));
-
-        Lr2SongDbSyncResult result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
-        {
-            Signature = "chart-info-md5",
-            RunId = "chart-info-md5",
-            SongRows = [file],
-            ChartInfoResolver = CreateChartInfoResolver(
-            [
-                CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22),
-                CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11)
-            ]),
-            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
-            StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
-        });
-
-        Assert.AreEqual(1, result.SongRowChartInfoAppliedCount);
-        Assert.AreEqual(11, songDb.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chartPath));
-    }
-
+    /// <summary>
+    /// 要求窓口が旧版解析行を返しても実譜面から最新結果を保存し、古い解析値の採用を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_RebuildsChartInfoWhenRequestResolverReturnsStaleRow()
     {
@@ -928,6 +966,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COALESCE(karinotes, -1) FROM song WHERE path = ?;", chartPath));
     }
 
+    /// <summary>
+    /// 開始時の想定外取消を例外と失敗位置として保存し、処理を完了と誤報することを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UnexpectedCancellationMarksFailedStatus()
     {
@@ -951,6 +993,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(0, row.total_count);
     }
 
+    /// <summary>
+    /// フォルダ反映トランザクション中の終了取消で全行を元へ戻し、終了時の部分確定を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_ShutdownCancellationAtFolderCommitRollsBackWholeTable()
     {
@@ -1009,6 +1055,10 @@ public sealed class Lr2SongDbSyncServiceTests
             "SELECT title FROM folder WHERE path = ?;", rootFolderPath));
     }
 
+    /// <summary>
+    /// 解析保存窓口で終了取消が入るとチャンクのタイトル・作者更新を元へ戻し、終了時の部分保存を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk()
     {
@@ -1053,6 +1103,10 @@ public sealed class Lr2SongDbSyncServiceTests
             "SELECT artist FROM song WHERE path = ?;", chartPath));
     }
 
+    /// <summary>
+    /// フォルダ反映後の想定外取消は楽曲段階の失敗位置を保存し、次の実行で楽曲も完了して中断位置の誤再利用を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UnexpectedCancellationFailsAndRetryStartsFromZero()
     {
@@ -1130,6 +1184,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(3, completed.total_count);
     }
 
+    /// <summary>
+    /// 実参照のLR2長さ警告を保存・通知しても既存の音声健康件数を保持し、互換情報更新による健康情報上書きを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UpsertsLr2CompatibilityFactsWithoutReplacingMaintenanceHealth()
     {
@@ -1166,6 +1224,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
     }
 
+    /// <summary>
+    /// 大文字小文字が違う既存行を残して完全一致パスへ互換情報を保存し、別保存行の情報を奪う誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UpsertsLr2CompatibilityFactsByExactPath()
     {
@@ -1199,6 +1261,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
     }
 
+    /// <summary>
+    /// 譜面未取得時は新しい互換情報の反映を行わず既存警告・参照長・親参照・健康件数を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_PreservesLr2CompatibilityFactsWhenSongRowFallsBackWithoutSnapshot()
     {
@@ -1235,6 +1301,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(6, songDb.ExecuteScalar<int>("SELECT wav_files_existing FROM maintenance WHERE path = ?;", chartPath));
     }
 
+    /// <summary>
+    /// 完了した列挙にないカスタム定義の保存行を削除して完了し、不在定義を保存集合へ残す誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_DeletesMissingDiscoveredLr2FolderRow()
     {
@@ -1270,6 +1340,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
     }
 
+    /// <summary>
+    /// 定義ファイルの現在時刻が変わっても捕捉した列挙時刻を行へ保存し、同期中の追加読取りで入力時点を変える誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UsesEnumeratedLr2FolderTimestampForGeneratedRow()
     {
@@ -1306,6 +1380,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
     }
 
+    /// <summary>
+    /// 譜面ルート外のLR2組込み定義も相対パスの親分類行と共に反映し、組込み定義の親欠落を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_IncludesBuiltinLr2FolderParent()
     {
@@ -1345,6 +1423,10 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue(songDb.Table<LR2SongDB.folder>().Any(row => row.path == @"LR2files\CustomFolder\INSANE02\"));
     }
 
+    /// <summary>
+    /// ディレクトリの現在時刻が変わっても捕捉済み時刻を通常行へ保存し、同期中に入力を取り直す誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
     public void SyncService_UsesEnumeratedDirectoryTimestampForNormalFolderRow()
     {

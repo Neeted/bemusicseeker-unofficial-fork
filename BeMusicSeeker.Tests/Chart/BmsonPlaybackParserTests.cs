@@ -15,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsonPlaybackParserTests
 {
+    /// <summary>
+    /// 小節線の省略・null・空・不規則・開始点重複を表示制御へだけ反映し、全曲pulseの発音時計を変更する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void GlobalPulseAndDisplayLinesDoNotChangeAudioClock()
     {
@@ -43,6 +46,9 @@ public sealed class BmsonPlaybackParserTests
         }
     }
 
+    /// <summary>
+    /// 長い十進BPM・指数表記・数値文字列を同じ正確な時刻へ変換し、途中double化や無関係なノートによる丸め差を検出する。
+    /// </summary>
     [TestMethod]
     public void DecimalLexemesAndExponentKeepExactTimeAndIgnoreAdditionalNotes()
     {
@@ -57,6 +63,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(chart.AudioEvents[0].Start, numericString.AudioEvents[0].Start);
     }
 
+    /// <summary>
+    /// 非正のBPM変更を時計・終端・範囲から除外し、同pulseの有効な最終BPMとSTOP計算を置換する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void IgnoredNonpositiveBpmChangesDoNotCreateAnchorsExtendDurationOrReplaceLastValidBpm()
     {
@@ -77,6 +86,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(5000000 * grid + 2 * RoundEven(10000000 * grid, 3), samePulse.AudioEvents[1].Start.Subticks);
     }
 
+    /// <summary>
+    /// 同pulseの発音は変更前時刻、後続は最終BPMとSTOP合計で進め、制御の適用順やSTOPの取りこぼしを検出する。
+    /// </summary>
     [TestMethod]
     public void SamePulseSoundsBeforeLastBpmAndSummedStops()
     {
@@ -88,6 +100,9 @@ public sealed class BmsonPlaybackParserTests
             chart.AudioEvents.Select(item => item.Start.Subticks).ToArray());
     }
 
+    /// <summary>
+    /// 継続sliceは再開始後の壁時計を使い、終端尾部の重なりとSTOP時間も保持して音源区間の切断・ずれを検出する。
+    /// </summary>
     [TestMethod]
     public void ContinuationsUseRestartWallTimeAndEofTailsOverlap()
     {
@@ -102,6 +117,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(TimeSpan.FromSeconds(1.5), stopped.AudioEvents[2].SourceStart.ToTimeSpan());
     }
 
+    /// <summary>
+    /// 同チャンネル・同pulseの層を一sliceへまとめ、記述順にかかわらず再開始を優先して音声とノート数の重複を検出する。
+    /// </summary>
     [TestMethod]
     public void SameChannelPulseIsOneSliceAndAnyRestartWinsRegardlessOfNoteOrder()
     {
@@ -116,6 +134,9 @@ public sealed class BmsonPlaybackParserTests
         }
     }
 
+    /// <summary>
+    /// 十進BPM変更とSTOPの合成誤差を固定格子の許容範囲に収め、区間ごとの丸め誤差の過剰な累積を検出する。
+    /// </summary>
     [TestMethod]
     public void MultipleDecimalControlContributionsStayWithinTheFixedGridErrorBound()
     {
@@ -128,6 +149,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(chart.AudioEvents[1].Start, chart.AudioEvents[1].SourceStart);
     }
 
+    /// <summary>
+    /// 固定subtickのちょうど半分を偶数へ丸め、二つの境界入力から丸め方向の偏りを検出する。
+    /// </summary>
     [TestMethod]
     public void FixedSubtickContributionsRoundTiesToEven()
     {
@@ -136,6 +160,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(new BigInteger(1757812), chart.AudioEvents[1].Start.Subticks);
     }
 
+    /// <summary>
+    /// 解像度の欠落・null・ゼロ・負値・数値文字列でも四分音符時刻とBGM扱いを保ち、正規化で発音時刻がずれる誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("")]
     [DataRow(",\"resolution\":null")]
@@ -152,6 +179,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual("beat-7k", chart.ModeHint);
     }
 
+    /// <summary>
+    /// 解像度とpulseの倍増では時刻を保ち、最小整数の絶対値でも桁が回り込んで時計が変わる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ResolutionCanBeDoubledOrAbsoluteMinimumIntegerWithoutWrapping()
     {
@@ -161,6 +191,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(TimeSpan.FromSeconds(0.5), minimum.AudioEvents[0].Start.ToTimeSpan());
     }
 
+    /// <summary>
+    /// 旧版・版なし・未知版の受理を保ち、旧キーと新キー併記では新形式を優先して互換入力を誤解する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void LegacyAndVersionlessAdaptersShareModernTimingAndModernKeysWin()
     {
@@ -180,6 +213,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(120d, mixed.Bpm.ToDouble());
     }
 
+    /// <summary>
+    /// 小数STOPと数値文字列STOPを同じ正確な寄与へ変換し、停止点の発音時刻や後続時刻がずれる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void FractionalStopsAndNumericStringStopsHaveExactContributions()
     {
@@ -192,6 +228,9 @@ public sealed class BmsonPlaybackParserTests
         CollectionAssert.AreEqual(chart.AudioEvents.Select(item => item.Start).ToArray(), strings.AudioEvents.Select(item => item.Start).ToArray());
     }
 
+    /// <summary>
+    /// 層付きLN頭と解放音は音声を残し、ノート数とcount時刻は重複させず、音声と計数の同一性を混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void LayeredLongNoteHeadsAndReleaseSoundsUseSeparateAudioAndCountIdentities()
     {
@@ -238,8 +277,11 @@ public sealed class BmsonPlaybackParserTests
         return "{\"info\":{\"init_bpm\":125,\"resolution\":240},\"lines\":[],\"sound_channels\":[" + channels + "]}";
     }
 
+    /// <summary>
+    /// 競合ノートの正常解析だけが除外数付き警告を一回出し、正常な層や解析失敗で誤通知・重複通知する誤りを検出する。
+    /// </summary>
     [TestMethod]
-    [DoNotParallelize]
+    [DoNotParallelize] // プロセス共通のNLog設定を一時置換して警告を観測する。
     public void ConflictingPlayableNotesWarnOnceWithRejectedCountButNormalLayersAndFailedParseDoNot()
     {
         _ = NLogWrapper.GetLogger(nameof(BmsonPlaybackParser));
@@ -265,6 +307,9 @@ public sealed class BmsonPlaybackParserTests
         finally { LogManager.Configuration = original; }
     }
 
+    /// <summary>
+    /// 計数から拒否した競合ノートも全音声slice・音源区間・表示終端を保持し、衝突処理が再生内容を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void RejectedPlayableNotesKeepEveryAudioSliceSourceWindowAndLogicalDisplayEnd()
     {
@@ -299,6 +344,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.AreEqual(TimeSpan.FromTicks(28800000), collided.AudioEvents.Single(item => item.ResourceIndex == 2).Start.ToTimeSpan());
     }
 
+    /// <summary>
+    /// 非正・非数・構文不正・表現不能の開始BPMを元原因とファイル名付きの入力失敗にし、正常時計の捏造を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("0")]
     [DataRow("-1")]
@@ -313,6 +361,9 @@ public sealed class BmsonPlaybackParserTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(failure.FileName));
     }
 
+    /// <summary>
+    /// 巨大でも有限の十進BPMは受理し、BPM欠落・負pulse・小数LN長・null版・不正JSONは失敗として互換境界の混同を検出する。
+    /// </summary>
     [TestMethod]
     public void FiniteDecimalOutsideDoubleRangeIsNotRejectedAndMissingBpmIsNotInvented()
     {
@@ -327,6 +378,9 @@ public sealed class BmsonPlaybackParserTests
     private static string Chart(string bpm, string notes, string extra = "", string info = "") =>
         "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":" + bpm + info + "},\"sound_channels\":[{\"name\":\"a.wav\",\"notes\":" + notes + "}]" + extra + "}";
 
+    /// <summary>
+    /// 引用有無の両方で係数4096桁までは符号と小数点を除いて受理し、超過は元原因付き失敗として桁数判定の誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -351,6 +405,9 @@ public sealed class BmsonPlaybackParserTests
         }
     }
 
+    /// <summary>
+    /// 引用有無の両方で指数4096の相殺と先頭ゼロを受理し、指数超過は元原因付きで拒否して有効範囲との混同を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]

@@ -11,6 +11,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoProductionCompareTests
 {
+    /// <summary>実アプリDBとbeatorajaの二DBを比較し、非randomの差分・欠落と余剰を報告しつつ、random値差や互換丸めを通常差分へ誤分類する誤りを検出する。</summary>
+    /// <remarks>比較窓口を三つの実SQLite DBへ接続し、保存行の意味と報告・fixture出力を確認する。</remarks>
     [TestMethod]
     public void Compare_ReportsMissingExtraFieldDiffsAndIgnoresRandomValueDiffs()
     {
@@ -45,6 +47,8 @@ public sealed class ChartInfoProductionCompareTests
         });
     }
 
+    /// <summary>非random差分が指定上限内ならmanifestと期待DBを作成し、期待DBの二表の行数と譜面コピー数を確認してfixture出力の欠落を検出する。</summary>
+    /// <remarks>比較窓口を三つの実SQLite DBへ接続し、fixture出力の存在と件数を確認する。</remarks>
     [TestMethod]
     public void Compare_ExportsFixtureWhenNonRandomDiffCountIsWithinLimit()
     {
@@ -67,7 +71,7 @@ public sealed class ChartInfoProductionCompareTests
             Assert.AreEqual(2, result.FixtureExportedCount);
             Assert.IsTrue(File.Exists(Path.Combine(exportPath, "manifest.json")));
             Assert.IsTrue(File.Exists(Path.Combine(exportPath, "expected.db")));
-            using var expected = new SQLiteConnection(Path.Combine(exportPath, "expected.db"));
+            using var expected = new SQLiteConnection(Path.Combine(exportPath, "expected.db"), SQLiteOpenFlags.ReadOnly);
             Assert.AreEqual(2L, expected.ExecuteScalar<long>("SELECT COUNT(1) FROM FixtureSampleChart;"));
             Assert.AreEqual(2L, expected.ExecuteScalar<long>("SELECT COUNT(1) FROM FixtureExpectedChartInfo;"));
             string[] copiedCharts = Directory.GetFiles(Path.Combine(exportPath, "charts"), "*", SearchOption.AllDirectories);
@@ -75,6 +79,8 @@ public sealed class ChartInfoProductionCompareTests
         });
     }
 
+    /// <summary>非random差分が指定上限を超えたとき理由付きで出力を中止し、部分fixtureを残して成功扱いする誤りを検出する。</summary>
+    /// <remarks>比較窓口を三つの実SQLite DBへ接続し、保存行の意味と報告・fixture出力を確認する。</remarks>
     [TestMethod]
     public void Compare_SkipsFixtureExportWhenDiffCountExceedsLimit()
     {
@@ -141,27 +147,40 @@ public sealed class ChartInfoProductionCompareTests
             song.Execute("CREATE TABLE song (sha256 TEXT PRIMARY KEY, md5 TEXT, path TEXT, title TEXT, subtitle TEXT, charthash TEXT, level INTEGER, difficulty INTEGER, maxbpm INTEGER, minbpm INTEGER, length INTEGER, mode INTEGER, judge INTEGER, feature INTEGER, notes INTEGER);");
             info.Execute("CREATE TABLE information (sha256 TEXT PRIMARY KEY, n INTEGER, ln INTEGER, s INTEGER, ls INTEGER, total REAL, density REAL, peakdensity REAL, enddensity REAL, mainbpm REAL, distribution TEXT, speedchange TEXT, lanenotes TEXT);");
 
-            InsertReference(song, info, Sha('a'), "exact.bms", "hash-a", level: 12, difficulty: 3, feature: 0);
-            InsertChartInfo(app, Sha('a'), "hash-a", level: 12, difficulty: 3, feature: 0);
+            // 入力行の準備だけを各DBでまとめ、検査対象の出力保存とは分離する。
+            app.RunInTransaction(() => song.RunInTransaction(() => info.RunInTransaction(() =>
+            {
+                // 完全一致。
+                InsertReference(song, info, Sha('a'), "exact.bms", "hash-a", level: 12, difficulty: 3, feature: 0);
+                InsertChartInfo(app, Sha('a'), "hash-a", level: 12, difficulty: 3, feature: 0);
 
-            InsertReference(song, info, Sha('b'), "level-null.bms", "hash-b", level: 0, difficulty: 2, feature: 0);
-            InsertChartInfo(app, Sha('b'), "hash-b", level: null, difficulty: 2, feature: 0, maxbpm: 180.9);
+                // NULL levelと小数BPMをbeatoraja側の互換値へ揃える。
+                InsertReference(song, info, Sha('b'), "level-null.bms", "hash-b", level: 0, difficulty: 2, feature: 0);
+                InsertChartInfo(app, Sha('b'), "hash-b", level: null, difficulty: 2, feature: 0, maxbpm: 180.9);
 
-            InsertReference(song, info, Sha('c'), "value-diff.bms", "hash-c", level: 7, difficulty: 4, feature: 0);
-            InsertChartInfo(app, Sha('c'), "wrong-c", level: 7, difficulty: 3, feature: 0);
+                // 非randomの二項目差分。
+                InsertReference(song, info, Sha('c'), "value-diff.bms", "hash-c", level: 7, difficulty: 4, feature: 0);
+                InsertChartInfo(app, Sha('c'), "wrong-c", level: 7, difficulty: 3, feature: 0);
 
-            InsertReference(song, info, Sha('d'), "missing-non-random.bms", "hash-d", level: 5, difficulty: 2, feature: 0);
+                // 非randomの欠落。
+                InsertReference(song, info, Sha('d'), "missing-non-random.bms", "hash-d", level: 5, difficulty: 2, feature: 0);
 
-            InsertReference(song, info, Sha('e'), "random-diff.bms", "hash-e", level: 5, difficulty: 2, feature: 4);
-            InsertChartInfo(app, Sha('e'), "wrong-e", level: 5, difficulty: 9, feature: 4);
+                // random値差を通常差分から分離する。
+                InsertReference(song, info, Sha('e'), "random-diff.bms", "hash-e", level: 5, difficulty: 2, feature: 4);
+                InsertChartInfo(app, Sha('e'), "wrong-e", level: 5, difficulty: 9, feature: 4);
 
-            InsertReference(song, info, Sha('f'), "missing-random.bms", "hash-f", level: 5, difficulty: 2, feature: 4);
+                // randomの欠落。
+                InsertReference(song, info, Sha('f'), "missing-random.bms", "hash-f", level: 5, difficulty: 2, feature: 4);
 
-            InsertChartInfo(app, Sha('g'), "extra-g", level: 1, difficulty: 1, feature: 0);
+                // 参照側にない余剰行。
+                InsertChartInfo(app, Sha('g'), "extra-g", level: 1, difficulty: 1, feature: 0);
 
-            InsertReference(song, info, Sha('h'), "bmson-md5-is-ignored.bmson", "hash-h", level: 3, difficulty: 1, feature: 0);
-            song.Execute("UPDATE song SET md5 = '' WHERE sha256 = ?;", Sha('h'));
-            InsertChartInfo(app, Sha('h'), "hash-h", level: 3, difficulty: 1, feature: 0);
+                // bmsonの空MD5を比較対象から除く。
+                InsertReference(song, info, Sha('h'), "bmson-md5-is-ignored.bmson", "hash-h", level: 3, difficulty: 1, feature: 0);
+                song.Execute("UPDATE song SET md5 = '' WHERE sha256 = ?;", Sha('h'));
+                InsertChartInfo(app, Sha('h'), "hash-h", level: 3, difficulty: 1, feature: 0);
+            })));
+
         }
 
         private void InsertReference(SQLiteConnection song, SQLiteConnection info, string sha256, string fileName, string charthash, int level, int difficulty, int feature)

@@ -21,17 +21,18 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>実プレイリスト保存に伴うLR2ファイル・DB同期と、出力失敗後の明示保存継続を確認します。</summary>
+/// <remarks>SQL本文、実ファイルの整理、SQLite確定は下位の自己転記では代替できません。画面なしの保存serviceを主に使い、共有Dispatcherを設定する代表だけ非並列で接続を確認します。</remarks>
 [TestClass]
 public sealed class BmsPlaylistCustomFolderOutputTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>利用者フォルダを実出力し、Shift_JIS本文と対応するLR2の種別・カテゴリ・SQL・日時を同じ生成結果から保存します。ファイルだけ更新してDB行を残す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromGeneratedText()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -90,8 +91,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -99,12 +98,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>同期port失敗の元例外を通知sessionの有無によらず返し、session内では表名付き警告を一件蓄積します。失敗の置換と警告の欠落・重複を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolder_FailureRequiresNotificationScopeOrQueuesWarning()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -151,8 +149,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -160,15 +156,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>保存値と異なる注入配置・未送信検知を採用して実出力し、保存値側には生成しません。出力先や種類を共有設定へ戻す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_UsesInjectedCustomFolderOutputSettings()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
-        bool previousEnableUnsent = testSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -236,11 +228,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
-            testSettings.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -248,14 +235,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>注入した通常先とルート型表ディレクトリを実configへ補い、保存値側のルート基点は登録しません。注入配置を無視する誤りと表ルートの作成漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void SyncCustomFolderOutputSearchRootsAfterSettingsChange_UsesInjectedOutputSettings()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -306,10 +290,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -317,12 +297,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>長い実出力パスにもShift_JISファイルと対応DB行を生成します。通常のFile API制限で出力を欠落させる誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesLr2FolderUnderLongPath()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         LongPathFileSystem.CreateDirectory(tempDirectory);
         try
@@ -366,8 +345,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (LongPathFileSystem.DirectoryExists(tempDirectory))
             {
                 LongPathFileSystem.DeleteDirectory(tempDirectory, recursive: true);
@@ -375,13 +352,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>追加出力先の基点、表ディレクトリ、生成ファイルを実DBへ階層保存します。親hashを取り違えてLR2の階層を崩す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_GeneratesAdditionalOutputBaseParentRow()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -448,9 +423,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -458,8 +430,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>編集中に適用配置を切り替えてルート型・追加先と除外maskを保存し、実出力、config、DBへ現在の配置を反映します。編集開始時の配置を再利用して旧先を整理する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
+    [DoNotParallelize]
     public void PlaylistPropertyDialogApplyPostSaveUpdates_UsesCurrentAppliedCustomFolderSettings()
     {
         TestUiDispatcherHost.Invoke(() =>
@@ -605,11 +579,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     }
 
     /// <summary>
-    /// 実保存・LR2移行・config保存・BMT出力の異なる失敗境界でDB=Bを保持し、
+    /// DB=B確定後のLR2新先出力・config保存・BMT出力の三つの失敗境界でDB=Bを保持し、
     /// 同じ編集画面の明示再保存だけで旧Aを整理します。C再編集では未完了を先に終えるPとTask終端も確認します。
     /// 下位移行の管理領域・モード網羅は既存移行テスト、画面の所有と通知はWPF代表へ分担します。
     /// </summary>
     [DataTestMethod]
+    // DB=B確定後、migrationは新先Bのディレクトリ生成、configは登録保存、bmtは台帳保存を失敗させる。bmt行だけ追加編集Cを行う。
     [DataRow("migration", false)]
     [DataRow("config", false)]
     [DataRow("bmt", true)]
@@ -789,6 +764,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>DB保存後の公開失敗でも保存済みsymbolを編集画面のresetへ戻し、未変更の次保存では失敗した公開を再実行しません。確定値の巻戻しと古い公開の自動再試行を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_PostSaveFailureReconcilesDialogWithDurableActiveState()
@@ -871,6 +847,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>接頭辞書換え後の選択remap通知が失敗しても、次の明示保存で行の接頭辞を二重付与せず保存値を保持します。公開失敗を未保存扱いする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_FreshSaveAfterFailureDoesNotRewriteCompatiblePrefixTwice()
@@ -956,6 +933,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>元から接頭辞を含む行も実書換えし、Folder_order通知失敗後の次保存では確定した一回分だけを保持します。通知例外で書換えを重ねる誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_PrefixNotificationFailureKeepsDurableRewriteWithoutReplay()
@@ -1050,6 +1028,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>公開失敗後に正本symbolが別変更された場合は古い編集sessionの再保存を拒み、その値と確定済み接頭辞を保持します。古い編集内容による上書きを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_FreshSaveRejectsChangedSavedValues()
@@ -1131,11 +1110,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>外部取得の確定後に完了表示が失敗しても、取得元を削除した後の次保存で再取得を繰り返さず同期設定と行を保持します。確定済み取得の再実行と開始・終端の不均衡を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_FreshSaveAfterPublicationFailureDoesNotReplayExternalReload()
     {
-        bool previousEnablePlaylistUrlCompletion = testSettings.EnablePlaylistUrlCompletion;
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -1245,7 +1224,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             dialog?.Dispose();
-            testSettings.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1253,13 +1231,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>ルート型の実出力ファイルを表ディレクトリの子として登録し、その表ディレクトリをLR2ルート直下へ置きます。通常型の基点階層を流用する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1311,9 +1287,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1321,12 +1294,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>指定maskからクリア・DJ・ランダム・各sortを階層出力し、ASSIST/EASYの生成SQLを実行してoption bitとNULLの分類を確認します。分類混同とファイル・DB階層の欠落を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesHierarchicalRandomAndSortFolders()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1419,8 +1391,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1428,12 +1398,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>導入済み履歴表を参照する最終プレイ降順と欠損末尾のSQLを実ファイル・DBへ出力し、プレイ回数sortを代用しません。異なる日時・回数への置換を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesLastPlaySortFolderWhenSchemaInstalled()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1483,8 +1452,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1492,12 +1459,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>履歴スキーマ未導入でも選択された最終プレイsortのファイルとDB行を生成します。schema状態を出力禁止へ転用する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_WritesLastPlaySortWhenSchemaNotInstalled()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1538,8 +1504,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1547,12 +1511,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>最終プレイsortを除外へ変え、生成済みと余分なファイル・DB行・空階層を除去し通常出力を保持します。種類を切った後も旧投影を残す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesLastPlaySortWhenOutputBitTurnsOff()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1613,8 +1576,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1622,12 +1583,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>全曲・利用者フォルダ・レベルを指定して実出力し、連番上の通常版を先、ランダム版を後へ配置します。LR2表示で通常版とランダム版が交錯する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesRootRandomFoldersAfterNormalFolders()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1676,8 +1636,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1685,12 +1643,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>全曲だけを対象範囲にした場合は全体とそのクリア区分を出力し、利用者フォルダ分を追加しません。対象範囲のbitを相互依存させる誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_AllSongsScopeDoesNotRequireUserFolder()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1734,8 +1691,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1743,12 +1698,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>利用者フォルダだけを対象範囲にして通常・クリア区分を生成し、全曲分を混ぜません。全曲bitを無視する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_UserFolderScopeDoesNotWriteAllSongs()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1796,8 +1750,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1805,12 +1757,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>保存済み旧mask 0x7Fを現在の全除外へ拡張せず、後から追加されたsort種類を実出力します。旧値の解釈を変更して利用者の出力を失う誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_DoesNotExpandOldAllFoldersMaskToNewTypes()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1854,8 +1805,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1863,12 +1812,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>同じ管理先の余分なlr2folderを実ファイルとDBから除去し、必要出力を再生成します。物理整理とDB整理の片方だけを行う誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesExtraLr2FolderRowsInSameOutputDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1918,8 +1866,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1927,12 +1873,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>物理クリア階層を先に失った状態で種類を除外し、DBだけに残るファイル・祖先行も除去します。ファイル列挙だけに頼る整理漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesDbOnlyStaleHierarchicalRowsInSameOutputDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1997,8 +1942,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2006,13 +1949,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>既存の古い本文を一括出力で書き換え、実更新時刻とタイトルをDBへ同期します。存在するファイルを現行と誤認する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_RewritesExistingLr2FolderFiles()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2090,9 +2031,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2100,13 +2038,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>実カスタムフォルダ同期の進捗に専用ラベルを届け、全体song DB同期の表示を流用しません。処理内容を誤って案内する接続を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_ProgressUsesFolderTableSyncLabel()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2154,9 +2090,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2164,13 +2097,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>表ルート登録と対応DB行を欠落させて実reloadし、注入されたルートを補完して現行ファイルの時刻を保持します。登録補完後のDB修復漏れと不要再出力を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ReloadTables_RepairsRootOutputDirectoryRowWhenJukeboxRootWasMissing()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2259,9 +2190,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2269,12 +2197,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>実生成済み表の出力を削除すると保存した出力状態も除去します。次の修復判断が消した出力を現行扱いする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_ClearsCustomFolderOutputStatus()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2325,8 +2252,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2334,13 +2259,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>生成後に全種類を除外して実一括出力し、ファイルと配下DB行を残しません。空の期待集合を整理不要扱いする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DisablingAllOutputPrunesFilesAndRows()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2399,9 +2322,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2409,13 +2329,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>ルート型の物理出力を先に失った状態から全種類を除外し、相対パスで残るDB階層を整理します。物理不在時の旧DB行放置を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DisablingAllOutputPrunesDbOnlyRootRows()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2470,9 +2388,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2480,13 +2395,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>出力基点を実ファイルで塞いで生成を失敗させ、保存済みsymbolと除外maskを保持します。出力未完了のheaderを先に保存する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFoldersAndCommitHeadersToDB_DoesNotCommitHeaderWhenOutputFails()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2566,9 +2479,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2576,12 +2486,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>実全体同期の準備から二表三ファイルの生成面と進捗件数を返し、出力状態は保存しても既存folder行を変更しません。準備とDB反映の混同を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Lr2SongDbSyncPreparation_ReportsActualTablesAndFilesThroughWorkflowWithoutSavingFolderRows()
     {
-        bool previousMode = testSettings.OperationModeLR2DB;
-        string previousRoot = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2685,8 +2594,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousMode;
-            testSettings.LR2RootPath = previousRoot;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2694,14 +2601,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>空の表一覧でも準備を正常終端し、表・ファイル処理を報告せず次のlibrary予約を受理します。空入力での予約漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputAllCustomFoldersForLr2SongDbSync_EmptyTablesReleasePreparationReservation()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousRootPath = testSettings.LR2RootPath;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2760,10 +2664,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2RootPath = previousRootPath;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2771,13 +2671,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>全体同期準備は管理先の余分な物理ファイルを整理しても、その外部folder行と各保存列を変更しません。準備中にDB反映まで進める誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Lr2SongDbSyncCustomFolderPreparation_PreservesExtraLr2FolderRowInManagedOutputDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2869,9 +2767,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2879,13 +2774,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>親の表だけを再出力しても、配下にある別表のファイル時刻とファイル・ディレクトリDB行を保持します。親の整理が別表を巻き込む誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_ProtectsNestedManagedOutputDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -2955,9 +2848,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2965,8 +2855,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消、結果通知を個別に失敗させ、DB前失敗だけ旧levelへ戻します。DB後失敗は確定値と元例外を保持し、二次通知失敗による上書きを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
+    // noneは正常系。DB前失敗、DB後の各出力失敗・取消、二次通知失敗をfailureStageで区別する。
     [DataRow("none")]
     [DataRow("preparation")]
     [DataRow("output")]
@@ -2978,8 +2870,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     [DataRow("database_notification")]
     public async Task DetailEdit_ReoutputsLr2FolderRowsForLevelProjection(string failureStage)
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         FileStream? outputBlocker = null;
@@ -3146,8 +3036,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             outputBlocker?.Dispose();
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -3242,10 +3130,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
 
     private async Task PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -3439,10 +3323,6 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         finally
         {
             dialog?.Dispose();
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             DispatcherHelper.UIDispatcher = previousDispatcher;
             if (Directory.Exists(tempDirectory))
             {

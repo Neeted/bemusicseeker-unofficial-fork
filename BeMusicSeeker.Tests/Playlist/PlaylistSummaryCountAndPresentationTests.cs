@@ -10,9 +10,12 @@ using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>サマリーの所持件数・キャッシュ失効と表示用の検索・並替えを検証する。</summary>
+/// <remarks>件数判断と表示投影を直接呼び、DB取込み・実一覧通知は所有者のテストへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistSummaryCountAndPresentationTests
 {
+    /// <summary>有効なハッシュ付きエントリは重複も行数として数え、ハッシュなしと削除済みは除外する。譜面集合としての重複排除や無効行の加算を検出する。</summary>
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_CountsActiveHashedRowsWithoutDedup()
     {
@@ -34,6 +37,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(3, result.OwnedCharts);
     }
 
+    /// <summary>MD5があるエントリはSHAが所持に一致してもMD5不一致なら未所持と数える。別のハッシュで所持判断を上書きする誤りを検出する。</summary>
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_DoesNotFallbackToSha256WhenMd5Exists()
     {
@@ -53,6 +57,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(0, result.OwnedCharts);
     }
 
+    /// <summary>MD5がないエントリはSHAによって所持数へ含める。SHAだけのエントリを未所持として扱う誤りを検出する。</summary>
     [TestMethod]
     public void CalculatePlaylistSummaryCounts_UsesSha256WhenMd5IsMissing()
     {
@@ -70,6 +75,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(1, result.OwnedCharts);
     }
 
+    /// <summary>同じplaylist_idでも別のテーブル実体に変われば件数を再計算する。識別子だけで旧所持数を再利用する誤りを検出する。</summary>
     [TestMethod]
     public void PlaylistCatalogSummaryOwner_DoesNotReuseCountForReplacedTableInstance()
     {
@@ -109,8 +115,9 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(0, replacement.OwnedCharts);
     }
 
+    /// <summary>同じテーブルのエントリ差替後はキャッシュを使わず、新しい所持数を計算する。内容変更をキャッシュ失効へ反映しない誤りを検出する。</summary>
     [TestMethod]
-    public void PlaylistCatalogSummaryOwner_DoesNotPublishCountAfterTableRevisionChanges()
+    public void PlaylistCatalogSummaryOwner_InvalidatesCountAfterTableEntriesChange()
     {
         var ownedHashes = new OwnedChartHashIndexSnapshot();
         ownedHashes.AddMd5("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -142,8 +149,9 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(0, changed.OwnedCharts);
     }
 
+    /// <summary>全名がキーワードaに適合する入力を名前昇順条件で要求し、完全所持のalphaを除いたbeta・gammaと件数2を返すことを確認する。</summary>
     [TestMethod]
-    public void BuildPlaylistSummaryPresentationRows_AppliesFilterAndSortWithoutRebuildLogic()
+    public void BuildPlaylistSummaryPresentationRows_AppliesOwnershipFilterAndNameSort()
     {
         List<PlaylistSummaryRow> rows =
         [
@@ -184,6 +192,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         CollectionAssert.AreEqual(new[] { "beta", "gamma" }, result.Rows.Select(row => row.Name).ToArray());
     }
 
+    /// <summary>名前・フォルダ・prefix・記号・header・dataの全条件を満たす一行を返す。フィールドの誤対応やAND条件の欠落を検出する。</summary>
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsAndAndFieldQueries()
     {
@@ -225,6 +234,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(10, result.Rows[0].PlaylistId);
     }
 
+    /// <summary>サマリーに存在しないmd5フィールドの検索は一致なしにする。未知フィールドを無視して全件返す誤りを検出する。</summary>
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_UnknownFieldDoesNotMatch()
     {
@@ -251,6 +261,7 @@ public sealed class PlaylistSummaryCountAndPresentationTests
         Assert.AreEqual(0, result.FilteredCount);
     }
 
+    /// <summary>引用名・記号OR・ID否定・名前正規表現を組合せ、条件に合う一行だけを返す。検索演算の解釈や複合条件の配送漏れを検出する。</summary>
     [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_KeywordFilterSupportsQuoteNegationOrAndRegex()
     {

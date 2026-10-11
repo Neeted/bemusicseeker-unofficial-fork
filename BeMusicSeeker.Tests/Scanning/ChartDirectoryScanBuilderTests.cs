@@ -12,6 +12,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartDirectoryScanBuilderTests
 {
+    /// <summary>
+    /// 譜面直下から入れ子の音声・画像を走査し、所有フォルダへ各一件だけ集約して誤分類や重複を検出する。
+    /// </summary>
+    /// <remarks>実ファイルシステムの列挙結果とメタデータを観測するため、一時フォルダ内の実入力を使用する。</remarks>
     [TestMethod]
     public void BuildFromRoots_AggregatesResourcesIntoOwningChartDirectory()
     {
@@ -44,6 +48,10 @@ public sealed class ChartDirectoryScanBuilderTests
         }
     }
 
+    /// <summary>
+    /// 親子双方に譜面があるとき集約キーは各祖先、自己所有キーは最寄りの譜面フォルダだけに属し、所有先の混同を検出する。
+    /// </summary>
+    /// <remarks>実ファイルシステムの列挙結果とメタデータを観測するため、一時フォルダ内の実入力を使用する。</remarks>
     [TestMethod]
     public void BuildFromRoots_AssignsAggregateOwnershipToAllAncestorChartDirectories_AndSelfOwnedToNearestChartDirectory()
     {
@@ -75,6 +83,10 @@ public sealed class ChartDirectoryScanBuilderTests
         }
     }
 
+    /// <summary>
+    /// 同名音声が直下と子フォルダにあるとき相対パスを区別し、画像も譜面基準のキーで引けることから同名衝突を検出する。
+    /// </summary>
+    /// <remarks>実ファイルシステムの列挙結果とメタデータを観測するため、一時フォルダ内の実入力を使用する。</remarks>
     [TestMethod]
     public void BuildFromRoots_PathAwareResourcesUseChartRelativeKeys()
     {
@@ -112,6 +124,10 @@ public sealed class ChartDirectoryScanBuilderTests
         }
     }
 
+    /// <summary>
+    /// 直下の説明文だけを譜面フォルダの有無判定に使い、深い階層のfolderinfoと更新日時も保持して説明文との混同を検出する。
+    /// </summary>
+    /// <remarks>実ファイルシステムの列挙結果とメタデータを観測するため、一時フォルダ内の実入力を使用する。</remarks>
     [TestMethod]
     public void BuildFromRoots_TextGroupUsesOnlyDirectChartDirectoryTxtFiles()
     {
@@ -151,6 +167,9 @@ public sealed class ChartDirectoryScanBuilderTests
         }
     }
 
+    /// <summary>
+    /// 存在しない走査ルートは未完了の失敗理由と結果なしを返し、空の正常走査として扱う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void TryBuildFromRoots_MissingRootReturnsIncompleteFailure()
     {
@@ -163,6 +182,10 @@ public sealed class ChartDirectoryScanBuilderTests
         StringAssert.Contains(failureReason, "root_not_found:");
     }
 
+    /// <summary>
+    /// 長い実パスの譜面・音声・画像・説明文を走査結果へ揃え、通常長のパス制約による欠落を検出する。
+    /// </summary>
+    /// <remarks>実ファイルシステムの列挙結果とメタデータを観測するため、一時フォルダ内の実入力を使用する。</remarks>
     [TestMethod]
     public void TryBuildFromRoots_LongPathChartResourcesAndTextUseLongPathFileSystem()
     {
@@ -203,6 +226,9 @@ public sealed class ChartDirectoryScanBuilderTests
         }
     }
 
+    /// <summary>
+    /// 列挙済み入力の譜面・説明文・folderinfo・親フォルダの時刻とサイズを引き継ぎ、再分類時のメタデータ欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildFromGroupedPaths_PreservesTextAndFolderInfoEntries()
     {
@@ -243,6 +269,9 @@ public sealed class ChartDirectoryScanBuilderTests
         Assert.AreEqual(directoryTimestamp, directoryEntry!.LastWriteTimeUtc);
     }
 
+    /// <summary>
+    /// 説明文の列挙を明示的に省略しても譜面とリソースの群は残り、不要な説明文走査と必要群の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void CreateEnumerationGroups_CanOmitTextGroup()
     {
@@ -261,6 +290,9 @@ public sealed class ChartDirectoryScanBuilderTests
         CollectionAssert.Contains(withoutText.Select(group => group.Name).ToList(), ChartDirectoryScanBuilder.MovieGroupName);
     }
 
+    /// <summary>
+    /// ディレクトリメタデータの取得要求を有効・無効で切り替え、要求した群の欠落や不要な列挙を検出する。
+    /// </summary>
     [TestMethod]
     public void CreateEnumerationGroups_CanIncludeDirectoryMetadataGroup()
     {
@@ -275,6 +307,9 @@ public sealed class ChartDirectoryScanBuilderTests
         CollectionAssert.Contains(withDirectories.Select(group => group.Name).ToList(), RootFileEnumerationService.DirectoriesGroupName);
     }
 
+    /// <summary>
+    /// 一度だけ列挙できる説明文入力から説明文とfolderinfoの両方を保持し、二度目の列挙に依存する欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void BuildFromAbsolutePaths_PreservesFolderInfoPathsFromSingleUseTextEnumerable()
     {

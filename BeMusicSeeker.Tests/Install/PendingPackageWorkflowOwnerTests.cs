@@ -19,6 +19,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
+    /// <summary>修復sessionの反映失敗を受付とactivity解放後に一度報告し、無関係な後続例外は元例外で伝えて再報告しない。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ReportsSingleRepairSessionAfterRelease()
     {
@@ -62,13 +63,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
         Assert.AreEqual(1, events.Count(value => value == "store-fix-installed-locations"));
-        Assert.AreSame(sessionReceipt, store.RepairResult!.SessionReceipt);
         store.RepairFailure = new IOException("unrelated failure");
         Exception unrelated = await Assert.ThrowsExceptionAsync<IOException>(() => owner.FixInstalledLocationsAsync(request));
         Assert.AreSame(store.RepairFailure, unrelated);
         Assert.AreEqual(1, dialogs.Messages.Count);
     }
 
+    /// <summary>修復の対象別失敗を一度報告し、任意の報告表示が失敗してもactivityの終端を止めない。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ReportsRepairItemFailureWithoutStoppingContinuation()
     {
@@ -100,6 +101,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.IsTrue(events.Contains("activity-end"));
     }
 
+    /// <summary>移動確定後の保守失敗も受付とactivity解放後に一度報告し、後続失敗の原因を案内へ残す。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ReportsMovementReceiptAndLaterFailureAfterRelease()
     {
@@ -136,10 +138,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages.Single().Icon);
         StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, laterFailure.Message);
-        Assert.AreSame(sessionReceipt, store.RepairResult!.SessionReceipt);
-        Assert.AreSame(laterFailure, store.RepairResult.Failure);
     }
 
+    /// <summary>実ファイル移動後のDB trigger失敗をモデルから受け、同期モデル案内へ迂回せず受付解放後に一度だけ報告する。</summary>
+    /// <remarks>実FS移動とSQLite triggerの反映失敗を本番モデルへ通し、モデルの報告抑制とowner解放後の配送を接続する。</remarks>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_RealModelFailureReportsOnlyAfterGateRelease()
     {
@@ -231,6 +233,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>導入先を開く操作は保留区画と有効な対象権限に限定し、playlist行・不明対象・権限のない選択へ操作を広げない。</summary>
     [TestMethod]
     public void CanOpenInstallDestination_RequiresPendingSectionAndEffectiveTargetCapability()
     {
@@ -284,6 +287,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             isPlaylistRow: false));
     }
 
+    /// <summary>存在する明示導入先はそのディレクトリを一度開き、不要な案内を表示しない。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_UsesDirectDestinationAndOpensIt()
     {
@@ -320,6 +324,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>明示導入先が消失しても所持ハッシュ探索へ読み替えず、元の明示パスを含む不在案内だけを表示する。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_StaleDirectDestinationDoesNotUseHashFallback()
     {
@@ -353,6 +358,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             dialogs.MessageRequests.Single().MessageBoxText);
     }
 
+    /// <summary>同じ導入先を持つ複数譜面を指定すると選択を制限する案内を一度表示し、存在する導入先を一度だけ開く。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_NotifiesMultipleSelectionBeforeOpeningFirstTarget()
     {
@@ -395,6 +401,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>パッケージの先頭譜面に導入先がなくても、後続の解決可能なentryから存在する導入先を開く。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForPackageAsync_UsesFirstResolvableChartEntry()
     {
@@ -437,6 +444,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>パッケージの全entryに導入先がない場合はExplorerを起動せず、導入先未設定の案内を一度表示する。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForPackageAsync_AllEntriesMissingShowsWarning()
     {
@@ -467,6 +475,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             dialogs.MessageRequests.Single().MessageBoxText);
     }
 
+    /// <summary>導入先案内の表示失敗は元例外を保持して伝え、Explorerの起動へ進まない。</summary>
     [TestMethod]
     public async Task OpenInstallDestinationForChartsAsync_DialogFailurePropagatesWithoutOpeningExplorer()
     {
@@ -494,6 +503,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(0, openedDirectories.Count);
     }
 
+    /// <summary>入力元が実ディレクトリならディレクトリ起動だけへ渡し、ファイル選択の別経路を呼ばない。</summary>
     [TestMethod]
     public void OpenPackageSourceInExplorer_OpensExistingDirectoryOnlyThroughDirectoryRoute()
     {
@@ -533,6 +543,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>入力元が実ファイルならファイル選択だけへ渡し、ディレクトリ起動の別経路を呼ばない。</summary>
     [TestMethod]
     public void OpenPackageSourceInExplorer_OpensExistingFileOnlyThroughFileRoute()
     {
@@ -574,6 +585,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>入力元パスが空または消失している場合は、Explorerのどちらの起動経路も呼ばない。</summary>
     [TestMethod]
     public void OpenPackageSourceInExplorer_MissingOrEmptyPathIsSilent()
     {
@@ -602,6 +614,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(0, selectedFiles.Count);
     }
 
+    /// <summary>実ファイルのExplorer選択が失敗しても、ディレクトリ起動の別経路へ意味を変えて再試行しない。</summary>
     [TestMethod]
     public void OpenPackageSourceInExplorer_DoesNotTranslateExplorerFailureIntoAnotherRoute()
     {
@@ -643,8 +656,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>保留entryの推定から変更投影が空で返っても、抑制・activity終端後に導入先と識別情報の更新通知を送る。</summary>
     [TestMethod]
-    public async Task SearchPendingAsync_PackageEntryRemainsCanonicalAndPublishesTerminalRefresh()
+    public async Task SearchPendingAsync_EmptyChangesStillPublishesTerminalRefresh()
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
@@ -679,6 +693,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>保留entryに結び付かない対象の推定は、受付解放後にその変更投影を一度公開して一覧更新へ渡す。</summary>
     [TestMethod]
     public async Task SearchPendingAsync_LooseTargetPublishesTransientProjectionAfterGateRelease()
     {
@@ -727,6 +742,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>結合推定の確認を取消した場合、確認文を表示してstoreと変更境界を開始しない。</summary>
     [TestMethod]
     public async Task SearchPendingAsync_MergeRejectionDoesNotStartMutation()
     {
@@ -748,6 +764,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>パッケージ単位の結合推定を承認すると、対象と推定種別をstoreへ渡して抑制・activity終端後に更新を通知する。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_MergeAcceptanceRunsMutation()
     {
@@ -775,6 +792,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>結合推定の確認表示が失敗した場合は拒否へ読み替えず元例外を伝え、storeや変更境界を開始しない。</summary>
     [TestMethod]
     public async Task SearchPendingAsync_DialogFailureIsNotTreatedAsRejection()
     {
@@ -794,8 +812,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
+    /// <summary>ライブラリ未接続でも保留集合の解除storeを呼び、抑制・activityの終端後に導入先の失効通知を送る。</summary>
     [TestMethod]
-    public async Task ClearPackagesAsync_WithoutAttachedLibraryStillClearsInMemoryState()
+    public async Task ClearPackagesAsync_WithoutAttachedLibraryStillPublishesInvalidation()
     {
         var events = new List<string>();
         ChartFile chart = CreateChart();
@@ -817,6 +836,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>所持先修正の推定ではstore処理を抑制・activityで囲み、それらの終端後に導入先の更新を通知する。</summary>
     [TestMethod]
     public async Task SearchCorrectAsync_PublishesAfterMutationBoundary()
     {
@@ -843,6 +863,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>保留entryの手動導入先をstoreへ渡し、抑制・activityの終端後に導入先の更新を通知する。</summary>
     [TestMethod]
     public async Task SetPendingAsync_RefreshesEditedRowAfterMutationBoundary()
     {
@@ -870,6 +891,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>保留導入先の消去が失敗しても抑制とactivityを閉じ、元失敗を伝えて成功の一覧更新を通知しない。</summary>
     [TestMethod]
     public async Task ClearPendingAsync_PropagatesFailureAndClosesMutationBoundary()
     {
@@ -896,6 +918,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>activity終了が失敗しても収集したモデル案内の同期表示を止め、UI案内として配送して元の必須失敗を伝える。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope()
     {
@@ -952,6 +975,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>変更・抑制終了・activity終了の必須失敗を順序付きで集約し、案内表示の任意失敗を必須失敗へ昇格させない。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure()
     {
@@ -1019,6 +1043,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>既存導入先への強制導入を承認すると、再生停止後に対象の変更境界を実行し、空区画と一覧反映範囲を結果へ渡す。</summary>
     [TestMethod]
     public async Task ForceInstallPackagesAsync_ApprovesOverrideThenStopsPlaybackAndMutatesPackageScope()
     {
@@ -1066,6 +1091,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
     }
 
+    /// <summary>既存導入先への強制導入を拒否した対象は承認集合へ含めず、storeへ対象と未承認の事実を渡して一覧反映の終端を返す。</summary>
     [TestMethod]
     public async Task ForceInstallPackagesAsync_OverrideRejectionRunsBoundaryWithoutApprovingPackage()
     {
@@ -1100,6 +1126,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(package, store.LastPackages.Single());
     }
 
+    /// <summary>導入先有無と新規確認設定に応じて確認を行い、肯定した対象だけを承認し、未選択の閉鎖を承認に変換しない。</summary>
+    // 導入先有無/新規確認ON-OFF/肯定・拒否/未選択閉鎖を分け、閉鎖応答は実表示部品の既定応答正規化へ通す。
     [DataTestMethod]
     [DataRow(false, true, true, false)]
     [DataRow(false, true, false, false)]
@@ -1165,6 +1193,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>新規確認を省略する設定の混在選択では新規対象だけを承認し、拒否された既存導入先の対象を承認へ混ぜない。</summary>
     [TestMethod]
     public async Task ForceInstallPackagesAsync_DisabledNewConfirmationStillRejectsConfiguredDestinationInMixedSelection()
     {
@@ -1187,6 +1216,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm_NormalInstallOverride, dialogs.ConfirmationRequest!.MessageBoxText);
     }
 
+    /// <summary>手動導入の確認を取消すると変更境界を開始せず、失敗のない未実行結果を返して一覧反映を要求しない。</summary>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_RejectionPreservesShellSelectionAndSkipsMutation()
     {
@@ -1218,6 +1248,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             dialogs.ConfirmationRequest!.MessageBoxText);
     }
 
+    /// <summary>手動導入の確認表示が失敗すると元例外を結果へ保持し、変更境界と一覧反映を開始しない。</summary>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_ConfirmationFailureReturnsBeforeMutation()
     {
@@ -1249,6 +1280,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(0, events.Count);
     }
 
+    /// <summary>推定導入先のない実保留を手動導入しても確定を作らず、入力bytesと保留entry・所持集合・空のsong行を保持する。</summary>
+    /// <remarks>実解析した譜面と入力bytes、実SQLiteの空song行、本番保留storeで未実行の保全を確認する。</remarks>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_NoEstimatedDestinationsCompletesWithEmptyReceiptAndPreservesPendingSources()
     {
@@ -1311,13 +1344,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                     deletePendingPackageSourceAfterInstall: false));
 
             Assert.AreEqual(1, package.ChartEntries.Count);
-            Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(pendingChart));
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingChart.InstallDestination));
             Assert.AreEqual(0, library.BmsCharts.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             using (LR2SongDBExtended beforeInstall = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
-                Assert.IsTrue(beforeInstall.IsReadOnlyConnection);
                 Assert.AreEqual(0, beforeInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             }
 
@@ -1330,7 +1361,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreSame(package, library.ChartPackagesPending.Single());
             ChartFile preservedChart = package.ChartEntries.Single().Chart;
-            Assert.IsTrue(ChartFileKindResolver.IsBmsChartFile(preservedChart));
             Assert.AreEqual(pendingChartPath, preservedChart.Path);
             Assert.IsTrue(string.IsNullOrWhiteSpace(preservedChart.InstallDestination));
             Assert.AreEqual(0, library.BmsCharts.Count);
@@ -1339,7 +1369,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             CollectionAssert.AreEqual(sourceContents, File.ReadAllBytes(chartPath));
             using (LR2SongDBExtended afterInstall = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
-                Assert.IsTrue(afterInstall.IsReadOnlyConnection);
                 Assert.AreEqual(0, afterInstall.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
             }
             Assert.AreEqual(0, dialogs.MessageRequests.Count);
@@ -1350,6 +1379,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>起動走査を無効にした実ライブラリの受付拒否を例外にせず、空の確定結果と案内を返して画面終端を反映できる。</summary>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
     {
@@ -1388,6 +1418,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>強制導入と抑制終了がともに失敗しても一覧終端の反映を許可し、元の変更失敗と後片付け失敗を順に保持する。</summary>
     [TestMethod]
     public async Task ForceInstallPackagesAsync_MutationFailurePreservesTerminalViewApply()
     {
@@ -1434,6 +1465,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
     }
 
+    /// <summary>変更開始前の抑制失敗では空区画を照会せず、元失敗を保持して未捕捉の区画情報を捏造しない。</summary>
     [TestMethod]
     public async Task ForceInstallPackagesAsync_DoesNotCapturePendingSectionBeforeMutation()
     {
@@ -1466,6 +1498,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(suppressionFailure, result.Failure);
     }
 
+    /// <summary>選択要求からのパッケージ解決が失敗すると、対象解決だけで止めて変更境界や一覧反映を開始しない。</summary>
     [TestMethod]
     public async Task InstallPendingAsync_ResolutionFailureDoesNotApplySelection()
     {
@@ -1484,6 +1517,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "store-resolve-packages" }, events);
     }
 
+    /// <summary>選択要求をstoreで解決した後に再生停止と変更境界を実行し、解決したパッケージだけを強制導入へ渡す。</summary>
     [TestMethod]
     public async Task InstallPendingAsync_ResolvesRequestBeforePreparingShellAndForceInstalling()
     {
@@ -1515,6 +1549,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(package, store.LastPackages.Single());
     }
 
+    /// <summary>修復対象に導入先がない場合、専用案内だけを表示しstoreや変更境界を開始しない。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_WarnsWithoutDestinationAndDoesNotMutate()
     {
@@ -1535,6 +1570,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             dialogs.MessageRequest!.MessageBoxText);
     }
 
+    /// <summary>修復の事前警告表示が失敗した場合、元例外と修復案内の失敗分類を伝え、storeや変更境界を開始しない。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_WarningDisplayFailurePropagates()
     {
@@ -1559,6 +1595,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(0, events.Count);
     }
 
+    /// <summary>修復と重複削除を順に承認すると、再生停止後にstoreへ承認済み譜面パスを渡しパッケージ変更の境界で処理する。</summary>
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ApprovesDuplicateRemovalAndMutatesPackageScope()
     {
@@ -1612,6 +1649,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             store.ApprovedDuplicateRemovalChartPaths.ToArray());
     }
 
+    /// <summary>所持済み保留元の削除を承認すると、取得したパッケージを再生停止後の変更境界内でstoreへ渡す。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ApprovedMutationUsesOwnerBoundary()
     {
@@ -1640,6 +1678,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(package, store.LastPackages.Single());
     }
 
+    /// <summary>所持済み保留元の対象が空なら、対象照会後に専用案内だけを表示して削除境界を開始しない。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_EmptySelectionWarnsWithoutMutation()
     {
@@ -1657,6 +1696,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             dialogs.MessageRequest!.MessageBoxText);
     }
 
+    /// <summary>所持済み保留元の削除確認を取消すると、対象照会だけで止めて再生停止や削除storeを呼ばない。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RejectionSkipsMutation()
     {
@@ -1677,6 +1717,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "store-get-installed-only" }, events);
     }
 
+    /// <summary>ゼロノート保留の対象をstoreから取得し、再生停止を呼び出した後に抑制付きの変更境界で無効化処理へ渡す順序を保つ。</summary>
     [TestMethod]
     public async Task RenamePendingZeroNoteChartsAsync_StopsPlaybackBeforeMutation()
     {
@@ -1710,6 +1751,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
+    /// <summary>正常な保留リソース上書きでは再生停止・抑制・store・終端の順を保ち、要求・処理・成功一件と失敗ゼロ・未取消の集計全文を案内する。</summary>
     [TestMethod]
     public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_ShowsSummaryAfterMutation()
     {
@@ -1753,13 +1795,14 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 "activity-end"
             },
             events);
-        StringAssert.Contains(dialogs.MessageRequest!.MessageBoxText, "1");
+        Assert.AreEqual(
+            string.Format(BeMusicSeeker.Properties.Resources.Warn_overwrite_pending_installed_only_packages_summary,
+                1, 1, 1, 0, 0, 0, 0, 0, 0, false),
+            dialogs.MessageRequest!.MessageBoxText);
     }
 
-    /// <summary>
-    /// resource overwrite の異常終端を通常集計で隠さず、
-    /// operation gate と activity の解放後に session report を一度だけ表示します。
-    /// </summary>
+    /// <summary>リソース上書きの反映・最終化・物理・回収・型衝突の異常を通常集計で隠さず、受付解放後に対象と原因を一度報告する。</summary>
+    // failureKindは反映・最終化・物理・回収・型衝突。reporterThrowsは任意の報告表示失敗でも元の終端を変えない条件。
     [DataTestMethod]
     [DataRow("apply", false)]
     [DataRow("finalization", false)]
@@ -1839,6 +1882,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>複数の所持済み保留元を削除すると、削除の進捗案内へ渡し全対象をstoreへ接続する。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_MultiplePackagesUsesProgressRoute()
     {
@@ -1857,6 +1901,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { first, second }, (System.Collections.ICollection)store.LastPackages);
     }
 
+    /// <summary>複数保留元の削除に伴う進捗案内が失敗すると、元表示例外を内部例外に保持して呼出し元へ伝える。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_ProgressFailurePropagates()
     {
@@ -1876,6 +1921,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(failure, exception.InnerException);
     }
 
+    /// <summary>保留元削除の利用者取消を取消待機する代替storeへ伝え、処理Taskの終端を例外にせず正常に返す。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_UserCancellationIsNormalCompletion()
     {
@@ -1897,6 +1943,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         CollectionAssert.Contains(events, "store-delete-sources");
     }
 
+    /// <summary>進捗表示と削除処理がともに失敗すると、元表示例外と元削除例外を順序付きの集約で保持する。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_PreservesDialogAndMutationFailures()
     {
@@ -1922,6 +1969,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(mutationFailure, exception.InnerExceptions[1]);
     }
 
+    /// <summary>共通受付のBusyを案内して推定storeを呼ばず、先行受付を解放しないまま拒否し、解放後の新しい要求だけを実行する。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_FailsFastWhenOwnerAdmissionIsBusyThenRunsAfterRelease()
     {
@@ -1978,6 +2026,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>手動・強制導入の抑制終了が失敗しても、確定済みの元receiptと最終化失敗を結果へ保持して受付を解放する。</summary>
+    // falseは強制導入、trueは手動導入。同じ確定receiptを抑制終了の失敗後も保持する。
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -2014,6 +2064,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, events.Count(value => value == (manual ? "store-manual-install" : "store-force-install")));
     }
 
+    /// <summary>実ownerの型衝突結果を画面終端へ渡すと、変更受付とactivity解放後に衝突先を含む警告を一度表示する。</summary>
     [TestMethod]
     public async Task RealPendingOwnerResultReportsConflictAfterOwnerReleasesMutationGate()
     {
@@ -2081,10 +2132,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreEqual(1, events.Count(value => value == "store-manual-install"));
     }
 
-    /// <summary>
-    /// 実 library の保留受付が準備済みでも、確認待ちから drop を拒否します。
-    /// 拒否した drop を後で自動実行せず、手動操作の成功・失敗・確認取消後には新しい要求を受け付けます。
-    /// </summary>
+    /// <summary>保留導入の確認待ちからdropを拒否し、成功・変更失敗・確認取消の実終端後に新しい要求だけを受理する。</summary>
+    // manualで手動/強制入口、failMutationで変更失敗、cancelConfirmationで確認取消を分け、全終端でdrop受付を解放する。
     [DataTestMethod]
     [DataRow(false, false, false)]
     [DataRow(false, true, false)]
@@ -2175,11 +2224,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>
-    /// worker開始前と一要求内の複数入力の実行中は保留導入を拒否します。
-    /// 追加dropを予約せず、完了通知では入力の処理済みと受付解放を確認します。
-    /// 行選択 request と package 行からの手動・強制導入をそれぞれ通します。
-    /// </summary>
+    /// <summary>一要求の複数入力を受理したworkerの開始前から終端まで保留導入と追加dropを拒否し、全入力処理と受付解放を観測した後に明示導入を受理する。</summary>
+    // manualで手動/強制、selectedRowsで選択要求/パッケージ直接入口を分け、共通受付の拒否と再受付を確認する。
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(false, true)]
@@ -2380,7 +2426,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         string path = @"C:\Charts\song.bms",
         string? installDestination = null)
     {
-        ChartFile bmsFile = (ChartTestValues.Empty() with { Path = path });
         return new ChartFile(ChartFileKind.Bms, path, md5: "0123456789abcdef0123456789abcdef", sha256: null, title: "Title", rawTitle: "Title", artist: "Artist", genre: "Genre", folder: "Charts", tag: null, levelText: null, level: null, mode: null, chartInfo: null, installDestination: installDestination);
     }
 

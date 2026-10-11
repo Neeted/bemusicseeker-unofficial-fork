@@ -25,6 +25,8 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class BMSAutoPlayerInputTests
 {
+    /// <summary>BMS／bmsonでwav→ogg→mp3の最初の復号成功を採用し、選んだ候補の元rate・frame・PCMを保って途中失敗を省略に出さない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(false, 0)]
     [DataRow(false, 1)]
@@ -54,6 +56,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreEqual(0, player.OmittedAudioSources.Count);
     }
 
+    /// <summary>サブフォルダの全拡張子候補をbasenameより先に試し、失敗を尽くしてからbasenameの正常候補を採用する。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -78,6 +82,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreEqual(0, next.Failures.Count);
     }
 
+    /// <summary>候補readの共有違反は入力由来失敗として次候補へ進み、正常代替を省略と扱わない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void AudioFallbackReadFailureContinuesToNextCandidate()
     {
@@ -93,6 +99,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>候補段階を跨ぐ大文字／相対path aliasの成功・失敗を一回のread／decodeへ集約し、同じ正常PCMを共有する。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void AudioFallbackSharesSuccessAndFailurePathsAcrossCandidateStages()
     {
@@ -116,6 +124,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreEqual(0, result.Failures.Count);
     }
 
+    /// <summary>入力以外のread／decode故障は元原因を保持してロード全体を失敗させ、正常代替を試さず入力・decoderを回収する。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -161,6 +171,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>復号中の取消は復号worker実終端へ合流し、入力とdecoderを解放してsessionを維持した取消として返す。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public async Task AudioFallbackCancellationDuringDecodeJoinsAndReleasesInputAndDecoder()
     {
@@ -206,6 +218,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>BMS／bmsonの正常代替を先読みで準備した後に譜面と音源が消えても、一致する準備PCMを採用して再読込みしない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -266,6 +280,8 @@ public sealed class BMSAutoPlayerInputTests
         BassAudioRuntime.Shutdown();
     }
 
+    /// <summary>bmson準備の共有PCMと解析sliceを入力消失後も採用し、二つの発音を保ってnative先行voiceと二重採用を防ぐ。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void BmsonPreparationKeepsSharedPcmAndParsedSlicesAfterInputsDisappear()
     {
@@ -291,6 +307,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.ThrowsException<InvalidOperationException>(() => prepared.TakeResources());
     }
 
+    /// <summary>BMSの選択済みRANDOM分岐と共有PCMを入力消失後も使い、次出力rateへscheduleを結び直して一回だけ採用する。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(44100)]
     [DataRow(48000)]
@@ -338,6 +356,8 @@ public sealed class BMSAutoPlayerInputTests
         finally { BassAudioPlayer.Frequency = previousFrequency; }
     }
 
+    /// <summary>事前取消した準備は取消分類と既存sessionを保ち、native streamを増減させない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void PreparedSong_CancellationPreservesSessionAndCancellationClassification()
     {
@@ -353,6 +373,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreSame(session, BassAudioPlayer.ActiveSession);
     }
 
+    /// <summary>準備時は省略WARNを出さず、採用時に最終欠落だけ一度通知して途中代替失敗を警告に含めない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void PreparedSong_DefersOmissionWarningsUntilAdoption()
     {
@@ -381,6 +403,8 @@ public sealed class BMSAutoPlayerInputTests
         finally { LogManager.Configuration = originalConfiguration; }
     }
 
+    /// <summary>使用中の欠落・破損pathをalias単位に集約して一度WARNし、未使用定義を開かず正常・代替PCMで処理を続ける。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void LoadResources_WarnsOncePerMissingOrCorruptPathWhileContinuing()
     {
@@ -451,6 +475,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>使用する明示音源が全欠落なら元read段階付きでロードを失敗させ、部分省略や空resourceを正常公開しない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void LoadResources_AbortsWhenEveryExplicitMissingAudioFails()
     {
@@ -481,6 +507,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>全候補失敗では最初に存在した候補のdecode原因を残し、後続欠落で上書きせず全失敗として返す。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void AudioFallbackAllFailedKeepsFirstExistingDecodeCauseAfterLaterMissingCandidates()
     {
@@ -500,6 +528,8 @@ public sealed class BMSAutoPlayerInputTests
         Assert.AreEqual(0, player.OmittedAudioSources.Count);
     }
 
+    /// <summary>未定義・空定義のWAV参照を入力要求や省略へ変えず、音源なしの譜面読込みを成功させる。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void LoadResources_UndefinedAndEmptyWavDefinitionsDoNotRequestFiles()
     {
@@ -520,6 +550,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>使用中のゼロframe Waveを正常resourceと扱い、後続候補へ置換も省略計上もしない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void LoadResources_LoadsUsedZeroFrameWaveWithoutOmissions()
     {
@@ -550,6 +582,8 @@ public sealed class BMSAutoPlayerInputTests
         }
     }
 
+    /// <summary>一曲内の正規化path aliasは同じPCMを共有し、次playerでは変更済みファイルを読み直して古いcacheを使わない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public void LoadResources_SharesPcmWithinSongAndReloadsChangedWaveForNextPlayer()
     {
@@ -615,6 +649,8 @@ public sealed class BMSAutoPlayerInputTests
         ThrowFailures(failures);
     }
 
+    /// <summary>次曲向けDisposeは旧再生のStopとTask合流が終わるまで公開PCMを維持し、停止処理から資源を先に奪わない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [TestMethod]
     public async Task DisposeBeforeNextSong_StopsAndJoinsBeforeDroppingPublishedAudioResources()
     {
@@ -645,6 +681,8 @@ public sealed class BMSAutoPlayerInputTests
         ThrowFailures(failures);
     }
 
+    /// <summary>UI dispatcher上の次曲Disposeは旧scheduler・voice・tempo graphを実終端し、再利用sessionで次曲を開始・停止できる。</summary>
+    /// <remarks>共有UI dispatcherと実NULL_DEVICEを接続し、UI同期の曲切替でもnative graph解放と再受付を完了できることを検査する。</remarks>
     [TestMethod]
     public void DisposeBeforeNextSongOnUiDispatcher_ReleasesOldRealtimeGraphBeforeStartingNextSong()
     {
@@ -724,6 +762,8 @@ public sealed class BMSAutoPlayerInputTests
         ThrowFailures(failures);
     }
 
+    /// <summary>通常Disposeと次曲Disposeのどちらでも共有PCMを解除し、ロードだけでprototype native voiceを作らない。</summary>
+    /// <remarks>実NULL_DEVICEの共通読込み・decoder所有または音声graphを通し、共有native状態を直列所有する。WARNを観測するケースは共有NLog設定も復元する。</remarks>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]

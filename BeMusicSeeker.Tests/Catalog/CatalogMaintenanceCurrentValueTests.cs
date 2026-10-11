@@ -7,7 +7,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CatalogMaintenanceCurrentValueTests
 {
-    /// <summary>保守変更は現在値と対象通知へ反映し、捕捉値と集合版を変更しません。</summary>
+    /// <summary>
+    /// 保守情報を現在値へ適用して通知するとき、捕捉済みのencodingと所持集合世代を変えず同じ所有tokenの対象を通知する。
+    /// </summary>
     [TestMethod]
     public void MaintenanceCurrentValue_PublishesTargetWithoutMutatingCaptureOrCollectionVersion()
     {

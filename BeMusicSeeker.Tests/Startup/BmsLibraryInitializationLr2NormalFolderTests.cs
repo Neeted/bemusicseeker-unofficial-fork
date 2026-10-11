@@ -15,6 +15,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationLr2NormalFolderTests
 {
+    /// <summary>
+    /// 完全scanでLR2通常folderを同期し、folderinfoのtitleと実folder日時をDBへ保存する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersAfterFullScanWhenEnabled()
     {
@@ -30,8 +33,11 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.RunInTransaction(() =>
+                {
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -72,7 +78,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual(1, root.type);
@@ -82,6 +88,9 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
         });
     }
 
+    /// <summary>
+    /// song差分がなくてもdirectory日時が変わると通常folderを同期し、folderinfoの新しいtitleを保存する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersForChangedDirectoryMtimeWithoutSongDbDiff()
     {
@@ -108,23 +117,26 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Old Folder",
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        title = Path.GetFileName(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        title = "Old Folder",
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -161,12 +173,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoCandidateCount);
             Assert.AreEqual(1, result.Lr2NormalFolderInfoAppliedCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Updated Folder", pack.title);
         });
     }
 
+    /// <summary>
+    /// directory日時が同じならfolderinfoだけ新しくても同期せず、旧titleを保存したまま保つ。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersForUnchangedDirectoryMtimeWithoutSongDbDiff()
     {
@@ -194,23 +209,26 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Old Folder",
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        title = Path.GetFileName(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        title = "Old Folder",
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -249,12 +267,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
             Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=no_db_diff")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Old Folder", pack.title);
         });
     }
 
+    /// <summary>
+    /// 指定root内の通常folderだけを日時snapshotへ取得し、管理表folderとroot外の行を混ぜない。
+    /// </summary>
     [TestMethod]
     public void LoadNormalFolderMtimeSnapshot_LoadsOnlyNormalFolderRowsUnderRoots()
     {
@@ -265,35 +286,38 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             string outsideFolderPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_Outside_" + Guid.NewGuid().ToString("N"));
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Pack",
-                    type = 1,
-                    date = 2
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = appManagedLr2FolderPath,
-                    title = "Table",
-                    type = 2,
-                    date = 3
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(outsideFolderPath),
-                    title = "Outside",
-                    type = 1,
-                    date = 4
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        title = Path.GetFileName(lr2RootPath),
+                        type = 1,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        title = "Pack",
+                        type = 1,
+                        date = 2
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = appManagedLr2FolderPath,
+                        title = "Table",
+                        type = 2,
+                        date = 3
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(outsideFolderPath),
+                        title = "Outside",
+                        type = 1,
+                        date = 4
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var logs = new List<string>();
@@ -317,6 +341,9 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
         });
     }
 
+    /// <summary>
+    /// 事前取得した通常folder日時snapshotを差分判定へ接続し、同じdirectoryの再同期を起こさない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedNormalFolderMtimeSnapshot()
     {
@@ -344,23 +371,26 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Old Folder",
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        title = Path.GetFileName(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        title = "Old Folder",
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -411,90 +441,9 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
         });
     }
 
-    [TestMethod]
-    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenOnlyFolderInfoMetadataDiffers()
-    {
-
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
-        {
-            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
-            Directory.CreateDirectory(packDirectoryPath);
-            string bmsPath = Path.Combine(packDirectoryPath, "current.bms");
-            string folderInfoPath = Path.Combine(packDirectoryPath, "folderinfo.txt");
-            File.WriteAllText(bmsPath, CreateValidBmsText("Current"), Encoding.ASCII);
-            File.WriteAllText(folderInfoPath, "#TITLE Updated Folder", Encoding.GetEncoding(932));
-            DateTime timestamp = new(2026, 6, 8, 1, 0, 0, DateTimeKind.Utc);
-            DateTime folderInfoTimestamp = new(2026, 6, 8, 1, 5, 0, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(bmsPath, timestamp);
-            File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
-            Directory.SetLastWriteTimeUtc(lr2RootPath, timestamp);
-            Directory.SetLastWriteTimeUtc(packDirectoryPath, timestamp);
-            ChartFile currentFile = ChartTestValues.Empty() with
-            {
-                Path = bmsPath,
-                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-            };
-            currentFile = currentFile with { Txt = 0 };
-
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
-            {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Old Folder",
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-            }
-
-            ChartScanResult scanResult = CreateScanResult(
-                [bmsPath],
-                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    { packDirectoryPath, Array.Empty<string>() }
-                });
-            scanResult.FolderInfoFilePaths.Add(folderInfoPath);
-            scanResult.FolderInfoFileEntriesByPath[folderInfoPath] =
-                new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp, new FileInfo(folderInfoPath).Length);
-
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
-            SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = true,
-                },
-                [currentFile],
-                new ChartScanExecutionResult
-                {
-                    Success = true,
-                    Result = scanResult
-                },
-                0L,
-                () => null,
-                null,
-                currentBmsonSongs: [],
-                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
-
-            Assert.IsFalse(result.HasDbDiff);
-            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
-            Assert.AreEqual("Old Folder", pack.title);
-        });
-    }
-
+    /// <summary>
+    /// directory日時の変更とfolderinfoの削除を同期し、旧metadataのtitleを実directory名へ戻す。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersForChangedDirectoryMtimeAndDeletedFolderInfoWithoutSongDbDiff()
     {
@@ -520,23 +469,26 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    title = Path.GetFileName(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    title = "Old FolderInfo",
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        title = Path.GetFileName(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        title = "Old FolderInfo",
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(previousDirectoryTimestamp)
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -569,12 +521,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(0, result.Lr2NormalFolderInfoCandidateCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual("Pack", pack.title);
         });
     }
 
+    /// <summary>
+    /// liveのdirectory日時が変わっていてもscanで捕捉した日時を保存し、同じscan結果へ後続の変化を混ぜない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesDirectoryMtimeFromScanSurfaceForLr2NormalFolders()
     {
@@ -591,8 +546,11 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
+                songDbConnection.RunInTransaction(() =>
+                {
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                });
             }
 
             ChartScanResult scanResult = CreateScanResult(
@@ -629,7 +587,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
 
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             LR2SongDB.folder root = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(lr2RootPath));
             LR2SongDB.folder pack = verify.Table<LR2SongDB.folder>().Single(row => row.path == ToFolderPath(packDirectoryPath));
             Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(rootSurfaceTimestamp), root.date);
@@ -637,6 +595,9 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
         });
     }
 
+    /// <summary>
+    /// BMS削除が影響するdirectoryの通常folderだけを退役し、別の古いfolder行を巻き込まない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_SyncsLr2NormalFoldersOnlyForAffectedDeletedBmsScope()
     {
@@ -676,25 +637,28 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.Delete(removedPath);
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = removedFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = staleOtherFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = removedFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = staleOtherFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -730,12 +694,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 && message.Contains("paths=0")
                 && message.Contains("pruneScopes=1")));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleOtherFolderPath));
         });
     }
 
+    /// <summary>
+    /// nested BMS削除の範囲をroot直下へ広げず、譜面の残る祖先と別の兄弟folder行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DeletedNestedBmsDoesNotExpandLr2NormalFolderScopeToRootChild()
     {
@@ -771,31 +738,34 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.Delete(removedPath);
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = bigFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = removedFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = staleSiblingFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = bigFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = removedFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = staleSiblingFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -831,13 +801,16 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 && message.Contains("paths=0")
                 && message.Contains("pruneScopes=1")));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", bigFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleSiblingFolderPath));
         });
     }
 
+    /// <summary>
+    /// 最後のnested BMSが消えると空になった子・祖先の通常folderを退役し、探索rootの行は維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DeletedLastNestedBmsPrunesEmptyAncestorFolder()
     {
@@ -861,25 +834,28 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.Delete(removedPath);
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = packFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = removedFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = packFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = removedFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -909,13 +885,16 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsTrue(result.Lr2NormalFolderSyncExecuted);
             Assert.AreEqual(2, result.Lr2NormalFolderDeletedCount);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", removedFolderPath));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", packFolderPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", ToFolderPath(lr2RootPath)));
         });
     }
 
+    /// <summary>
+    /// root直下BMSの削除だけでは全rootのfolder同期を起こさず、無関係な古い兄弟folder行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DeletedRootLevelBmsDoesNotExpandLr2NormalFolderScopeToRoot()
     {
@@ -947,27 +926,30 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             File.Delete(removedPath);
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(keepDirectoryPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepDirectoryPath))
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = staleFolderPath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removedFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(lr2RootPath))
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(keepDirectoryPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(File.GetLastWriteTimeUtc(keepDirectoryPath))
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = staleFolderPath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1001,11 +983,14 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual(0, result.Lr2NormalFolderDeletedCount);
             Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=no_normal_folder_mtime_diff")));
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", staleFolderPath));
         });
     }
 
+    /// <summary>
+    /// LR2以外のmodeでは新規BMSを処理しても通常folderを生成・削除せず、既存の古い行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncStaleLr2NormalFoldersOutsideLr2Mode()
     {
@@ -1020,13 +1005,16 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = stalePath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1055,60 +1043,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
 
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
     }
 
-    [TestMethod]
-    public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersOutsideLr2Mode()
-    {
-
-        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
-        {
-            string packDirectoryPath = Path.Combine(lr2RootPath, "Pack");
-            Directory.CreateDirectory(packDirectoryPath);
-            string bmsPath = Path.Combine(packDirectoryPath, "added.bms");
-            File.WriteAllText(bmsPath, CreateValidBmsText("Folder Sync Disabled"), Encoding.ASCII);
-
-            using (var songDbConnection = new LR2SongDBExtended(songDbPath))
-            {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-            }
-
-            var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
-            SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                new BmsLibraryDbGateway(songDbPath),
-                new EverythingNative(ApplicationPathPolicy.Current),
-                new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = false,
-                },
-                [],
-                new ChartScanExecutionResult
-                {
-                    Success = true,
-                    Result = CreateScanResult(
-                        [bmsPath],
-                        new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                        {
-                            { packDirectoryPath, Array.Empty<string>() }
-                        })
-                },
-                0L,
-                () => null,
-                null,
-                currentBmsonSongs: [],
-                lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
-
-            Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
-            using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
-        });
-    }
-
+    /// <summary>
+    /// 不完全scanでは通常folder同期とDB差分を作らず、元の失敗理由と既存folder行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenScanIsIncomplete()
     {
@@ -1124,13 +1067,16 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = stalePath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1165,12 +1111,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsFalse(result.HasDbDiff);
             Assert.AreEqual("directory_enumeration_failed:" + lr2RootPath, result.ScanFallbackReason);
             Assert.IsFalse(logs.Any(message => message.Contains("lr2_normal_folder_sync")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
     }
 
+    /// <summary>
+    /// 譜面とdirectoryに差分がないscanでは通常folder同期を省き、古い別folderも既存行のまま保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersWhenThereIsNoDbDiff()
     {
@@ -1196,26 +1145,29 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(packDirectoryPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = stalePath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(packDirectoryPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1247,12 +1199,15 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.IsFalse(result.HasDbDiff);
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
             Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=no_db_diff")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(3L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
     }
 
+    /// <summary>
+    /// BMSのtxt有無だけが変わる差分は通常folder同期へ広げず、無関係なfolder行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotSyncLr2NormalFoldersForBmsTextOnlyDiff()
     {
@@ -1280,26 +1235,29 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
 
             using (var songDbConnection = new LR2SongDBExtended(songDbPath))
             {
-                songDbConnection.CreateTable<LR2SongDB.song>();
-                songDbConnection.CreateTable<LR2SongDB.folder>();
-                songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                songDbConnection.RunInTransaction(() =>
                 {
-                    path = ToFolderPath(lr2RootPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = ToFolderPath(chartDirectoryPath),
-                    type = 1,
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
-                }, typeof(LR2SongDB.folder));
-                songDbConnection.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = stalePath,
-                    type = 1
-                }, typeof(LR2SongDB.folder));
+                    songDbConnection.CreateTable<LR2SongDB.song>();
+                    songDbConnection.CreateTable<LR2SongDB.folder>();
+                    songDbConnection.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(currentFile), typeof(LR2SongDB.song));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(lr2RootPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = ToFolderPath(chartDirectoryPath),
+                        type = 1,
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp)
+                    }, typeof(LR2SongDB.folder));
+                    songDbConnection.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        type = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
@@ -1332,7 +1290,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             Assert.AreEqual(1, result.BmsTextOnlyUpdateCount);
             Assert.IsFalse(result.Lr2NormalFolderSyncExecuted);
             Assert.IsTrue(logs.Any(message => message.Contains("lr2_normal_folder_sync skipped reason=no_normal_folder_mtime_diff")));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", stalePath));
         });
     }

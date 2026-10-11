@@ -9,6 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RootFileEnumerationTests
 {
+    /// <summary>
+    /// 実ファイルのパス・更新日時・サイズを同じ列挙で返し、パス互換入口とメタデータ入口の不一致を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ReturnsFileMetadataEntriesAndPathCompatibility()
     {
@@ -45,6 +48,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 長い実パスから譜面・説明文・LR2フォルダファイル・ディレクトリを拾い、パス長による一部群の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ReturnsLongPathChartTextLr2FolderAndDirectoryEntries()
     {
@@ -92,6 +98,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 存在しないルートの列挙は成功にも権威ある完了にもならず、不完全な結果で削除判定する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_MissingRootIsIncompleteAndNotSuccessful()
     {
@@ -107,6 +116,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
     }
 
+    /// <summary>
+    /// Everythingの空結果を再試行する要求だけが高速列挙の結果を採用し、明示された再試行方針の無視を検出する。
+    /// </summary>
     [TestMethod]
     public void SelectFallbackResult_RetriesFastForEmptyEverythingResult()
     {
@@ -140,6 +152,9 @@ public sealed class RootFileEnumerationTests
                 retryEmptyEverythingResultWithFastEnumerator: false));
     }
 
+    /// <summary>
+    /// 走査上限到達の結果を成功・完了フラグだけで権威ある全件結果とせず、不完全な走査による削除判定を検出する。
+    /// </summary>
     [TestMethod]
     public void RootFileEnumerationResult_WithScanLimitExceededIsNotAuthoritativeComplete()
     {
@@ -154,6 +169,9 @@ public sealed class RootFileEnumerationTests
         Assert.AreEqual("scan_limit_exceeded", RootFileEnumerationService.GetNonAuthoritativeReason(result));
     }
 
+    /// <summary>
+    /// ローカル時刻の入力をUTCとUnix秒へ変換して保存用時刻を揃え、タイムゾーン分のずれを検出する。
+    /// </summary>
     [TestMethod]
     public void RootFileEnumerationEntry_NormalizesLocalTimestampToUtcUnixSeconds()
     {
@@ -166,6 +184,9 @@ public sealed class RootFileEnumerationTests
         Assert.AreEqual(ToUnixSeconds(utc), entry.LastWriteTimeUnixSeconds);
     }
 
+    /// <summary>
+    /// ドライブのルート末尾区切りを維持して絶対パスのまま子孫を照合し、相対パス化する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void TrimTrailingDirectorySeparators_PreservesDriveRootAsAbsolutePath()
     {
@@ -177,6 +198,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsTrue(LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(Path.Combine(trimmed, "child"), trimmed));
     }
 
+    /// <summary>
+    /// 大文字小文字だけが異なる譜面パスを別件として保持し、辞書と走査結果で片方を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void RootFileEnumerationResult_KeepsCaseOnlyChartPathsDistinct()
     {
@@ -205,6 +229,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsTrue(scanResult.ChartFileEntriesByPath.ContainsKey(lowerPath));
     }
 
+    /// <summary>
+    /// 実ルートと子ディレクトリの更新日時を列挙結果へ渡し、フォルダのメタデータ欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ReturnsDirectoryMetadataEntries()
     {
@@ -239,6 +266,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// Everythingのディレクトリ検索には末尾区切りを除いたルートを渡し、外部検索の範囲が変わる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildDirectoriesQuery_UsesRootPathWithoutTrailingSeparator()
     {
@@ -251,6 +281,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsFalse(query.Contains("path:\"" + (root + Path.DirectorySeparatorChar).Replace("\"", "\"\"") + "\""));
     }
 
+    /// <summary>
+    /// Everythingのファイル検索では除外ディレクトリを末尾区切り付きの部分木として表し、同接頭辞の兄弟まで除外する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void BuildFilesQuery_IncludesExcludedDirectoriesWithTrailingSeparator()
     {
@@ -263,6 +296,9 @@ public sealed class RootFileEnumerationTests
         StringAssert.Contains(query, "!<path:\"" + (excluded + Path.DirectorySeparatorChar).Replace("\"", "\"\"") + "\">");
     }
 
+    /// <summary>
+    /// 設定された実部分木だけを除外し、同接頭辞の兄弟と別ルートを残すことで走査範囲の過剰除外を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ExcludesConfiguredSubtreeAndKeepsPrefixSibling()
     {
@@ -298,6 +334,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 走査ルート自体が除外対象ならディレクトリも返さず、除外設定を部分的に無視する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ExcludedRootReturnsNoDirectoryEntries()
     {
@@ -322,6 +361,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// エクスポート・DLL不足をブリッジ契約失敗として分類し、検索失敗や空結果との混同を検出する。
+    /// </summary>
     [TestMethod]
     public void RootFileEnumerationService_ClassifiesBridgeContractFailures()
     {
@@ -331,6 +373,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsFalse(RootFileEnumerationService.IsBridgeContractFailure("empty_results_with_roots"));
     }
 
+    /// <summary>
+    /// 説明文・LR2フォルダファイル・ディレクトリの実時刻とファイルサイズを同じ結果に揃え、群ごとの情報欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_ReturnsUnifiedMetadataSurfaceForTextLr2FolderAndDirectories()
     {
@@ -380,6 +425,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 要求したディレクトリ情報を高速走査へ接続し、実行していないnative検索や問い合わせ時間の捏造を検出する。
+    /// </summary>
     [TestMethod]
     public void FastDirectoryFileScanner_ReturnsDirectorySurfaceWhenRequested()
     {
@@ -422,6 +470,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 高速列挙と上限付き列挙では実列挙時間だけを測り、ディレクトリ問い合わせ時間と取り違える誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -452,6 +503,9 @@ public sealed class RootFileEnumerationTests
         }
     }
 
+    /// <summary>
+    /// 高速・上限付き・Everythingの測定入力を引き継ぎ、問い合わせ未測定とゼロを区別してバックエンド情報の混同を検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow("fast", null, false)]
     [DataRow("bounded_fast_source_surface", null, false)]
@@ -485,6 +539,9 @@ public sealed class RootFileEnumerationTests
         Assert.IsTrue(result.Result.DirectoryEntriesByPath.ContainsKey(@"C:\BMS\Song"));
     }
 
+    /// <summary>
+    /// 重なる親子ルートから各譜面のパスを重複なく返し、結果集合の欠落や重複を検出する。
+    /// </summary>
     [TestMethod]
     public void FastEnumerator_CollapsesDescendantExecutionRoots()
     {

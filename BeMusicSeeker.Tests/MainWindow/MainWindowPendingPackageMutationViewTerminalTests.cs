@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainWindowPendingPackageMutationViewTerminalTests
 {
+    /// <summary>変更結果がない場合は選択と件数を読まず表示移動もしないことを確認し、未実行操作の後に別の画面へ進む誤りを検出します。</summary>
     [TestMethod]
     public async Task NullResultIsNoOp()
     {
@@ -45,6 +46,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
+    /// <summary>物理変更前の失敗は表示反映と移動を省いて元例外を伝えることを確認し、失敗を空結果として隠したり未変更の表示を更新する誤りを検出します。</summary>
     [TestMethod]
     public async Task ShouldApplyViewFalseSkipsViewAndNavigationButPropagatesFailure()
     {
@@ -73,6 +75,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
+    /// <summary>反映後だけ保留ルートを選んでも移動せず、反映前から選択して空になった場合だけ一回移動することを確認し、選択の時点を取り違える誤りを検出します。</summary>
     [TestMethod]
     public async Task NavigationRequiresInitialSelectionAndOccursOncePerAppliedMutation()
     {
@@ -117,6 +120,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(1, navigationCount);
     }
 
+    /// <summary>対象section違い・未選択・残件あり・反映中の選択解除の各条件では移動しないことを確認し、画面状態と無関係に空ルートへ移動する誤りを検出します。</summary>
     [TestMethod]
     public async Task NavigationRequiresMatchingEmptySectionAndRemainingSelection()
     {
@@ -166,6 +170,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
+    /// <summary>物理変更後に表示反映も失敗した場合は物理・表示の順で例外をまとめ移動しないことを確認し、元の物理失敗の上書きや未反映画面からの移動を検出します。</summary>
     [TestMethod]
     public async Task ApplyFailureSuppressesNavigationAndOrdersMutationBeforeApply()
     {
@@ -197,6 +202,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
+    /// <summary>物理変更後の失敗に続いて画面移動も失敗した場合は物理・移動の順で元例外を保持することを確認し、後段の失敗で前段を隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task NavigationFailureOrdersMutationBeforeNavigation()
     {
@@ -221,6 +227,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreSame(navigationFailure, exception.InnerExceptions[1]);
     }
 
+    /// <summary>表示反映だけが失敗した場合は同じ例外と発生元のstackを伝えることを確認し、集約や再throwで失敗位置を失う誤りを検出します。</summary>
     [TestMethod]
     public async Task SingleFailurePreservesOriginalStack()
     {
@@ -242,25 +249,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         StringAssert.Contains(exception.StackTrace, nameof(ThrowFailure));
     }
 
-    [TestMethod]
-    public void AppliedViewStateIsImmutableAndEncodesNavigationPrecondition()
-    {
-        var state = new MainWindowPendingPackageMutationAppliedViewState(
-            initiallySelected: true,
-            remainsSelected: true,
-            remainingItemCount: 0);
-
-        Assert.IsTrue(state.InitiallySelected);
-        Assert.IsTrue(state.RemainsSelected);
-        Assert.AreEqual(0, state.RemainingItemCount);
-        Assert.IsTrue(state.ShouldNavigateToEmptySection(
-            PackageCatalogSection.Pending,
-            PackageCatalogSection.Pending));
-        Assert.IsFalse(state.ShouldNavigateToEmptySection(
-            PackageCatalogSection.Installed,
-            PackageCatalogSection.Pending));
-    }
-
+    /// <summary>後片付け失敗と終端失敗の有無・通知先例外の各条件でも表示反映とreceipt通知を一回行いcommitを保持することを確認し、画面移動不要時の通知漏れや通知失敗によるcommit取消扱いを検出します。</summary>
     [DataTestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -301,6 +290,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.IsTrue(result.HasDurableCommit);
     }
 
+    /// <summary>commit済みreceiptと別の画面終端失敗が共存しても元例外を伝えて一回エラー通知することを確認し、receiptがあるだけで無関係な失敗を成功扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task ReceiptDoesNotHideUnrelatedLifecycleFailure()
     {

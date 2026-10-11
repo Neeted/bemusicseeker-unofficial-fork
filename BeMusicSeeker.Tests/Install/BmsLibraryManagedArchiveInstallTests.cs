@@ -17,6 +17,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
     /// <summary>既存の音源不足7z・RAR・LZHを借用入力として実native展開から共通導入へ渡し、三譜面の実bytes、install DBと保留正本、借用元と対象外ファイルの保全を確認します。入れ子構造はZIPの共有経路代表へ分担します。</summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [DataTestMethod]
     [DataRow("fixture.7z")]
     [DataRow("fixture.rar")]
@@ -65,6 +66,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>入れ子ZIPを実native展開と導入へ通し、展開entry名と譜面からの音源相対構造・bytes、実DBと所持正本、借用元を確認します。</summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public async Task AutoInstall_NestedZipPreservesChartRelativeResourceStructureThroughRealInstall()
@@ -107,6 +109,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// 同じ譜面・リソースの管理ZIP、借用ZIP、フォルダを実非同期入口へ渡します。
     /// 充足時のFS・DB・所持への導入と、不足時の保留行・入力保持・実候補への推定を確認し、全形態の等価な失敗を成功と扱いません。
     /// </summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [DataTestMethod]
     [DataRow("managed", true)]
     [DataRow("borrowed", true)]
@@ -159,6 +162,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>管理実ZIPと独立フォルダを一要求で正常導入し、複数物理成功を一回の確定・所持反映へ集めます。</summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [TestMethod]
     public async Task AutoInstall_ManagedArchiveAndIndependentFolderShareOneCommitAndApply()
     {
@@ -186,6 +190,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>必須日時復元の全失敗と壊れZIP・正常ZIP混在で、対象と原因を終端診断へ残し、非致命的警告のまま正常独立対象だけを確定します。</summary>
+    /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
+    // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]

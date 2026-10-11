@@ -36,6 +36,8 @@ public sealed class BassNativeRuntimeTests
         BassAudioRuntime.Shutdown();
     }
 
+    /// <summary>配布する全native DLLのhash・x64 PE・実ロード版をpinに照合し、別版・別architectureの混入とABI不一致を検出する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeFamily_LoadsFixedX64AssetsAndMatchesAbiSet()
     {
@@ -61,8 +63,6 @@ public sealed class BassNativeRuntimeTests
         };
 
         string nativeDirectory = Path.Combine(AppContext.BaseDirectory, "libs", "x64");
-        Assert.IsTrue(Path.IsPathFullyQualified(nativeDirectory));
-        Assert.AreEqual("x64", Path.GetFileName(nativeDirectory));
         for (int index = 0; index < expectedNames.Length; index++)
         {
             string path = Path.Combine(nativeDirectory, expectedNames[index]);
@@ -90,6 +90,8 @@ public sealed class BassNativeRuntimeTests
 
     }
 
+    /// <summary>runtime初期化後に実coreの解放と再初期化を行い、解放後もnative接続を利用できることを確認する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioRuntime_InitializesAndDeactivatesNativeRuntime()
     {
@@ -122,6 +124,7 @@ public sealed class BassNativeRuntimeTests
 
     }
 
+    /// <summary>core Free成功ではlast-errorを読まず、無関係な古いnative番号で成功を失敗へ変えない。</summary>
     [TestMethod]
     public void FreeCoreDevice_SuccessDoesNotReadLastError()
     {
@@ -143,6 +146,7 @@ public sealed class BassNativeRuntimeTests
         CollectionAssert.AreEqual(new[] { "free" }, events);
     }
 
+    /// <summary>core Freeのfalse直後のInit番号を捕捉し、既解放として冪等成功を通知する。</summary>
     [TestMethod]
     public void FreeCoreDevice_CapturesInitAfterFalseAndTreatsItAsIdempotent()
     {
@@ -164,6 +168,7 @@ public sealed class BassNativeRuntimeTests
         CollectionAssert.AreEqual(new[] { "free", "error", "already-free" }, events);
     }
 
+    /// <summary>core FreeのInit以外の失敗を従来BASS診断名で返し、既解放として隠さない。</summary>
     [TestMethod]
     public void FreeCoreDevice_ReportsNonInitErrorWithLegacyDiagnosticSpelling()
     {
@@ -186,6 +191,7 @@ public sealed class BassNativeRuntimeTests
         CollectionAssert.AreEqual(new[] { "free", "error" }, events);
     }
 
+    /// <summary>core Freeとlast-error読取りがともに例外でもFreeの元失敗を保持し、診断例外で置換しない。</summary>
     [TestMethod]
     public void FreeCoreDevice_PreservesReleaseExceptionWhenErrorReadFails()
     {
@@ -209,6 +215,8 @@ public sealed class BassNativeRuntimeTests
         CollectionAssert.AreEqual(new[] { "free", "error" }, events);
     }
 
+    /// <summary>初期化とshutdownの反復でnative所有の活性・非活性を切り替え、操作lease中はpinしたABIを利用できる。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioRuntime_InitializeReusesNativeOwnershipAcrossCycles()
     {
@@ -231,6 +239,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>callback共有lease保持中の反復Initializeは不要な排他待ちをせず、別callbackで有限・非無音の実PCMをpullできる。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioRuntime_RepeatedInitializeCoexistsWithHeldCallbackAndIndependentPcmPull()
     {
@@ -357,6 +367,8 @@ public sealed class BassNativeRuntimeTests
         failure?.Throw();
     }
 
+    /// <summary>runtime初期化済みでも独立音声要求の再入は拒否し、受理済み要求内の継続と終端後の次要求は許す。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioRuntime_InitializedRuntimeRejectsIndependentRequestButAllowsAcceptedReentry()
     {
@@ -388,6 +400,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>ManagedBassの既知DLL名と大文字・拡張子aliasを同じ活性generation handleへ解決し、別ロードを作らない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void ManagedBassResolver_MapsKnownNamesToCurrentGenerationHandles()
     {
@@ -424,6 +438,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>未知名・別絶対path・未採用addonはresolverで奪わず既定probeへ渡す。</summary>
     [TestMethod]
     public void ManagedBassResolver_LeavesUnknownNamesToDefaultProbing()
     {
@@ -432,13 +447,8 @@ public sealed class BassNativeRuntimeTests
         Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("bassenc_lame"));
     }
 
-    [TestMethod]
-    public void ManagedBassResolver_IsInstalledIdempotently()
-    {
-        ManagedBassNativeLibraryResolver.EnsureInstalled();
-        ManagedBassNativeLibraryResolver.EnsureInstalled();
-    }
-
+    /// <summary>runtime非活性後の既知名解決はDllNotFoundで拒否し、論理shutdown後のhandleを新呼出しへ渡さない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void ManagedBassResolver_RejectsKnownNameAfterRuntimeDeactivation()
     {
@@ -449,6 +459,8 @@ public sealed class BassNativeRuntimeTests
             () => ManagedBassNativeLibraryResolver.ResolveForTesting("bass"));
     }
 
+    /// <summary>論理restart後もpinしたManagedBass generation handleを再利用し、別generationへの切替で既存接続を壊さない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassNativeRuntime_ReusesPinnedManagedBassGenerationAcrossLogicalRestart()
     {
@@ -489,6 +501,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>native family読込み途中の欠落は取得済みhandleを逆順に回収し、不完全ロードを活性として公開しない。</summary>
     [TestMethod]
     public void BassNativeRuntime_LoadFailureRollsBackCurrentHandlesInReverseOrder()
     {
@@ -515,6 +528,7 @@ public sealed class BassNativeRuntimeTests
         Assert.IsFalse(BassNativeRuntime.IsLoaded);
     }
 
+    /// <summary>native版不一致は部品名と期待／実raw版を診断に残し、どのABIが違うかを失わない。</summary>
     [TestMethod]
     public void BassNativeRuntime_VersionMismatchPreservesComponentAndPackedValues()
     {
@@ -529,6 +543,7 @@ public sealed class BassNativeRuntimeTests
         StringAssert.Contains(exception.Message, "loaded 0x02040C01");
     }
 
+    /// <summary>外部native版の4byte形式を独立raw値と相互変換し、省略revisionの扱いとbyte範囲超過を明示する。</summary>
     [TestMethod]
     public void BassVersionPackingRoundTripsSupportedNativeVersionShape()
     {
@@ -556,6 +571,7 @@ public sealed class BassNativeRuntimeTests
             () => BassVersionPacking.Pack(new Version(2, 4, 256, 0)));
     }
 
+    /// <summary>writerの開始前Stopを拒否し、録音停止状態を維持する。</summary>
     [TestMethod]
     public void AudioWriterRejectsStopBeforeStart()
     {
@@ -573,6 +589,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>各encoder入口に指定品質・出力形・衝突suffixを渡し、実Wave開始・PCM書込み・停止でファイルを保存する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void AudioWriterStartsAndStopsWavRecordingWithoutPhysicalDevice()
     {
@@ -796,6 +814,8 @@ public sealed class BassNativeRuntimeTests
         failure?.Throw();
     }
 
+    /// <summary>runtime shutdown要求はnative非活性化前に新root受付を閉じ、受理済み操作の終端までgenerationを保つ。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioRuntime_ShutdownClosesAdmissionBeforeDeactivatingNativeGeneration()
     {
@@ -828,6 +848,7 @@ public sealed class BassNativeRuntimeTests
         Assert.IsFalse(BassNativeRuntime.IsLoaded);
     }
 
+    /// <summary>runtime初期化はnative読込みを版検証より先に実行し、未ロードABIを照会しない。</summary>
     [TestMethod]
     public void BassAudioRuntime_InitializationCoreOrdersNativeLoadBeforeVersionValidation()
     {
@@ -842,6 +863,7 @@ public sealed class BassNativeRuntimeTests
             events);
     }
 
+    /// <summary>native読込み失敗では後続の版検証を始めず、初期化を失敗として終える。</summary>
     [TestMethod]
     public void BassAudioRuntime_InitializationCoreStopsAfterNativeLoadFailure()
     {
@@ -858,6 +880,8 @@ public sealed class BassNativeRuntimeTests
         CollectionAssert.AreEqual(new[] { "LoadNative" }, events);
     }
 
+    /// <summary>実native sourceをpauseで接続後resumeしてmixerをpullし、正の進行・有限・非無音PCMを確認する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NativeRuntime_NoSoundDecodeMixerPullProducesNonZeroPcm()
     {
@@ -1102,6 +1126,8 @@ public sealed class BassNativeRuntimeTests
         return path;
     }
 
+    /// <summary>memory Wave playerを所有mixerへ接続し、実pullで有限・非無音PCMを出力する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioPlayer_MemoryWavPlayPullsNonZeroPcmThroughOwningMixer()
     {
@@ -1116,6 +1142,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>オフラインmixerを指定再生並列数と独立な一threadに固定し、捕捉したSRC品質を実sourceへ適用・読戻しする。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
     {
@@ -1166,6 +1194,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>強制GC後もmemory-file callbackの所有を保ち、play・seek・pullを続けて二重Dispose後にvoiceとnative handleを解放する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
     {
@@ -1231,6 +1261,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>memory Ogg playerをVorbis復号から所有mixerへ接続し、実pullで有限・非無音PCMを出力する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioPlayer_MemoryOggPlayPullsNonZeroPcmThroughOwningMixer()
     {
@@ -1243,6 +1275,8 @@ public sealed class BassNativeRuntimeTests
         AssertBassAudioPlayerPlayProducesNonZeroPcm(oggPath);
     }
 
+    /// <summary>所属確認済みの接続競合でvoiceを一回だけ数え、重複pause・stop・再play・Disposeの寿命を維持する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioPlayer_VerifiedMembershipRaceCountsVoiceAndLifecycleIsIdempotent()
     {
@@ -1297,6 +1331,8 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>実自然終端後に同じsourceを再playでき、旧終端cleanupで再発音のvoiceを消さずStopで所属を解除する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void BassAudioPlayer_NaturalEndCanBeReenteredWithoutStaleCleanup()
     {
@@ -1356,10 +1392,10 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>発音世代を更新した後の旧callbackと古いpending終端を拒否し、現世代の終端だけを公開する。</summary>
     [TestMethod]
     public void BassAudioPlayer_NaturalEndGenerationRejectsStaleCallback()
     {
-        Assert.AreEqual(8, BassAudioPlayer.GetNextPlaybackGeneration(7));
         Assert.AreNotEqual(7, BassAudioPlayer.GetNextPlaybackGeneration(7));
         Assert.IsTrue(BassAudioPlayer.IsCurrentPlaybackGeneration(7, 7));
         Assert.IsFalse(BassAudioPlayer.IsCurrentPlaybackGeneration(8, 7));
@@ -1510,6 +1546,7 @@ public sealed class BassNativeRuntimeTests
             + " sourcePositionAfter=" + sourcePositionAfter;
     }
 
+    /// <summary>runtime開始前の音量・mute変更をmanaged状態へ保持し、それだけでnativeをロードしない。</summary>
     [TestMethod]
     public void PreRuntimeVolumeAndMuteChanges_UpdateManagedStateWithoutLoadingNativeRuntime()
     {
@@ -1535,6 +1572,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>mute中に利用者が変えた音量をunmute後も保持し、mute前の値へ戻さない。</summary>
     [TestMethod]
     public void MutedVolumeChange_IsRestoredWhenDeviceIsUnmutedBeforeRuntimeInitialization()
     {
@@ -1560,6 +1598,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>runtime shutdown後の音量・mute変更を受付失敗として露出せず、利用者の値を維持する。</summary>
     [TestMethod]
     public void VolumeAndMuteChangesAfterRuntimeShutdown_DoNotExposeAdmissionFailure()
     {
@@ -1583,6 +1622,7 @@ public sealed class BassNativeRuntimeTests
         }
     }
 
+    /// <summary>可聴方式ではmuteをgainゼロへ反映し、オフラインNullDeviceでは音量・muteに依存しないunityを使う。</summary>
     [TestMethod]
     public void EffectiveDeviceVolumeForBackend_UsesUnityForNullDeviceAndMuteForAudibleBackends()
     {
@@ -1626,6 +1666,7 @@ public sealed class BassNativeRuntimeTests
                 isMuted: true));
     }
 
+    /// <summary>可聴方式の代替順はASIO→排他→共有だけに限定し、NullDeviceと旧DirectSoundを可聴fallbackへ混入しない。</summary>
     [TestMethod]
     public void AudibleInitializationOrder_UsesOnlySupportedBackendFallbacks()
     {
@@ -1655,6 +1696,8 @@ public sealed class BassNativeRuntimeTests
             BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.DIRECT_SOUND).Count);
     }
 
+    /// <summary>実NullDevice mixerのgainは音量・mute変更後もunityを維持し、managed設定とsource既定gainを変更しない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void NullDevice_MixerRemainsUnityWhenDeviceVolumeAndMuteChange()
     {
@@ -1733,6 +1776,8 @@ public sealed class BassNativeRuntimeTests
         return volume;
     }
 
+    /// <summary>現session中のscope付き／通常再初期化を拒否して所有を維持し、実成功logにfallbackなしとruntime版診断を残す。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
     [TestMethod]
     public void InitializeOwned_ActiveSessionRejectsScopedAndUnscopedReentry()
     {

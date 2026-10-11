@@ -21,14 +21,15 @@ using Parago.Windows;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
-using ModelBmsFile = BeMusicSeeker.Models.ChartFile;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 {
+    /// <summary>同時刻の背景音と演奏noteを持つ実BMSONをWAVEへ出力し、音源末尾の4800frameとsession解放の欠落を検出します。</summary>
+    /// <remarks>実BASS・encoder・共有設定を使用して出力や解放の接続を観測するため、native状態とログ設定を共有するケースは並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public void ProductionExecutorExportsBmsonThroughTheSharedWriterAndReleasesItsSession()
     {
@@ -74,6 +75,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     }
 
     /// <summary>実BMSとBMSONを一要求でWAVEへ変換し、独立したframe数・ステレオPCM・設定、解放と次の明示変換を確認します。Busyでは停止・writerを始めず、encoderとsessionの解放中も受付を保持します。</summary>
+    /// <remarks>実BASSのBMS/BMSON解析・encoder出力と同じ受付の解放を接続し、共有native状態・設定を使うため並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup()
     {
@@ -164,6 +167,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>BMS/BMSONを混ぜた選択から既存の所有ファイルだけを順に残し、保留・不在を変換へ含める誤りを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public void Request_FiltersCapabilityAndExistingFilesAcrossChartKindsInSelectionOrder()
     {
@@ -179,7 +184,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             Assert.IsTrue(request.HasTargets);
             CollectionAssert.AreEqual(new[] { first, second }, request.Targets.ToArray());
-            Assert.IsNull(first.Chart.Token);
             Assert.IsTrue(missingBms.HasCapability(ChartOperationCapabilities.ConvertToAudio));
             Assert.IsTrue(missingBmson.HasCapability(ChartOperationCapabilities.ConvertToAudio));
 
@@ -200,6 +204,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>encoderの解放失敗時はsessionを保持し、次の解放でencoderからsessionへ進む順序と所有権の早期放棄を検出します。</summary>
     [TestMethod]
     public void ConversionCleanup_RetainsSessionWhenEncoderReleaseFailsAndRetriesInOrder()
     {
@@ -235,6 +240,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "encoder", "encoder", "session" }, events);
     }
 
+    /// <summary>encoder解放中のshutdownを拒否し、session解放までにoperationを開放する順序の逆転を検出します。</summary>
     [TestMethod]
     public void ConversionCleanup_HoldsOperationDuringEncoderAndReleasesItBeforeSession()
     {
@@ -284,6 +290,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>encoder解放に成功したファイル失敗を一回報告し、元原因・対象の消失や成功扱いを検出します。</summary>
     [TestMethod]
     public void FileCleanup_ReportsFailureAndContinuesWhenEncoderReleaseSucceeds()
     {
@@ -302,6 +309,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         Assert.IsFalse(reports[0].Succeeded);
     }
 
+    /// <summary>encoder解放の失敗は元のファイル失敗を保持して継続不可とし、後続処理への誤った続行を検出します。</summary>
     [TestMethod]
     public void FileCleanup_PreservesPrimaryFailureAndStopsWhenEncoderReleaseFails()
     {
@@ -320,6 +328,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         Assert.IsFalse(reports[0].Succeeded);
     }
 
+    /// <summary>一件目のrenderとencoder解放が失敗した時に残件を未処理として集約し、後続名の誤表示や元原因の消失を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_EncoderCleanupFailureReportsPrimaryCauseAndKeepsUnprocessedCount()
     {
@@ -378,6 +388,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>受付後に実入力を削除しencoder解放も失敗させ、元入力失敗と解放失敗の保持・native所有権・完了通知の抑止を検出します。</summary>
+    /// <remarks>実BASS・encoder・共有設定を使用して出力や解放の接続を観測するため、native状態とログ設定を共有するケースは並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task RunAsync_ProductionExecutorCleanupFailurePreservesPrimaryCauseAndNotifiesOnce()
     {
@@ -468,6 +481,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>実入力失敗後にsession解放確認も失敗した場合は両原因と未解放leaseを保持し、成功通知へ進む誤りを検出します。</summary>
+    /// <remarks>実BASS・encoder・共有設定を使用して出力や解放の接続を観測するため、native状態とログ設定を共有するケースは並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task RunAsync_ProductionExecutorSessionCleanupFailureRetainsPrimaryAndAborts()
     {
@@ -563,6 +579,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>先行ファイル失敗の後に成功通知callbackとsession解放が失敗しても現在のfatalを保持し、三件目の出力や所有権の消失を検出します。</summary>
+    /// <remarks>実BASS・encoder・共有設定を使用して出力や解放の接続を観測するため、native状態とログ設定を共有するケースは並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public void ProductionExecutor_PreservesCurrentFatalAndSessionCleanupFailureAfterPriorFileFailure()
     {
@@ -680,6 +699,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>実入力不在五件を対象と原因付きで記録し、音源一件欠落の譜面は残る音源を出力して一回通知する集約漏れを検出します。</summary>
+    /// <remarks>実BASS・encoder・共有設定を使用して出力や解放の接続を観測するため、native状態とログ設定を共有するケースは並列実行しません。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public async Task RunAsync_ProductionExecutorLogsTargetAndCauseForEveryFailure()
     {
@@ -809,6 +831,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>成功・音源省略・range超過・四件の別失敗を一回に集約し、最大peakの助言・省略条件・表示件数の取り違えを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_CompletionSummarizesRangeAndOtherFailuresOnce()
     {
@@ -897,6 +921,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>利用者指定の変換品質2を受付後のexecutorへ渡し、既定値に戻す誤りを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_PassesCapturedResamplingQualityToConversionExecutor()
     {
@@ -938,7 +964,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>peakと指定増幅率から安全な0.1刻みの助言を表示し、最小値境界を越える入力で実行不能を隠す誤りを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [DataTestMethod]
+    // 通常の減衰、増幅済み、最小0.5で成立する境界、その直外の実行不能を分けます。
     [DataRow(1.349858d, 1f, "74%", "0.7", false)]
     [DataRow(2d, 1.5f, "50%", "0.7", false)]
     [DataRow(2.5d, 1.25f, "40%", "0.5", false)]
@@ -1012,6 +1041,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>再生停止の実Taskが未完了の間はwriterを開始せず、停止完了後に一回実行する順序違反を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_WaitsForPlaybackCleanupBeforeStartingWriter()
     {
@@ -1051,6 +1082,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>保存先選択の取消は再生停止・writer・完了通知を始めず、未受理操作の副作用を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_PickerCancellationDoesNotStopPlaybackOrStartWriter()
     {
@@ -1084,6 +1117,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>二件の実行へ受付時設定と順序を渡し、成功・失敗件数と停止後実行・実行後一回通知の接続漏れを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_AcceptedRoutePreservesCountsSettingsAndTerminalNotificationOrder()
     {
@@ -1131,7 +1166,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(root, executor.SaveDirectory);
             Assert.IsNotNull(executedCharts);
             CollectionAssert.AreEqual(new[] { first.Chart, second.Chart }, executedCharts.ToArray());
-            Assert.IsNull(executedCharts[0].Token);
             Assert.IsNotNull(executedSettings);
             Assert.AreEqual(EncoderType.MP3_LAME, executedSettings.Encoder);
             Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, executedSettings.EncoderSampleRate);
@@ -1156,6 +1190,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>選択直後の保存先消失は停止前に失敗し、利用者が再作成した次の要求を受け付けることから受付の残留を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_MissingSelectedOutputDirectoryDoesNotStopPlaybackAndCanRetry()
     {
@@ -1215,6 +1251,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>再生停止中に保存先が消失するとexecutorが出力前に拒否し、native解放や成功通知を誤って開始する経路を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_OutputDirectoryRemovedWhenPlaybackStopsIsRejectedByExecutor()
     {
@@ -1262,6 +1300,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>受理済みworkerの例外を同一の原因として返し、完了通知や成功結果へ読み替える誤りを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_AcceptedProgressPropagatesWorkerFailureWithoutCompletion()
     {
@@ -1298,6 +1338,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>実worker保持中は次要求をBusyで拒否し、worker終端後には再実行できることから早期開放と受付残留を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion()
     {
@@ -1349,6 +1391,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>進捗経路の例外と取消callbackの例外が重なってもworker終端まで受付を保持し、元進捗失敗の消失や早期再受付を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_ProgressExceptionDrainsWorkerBeforeLibraryAdmissionReopens()
     {
@@ -1431,6 +1475,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>完了通知がowner不在で未表示なら操作も失敗し、出力済みだけで成功を返す誤りを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_CompletionNotificationNotShownFailsInsteadOfReturningSuccess()
     {
@@ -1465,6 +1511,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>進捗失敗は実workerへ取消を伝えて終端を待ち、取消callback例外で元原因を失う誤りや成功通知を検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_ProgressFailureCancelsExecutionAndDoesNotShowCompletion()
     {
@@ -1514,6 +1562,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
+    /// <summary>利用者取消でcallbackも失敗しても実worker終端までBusyを維持し、取消結果と次要求受付への接続漏れを検出します。</summary>
+    /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
     [TestMethod]
     public async Task RunAsync_UserCancellationDrainsWorkerAndSuppressesCallbackFailure()
     {
@@ -1650,7 +1700,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     private static ChartFile CreateChart(string path)
     {
         bool bmson = string.Equals(Path.GetExtension(path), ".bmson", StringComparison.OrdinalIgnoreCase);
-        ModelBmsFile? file = bmson ? null : ChartTestValues.Empty() with { Path = path };
         return new ChartFile(bmson ? ChartFileKind.Bmson : ChartFileKind.Bms, path, "hash-" + Path.GetFileNameWithoutExtension(path), null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);
     }
 

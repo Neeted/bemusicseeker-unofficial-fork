@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExternalPlaylistImportQueueTests
 {
+    /// <summary>一要求の取込成功・重複名省略・失敗を別件数と通知対象へ分け、失敗と省略のURIを保持して、重複名を通常失敗へ混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void OneImportRequestSummary_CountsSuccessDuplicateAndFailure()
     {

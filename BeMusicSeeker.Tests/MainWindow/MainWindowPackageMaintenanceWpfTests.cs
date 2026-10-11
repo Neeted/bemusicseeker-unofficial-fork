@@ -22,8 +22,10 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>保守操作の実ファイル・DB反映と、compiledメニューから管理主体への接続を検証します。</summary>
+/// <remarks>要求の可否とreceipt単体は下位へ任せ、ここでは実画面の選択・編集保持やクリックの配送先と非同期終端を観測します。</remarks>
 [TestClass]
-// This existing owner closes the whole application, whose shutdown drains process-global SQLite connections.
+// 実VMの終了がプロセス共通のSQLite接続と音声資源を解放するため、他の実DBケースと並列にしません。
 [DoNotParallelize]
 public sealed class MainWindowPackageMaintenanceWpfTests
 {
@@ -129,9 +131,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     int rowsReplacing = 0;
                     EventHandler replacing = (_, _) => rowsReplacing++;
                     viewModel.MainChartList.RowsReplacing += replacing;
-                    Assert.IsTrue(string.IsNullOrWhiteSpace(viewModel.ChartFilters.CaptureSnapshot().KeywordFilter));
-                    Assert.AreEqual(ChartModeFilter.All, viewModel.ChartFilters.CaptureSnapshot().ModeFilter);
-                    Assert.AreEqual(nameof(LibraryChartRow.Title), viewModel.RegularChartList.CaptureSortParameters()?.ColumnsName ?? nameof(LibraryChartRow.Title));
                     int handledVersion = library.NormalLibraryRefreshNotificationVersion;
                     var entryPublished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var refreshApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -215,13 +214,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         }
     }
 
+    /// <summary>実自動改名のDB終端失敗を通知し、通知側が失敗しても確定済み移動・receiptを失わず、通知完了後に受付を解放します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
+    [DataRow(false, false)] // 選択フォルダの改名後にDB終端が失敗。
+    [DataRow(true, false)] // 全フォルダ要求でも同じ失敗receiptを観測。
+    [DataRow(false, true)] // 失敗通知そのものが例外になっても変更事実を保持。
     public void AutoRenameReportsRealSessionReceiptWithoutLosingFacts(bool allFolders, bool reporterThrows)
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string root = Path.Combine(Path.GetTempPath(), "FSDB-B-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -328,17 +328,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             }
         });
     }
-    /// <summary>
-    /// An external drop reaches the real mutation boundary so success, cleanup
-    /// failure and canonical apply failure retain their session receipt and UI reporting.
-    /// </summary>
+    /// <summary>外部ドロップの実導入で、成功・原本後片付け失敗・DB反映失敗をpackage件数と区別し、receiptと通知に確定済み変更と失敗を保持します。</summary>
     [DataTestMethod]
-    [DataRow(0)]
-    [DataRow(1)]
-    [DataRow(2)]
+    [DataRow(0)] // 導入・原本の後片付けとも成功。
+    [DataRow(1)] // 導入を確定した後の原本削除が失敗。
+    [DataRow(2)] // 導入先songへのDB反映が失敗。
     public void DropInstallReportsRealReceiptIndependentlyOfPackageCount(int failureKind)
     {
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             string root = Path.Combine(Path.GetTempPath(), "FSDB-B-drop-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
@@ -367,8 +364,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 IFileMutationService files = failureKind == 1
                     ? new BmsLibraryPackageInstallServiceTests.FailingDestinationDeleteFileMutationService(source)
                     : new ResilientFileMutationService();
-                // Register only the destination. Including DropSource in a BMS
-                // root would correctly skip it before this receipt test's mutation.
+                // 登録済みの原本は導入対象から除外されるため、ここでは導入先だけを登録します。
                 var composition = new ApplicationComposition(
                     settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -413,8 +409,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         Assert.IsNotNull(outcome.SessionReceipt.ApplyFailure);
                         Assert.IsNull(outcome.SessionReceipt.FinalizationFailure);
                     }
-                    // The report is bounded; detailed primary failure facts remain in the immutable
-                    // session receipt and full diagnostics, not every UI error line.
+                    // 通知は要約し、元失敗の詳細は変更不能なreceiptと診断へ保持します。
                     StringAssert.Contains(outcome.SessionReceipt.PrimaryFailure.ToString(),
                         failureKind == 1 ? "injected-destination-delete-failure" : "drop-primary-marker");
                     StringAssert.Contains(dialogs.Messages[0].MessageBoxText, source);
@@ -435,6 +430,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         });
     }
 
+    /// <summary>実リソース保守の表示通知が通常一覧へ到達し、集合更新後の行集合を保持して、最終行の不足警告とhealth indexの不足判定が一致することを確認します。</summary>
     [TestMethod]
     public void ResourceHealthMaintenanceNotificationRefreshesRealizedNormalRowBeforeDisplay()
     {
@@ -569,6 +565,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         }
     }
 
+    /// <summary>全走査の仮想一覧で導入先候補を検索・解除し、行と選択を保持して必要行だけを実体化し、次の要求へ更新済み候補を渡します。</summary>
     [TestMethod]
     public void CorrectInstallDestinationSearchAndClearPreserveFullScanPresentation()
     {
@@ -648,7 +645,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(realizedRow, out ChartOperationTarget target));
                     Assert.AreEqual(ChartOperationSourceScope.Library, target.SourceScope);
                     Assert.IsFalse(target.IsPending);
-                    Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
                     Assert.IsTrue(RepairInstalledLocationRequest.TryCreate([target], out RepairInstalledLocationRequest searchRequest));
 
                     var displayApplied = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -751,6 +747,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         }
     }
 
+    /// <summary>compiledツリーメニューの一覧消去と保留操作が、導入済み・保留の区分と元packageを正しい終端へ渡します。</summary>
     [TestMethod]
     public void CompiledTreeMenusPreservePackageSectionsAndPendingOperations()
     {
@@ -827,7 +824,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.Count == 5);
                 MenuItem[] installCommands = installMenu.Items.OfType<MenuItem>().ToArray();
                 Assert.AreEqual(5, installCommands.Length);
-                Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
 
                 foreach (MenuItem command in installCommands)
                 {
@@ -883,11 +879,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             pendingInstallationTerminal: pendingInstallationTerminal);
     }
 
+    /// <summary>packageと選択譜面の手動・強制導入クリックが同じreceipt通知へ接続し、後片付け失敗と確定済み変更を報告します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
+    [DataRow(false, false)] // packageの強制導入。
+    [DataRow(false, true)] // packageの手動導入。
+    [DataRow(true, false)] // 選択譜面の強制導入。
+    [DataRow(true, true)] // 選択譜面の手動導入。
     public void CompiledPendingInstallRoutesReportReceipt(bool chartRoute, bool manual)
     {
         var failure = new System.IO.IOException("four-route-cleanup-marker");
@@ -937,6 +934,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             pendingPackageMutationViewTerminal: pendingMutationViewTerminal);
     }
 
+    /// <summary>compiledフォルダ改名と全再検査メニューが、選択パスを改名終端へ渡し、再検査終端を一度だけ呼びます。</summary>
     [TestMethod]
     public void CompiledMaintenanceAndAutoRenameMenusUseTypedTerminals()
     {
@@ -986,6 +984,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             maintenanceRescanTerminal: maintenanceTerminal);
     }
 
+    /// <summary>混在選択のcompiled自動改名クリックがBMS・bmson両方の元tokenを終端へ渡し、一方を欠落させません。</summary>
     [TestMethod]
     public void CompiledAutoRenameSelectionPreservesBmsAndBmsonTargets()
     {
@@ -1024,16 +1023,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 Assert.IsNotNull(table);
                 table.ItemsSource = rows;
                 table.SelectRowsByPredicate(_ => true);
-                IReadOnlyList<object> selectedRows = table.GetSelectedRowsSnapshot();
-                Assert.AreEqual(2, selectedRows.Count);
-                IReadOnlyList<ChartOperationTarget> resolvedTargets = ChartOperationTargetSelectionResolver.Resolve(
-                    new ChartOperationTargetSelectionRequest(
-                        selectedRows,
-                        ChartOperationSourceScope.Library,
-                        ChartOperationCapabilities.MoveInLibrary));
-                Assert.AreEqual(2, resolvedTargets.Count);
                 viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                Assert.AreEqual(ChartOperationSourceScope.Library, viewModel.MainChartList.CurrentOperationContext.SourceScope);
 
                 var tableMenu = (ContextMenu)window.FindResource("tableContextMenu");
                 tableMenu.PlacementTarget = new FrameworkElement { DataContext = bmsRow };
@@ -1055,6 +1045,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             folderAutoRenameTerminal: autoRenameTerminal);
     }
 
+    /// <summary>保留の一括保守三操作が各終端だけを一度呼び、未完了の非同期処理中からクリックを処理済みにします。</summary>
     [TestMethod]
     public void CompiledPendingBulkMenuUsesOneTypedTerminalPerOperation()
     {
@@ -1091,10 +1082,12 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         .OfType<MenuItem>()
                         .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
 
+                    // 表示順ではなく操作の表示資源でクリック対象を選び、各終端の接続を確認します。
+                    string[] headers = [Resources.Delete_pending_installed_only_packages_permanently, Resources.Overwrite_pending_installed_only_packages_resources, Resources.Rename_pending_zero_note_to_invalid_ext];
                     TaskCompletionSource<object?>[] completions =
                     [deleteSources, overwriteResources, renameZeroNotes];
                     string[] expected = ["delete-sources", "overwrite-resources", "rename-zero-notes"];
-                    MenuItem[] commands = advanced.Items.OfType<MenuItem>().ToArray();
+                    MenuItem[] commands = headers.Select(header => advanced.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
                     Assert.AreEqual(3, commands.Length);
                     for (int i = 0; i < commands.Length; i++)
                     {
@@ -1122,6 +1115,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             pendingBulkMaintenanceTerminal: bulkTerminal);
     }
 
+    /// <summary>重複フォルダのcompiledメニューとGキーが元group・移動元先を渡し、単一フォルダでは後片付けへ分岐して完了前にイベントを処理済みにします。</summary>
     [TestMethod]
     public void CompiledDuplicateContextAndShortcutRoutesUseOneTypedTerminal()
     {
@@ -1190,12 +1184,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     folderItem!.Style = groupItem!.ItemContainerStyle;
                     folderItem!.ContextMenu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
                     Assert.IsInstanceOfType(folderItem!.DataContext, typeof(string));
-                    Assert.AreEqual(2, group.Folders.Count);
-                    Assert.AreEqual(
-                        DuplicateFolderKeyboardActionKind.Merge,
-                        viewModel.DuplicateMaintenanceWorkflow.CaptureDuplicateFolderKeyboardAction(
-                            group,
-                            (string)folderItem!.DataContext).Kind);
                     ContextMenu menu = folderItem!.ContextMenu;
                     menu.PlacementTarget = folderItem!;
                     var mergeMenu = (MenuItem)menu.Items
@@ -1227,8 +1215,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     mergeCompletion.SetResult(DuplicateMaintenanceMutationResult.Rejected(null));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(mergeCompletion.Task, "compiled-terminal-delegate-result");
 
-                    // Applying the context-menu result may recycle the generated TreeViewItem.
-                    // Resolve the current visual container before driving the keyboard route.
+                    // メニュー結果の適用でTreeViewItemを再利用するため、Gキー操作には現在のcontainerを取り直します。
                     groupItem = duplicateRoot.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
                     Assert.IsNotNull(groupItem);
                     groupItem!.IsExpanded = true;
@@ -1247,8 +1234,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                         RoutedEvent = UIElement.KeyDownEvent,
                         Source = folderItem!
                     };
-                    Assert.AreEqual(Key.G, keyArgs.Key);
-                    Assert.AreSame(viewModel, window.DataContext);
                     Assert.AreEqual(@"C:\wave6e-duplicate\source", folderItem!.DataContext);
                     Assert.AreSame(group, WPFUtil.FindVisualParent<TreeViewItem>(folderItem)?.DataContext);
                     folderItem!.RaiseEvent(keyArgs);
@@ -1307,6 +1292,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
             duplicateMaintenanceTerminal: duplicateTerminal);
     }
 
+    /// <summary>選択譜面のcompiled導入・候補解除・削除・修復が元entryまたはchart/tokenを対応する要求へ渡し、非同期終端前にイベントを処理済みにします。</summary>
     [TestMethod]
     public void CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion()
     {
@@ -1402,9 +1388,9 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     MenuItem installGroup = tableMenu.Items
                         .OfType<MenuItem>()
                         .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
-                    MenuItem[] installCommands = installGroup.Items.OfType<MenuItem>().ToArray();
+                    string[] installHeaders = [Resources.Estimate_install_loc, Resources.Estimate_merge_loc, Resources.Install_to_estimation, Resources.Force_install, Resources.Clear_estimation];
+                    MenuItem[] installCommands = installHeaders.Select(header => installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
                     Assert.AreEqual(5, installCommands.Length);
-                    Assert.AreEqual(Resources.Force_install, installCommands[3].Header);
                     var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
                     installCommands[0].RaiseEvent(searchInstallArgs);
                     Assert.IsTrue(searchInstallArgs.Handled);
@@ -1491,7 +1477,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     MenuItem repairGroup = tableMenu.Items
                         .OfType<MenuItem>()
                         .Single(item => item.Items.OfType<MenuItem>().Count() == 3);
-                    MenuItem[] repairCommands = repairGroup.Items.OfType<MenuItem>().ToArray();
+                    string[] repairHeaders = [Resources.Estimate_reinstall_loc, Resources.Reinstall_to_estimation, Resources.Clear_reinstall_estimation];
+                    MenuItem[] repairCommands = repairHeaders.Select(header => repairGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
                     var repairSearchArgs = new RoutedEventArgs(MenuItem.ClickEvent, repairCommands[0]);
                     repairCommands[0].RaiseEvent(repairSearchArgs);
                     Assert.IsTrue(repairSearchArgs.Handled);

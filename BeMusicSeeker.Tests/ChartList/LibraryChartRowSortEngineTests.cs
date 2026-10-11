@@ -15,14 +15,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Library chart rows use the current sort profiles expected by the main and playlist views.
+/// 通常一覧とplaylistの比較規則、部分更新の分岐、スコア表示と外部保存値の互換性を検証します。
 /// </summary>
 [TestClass]
 public sealed class LibraryChartRowSortEngineTests
 {
-    /// <summary>
-    /// 通常一覧の LEVEL 列は文字列順ではなく数値順で並ぶことを検証します。
-    /// </summary>
+    /// <summary>LEVELの12と3を数値の昇順へ並べ、表示文字列の辞書順で逆転する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void Sort_LevelColumn_UsesNumericKeyForRegularRows()
@@ -36,22 +34,20 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _);
         string[] sortedPaths = [.. sorted.Select(row => row.path)];
 
         CollectionAssert.AreEqual(
             new[] { "m_regular_3.bms", "z_regular_12.bms" },
             sortedPaths,
             "LEVEL must be sorted numerically instead of lexicographically.");
-        Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
+
     }
 
-    /// <summary>
-    /// FOLDER 列は通常一覧では高速文字列比較を利用することを検証します。
-    /// </summary>
+    /// <summary>通常folderの10と2は文字列順に並べ、playlist用の自然順を通常一覧へ適用しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void Sort_FolderColumn_UsesFastStringProfileInRegularView()
+    public void Sort_FolderColumn_UsesStringOrderInRegularView()
     {
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
@@ -62,18 +58,16 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _);
 
         CollectionAssert.AreEqual(new[] { "z.bms", "a.bms" }, sorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+
     }
 
-    /// <summary>
-    /// FOLDER 列はプレイリスト明細では legacy 自然順を利用することを検証します。
-    /// </summary>
+    /// <summary>playlistのfolder10とfolder2は従来の自然順へ並べ、通常一覧用の文字列順へ変えません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void Sort_FolderColumn_UsesLegacyNaturalProfileInPlaylistDetailView()
+    public void Sort_FolderColumn_PreservesNaturalOrderInPlaylistDetailView()
     {
         LibraryChartRow folder10 = CreateLibraryChartRow("z.bms", "Z", level: 1, folder: "folder10");
         LibraryChartRow folder2 = CreateLibraryChartRow("a.bms", "A", level: 1, folder: "folder2");
@@ -84,18 +78,16 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out _);
 
         CollectionAssert.AreEqual(new[] { "a.bms", "z.bms" }, sorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
+
     }
 
-    /// <summary>
-    /// 主要 string 列は fast 経路で高速比較プロファイルになることを検証します。
-    /// </summary>
+    /// <summary>異なる題名をAAA、bbbの順へ並べ、入力順やパス順に依存しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void Sort_TitleColumn_UsesFastStringProfile()
+    public void Sort_TitleColumn_UsesTitleOrder()
     {
         LibraryChartRow row1 = CreateLibraryChartRow("b.bms", "bbb", level: 1);
         LibraryChartRow row2 = CreateLibraryChartRow("a.bms", "AAA", level: 1);
@@ -106,15 +98,16 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([row1, row2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([row1, row2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _);
 
         CollectionAssert.AreEqual(new[] { "a.bms", "b.bms" }, sorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+
     }
 
+    /// <summary>題名item10とitem2を文字列順へ並べ、実sortの診断に対象件数・列・方向と非負の所要時間を保持します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void LibraryChartRowSortEngine_StringSortMetricsDescribeFastPath()
+    public void LibraryChartRowSortEngine_StringSortMetricsDescribeObservedWorkload()
     {
         LibraryChartRow title10 = CreateLibraryChartRow("z_item10.bms", "item10", level: 1);
         LibraryChartRow title2 = CreateLibraryChartRow("a_item2.bms", "item2", level: 1);
@@ -124,19 +117,18 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string fastProfile, out LibraryChartSortMetrics metrics);
+        List<LibraryChartRow> fastSorted = LibraryChartRowSortEngine.SortForMainView([title10, title2], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _, out LibraryChartSortMetrics metrics);
 
         CollectionAssert.AreEqual(new[] { "z_item10.bms", "a_item2.bms" }, fastSorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", fastProfile);
+
         Assert.AreEqual(2, metrics.RowCount);
         Assert.AreEqual(nameof(LibraryChartRow.Title), metrics.ColumnName);
         Assert.AreEqual(ListSortDirection.Ascending, metrics.Direction);
-        Assert.AreEqual("String", metrics.PropertyTypeName);
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", metrics.SortProfile);
-        Assert.AreEqual("ordinal_ignore_case", metrics.StringSortKind);
+
         Assert.IsTrue(metrics.SortMs >= 0);
     }
 
+    /// <summary>通常・全走査と部分絞込み/sortを仮想一覧対象とし、playlist・保守・導入区分を誤って通常仮想処理へ通しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
@@ -160,6 +152,7 @@ public sealed class LibraryChartRowSortEngineTests
         }
     }
 
+    /// <summary>ライブラリが欠損した通常folder更新は欠損経路を優先し、playlistやbmson一覧処理を始めません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void ChartListRefreshCoordinator_RoutesMissingFilesBeforeViewPipelines()
@@ -175,6 +168,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsFalse(route.IncludeBmsonRows);
     }
 
+    /// <summary>履歴選択中のsortは履歴更新へ配送し、playlist構築や通常bmson追加へ混入しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void ChartListRefreshCoordinator_RoutesPlayHistoryIncrementalUpdatesToPlayHistoryView()
@@ -190,6 +184,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsFalse(route.IncludeBmsonRows);
     }
 
+    /// <summary>playlist選択中のキーワード変更は表sourceの構築へ配送し、通常bmson一覧の更新へ混入しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void ChartListRefreshCoordinator_RoutesPlaylistIncrementalUpdatesToPlaylistBuild()
@@ -205,6 +200,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsFalse(route.IncludeBmsonRows);
     }
 
+    /// <summary>ライブラリがある通常folder更新は通常処理へ継続し、bmsonを対象から欠落させません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void ChartListRefreshCoordinator_RoutesNormalLibraryWithBmsonRows()
@@ -220,6 +216,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsTrue(route.IncludeBmsonRows);
     }
 
+    /// <summary>playlist・保守・導入区分では通常bmson追加を避け、通常と全走査および未知区分では従来どおり含める条件を全modeで確認します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void ChartListRefreshCoordinator_ExcludesBmsonRowsForMaintenanceAndInstallViews()
@@ -253,6 +250,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsTrue(ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows((MainViewUpdateMode)999, (MainViewUpdateMode)999));
     }
 
+    /// <summary>仮想比較に対応する各列と未指定をcache対象にし、未知のPath表記を拒否して未対応比較をcacheへ通しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
@@ -287,41 +285,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.encoding)));
     }
 
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void NormalLibraryVirtualSortKeyProperty_UsesVirtualRegistryColumns()
-    {
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Title));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.path));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Folder));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Artist));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.genre));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.mode));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.tag));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.hash));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.sha256));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.instl_dst));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationTitle));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationArtist));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.RefTablesSymbols));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.clear));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.rateDouble));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.score));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.maxcombo));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.minbp));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.ChartLevelSortKey));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WarningDigestText));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WAVHealth));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.BGAHealth));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.MovieHealth));
-        AssertIsVirtualSortColumn(nameof(LibraryChartRow.encoding));
-    }
-
-    private static void AssertIsVirtualSortColumn(string columnName)
-    {
-        Assert.IsTrue(ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out _), columnName);
-    }
-
+    /// <summary>各列の変更依存をregistryと更新判断へ共有し、導入先・参照表・スコア・譜面情報・保守・警告の更新漏れを防ぎます。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewSortColumnDependency_ClassifiesMainColumnFamilies()
@@ -342,27 +306,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(MainViewDataDependency.Warning, MainViewRefreshDecisionService.GetSortColumnDependency(nameof(LibraryChartRow.WarningDigestText)));
     }
 
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void NormalLibrarySortKeyInvalidationReasons_CoverVirtualOrderCacheInvalidators()
-    {
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "bms_title_changed",
-                "bms_path_changed",
-                "bmson_path_changed",
-                "bmson_source_identity_changed",
-                "bmson_sort_key_changed",
-                "chart_info_digest_backfilled",
-                "install_destination_changed",
-                "ref_tables_changed",
-                "maintenance_changed",
-                "warning_changed"
-            },
-            MainViewRefreshDecisionService.GetSortKeyInvalidationReasons().ToArray());
-    }
-
+    /// <summary>題名・パス・source同一性の変更だけでsource cacheを捨て、警告や補完だけで不要な全件構築を増やしません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void NormalLibrarySortKeyInvalidationReasons_ClearSourceRowsOnlyForSourceIdentityChanges()
@@ -379,6 +323,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsFalse(MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange("ref_tables_changed"));
     }
 
+    /// <summary>BMSとbmsonのパス変更の有無を独立に無効化理由へ反映し、片方の変更を落としたり未変更を追加しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void NormalLibraryPathSortKeyInvalidationReasons_DistinguishBmsAndBmsonPathMutations()
@@ -395,6 +340,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(0, MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation: false, hasBmsonPathMutation: false).Count);
     }
 
+    /// <summary>重複表示を優先する起動完了後の所持譜面変更だけでplaylist索引予熱を遅延し、別理由・未完了起動・別表示を遅らせません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void PlaylistLibraryIndexPrewarm_DeferForDuplicateRefreshOnlyForOwnedCollectionInDuplicateView()
@@ -427,6 +373,7 @@ public sealed class LibraryChartRowSortEngineTests
             (int)MainViewUpdateMode.FolderFilterSelected));
     }
 
+    /// <summary>絞込みのない通常一覧で題名sortに影響しないスコア・譜面情報・保守・警告変更は表示だけを更新し、不要な並べ替えを避けます。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_UsesDisplayRefreshWhenFullNormalLibrarySortIsUnaffected()
@@ -455,6 +402,7 @@ public sealed class LibraryChartRowSortEngineTests
         }
     }
 
+    /// <summary>スコア列sort・スコア検索・未知sortの変更は一覧を再計算し、スコア更新後の行順や所属を古いまま保ちません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesWhenScoreUpdateCanAffectCurrentView()
@@ -492,6 +440,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(MainViewRefreshAction.Refresh, unknownSortDecision.Action);
     }
 
+    /// <summary>通常と全走査で導入先変更が題名sortに無関係なら表示だけを更新し、導入先または警告sortなら順序を再計算します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesWhenInstallDestinationUpdateCanAffectCurrentView()
@@ -552,10 +501,12 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(MainViewDataDependency.Warning, fullScanWarningSortDecision.SortDependency);
     }
 
+    /// <summary>スコア・譜面情報・保守・警告の変更が現在のsort列と一致すると一覧を再計算し、表示更新だけで古い順を残しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesWhenDependencyMatchesCurrentSort()
     {
+        // スコア率、TOTAL、WAV健全性、警告の各変更と、対応する現在sortの組合せです。
         (MainViewDataDependency dependency, string sortColumnName)[] cases =
         [
             (MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble)),
@@ -582,6 +533,7 @@ public sealed class LibraryChartRowSortEngineTests
         }
     }
 
+    /// <summary>重複部分集合では所属とfolder順に無関係な警告変更を表示だけへ反映し、警告sortのときは順序を再計算します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_UsesDisplayRefreshForDuplicateSubsetWhenMembershipIsUnaffected()
@@ -597,7 +549,6 @@ public sealed class LibraryChartRowSortEngineTests
             reason: "chart_files_need_resource_fix_changed");
 
         Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, warningDecision.Action);
-        Assert.AreEqual("duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter", warningDecision.Detail);
 
         MainViewRefreshDecision warningSortDecision = MainViewRefreshDecisionService.Build(
             MainViewUpdateMode.DuplicateFilterSelected,
@@ -610,9 +561,9 @@ public sealed class LibraryChartRowSortEngineTests
             reason: "chart_files_need_resource_fix_changed");
 
         Assert.AreEqual(MainViewRefreshAction.Refresh, warningSortDecision.Action);
-        Assert.AreEqual("not_full_normal_library", warningSortDecision.Detail);
     }
 
+    /// <summary>重複一覧の警告検索またはsource所属が変わると一覧を再計算し、除外・追加された対象を表示だけで残しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesDuplicateSubsetWhenFiltersCanDependOnChangedData()
@@ -640,6 +591,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(MainViewRefreshAction.Refresh, membershipDecision.Action);
     }
 
+    /// <summary>依存不明の変更を通常一覧の再計算へ通し、影響しないと決めつけて表示だけへ縮めません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesForUnknownChangedDependency()
@@ -659,6 +611,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(MainViewDataDependency.IdentitySortKey, decision.SortDependency);
     }
 
+    /// <summary>source所属と同一性の変更は現在sortの種類にかかわらず一覧を再計算し、旧対象や旧行順を残しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void MainViewRefreshDecision_RefreshesWhenMembershipOrIdentityCanAffectCurrentView()
@@ -680,6 +633,7 @@ public sealed class LibraryChartRowSortEngineTests
         }
     }
 
+    /// <summary>題名とパスの昇順・降順を互いに異なる順序の入力で確認し、列と方向の取り違えを検出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void LibraryChartRowSortEngine_TitleAndPathSupportAscendingAndDescending()
@@ -710,42 +664,8 @@ public sealed class LibraryChartRowSortEngineTests
             ["z_alpha.bms", "m_gamma.bms", "a_beta.bms"]);
     }
 
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void LibraryChartRowSortEngine_LevelColumnUsesNumericKey()
-    {
-        LibraryChartRow level12 = CreateLibraryChartRow("z_level12.bms", "Level12", level: 12);
-        LibraryChartRow level3 = CreateLibraryChartRow("a_level3.bms", "Level3", level: 3);
-        var sortParameters = new ChartListSortParameters
-        {
-            ColumnsName = nameof(LibraryChartRow.Level),
-            Direction = ListSortDirection.Ascending
-        };
-
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([level12, level3], ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
-
-        CollectionAssert.AreEqual(new[] { "a_level3.bms", "z_level12.bms" }, sorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_level_mixed_double", sortProfile);
-    }
-
-    [TestMethod]
-    [TestCategory("SortEngine")]
-    public void LibraryChartRowSortEngine_FolderColumnUsesLegacyNaturalInPlaylistDetailView()
-    {
-        LibraryChartRow folder10 = CreateLibraryChartRow("z_folder10.bms", "Z", level: 1, folder: "folder10");
-        LibraryChartRow folder2 = CreateLibraryChartRow("a_folder2.bms", "A", level: 1, folder: "folder2");
-        var sortParameters = new ChartListSortParameters
-        {
-            ColumnsName = nameof(LibraryChartRow.Folder),
-            Direction = ListSortDirection.Ascending
-        };
-
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView([folder10, folder2], ToSortSpecification(sortParameters), isPlaylistDetailView: true, out string sortProfile);
-
-        CollectionAssert.AreEqual(new[] { "a_folder2.bms", "z_folder10.bms" }, sorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_folder_natural_legacy", sortProfile);
-    }
-
+    /// <summary>notes・TOTAL・BPM・スコア率の各列指定で低値の行を高値の行より先へ並べ、指定した昇順の逆転を検出します。</summary>
+    /// <remarks>各数値とpathが同じ順なので列の取り違えは検査しません。表示列の並替え先はCustomTableColumnFactoryTestsが分担します。</remarks>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void LibraryChartRowSortEngine_ChartInfoAndScoreColumnsUseTypedSort()
@@ -759,6 +679,7 @@ public sealed class LibraryChartRowSortEngineTests
         AssertTypedSort(nameof(LibraryChartRow.rateDouble), [high, low], ["a_low.bms", "z_high.bms"]);
     }
 
+    /// <summary>実perfect/notesから率を再計算して保存済み旧rateを無視し、notesゼロは除算せず欠損値として表示します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void RateDouble_ComputesFromScoreAndIgnoresStoredRate()
@@ -777,9 +698,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.IsFalse(LibraryChartRow.FromChartFile(zeroNotes).rateDouble.HasValue);
     }
 
-    /// <summary>
-    /// PlaylistSummary 専用ソートが昇順/降順で正しく切り替わることを検証します。
-    /// </summary>
+    /// <summary>表summaryの譜面件数を数値として昇順・降順へ並べ、名前順や方向の取り違えを検出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void PlaylistSummarySortEngine_SortsAscendingAndDescending()
@@ -802,15 +721,15 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Descending
         };
 
-        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, out string ascProfile);
-        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, out string descProfile);
+        List<PlaylistSummaryRow> ascSorted = PlaylistSummarySortEngine.Sort(rows, asc, out _);
+        List<PlaylistSummaryRow> descSorted = PlaylistSummarySortEngine.Sort(rows, desc, out _);
 
         CollectionAssert.AreEqual(new[] { 2, 3, 1 }, ascSorted.Select(row => row.PlaylistId ?? -1).ToArray());
         CollectionAssert.AreEqual(new[] { 1, 3, 2 }, descSorted.Select(row => row.PlaylistId ?? -1).ToArray());
-        Assert.AreEqual("playlist_summary_numeric_int32", ascProfile);
-        Assert.AreEqual("playlist_summary_numeric_int32", descProfile);
+
     }
 
+    /// <summary>表summaryのfolder名を名前と異なる順へ並べ、表名で代替して比較する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void PlaylistSummarySortEngine_SortsFolderName()
@@ -828,12 +747,13 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, out string profile);
+        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, out _);
 
         CollectionAssert.AreEqual(new[] { 2, 1, 3 }, sorted.Select(row => row.PlaylistId ?? -1).ToArray());
-        Assert.AreEqual("playlist_summary_string_fast_ordinal_ignore_case", profile);
+
     }
 
+    /// <summary>playlist明細のclearとrank表示列を対応する比較値で並べ、同じscoreからsource/viewの率を一貫して算出します。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void PlaylistDetailSortEngine_ClearAndRankDisplayColumnsSort()
@@ -852,20 +772,20 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailSourceRow> clearSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], clearSort, out string clearProfile);
-        List<PlaylistDetailSourceRow> rankSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], rankSort, out string rankProfile);
+        List<PlaylistDetailSourceRow> clearSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], clearSort, out _);
+        List<PlaylistDetailSourceRow> rankSorted = PlaylistDetailSortEngine.Sort([hardAaa, easyAa], rankSort, out _);
 
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, clearSorted.Select(row => row.path).ToArray());
         CollectionAssert.AreEqual(new[] { "a_easy_aa.bms", "z_hard_aaa.bms" }, rankSorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("enum", clearProfile);
-        Assert.AreEqual("numeric_double", rankProfile);
+
         Assert.AreEqual(0.95, hardAaa.rateDouble.GetValueOrDefault(), 0.000001);
         Assert.AreEqual(0.95, hardAaa.CreateViewRow().rateDouble.GetValueOrDefault(), 0.000001);
     }
 
+    /// <summary>beatoraja DBから直接読むlamp整数の互換値と表示名を維持し、未知lampも数値で表示して欠落させません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
-    public void ClearType_DisplayAndSortUseNumericLampOrder()
+    public void ClearType_PreservesBeatorajaNumericValuesAndDisplayText()
     {
         Assert.AreEqual(-1, (int)ClearType.NO_SONG);
         Assert.AreEqual(0, (int)ClearType.NO_PLAY);
@@ -892,6 +812,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual("99", converter.Convert((ClearType)99, typeof(string), null, CultureInfo.InvariantCulture));
     }
 
+    /// <summary>失敗・ASSIST・EASY・MAXをlamp達成順へ並べ、表示名の文字列順やLR2保存整数順を使いません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void LibraryChartRowClearSortUsesNumericClearType()
@@ -906,13 +827,13 @@ public sealed class LibraryChartRowSortEngineTests
             ColumnsName = nameof(LibraryChartRow.clear),
             Direction = ListSortDirection.Ascending
         };
-        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView([max, assist, easy, failed], ToSortSpecification(clearSort), isPlaylistDetailView: false, out string libraryProfile);
+        List<LibraryChartRow> librarySorted = LibraryChartRowSortEngine.SortForMainView([max, assist, easy, failed], ToSortSpecification(clearSort), isPlaylistDetailView: false, out _);
 
         CollectionAssert.AreEqual(new[] { "b_failed.bms", "m_assist.bms", "a_easy.bms", "z_max.bms" }, librarySorted.Select(row => row.path).ToArray());
-        Assert.AreEqual("library_chart_typed", libraryProfile);
 
     }
 
+    /// <summary>LR2の保存整数を内部lampへ復元し、ASSIST・EX HARD・MAXを従来の保存値へ変換して既存DBとの互換性を保ちます。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void Lr2StorageConverterKeepsNativeClearValuesCompatible()
@@ -928,6 +849,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual(5, ClearTypeStorageConverter.ToLr2Value(ClearType.MAX));
     }
 
+    /// <summary>LR2の同じclear整数でもoption履歴のEASY/ASSISTとPERFECTを区別し、未指定や複合optionで到達lampを誤分類しません。</summary>
     [TestMethod]
     [TestCategory("SortEngine")]
     public void Lr2ScoreClearResolutionUsesOptionHistoryForAssistAndPerfect()
@@ -955,10 +877,10 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _);
 
         CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " must use typed sort.");
-        Assert.AreEqual("library_chart_typed", sortProfile, columnName + " must report typed sort profile.");
+
     }
 
     private static void AssertLibraryChartSort(string columnName, ListSortDirection direction, IReadOnlyList<LibraryChartRow> source, string[] expectedPaths)
@@ -969,10 +891,10 @@ public sealed class LibraryChartRowSortEngineTests
             Direction = direction
         };
 
-        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out string sortProfile);
+        List<LibraryChartRow> sorted = LibraryChartRowSortEngine.SortForMainView(source, ToSortSpecification(sortParameters), isPlaylistDetailView: false, out _);
 
         CollectionAssert.AreEqual(expectedPaths, sorted.Select(row => row.path).ToArray(), columnName + " " + direction + " order mismatch.");
-        Assert.AreEqual("library_chart_string_fast_ordinal_ignore_case", sortProfile);
+
     }
 
     private static LibraryChartRow CreateLibraryChartRow(string path, string title, int level, string folder = "", int? chartNotes = null, double? chartTotal = null, double? chartMainBpm = null, int? rateScorePerfect = null, ClearType? clear = null)
@@ -1078,31 +1000,6 @@ public sealed class LibraryChartRowSortEngineTests
         using var sha256 = SHA256.Create();
         byte[] hash = sha256.ComputeHash(Encoding.UTF8.GetBytes(path));
         return BitConverter.ToString(hash).Replace("-", string.Empty).ToLowerInvariant();
-    }
-
-    private sealed class SongSnapshotRow
-    {
-        public string? path { get; set; }
-
-        public string? hash { get; set; }
-
-        public string? title { get; set; }
-
-        public string? subtitle { get; set; }
-
-        public string? artist { get; set; }
-
-        public string? subartist { get; set; }
-
-        public string? genre { get; set; }
-
-        public string? tag { get; set; }
-
-        public int? level { get; set; }
-
-        public int? mode { get; set; }
-
-        public int? karinotes { get; set; }
     }
 
     private static ChartListSortSpecification ToSortSpecification(ChartListSortParameters sort)

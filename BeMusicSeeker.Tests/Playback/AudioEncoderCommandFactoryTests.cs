@@ -5,11 +5,14 @@ using Ribbit.Media.Audio;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// Verifies command construction and argument ownership independently of native BASSenc state.
+/// native BASSencを起動せず外部encoderのコマンド構文と指定値の受渡しを確認する。
 /// </summary>
 [TestClass]
 public sealed class AudioEncoderCommandFactoryTests
 {
+    /// <summary>
+    /// 空値・空白パス・引用符・末尾backslash・日本語をWindows引数へ引用し、指定文字列を別引数へ分割・変形しない。
+    /// </summary>
     [TestMethod]
     public void WindowsArgumentQuotingPreservesQuotesUnicodeAndTrailingBackslash()
     {
@@ -20,6 +23,9 @@ public sealed class AudioEncoderCommandFactoryTests
         Assert.AreEqual("\"音楽 データ\"", AudioEncoderCommandFactory.QuoteWindowsArgument("音楽 データ"));
     }
 
+    /// <summary>
+    /// MP3のmetadataが空なら空のタグoptionを生成せず、利用者が指定していないタグをencoderへ渡さない。
+    /// </summary>
     [TestMethod]
     public void MissingMetadataDoesNotAddEmptyEncoderOptions()
     {
@@ -34,6 +40,9 @@ public sealed class AudioEncoderCommandFactoryTests
         Assert.IsFalse(command.CommandLine.Contains("--tg", System.StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Vorbisのmetadataがnullでも出力先と標準入力の構文を維持してコマンドを生成する。
+    /// </summary>
     [TestMethod]
     public void NullMetadataIsCanonicalizedWithoutChangingCommandFormat()
     {
@@ -47,6 +56,9 @@ public sealed class AudioEncoderCommandFactoryTests
         StringAssert.EndsWith(command.CommandLine, @"-o ""C:\output\sample.ogg"" -");
     }
 
+    /// <summary>
+    /// MP3・FLAC・Vorbisのraw入力とAAC・WAV・Opusのheader入力を区別し、外部encoderへ誤ったheader方針を渡さない。
+    /// </summary>
     [TestMethod]
     public void EncoderFlagsPreserveRawInputHeaderContract()
     {
@@ -88,6 +100,9 @@ public sealed class AudioEncoderCommandFactoryTests
         Assert.IsFalse(opusCommand.Flags.HasFlag(EncodeFlags.NoHeader));
     }
 
+    /// <summary>
+    /// float入力から各encoderが受理するraw精度・header・dither方針を選び、Opus・Vorbis・AACのfloat入力を整数へ誤変換しない。
+    /// </summary>
     [TestMethod]
     public void FloatInputUsesEncoderCompatibleRawFormats()
     {
@@ -153,6 +168,9 @@ public sealed class AudioEncoderCommandFactoryTests
         Assert.IsTrue(wavCommand.Flags.HasFlag(EncodeFlags.Dither));
     }
 
+    /// <summary>
+    /// WAVの8・16・24・32bit出力指定を変換flagへ反映し、24bitだけはsoftware ditherを使ってnative ditherを重ねない。
+    /// </summary>
     [TestMethod]
     public void IntegerConversionFlagsUse24BitSoftwareDitherWithoutNativeDither()
     {
@@ -181,6 +199,9 @@ public sealed class AudioEncoderCommandFactoryTests
         }
     }
 
+    /// <summary>
+    /// 品質指定が範囲外なら各外部encoderの対応範囲へ丸め、無効な品質・bitrateをコマンドへ出さない。
+    /// </summary>
     [TestMethod]
     public void QualityValuesClampToEachEncoderProductionRange()
     {
@@ -200,6 +221,9 @@ public sealed class AudioEncoderCommandFactoryTests
         StringAssert.Contains(CreateCommand(EncoderType.OGG_VORBIS, 2f), " -q 8.0 ");
     }
 
+    /// <summary>
+    /// 各encoderの品質・出力パス・タグ指定を外部コマンド構文へ写し、空白パスの引用とタグの意味を保つ。
+    /// </summary>
     [TestMethod]
     public void EncoderCommandLinesPreserveQualityAndTagMappings()
     {
@@ -262,6 +286,9 @@ public sealed class AudioEncoderCommandFactoryTests
         StringAssert.Contains(oggWithTags, "-c \"COMMENT=comment value\" -c \"BPM=120\"");
     }
 
+    /// <summary>
+    /// sample rate未指定の要求は例外で拒否し、44.1kHzを仮定して利用者の入力音声を誤解釈させない。
+    /// </summary>
     [TestMethod]
     public void EncoderFactoryRejectsUnspecifiedSampleRateInsteadOfAssuming44100Hz()
     {

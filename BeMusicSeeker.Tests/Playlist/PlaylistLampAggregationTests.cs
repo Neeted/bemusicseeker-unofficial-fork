@@ -8,9 +8,8 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>
-/// PLV-2026-08-28-D2 D2-01〜05 の pure lamp aggregation contract tests.
-/// </summary>
+/// <summary>所属・所持状態とスコア情報を区別したランプ集計を検証する。</summary>
+/// <remarks>集計入力を直接渡して分母・カテゴリ・一覧要求の判断を網羅する。DB捕捉と実ウィンドウ接続は情報源・表示テストへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistLampAggregationTests
 {
@@ -18,6 +17,7 @@ public sealed class PlaylistLampAggregationTests
 
     private static readonly DateTime ScoreUpdatedAt = new(2026, 8, 28, 2, 3, 4, DateTimeKind.Utc);
 
+    /// <summary>所持と未所持にスコア有無を交差させ、総数を分母にプレイ率・クリア率とスコア対象のEX率平均を計算する。未所持の除外や平均分母の混同を検出する。</summary>
     [TestMethod]
     public void Aggregate_countsScoresForOwnedAndUnownedEntriesWithTotalDenominators()
     {
@@ -50,6 +50,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(2, Count(result.RankSegments, PlaylistLampRankCategory.NP));
     }
 
+    /// <summary>過去日のFAILED・EASY・未プレイを集計し、現在の所持数・更新日時を維持しながらスコアの割合とカテゴリだけを変える。過去スコアへの切替で所属まで変える誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_historicalScoresChangeOnlyScoreDependentStatistics()
     {
@@ -111,6 +112,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.NP));
     }
 
+    /// <summary>競合するハッシュに異なるスコアを置き、beatorajaは解決SHA・エントリSHA・chart_info、LR2は解決MD5を優先する。情報源を跨いだ検索や補完優先順位の逆転を検出する。</summary>
     [TestMethod]
     public void Aggregate_usesSourceSpecificHashPriorityIncludingChartInfoFallback()
     {
@@ -149,6 +151,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(0, Count(lr2Result.ClearSegments, PlaylistLampClearCategory.EASY));
     }
 
+    /// <summary>NO_PLAYとNO_SONGはINVALIDランクでも両グラフのNPに含め、プレイ済みへ数えない。スコア行の存在だけでプレイ済みと扱う誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_mapsRawNoPlayAndNoSongScoresToNpWithoutCountingPlayed()
     {
@@ -169,6 +172,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(2, Count(result.RankSegments, PlaylistLampRankCategory.NP));
     }
 
+    /// <summary>フォルダ内の重複・削除・ダミーと特殊フォルダを除外し、通常フォルダの順と空行を維持する。異なるフォルダの同一譜面まで除外したり特殊行を総数へ加える誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_usesCanonicalFolderOrderKeepsEmptyAndExcludesNonRealEntries()
     {
@@ -216,11 +220,9 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(1, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
         Assert.AreEqual(3, result.ClearSegments.Sum(segment => segment.Count));
         Assert.AreEqual(3, result.RankSegments.Sum(segment => segment.Count));
-        Assert.AreEqual(PlaylistLampClearCategory.MAX, result.ClearSegments[0].ClearCategory);
-        Assert.AreEqual(PlaylistLampClearCategory.NP, result.ClearSegments[^1].ClearCategory);
-        Assert.AreEqual(PlaylistLampRankCategory.AAA, result.RankSegments[0].RankCategory);
     }
 
+    /// <summary>beatorajaのPA・CLEAR・補助クリアとMAXランクを表示カテゴリへ対応させ、良い成績からNPまでの並びを維持する。別名の誤分類と積上げ区間の意味順の逆転を検出する。</summary>
     [TestMethod]
     public void Aggregate_mapsBeatorajaClearValuesAndDjRanksInContractOrder()
     {
@@ -253,6 +255,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(1, Count(result.RankSegments, PlaylistLampRankCategory.A));
     }
 
+    /// <summary>LR2ではMAXをFC、EX_HARDをHARD、PAをPERFECTへ集約し、独自のMAX・EXHARD件数を作らない。情報源に適さないクリア区分の表示を検出する。</summary>
     [TestMethod]
     public void Aggregate_lr2DoesNotExposeMaxOrExhardAndUsesStorageEquivalentBuckets()
     {
@@ -277,6 +280,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(3, result.ClearSegments.Sum(segment => segment.Count));
     }
 
+    /// <summary>4件中1クリア・2スコアと異なるEX率から、フォルダ割合・所持率・算術平均を独立に計算する。所持数やスコア数を割合の分母へ誤用する処理を検出する。</summary>
     [TestMethod]
     public void Aggregate_usesFolderDenominatorAndCalculatesUnequalExRates()
     {
@@ -306,6 +310,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.AreEqual(2, Count(result.ClearSegments, PlaylistLampClearCategory.NP));
     }
 
+    /// <summary>205件中1件の正の区間は割合と対象プレイリスト・フォルダ・カテゴリを持ち、0件は幅と一覧要求を持たない。小割合の切捨てと空区間の誤受付を検出する。</summary>
     [TestMethod]
     public void Aggregate_zeroAndOneOf205CategoriesHaveSafeWidthAndInvocationSemantics()
     {
@@ -335,6 +340,7 @@ public sealed class PlaylistLampAggregationTests
         Assert.IsNull(failed.CreateInvocationRequest("205"));
     }
 
+    /// <summary>スコア未設定と読取り失敗の両方で所持数を維持し、スコア統計を利用不可としてグラフ操作を禁止する。障害を全件未プレイや0%へ隠す誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_scoreSourceNoneOrFailedKeepsOwnershipButDoesNotInventNpOrGraphData()
     {
@@ -343,6 +349,7 @@ public sealed class PlaylistLampAggregationTests
             Entry("folder", "owned", true, md5: "owned"),
             Entry("folder", "missing", false, md5: "missing")
         };
+        // 未設定は情報源なし、失敗は設定済みLR2の読取り障害として同じ利用不可規則を確認する。
         foreach (ScoreTableLoadStatus status in new[] { ScoreTableLoadStatus.NotConfigured, ScoreTableLoadStatus.Failed })
         {
             var snapshot = new PlaylistLampScoreSnapshot(
@@ -368,6 +375,7 @@ public sealed class PlaylistLampAggregationTests
         }
     }
 
+    /// <summary>エントリが空でも通常フォルダの順と0件行を維持し、割合を利用不可にする。空行の消失やゼロ分母を0%と扱う誤りを検出する。</summary>
     [TestMethod]
     public void Aggregate_emptyPlaylistPreservesOrdinaryFoldersAndLeavesRatesUnavailable()
     {

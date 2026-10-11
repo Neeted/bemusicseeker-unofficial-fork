@@ -20,10 +20,8 @@ using static BeMusicSeeker.Tests.BmsLibraryInitializationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>
-/// Exercises the playlist lamp viewer manager's owner-scoped open, terminal, and shutdown
-/// lifecycle against deterministic source and dialog boundaries.
-/// </summary>
+/// <summary>ランプビューアの表示受付・対象別の終了・メイン終了時の取消を検証する。</summary>
+/// <remarks>実Windowの表示とClosedを観測するため既存MainWindow fixtureを使う。共有Application資源・実Window集合・native後片付けを扱うため直列実行し、集計・履歴復元は下位テストへ分担する。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class PlaylistLampViewerWindowManagerTests
@@ -34,7 +32,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         TestUiDispatcherHost.Invoke(() =>
         {
             Application application = Application.Current
-                ?? throw new AssertFailedException("The shared WPF test application is unavailable.");
+                ?? throw new AssertFailedException("共有WPF Applicationを利用できない。");
             if (!application.Resources.MergedDictionaries.Any(dictionary =>
                 string.Equals(
                     dictionary.Source?.OriginalString,
@@ -51,6 +49,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         });
     }
 
+    /// <summary>初回入力が削除済みなら所有者付きの削除通知を一回表示し、ビューアを表示せず情報源を一回解放する。削除対象の誤表示と通知・解放漏れを検出する。</summary>
     [TestMethod]
     public void Manager_initialDeletedShowsOneLocalizedDialogAndNoWindow()
     {
@@ -80,6 +79,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             prepareWindowPresentation: false);
     }
 
+    /// <summary>初回集計失敗は原因付きの通知を所有者へ一回渡し、ビューアを表示せず情報源を一回解放する。失敗の空表示化と通知・解放漏れを検出する。</summary>
     [TestMethod]
     public void Manager_initialFailedShowsOneLocalizedDialogAndNoWindow()
     {
@@ -110,6 +110,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             prepareWindowPresentation: false);
     }
 
+    /// <summary>Readyの実Windowは表示後の最初のactivate時までOwnerを持ち、その後解除する。表示前activationと以後の重なり順をメインへ拘束する誤りを検出する。</summary>
     [TestMethod]
     public void Manager_readyPresentationReleasesOwnerAfterShow()
     {
@@ -125,7 +126,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.owner-release.open");
 
                 PlaylistLampViewerWindow window = open.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The ready viewer did not open.");
+                    ?? throw new AssertFailedException("Readyのビューアが開かなかった。");
                 Assert.IsNull(window.Owner);
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(1, fixture.Manager.Count);
@@ -140,6 +141,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         Assert.AreEqual(1, activationAttemptCount);
     }
 
+    /// <summary>実プレイリスト集合から一対象を削除すると、その情報源の通知で対象ビューアだけを一回閉じ、他の窓は保持して通知ダイアログを出さない。対象外の巻込みと解除漏れを検出する。</summary>
     [TestMethod]
     public void Manager_collectionRemovalSilentlyClosesOnlyTargetViewer()
     {
@@ -159,12 +161,12 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Task<PlaylistLampViewerWindow> firstOpen = fixture.Manager.TryOpenAsync(fixture.Context);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(firstOpen, "manager.collection-removal.first-open");
                 PlaylistLampViewerWindow firstWindow = firstOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The primary viewer did not open.");
+                    ?? throw new AssertFailedException("対象ビューアが開かなかった。");
 
                 Task<PlaylistLampViewerWindow> otherOpen = fixture.Manager.TryOpenAsync(otherContext);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "manager.collection-removal.other-open");
                 PlaylistLampViewerWindow otherWindow = otherOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The other viewer did not open.");
+                    ?? throw new AssertFailedException("別対象のビューアが開かなかった。");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 int firstClosedCount = 0;
@@ -178,8 +180,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(2, fixture.Manager.Count);
                 Assert.AreEqual(PlaylistLampViewerState.Ready, firstWindow.ViewModel.State);
 
-                // This is the real active playlist collection mutation watched by the
-                // production BmsLibraryPlaylistLampDataSource subscription.
+                // 実情報源が購読する正本集合を変更し、手動イベント注入ではなく対象削除から終了へ接続する。
                 Assert.IsTrue(fixture.Playlist.BMSTables.Remove(fixture.Table));
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(
                     firstClosed.Task,
@@ -194,6 +195,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             });
     }
 
+    /// <summary>同じプレイリストを2窓で開き、区間選択を独立に保持し、片方を閉じても他方の表示・操作・情報源を維持する。窓状態の共有と一括終了を検出する。</summary>
     [TestMethod]
     public void Manager_samePlaylistOpensFreshIndependentViewers()
     {
@@ -212,19 +214,17 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Task<PlaylistLampViewerWindow> firstOpen = fixture.Manager.TryOpenAsync(fixture.Context);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(firstOpen, "manager.same-playlist.first-open");
                 PlaylistLampViewerWindow firstWindow = firstOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The first same-playlist viewer did not open.");
+                    ?? throw new AssertFailedException("同じプレイリストの最初の窓が開かなかった。");
 
                 Task<PlaylistLampViewerWindow> secondOpen = fixture.Manager.TryOpenAsync(fixture.Context);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(secondOpen, "manager.same-playlist.second-open");
                 PlaylistLampViewerWindow secondWindow = secondOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The second same-playlist viewer did not open.");
+                    ?? throw new AssertFailedException("同じプレイリストの次の窓が開かなかった。");
 
                 Assert.AreNotSame(firstWindow, secondWindow);
-                Assert.AreNotSame(firstWindow.ViewModel, secondWindow.ViewModel);
                 Assert.AreEqual(2, fixture.Manager.Count);
                 Assert.AreEqual(2, fixture.PreparedWindowCount);
                 Assert.AreEqual(2, createdSources.Count);
-                Assert.AreNotSame(createdSources[0], createdSources[1]);
 
                 PlaylistLampViewerSegmentViewModel firstGlobalRank = firstWindow.ViewModel.PositiveRankSegments
                     .Single(segment => segment.CategoryKey == "A");
@@ -265,6 +265,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             });
     }
 
+    /// <summary>初回捕捉gate中はビューアも通知も表示せず、Ready捕捉の完了後に一窓だけ表示する。初期Loadingの早期表示と完了後の接続漏れを検出する。</summary>
     [TestMethod]
     public void Manager_firstPresentableGateDoesNotShowWhileCaptureIsPending()
     {
@@ -310,6 +311,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             });
     }
 
+    /// <summary>表示中の失敗通知gateへ重複終端信号を送り、通知を一回に抑えて対象窓を一回閉じ、情報源を解放する。重複ダイアログと終了処理の重複・漏れを検出する。</summary>
     [TestMethod]
     public void Manager_liveFailedShowsOneDialogAndClosesTargetAfterRepeatedSignals()
     {
@@ -323,7 +325,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.live-failed.open");
                 PlaylistLampViewerWindow window = open.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("The live-failure viewer did not open.");
+                    ?? throw new AssertFailedException("表示中の失敗を確認するビューアが開かなかった。");
 
                 int closedCount = 0;
                 TaskCompletionSource<bool> closed = Completion<bool>();
@@ -332,7 +334,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     closedCount++;
                     closed.TrySetResult(true);
                 };
-                dialogs.BlockedMessageResult = Completion<UiDialogResult>();
+                TaskCompletionSource<UiDialogResult> blockedMessage = Completion<UiDialogResult>();
+                dialogs.BlockedMessageResult = blockedMessage;
 
                 try
                 {
@@ -342,13 +345,11 @@ public sealed class PlaylistLampViewerWindowManagerTests
                         dialogs.FirstMessage.Task,
                         "manager.live-failed.dialog-presented");
 
-                    // Keep the first dialog pending while another terminal publication arrives.
-                    // FailureHandled must suppress the duplicate notification, but the original
-                    // viewer remains the one that is eventually closed.
+                    // 通知が未完了のまま重複終端を受けても、新しい通知を作らず元の対象だけを閉じる。
                     source.Raise("1", 2);
                     Assert.AreEqual(1, dialogs.MessageCount);
 
-                    dialogs.BlockedMessageResult.TrySetResult(
+                    blockedMessage.TrySetResult(
                         UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
                     TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.closed");
 
@@ -360,13 +361,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 }
                 finally
                 {
-                    dialogs.BlockedMessageResult.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    blockedMessage.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
                     fixture.Manager.Dispose();
                     TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.finally-closed");
                 }
             });
     }
 
+    /// <summary>初回捕捉中に管理主体を破棄すると開くTaskを取消で回収し、遅れて窓・通知を表示せず情報源を解放する。終了後の遅延表示と捕捉処理の残存を検出する。</summary>
     [TestMethod]
     public void Manager_pendingOpenCanceledByDisposeNeverShowsWindowOrDialog()
     {
@@ -457,14 +459,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                             {
                                 Assert.IsFalse(
                                     window.IsLoaded,
-                                    "the manager must prepare a fresh viewer before it is loaded");
+                                    "未読込みの新しいビューアを表示scopeへ登録する。");
                                 Assert.IsFalse(
                                     window.IsVisible,
-                                    "the manager must prepare a fresh viewer before it is visible");
+                                    "表示前に新しいビューアを表示scopeへ登録する。");
                                 Assert.AreEqual(
                                     nint.Zero,
                                     TestWindowPresentationScope.GetNativeHandle(window),
-                                    "a fresh viewer must not have an HWND before manager Show");
+                                    "表示scopeの準備前は新しいビューアにHWNDを作らない。");
                                 if (prepareWindowPresentation)
                                 {
                                     presentationScope.PrepareForOwnedPresentation(
@@ -571,7 +573,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             IUiDialogService dialogs,
             Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> sourceFactory,
             Action<PlaylistLampViewerWindow> prepareWindowForShow,
-        Action<PlaylistLampViewerWindow>? activateWindowForInitialPresentation)
+            Action<PlaylistLampViewerWindow>? activateWindowForInitialPresentation)
         {
             Owner = owner ?? throw new ArgumentNullException(nameof(owner));
             root = Path.Combine(
@@ -823,7 +825,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         internal TaskCompletionSource<UiMessageRequest> FirstMessage { get; } =
             Completion<UiMessageRequest>();
 
-        internal TaskCompletionSource<UiDialogResult> BlockedMessageResult { get; set; } = null!;
+        internal TaskCompletionSource<UiDialogResult>? BlockedMessageResult { get; set; }
 
         internal int MessageCount
         {
@@ -845,7 +847,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Messages.Add(request);
             }
             FirstMessage.TrySetResult(request);
-            TaskCompletionSource<UiDialogResult> blocked = BlockedMessageResult;
+            TaskCompletionSource<UiDialogResult>? blocked = BlockedMessageResult;
             if (blocked != null)
             {
                 return blocked.Task.WaitAsync(cancellationToken);

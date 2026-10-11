@@ -19,6 +19,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartInfoMetadataSchemaExportImportTests
 {
+    /// <summary>既存song表を変えず詳細・失敗・取込み履歴の保存表と検索索引を作成し、保存schema・版の欠落や既存LR2列の破壊を検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void EnsureChartInfoSchema_CreatesTableIndexesAndVersionWithoutAlteringSongTable()
     {
@@ -38,7 +40,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(songTableSqlBefore, verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_info';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'chart_info_idx_md5';"));
@@ -117,6 +119,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>難度の明示状態を持たない旧詳細表を再構築し、互換不能な旧行を現在schemaの成功行として残す誤りを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void EnsureChartInfoSchema_RecreatesOldTableWithoutDifficultyDefined()
     {
@@ -140,7 +144,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             var gateway = new BmsLibraryDbGateway(songDbPath);
             gateway.EnsureChartInfoSchema();
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.IsTrue(verify.Query<ColumnNameRow>("PRAGMA table_info(chart_info);").Any(row => row.name == "difficulty_defined"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_info_parse_failure';"));
@@ -148,6 +152,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>現在解析版の詳細だけを実bundleへ出力し、詳細からのdigest補完と既存digestを保持して旧行の混入やmanifest件数のずれを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ChartInfoExport_ExportsCurrentRowsAndComplementsDigestMap()
     {
@@ -177,7 +183,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
 
             Assert.AreEqual(1, result.ChartInfoCount);
             Assert.AreEqual(2, result.ChartDigestCount);
-            using var verify = new SQLiteConnection(outputPath, storeDateTimeAsTicks: true);
+            using var verify = new SQLiteConnection(outputPath, SQLiteOpenFlags.ReadOnly, storeDateTimeAsTicks: true);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", shaA, md5A));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", shaB));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = ? AND sha256 = ?;", md5A, shaA));
@@ -191,6 +197,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>詳細表のない実DBからのexportを失敗へ伝え、空の正常bundleとして配布する誤りを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ChartInfoExport_RequiresChartInfoTable()
     {
@@ -206,6 +214,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>実7zへ出力したrootのmetadata DBを起動入口から取り込み、保存行の復元とarchive移動までを接続して配布形式の不整合を検出する。</summary>
+    /// <remarks>実7zが必要な配布・起動接続。未導入時の既存Inconclusiveを維持し、他caseの注入抽出ではarchive形式自体を保証しない。</remarks>
     [TestMethod]
     public void ChartInfoExport_CreatesArchiveWithRootMetadataDbAndStartupImporterCanImport()
     {
@@ -262,13 +272,15 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                     return [];
                 });
 
-            using var verify = new LR2SongDBExtended(importDbPath);
+            using var verify = new LR2SongDBExtended(importDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.IsFalse(File.Exists(appArchivePath));
             Assert.IsTrue(File.Exists(Path.Combine(appBaseDirectory, ChartInfoMetadataBundleStartupImporter.ImportedMetadataDirectoryName, ChartInfoMetadataBundleStartupImporter.MetadataArchiveFileName)));
         });
     }
 
+    /// <summary>DB出力先とarchive出力先が同じ要求を拒否し、生成したDBをarchiveで上書きする誤りを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ChartInfoExport_RejectsArchiveOutputSameAsDbOutput()
     {
@@ -290,6 +302,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>archive要求の7z実行ファイルがない場合に明示失敗とし、DBだけの出力へ黙って切り替える誤りを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ChartInfoExport_ArchiveOutputRequiresSevenZip()
     {
@@ -311,7 +325,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
-    /// <summary>不足・古い行と失敗行を同じbundle取込みで更新し、同一bundleの再投入を無変更で終える。</summary>
+    /// <summary>bundleから未登録・旧版行と対応失敗を更新し、現在行・既存digest・無関係の失敗は保持して同一bundle再取込みを省く保証の退行を検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures()
     {
@@ -348,16 +363,20 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             {
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                 BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
-                BeMusicSeeker.Models.ChartDetails staleLocalRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
-                staleLocalRow = staleLocalRow with { level = 1 };
-                BeMusicSeeker.Models.ChartDetails currentLocalRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
-                currentLocalRow = currentLocalRow with { level = 3 };
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleLocalRow), typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentLocalRow), typeof(LR2SongDBExtended.chart_info));
-                songDb.InsertOrReplace(CreateChartDigestRow(existingDigestMd5, localDigestSha), typeof(LR2SongDBExtended.chart_digest_map));
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(missingMd5, missingSha, "missing.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(currentMd5, currentSha, "current.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
-                songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(unrelatedFailureMd5, unrelatedFailureSha, "unrelated.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                // 再解析・取込みの対象条件を作る入力行だけを一括準備する。
+                songDb.RunInTransaction(() =>
+                {
+                    BeMusicSeeker.Models.ChartDetails staleLocalRow = CreateChartInfoRow(staleSha, staleMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1);
+                    staleLocalRow = staleLocalRow with { level = 1 };
+                    BeMusicSeeker.Models.ChartDetails currentLocalRow = CreateChartInfoRow(currentSha, currentMd5, BmsLibraryDbGateway.CurrentChartInfoParserVersion);
+                    currentLocalRow = currentLocalRow with { level = 3 };
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(staleLocalRow), typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(currentLocalRow), typeof(LR2SongDBExtended.chart_info));
+                    songDb.InsertOrReplace(CreateChartDigestRow(existingDigestMd5, localDigestSha), typeof(LR2SongDBExtended.chart_digest_map));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(missingMd5, missingSha, "missing.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(currentMd5, currentSha, "current.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                    songDb.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfoParseFailureRow(unrelatedFailureMd5, unrelatedFailureSha, "unrelated.bms", BmsLibraryDbGateway.CurrentChartInfoParserVersion, "parse_failed", "InvalidDataException", "bad bpm", null)), typeof(LR2SongDBExtended.chart_info_parse_failure));
+                });
             }
 
             string bundleSha256 = ChartFileContentReader.ComputeSha256(bundlePath);
@@ -373,7 +392,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             Assert.AreEqual(2, result.ImportedChartInfoCount);
             Assert.AreEqual(4, result.ImportedDigestCount);
             Assert.AreEqual(2, result.FailureClearedCount);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(5, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", missingSha).Single().level);
             Assert.AreEqual(8, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", staleSha).Single().level);
             Assert.AreEqual(3, verify.Query<BeMusicSeeker.Models.ChartDetails>("SELECT * FROM chart_info WHERE sha256 = ?;", currentSha).Single().level);
@@ -387,6 +406,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>manifestを持たない実DBをbundleとして拒否し、不正schemaの正常取込みを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ThrowsForInvalidBundleSchema()
     {
@@ -403,6 +424,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>取り込んだdigest対応を通常songロードへ接続し、所持譜面のSHAと対応表へ保存値が渡らない誤りを検出する。</summary>
+    /// <remarks>実SQLiteのschema・保存行・出力を観測し、モデル内の値だけでは検出できない保存互換を確認する。</remarks>
     [TestMethod]
     public void ImportChartInfoMetadataBundle_ImportedDigestMapIsAppliedByLoadSongTable()
     {
@@ -446,7 +469,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
-    /// <summary>DB bundleをarchiveより優先し、移動後に同じDBを再配置しても再取込みしない。</summary>
+    /// <summary>DBとarchiveが両方ある起動ではDBだけを取り込み、移動後の再配置も履歴で省いて不要な抽出や再保存を検出する。</summary>
+    /// <remarks>実DBとファイル移動を観測し、抽出portは条件を注入して起動時の優先・失敗・回収を分担する。</remarks>
     [TestMethod]
     public void StartupImporter_PrefersDatabaseBundleOverArchive()
     {
@@ -483,7 +507,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 appBaseDirectory,
                 new BmsLibraryDbGateway(songDbPath),
                 logs.Add);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.IsFalse(File.Exists(appDbPath));
             Assert.IsTrue(File.Exists(archivedDbPath));
@@ -495,7 +519,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
-    /// <summary>archiveを一度だけ抽出してDBへ取込み、入力・temp・imported cacheのライフサイクルを確認する。</summary>
+    /// <summary>archiveを一度だけ抽出・保存・移動してtempと古いcacheを除き、再配置を履歴で省いて入力・保存・回収の取り違えを検出する。</summary>
+    /// <remarks>実DBとファイル移動を観測し、抽出portは条件を注入して起動時の優先・失敗・回収を分担する。</remarks>
     [TestMethod]
     public void StartupImporter_ImportsArchiveBundleAndMovesImportedArchive()
     {
@@ -549,7 +574,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             string[] importedEntries = Directory.GetFileSystemEntries(importedDirectoryPath);
             Assert.AreEqual(1, importedEntries.Length);
             Assert.AreEqual(archivedPath, importedEntries[0]);
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_import_history WHERE bundle_sha256 = ? AND parser_version = ?;", archiveSha256, BmsLibraryDbGateway.CurrentChartInfoParserVersion));
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_import done") && message.Contains("bundleType=7z") && message.Contains("extractMs=")));
@@ -561,6 +586,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
         });
     }
 
+    /// <summary>抽出後metadata DBがないarchiveを失敗記録してtempだけ回収し、入力の喪失や成功cacheへの誤移動を検出する。</summary>
+    /// <remarks>実DBとファイル移動を観測し、抽出portは条件を注入して起動時の優先・失敗・回収を分担する。</remarks>
     [TestMethod]
     public void StartupImporter_ArchiveWithoutMetadataDatabaseLogsFailureAndCleansTempDirectory()
     {
@@ -588,8 +615,8 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 appBaseDirectory,
                 new BmsLibraryDbGateway(songDbPath),
                 logs.Add,
-extractArchive,
-createTempDirectory);
+                extractArchive,
+                createTempDirectory);
 
             Assert.IsTrue(tempDirectories.Count > 0);
             Assert.IsTrue(tempDirectories.All(directoryPath => !Directory.Exists(directoryPath)));
@@ -600,6 +627,8 @@ createTempDirectory);
         });
     }
 
+    /// <summary>取込み後のarchive移動が失敗しても実DB確定を保持し、後処理失敗で保存を取り消す誤りや失敗診断の欠落を検出する。</summary>
+    /// <remarks>実DBとファイル移動を観測し、抽出portは条件を注入して起動時の優先・失敗・回収を分担する。</remarks>
     [TestMethod]
     public void StartupImporter_DatabaseArchiveFailureDoesNotUndoImport()
     {
@@ -620,12 +649,14 @@ createTempDirectory);
             ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(appBaseDirectory, new BmsLibraryDbGateway(songDbPath), logs.Add);
 
             Assert.IsTrue(File.Exists(appDbPath));
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
             Assert.IsTrue(logs.Any(message => message.Contains("chart_info_metadata_bundle_archive failed") && message.Contains("chart-info-metadata.db")));
         });
     }
 
+    /// <summary>所持譜面の実削除でsong・保守・digest対応を消して詳細cacheは保持し、別所持候補でも再利用できる内容情報を削る誤りを検出する。</summary>
+    /// <remarks>本番catalog ownerから実SQLiteへ削除を確定し、計算済み削除候補だけの検査では代替しない。</remarks>
     [TestMethod]
     public void ApplyCatalogMutation_LeavesChartInfoRows()
     {
@@ -656,7 +687,6 @@ createTempDirectory);
 
             var storageRowsOwner = new CatalogOwnedCollectionOwner();
             CatalogChartCollectionSnapshot initialRows = storageRowsOwner.ReplaceChartsAndCaptureSnapshot([file], []);
-            CatalogOwnedCollectionOwner ownedCollectionOwner = storageRowsOwner;
             file = initialRows.BmsRows.Single();
             var catalogFacts = new LibraryCatalogMutationFacts(
                 [OwnedChartRemoveRequest.FromChart(file)],
@@ -667,7 +697,7 @@ createTempDirectory);
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(file.Md5, receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bms).Md5);
 
-            using var verify = new LR2SongDBExtended(songDbPath);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.Path.Replace("'", "''") + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = '" + file.Path.Replace("'", "''") + "';"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map WHERE md5 = '" + file.Md5 + "';"));

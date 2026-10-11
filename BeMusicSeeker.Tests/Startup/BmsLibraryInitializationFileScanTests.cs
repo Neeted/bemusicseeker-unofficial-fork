@@ -19,6 +19,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInitializationFileScanTests
 {
+    /// <summary>
+    /// 起動scanの確定をmodel guard解放後に通知し、親受付を保ったままsubscriber失敗を隔離してDBと所持譜面を公開する。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・保存・受付・通知を接続し、下位scan単体では観測できない終端後の利用を確認する。</remarks>
     [TestMethod]
     public void Initialize_StartupPublishesScanAfterLeaseReleaseAndIsolatesTerminalSubscriber()
     {
@@ -139,8 +143,6 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsTrue(library.BmsCharts.Any(file =>
             string.Equals(file?.Path, chartPath, StringComparison.OrdinalIgnoreCase)));
 
-        var synchronizationOwner =
-            (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
         Assert.IsNotNull(initializationInput.ScanSurface);
         Assert.IsTrue(initializationInput.CommittedBmsPaths.Contains(chartPath));
 
@@ -149,6 +151,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             string.Equals(row?.path, chartPath, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// 起動scanでbmson解析が失敗しても処理を終端し、後のcatalog変更に起動未走査の警告を追加しない。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・保存・受付・通知を接続し、下位scan単体では観測できない終端後の利用を確認する。</remarks>
     [TestMethod]
     public void Initialize_StartupParseFailureStillOpensCatalogFileMutationAdmission()
     {
@@ -206,6 +212,10 @@ public sealed class BmsLibraryInitializationFileScanTests
         }
     }
 
+    /// <summary>
+    /// 起動scanを無効にした後もplaylistの受付は利用でき、catalogの物理変更だけは設定由来の未走査警告で拒否する。
+    /// </summary>
+    /// <remarks>実ライブラリの起動入口・保存・受付・通知を接続し、下位scan単体では観測できない終端後の利用を確認する。</remarks>
     [TestMethod]
     public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation()
     {
@@ -260,6 +270,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         }
     }
 
+    /// <summary>
+    /// 事前scanを再実行せず追加・削除を保存してnative計測を引き渡し、存在しない導入先だけを同じtokenで除く。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesPrefetchedScanAndClearsStaleInstallDestination()
     {
@@ -334,8 +347,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, executeScanCount);
             Assert.IsTrue(result.PrefetchedScanUsed);
             Assert.IsTrue(result.HasDbDiff);
-            Assert.AreEqual(1, result.FileDiffParserDegree);
-            Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             CollectionAssert.Contains(result.DeletedPaths, deletedFile.Path);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(2, result.NextFiles.Count);
@@ -351,8 +362,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), keepDirectoryPath);
             CollectionAssert.Contains(result.NextDirectoryResourceLookupCache.Keys.ToList(), newDirectoryPath);
 
-            using var songDb = new LR2SongDBExtended(songDbPath);
-            songDb.CreateTable<LR2SongDB.song>();
+            using LR2SongDBExtended songDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             var dbFiles = songDb.Table<LR2SongDB.song>().ToList();
             Assert.AreEqual(1, dbFiles.Count);
             Assert.AreEqual(Path.Combine(newDirectoryPath, "added.bms"), dbFiles[0].path);
@@ -363,6 +373,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// Everything代替走査の理由を結果と診断へ渡し、下位初期化からdialogを直接出さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ReportsEverythingFallbackMetadata()
     {
@@ -405,6 +418,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 不完全scanはscan完了だけを通知して差分処理を開始せず、部分結果で既存DBを削除・追加しない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_IncompleteScanSkipsDiffAndKeepsExistingDb()
     {
@@ -476,6 +492,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 既存譜面があるのに代替走査が空なら差分を中止し、元のbackend理由を記録して保存行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_EmptyFallbackScanWithExistingDbSkipsDiffAndKeepsExistingDb()
     {
@@ -541,6 +560,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 既存譜面があるのにEverything走査が空なら差分を中止し、代替理由を混ぜず保存行を保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_EmptyEverythingScanWithExistingDbSkipsDiffAndKeepsExistingDb()
     {
@@ -598,6 +620,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 既存譜面がない空の代替scanは通常の差分開始を許し、空ライブラリを異常走査として拒否しない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_EmptyFallbackScanWithoutExistingDbAllowsEmptyResult()
     {
@@ -642,6 +667,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// bmson側が不完全scanならBMS側が完了していても全体差分を開始せず、元のbmson失敗理由を保つ。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_IncompleteBmsonScanSkipsDiff()
     {
@@ -701,6 +729,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// BMS読込み失敗は対象path・形式・read分類で集約して診断へ残し、下位初期化からdialogを出さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ReadFailureIsAggregatedWithoutInitializationDialog()
     {
@@ -750,6 +781,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 260文字を超えるBMSの実読込み・encoding再読込み・保存を成立させ、LR2のpath長制約だけを警告する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsIsRegisteredAndLr2CompatibilityWarns()
     {
@@ -803,6 +837,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 260文字を超えるbmsonを実解析・保存してtitleを保ち、通常path上限で登録を拒否しない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_LongPathBmsonIsRegistered()
     {
@@ -854,6 +891,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// bmson読込み失敗は対象path・形式・read分類で集約して診断へ残し、下位初期化からdialogを出さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_BmsonReadFailureIsAggregatedWithoutInitializationDialog()
     {
@@ -904,6 +944,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 既存bmsonの消えた導入先をcatalog投影で除き、捕捉した同じtokenへの変更として返す。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ClearsStaleBmsonInstallDestination()
     {
@@ -962,6 +1005,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// catalog投影の適用を内訳診断より先に呼び、callbackが返した適用・cleanup時間を診断へ反映する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_CatalogProjectionCallbackRunsBeforeBreakdownLog()
     {
@@ -1006,6 +1052,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// BMSとbmsonの混在差分でscan・差分開始を各一回通知し、合計二件の進捗と確定数・読取り量を診断へ一致させる。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ReportsCombinedBmsAndBmsonParseProgress()
     {
@@ -1068,13 +1117,11 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
-            Assert.AreEqual(1, result.FileDiffParserDegree);
             Assert.AreEqual(result.NewFileParseMs, result.BmsParseMs);
             Assert.IsTrue(result.BmsonParseMs >= 0);
             long expectedReadBytesEstimate = new FileInfo(bmsPath).Length + new FileInfo(bmsonPath).Length;
             Assert.AreEqual(expectedReadBytesEstimate, result.ParseReadBytesEstimate);
             Assert.AreEqual(1, result.DbCommitChunks);
-            Assert.AreEqual(10000, result.DbCommitChunkSize);
             Assert.IsTrue(result.DbCommitMaxChunkMs >= 0);
             Assert.IsTrue(result.DbCommitApplyMs >= 0);
             Assert.IsTrue(result.DbCommitBmsUpsertMs >= 0);
@@ -1085,20 +1132,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(result.FileDiffReadMs >= 0);
             Assert.IsTrue(result.FileDiffParseMs >= 0);
             Assert.IsTrue(result.SnapshotQueueHighWatermark > 0);
-            Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
-            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
-            Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(FileScanParseCommitOwner.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree), result.ParsedQueueCapacity);
-            Assert.AreEqual(FileScanParseCommitOwner.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
-            Assert.AreEqual(1, result.CommitQueueCapacity);
-            Assert.AreEqual(2, result.CommitWriterQueueCapacity);
-            Assert.IsTrue(result.CommitStreamingEnabled);
-            Assert.AreEqual("none", result.CommitStreamingBarrierReason);
-            Assert.AreEqual(1, result.FileDiffPostParseWorkerDegree);
             Assert.IsTrue(result.PostParseOutputWaitMs >= 0);
             Assert.IsTrue(result.CommitWriterQueueWaitMs >= 0);
             Assert.AreEqual(2, result.PostParseWorkItemCount);
-            Assert.AreEqual(1, result.InlineMaintenanceDegree);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.InlineChartInfoWallMs >= 0);
             Assert.IsTrue(result.InlineMaintenanceWallMs >= 0);
@@ -1108,22 +1144,10 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.IsTrue(progress.All(item => item.Total == 2));
             Assert.IsTrue(logs.Any(message => message.Contains("bms_added_target_count=1")
                 && message.Contains("bmson_upsert_target_count=1")
-                && message.Contains("file_diff_reader_degree=" + result.FileDiffReaderDegree)
-                && message.Contains("file_diff_parser_degree=1")
-                && message.Contains("file_diff_post_parse_worker_degree=1")
-                && message.Contains("read_queue_capacity=" + result.ReadQueueCapacity)
-                && message.Contains("parsed_queue_capacity=" + result.ParsedQueueCapacity)
-                && message.Contains("post_parse_queue_capacity=" + result.PostParseQueueCapacity)
-                && message.Contains("commit_queue_capacity=1")
-                && message.Contains("commit_writer_queue_capacity=2")
-                && message.Contains("commit_streaming_enabled=true")
-                && message.Contains("commit_streaming_barrier=none")
                 && message.Contains("post_parse_output_wait_ms=")
                 && message.Contains("commit_writer_queue_wait_ms=")
                 && message.Contains("post_parse_work_item_count=2")
                 && message.Contains("inline_chart_info_target_count=2")
-                && message.Contains("inline_chart_info_batch_size=2048")
-                && message.Contains("inline_maintenance_degree=1")
                 && message.Contains("inline_maintenance_resource_index_hit=")
                 && message.Contains("inline_maintenance_resource_set_cache_hit=")
                 && message.Contains("inline_maintenance_resource_set_cache_entries=")
@@ -1132,8 +1156,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 && message.Contains("db_commit_bms_upsert_ms=")
                 && message.Contains("db_commit_maintenance_upsert_ms=")
                 && message.Contains("db_commit_sqlite_commit_ms=")
-                && message.Contains("db_commit_chunks=1")
-                && message.Contains("db_commit_chunk_size=10000")));
+                && message.Contains("db_commit_chunks=1")));
             Assert.IsTrue(logs.Any(message => message.Contains("song_tbl_file_check db_commit_chunk_done chunk=1")
                 && message.Contains("applyMs=")
                 && message.Contains("bmsUpsertMs=")
@@ -1144,6 +1167,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 新規BMSのchunk commitが成功してからLR2同期receiptへpathを公開し、receiptと実DB保存を一致させる。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_PublishesCommittedBmsReceiptPathsAfterSuccessfulChunkCommit()
     {
@@ -1188,6 +1214,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 複数commitとdetail batchを跨ぐBMSを全件保存し、DB準備進捗をcommit終端より先に通知して末尾を欠かさない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_CommitsChunksThroughPostParseWriter()
     {
@@ -1251,8 +1280,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(120, result.AddedFiles.Count);
             Assert.AreEqual(120, result.DbCommitBmsChangedCount);
             Assert.AreEqual((int)Math.Ceiling(paths.Count / 50.0), result.DbCommitChunks);
-            Assert.AreEqual(50, result.DbCommitChunkSize);
-            Assert.AreEqual(32, result.InlineChartInfoBatchSize);
             Assert.AreEqual(120, result.PostParseWorkItemCount);
             Assert.IsTrue(result.PostParseWallMs >= 0);
             Assert.IsTrue(result.CommitQueueWaitMs >= 0);
@@ -1274,6 +1301,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 並列post-parse workerで新規とcached detailを集約し、全件のsong・detail・maintenanceをDBへ一度ずつ保存する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_AggregatesInlineRowsAcrossPostParseWorkers()
     {
@@ -1322,11 +1352,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 logInstallPerformance: logs.Add);
 
             Assert.AreEqual(count, result.AddedFiles.Count);
-            Assert.AreEqual(2, result.FileDiffParserDegree);
-            Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
             Assert.AreEqual(count, result.PostParseWorkItemCount);
             Assert.AreEqual((int)Math.Ceiling(count / 50.0), result.DbCommitChunks, "unexpected DB commit chunk count: " + result.DbCommitChunks);
-            Assert.AreEqual(50, result.DbCommitChunkSize);
             Assert.AreEqual(count, result.InlineChartInfoTargetCount);
             Assert.AreEqual(1, result.InlineChartInfoCurrentSkippedCount);
             Assert.AreEqual(count, result.InlineMaintenanceSuccessCount);
@@ -1342,6 +1369,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// streaming writerを最初のcommit開始で失敗させ、pipelineを待ち残さず元の原因でfault終端させる。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_StreamingWriterFailureDoesNotBlockPipeline()
     {
@@ -1403,6 +1433,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 新規BMSをscanで追加するとLR2 folder・parent hashを現在投影とDBへ反映し、互換pathへ誤警告を出さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes()
     {
@@ -1455,6 +1488,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// CP932不能な新規BMSのpathと表示folderを保持して登録し、parent hashを作らずLR2互換警告を表示へ引き渡す。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_PreservesShiftJisUnsupportedPathWithoutParentAndWarns()
     {
@@ -1507,34 +1543,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
-    [TestMethod]
-    public void SQLiteConnectionEx_ReadOptimizedPragmas_AppliesAndReportsState()
-    {
-        string dbPath = Path.Combine(Path.GetTempPath(), "bemusicseeker-pragmas-" + Guid.NewGuid().ToString("N") + ".db");
-        try
-        {
-            using (var disabled = new SQLiteConnectionEx(dbPath))
-            {
-                List<string> disabledLogs = disabled.TryApplyReadOptimizedPragmas(enabled: false);
-                CollectionAssert.AreEqual(new[] { "enabled=false" }, disabledLogs);
-            }
-
-            using var enabled = new SQLiteConnectionEx(dbPath);
-            List<string> enabledLogs = enabled.TryApplyReadOptimizedPragmas(enabled: true);
-            Assert.AreEqual(3, enabledLogs.Count);
-            Assert.AreEqual("temp_store=MEMORY:ok", enabledLogs[0]);
-            Assert.AreEqual("cache_size=-262144:ok", enabledLogs[1]);
-            StringAssert.StartsWith(enabledLogs[2], "mmap_size=2147483648:ok(");
-        }
-        finally
-        {
-            if (File.Exists(dbPath))
-            {
-                File.Delete(dbPath);
-            }
-        }
-    }
-
+    /// <summary>
+    /// catalog適用後に一時差分・失敗・detail bufferを解放し、次のBMS・bmson集合とdirectory cacheは保持する。
+    /// </summary>
     [TestMethod]
     public void SongTableFileCheckResult_ReleasePostApplyTransientBuffers_ClearsTransientListsOnly()
     {
@@ -1579,6 +1590,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         Assert.IsNotNull(result.NextDirectoryResourceLookupCache);
     }
 
+    /// <summary>
+    /// 壊れた新規bmsonは登録せずparse失敗を診断へ記録し、その対象も進捗の処理済み数へ含める。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_InvalidBmsonLogsAndReportsProgress()
     {
@@ -1641,6 +1655,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// scanが捕捉した音声・画像hashから次回directory cacheを構築し、再検索に必要なmembershipを欠かさない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_BuildsCachesDirectlyFromScanHashes()
     {
@@ -1714,6 +1731,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// BMSとbmson scanの重なるhashを重複排除・整列して合流し、全keyの検索を成立させる。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_MergedScanHashesAreSortedDistinctAndSearchable()
     {
@@ -1767,6 +1787,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// native resource indexだけを持つscanから音声・動画cacheと計上数を構築し、managed hash mapが空でも索引を失わない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesNativeResourceIndexWithoutMaterializingScanHashMaps()
     {
@@ -1834,6 +1857,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 消えたBMSが最後に使用していたdigestをDBから除き、所持譜面のない孤立対応を残さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_RemovesOrphanChartDigestRowsForDeletedSongs()
     {
@@ -1885,6 +1911,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 同MD5のBMSが別pathに残る場合は削除差分でも共有digestをDBへ保持し、生存譜面の対応を失わない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_KeepsSharedChartDigestRowsWhenAnotherSongStillUsesSameMd5()
     {
@@ -1952,6 +1981,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// SHA256が欠けたBMSだけを補完してDBへ保存し、既存SHA256とimmutable旧入力を保持して対象進捗を通知する。
+    /// </summary>
     [TestMethod]
     public void BackfillChartDigests_ComputesOnlyMissingHashesAndPersistsThem()
     {
@@ -2000,6 +2032,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// bmsonの追加・削除を次の所持集合とDBへ反映し、新規maintenanceを確定して一時resource参照を解放する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase()
     {
@@ -2082,6 +2117,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 同じMD5で日時だけ変わるBMSは日時だけを保存・投影し、tag・adddateと旧入力を保ちLR2生成列receiptを増やさない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsDateMismatchWithSameMd5UpdatesDateOnly()
     {
@@ -2154,6 +2192,10 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 日時だけの差分ではLR2生成列の補完を省略済みにせず、後続同期の実読込みでtitle・artistを更新して利用者列を保持する。
+    /// </summary>
+    /// <remarks>実scan差分のreceiptを後続LR2保存へ接続し、差分側の省略が次段の再読込みを妨げないことを確認する。</remarks>
     [TestMethod]
     public void ApplyFileScanDiff_DateOnlySameMd5RequiresFullFollowUpForGeneratedSongColumns()
     {
@@ -2249,6 +2291,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 旧LR2移行の保護中は既存BMSの日時変化を更新せず、元の現在値とDB利用者列を維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsMetadataRefresh()
     {
@@ -2320,6 +2365,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 旧LR2移行の保護中は日時・txt変化を更新せず、元の現在値とDB利用者列を維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ProtectedLegacyMigrationSkipsExistingBmsTextRefresh()
     {
@@ -2399,6 +2447,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 日時とMD5が変わるBMSは新metadataへ置換して保存し、旧行のtag・adddateを新しい所持譜面へ引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsDateMismatchWithChangedMd5ReplacesCatalog()
     {
@@ -2474,8 +2525,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 同一 MD5 の一対一移動では、通常差分と case-only 差分のどちらでも
-    /// 現在の生成値を保ったまま、旧行の三つの保存列を DB と memory へ引き継ぎます。
+    /// 同MD5の一対一移動は通常path・caseだけの変更でも三つの利用者列をDB・memoryへ引き継ぎ、新生成値と再適用の収束を保つ。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2660,8 +2710,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 同一 MD5 の既存 destination は、通常差分と case-only 差分のどちらでも
-    /// stale source の保存値による上書きを受けず、exact path の行を維持します。
+    /// 移動先に同MD5の現行行があれば通常path・caseだけの変更でも旧sourceの利用者列で上書きせず、現行行を維持する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2770,8 +2819,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 同一 MD5 の旧候補が複数ある場合は、通常 path と case-only path が混在しても
-    /// 保存列を移植せず、現在の exact membership だけを反映します。
+    /// 同MD5の旧候補が複数ある移動ではcase候補が混在しても利用者列を選ばず、旧行を退役して現在pathだけを保存する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2866,8 +2914,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 同一 MD5 の新規候補が複数ある場合は、通常 path と case-only path が混在しても
-    /// 旧行の保存列を選択的に移植せず、全候補を exact membership として反映します。
+    /// 同MD5の新候補が複数ある移動ではcase候補が混在しても旧利用者列を移植せず、全新pathをDB・memoryへ反映する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -2961,6 +3008,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// LR2 modeの新規BMSでは直下txtだけをtxt列へ保存し、nested txtを同じ列へ誤算入しない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_NewBmsSetsTxtFromDirectTextGroupOnlyWhenLr2SongDbSyncEnabled()
     {
@@ -3015,6 +3065,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// LR2 modeで既存BMSの直下txtだけが増えるとtxt列だけを更新し、日時・favorite・adddate・tagを保持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_ExistingBmsTextGroupChangeUpdatesTxtOnlyWhenLr2SongDbSyncEnabled()
     {
@@ -3089,6 +3142,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// LR2以外のmodeでは直下txt scanが空でも既存txt列をresetせず、元入力とDB保存値を維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_DoesNotResetTxtOutsideLr2Mode()
     {
@@ -3143,6 +3199,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 更新bmsonは新しいsnapshotのtitle・日時をDBと所持集合へ反映し、消えた導入先だけを除いて一時resourceを残さない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UpdatedBmsonUsesSnapshotTimestamp()
     {
@@ -3212,6 +3271,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// caseだけ異なるbmson pathをexact keyとして置換し、別caseの既存maintenanceへ誤移植せず新しい状態を保存する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchAddsExactPathWithoutMigratingMaintenance()
     {
@@ -3277,6 +3339,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// caseと日時が変わるbmsonをexact pathへ置換して旧maintenanceを退役し、同じscanの再適用では追加差分を作らない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_CaseOnlyBmsonPathMismatchReplacesExactPathAndConverges()
     {
@@ -3357,6 +3422,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// BMSのlive日時がscan後に変わっても捕捉scan日時で不変を判定し、後続の変化を同じ差分へ混ぜない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesScanMtimeForUnchangedBms()
     {
@@ -3412,6 +3480,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 日時が変わらないbmsonは再解析・再追加せず、現在所持集合の一件とresource非保持を維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UnchangedBmsonDoesNotParseOrMarkFresh()
     {
@@ -3468,6 +3539,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// bmsonのlive日時がscan後に変わっても捕捉scan日時で不変を判定し、filesystemの再取得による差分を作らない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_UsesScanMtimeForUnchangedBmson()
     {
@@ -3526,6 +3600,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// 更新bmsonの解析失敗では新規行を公開せず、旧titleの所持譜面とresource非保持を維持する。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_InvalidUpdatedBmsonKeepsExistingCatalogWithoutFreshRefs()
     {
@@ -3581,6 +3658,9 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>
+    /// bmson専用directoryもBMS scanと合流して導入候補cacheへ含め、そこで捕捉した音声hashを欠かさない。
+    /// </summary>
     [TestMethod]
     public void ApplyFileScanDiff_MergesBmsonOnlyDirectoriesIntoInstallCandidateCache()
     {

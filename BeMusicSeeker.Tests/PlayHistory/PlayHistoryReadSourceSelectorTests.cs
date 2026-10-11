@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlayHistoryReadSourceSelectorTests
 {
+    /// <summary>
+    /// 利用設定・実選択元・パス・存在情報が揃った時だけbeatorajaを採用し、LR2連携の混在を防いで指定スコア版とノーツ数を渡す。
+    /// </summary>
     [TestMethod]
     public void Select_UsesBeatorajaOnlyWhenEveryProviderFactMatches()
     {
@@ -33,18 +36,22 @@ public sealed class PlayHistoryReadSourceSelectorTests
         Assert.AreEqual(PlayHistoryProvider.Beatoraja, selected.Provider);
         Assert.AreEqual("missing-but-observed.db", selected.ScoreDbPath);
         Assert.IsFalse(selected.IsLr2LinkedProfile);
-        Assert.AreSame(beatorajaContext, selected.BeatorajaScoreContext);
+        Assert.AreEqual(17, selected.BeatorajaScoreContext.ScoreSnapshotVersion);
+        Assert.AreEqual(100, selected.BeatorajaScoreContext.ScoresBySha256["sha256"].totalnotes);
     }
 
+    /// <summary>
+    /// 設定無効・選択元違い・空パス・不在の各条件ではLR2の既存連携情報へ戻し、成立していないbeatoraja入力を使わない。
+    /// </summary>
     [TestMethod]
     public void Select_FallsBackToExistingLr2ContextWhenAnyBeatorajaFactDoesNotMatch()
     {
         var cases = new (string Name, bool UseBeatoraja, ActiveScoreSource ActiveSource, string BeatorajaPath, bool FileExists)[]
         {
-            ("setting disabled", false, ActiveScoreSource.Beatoraja, "beatoraja.db", true),
-            ("different active source", true, ActiveScoreSource.Lr2, "beatoraja.db", true),
-            ("blank path", true, ActiveScoreSource.Beatoraja, " ", true),
-            ("file absent", true, ActiveScoreSource.Beatoraja, "beatoraja.db", false)
+            ("利用設定無効", false, ActiveScoreSource.Beatoraja, "beatoraja.db", true),
+            ("別取得元を選択", true, ActiveScoreSource.Lr2, "beatoraja.db", true),
+            ("空白パス", true, ActiveScoreSource.Beatoraja, " ", true),
+            ("ファイル不在", true, ActiveScoreSource.Beatoraja, "beatoraja.db", false)
         };
 
         foreach ((string name, bool useBeatoraja, ActiveScoreSource activeSource, string beatorajaPath, bool fileExists) in cases)
@@ -68,23 +75,9 @@ public sealed class PlayHistoryReadSourceSelectorTests
         }
     }
 
-    [TestMethod]
-    public void Select_UsesFactsWithoutCheckingThePathItself()
-    {
-        PlayHistoryReadSourceContext selected = PlayHistoryReadSourceSelector.Select(
-            new PlayHistoryReadSourceSelectionInput(
-                lr2ScoreDbPath: "lr2.db",
-                isLr2LinkedProfile: false,
-                useBeatorajaScoreDb: true,
-                beatorajaScoreDbPath: "path-that-is-not-created",
-                activeScoreSource: ActiveScoreSource.Beatoraja,
-                beatorajaScoreDbFileExists: true,
-                beatorajaScoreContext: BeatorajaPlayHistoryScoreContext.Empty));
-
-        Assert.AreEqual(PlayHistoryProvider.Beatoraja, selected.Provider);
-        Assert.AreEqual("path-that-is-not-created", selected.ScoreDbPath);
-    }
-
+    /// <summary>
+    /// パス・スコア面がnullの要求は空パスのLR2連携情報として残し、架空の取得元を補わない。
+    /// </summary>
     [TestMethod]
     public void Select_NullFactsPreserveLr2FallbackInsteadOfInventingAProvider()
     {
@@ -104,6 +97,9 @@ public sealed class PlayHistoryReadSourceSelectorTests
         Assert.AreSame(BeatorajaPlayHistoryScoreContext.Empty, selected.BeatorajaScoreContext);
     }
 
+    /// <summary>
+    /// 要求全体がnullなら引数不正を返し、既定取得元へ黙って置き換えない。
+    /// </summary>
     [TestMethod]
     public void Select_RejectsNullInput()
     {

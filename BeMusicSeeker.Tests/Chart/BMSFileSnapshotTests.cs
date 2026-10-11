@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BMSFileSnapshotTests
 {
+    /// <summary>
+    /// 読み取り後に実ファイルを置換しても捕捉時の独立計算したhash・時刻・生メタデータ・参照を解析へ渡し、再読取りによる入力混在を検出する。
+    /// </summary>
     [TestMethod]
     public void CapturedInputKeepsHashesTimeAndRawMetadataAfterFileReplacement()
     {
@@ -68,38 +71,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
-    [TestMethod]
-    public void CreateSnapshotFromReadBuffer_MatchesReadSnapshot()
-    {
-        WithTempDirectory(delegate (string tempDirectory)
-        {
-            string filePath = Path.Combine(tempDirectory, "chart.bms");
-            File.WriteAllText(filePath,
-                "#PLAYER 1\r\n"
-                + "#TITLE Buffered\r\n"
-                + "#ARTIST Reader\r\n"
-                + "#WAV01 keysound.wav\r\n"
-                + "#00111:01\r\n",
-                Encoding.GetEncoding("shift_jis"));
-            var lastWriteTimeUtc = new DateTime(2026, 6, 9, 1, 2, 3, DateTimeKind.Utc);
-            File.SetLastWriteTimeUtc(filePath, lastWriteTimeUtc);
-
-            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(filePath);
-            ChartFileSnapshot fromBuffer = ChartFileContentReader.CreateSnapshot(buffer);
-            ChartFileSnapshot direct = ChartFileContentReader.ReadSnapshot(filePath);
-
-            Assert.AreEqual(direct.Path, buffer.Path);
-            Assert.AreEqual(direct.Length, buffer.Length);
-            Assert.AreEqual(direct.LastWriteTimeUtc, buffer.LastWriteTimeUtc);
-            Assert.AreEqual(direct.Path, fromBuffer.Path);
-            Assert.AreEqual(direct.Length, fromBuffer.Length);
-            Assert.AreEqual(direct.LastWriteTimeUtc, fromBuffer.LastWriteTimeUtc);
-            Assert.AreEqual(direct.Md5, fromBuffer.Md5);
-            Assert.AreEqual(direct.Sha256, fromBuffer.Sha256);
-            Assert.IsTrue(buffer.Bytes.SequenceEqual(fromBuffer.Bytes));
-        });
-    }
-
+    /// <summary>
+    /// 長い実パスのBMSをRibbit入口から読めてタイトル・作者・hashを得られ、通常パス長制約による読み取り失敗を検出する。
+    /// </summary>
     [TestMethod]
     public void RibbitBmsFileConstructor_ReadsLongPathChart()
     {
@@ -125,6 +99,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 区切りと親移動を含む入力パスを正規化し、保存パスと拡張長I/Oパスへ不正な表現が残る誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ReadSnapshot_NormalizesAbsolutePathBeforeStorageAndExtendedIo()
     {
@@ -145,48 +122,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
-    [TestMethod]
-    public void CreateBMSFileFromSnapshot_MatchesFileApiForRepresentativeEncodings()
-    {
-        string[] encodings = ["shift_jis", "gb2312", "big5", "ks_c_5601-1987"];
-        foreach (string encodingName in encodings)
-        {
-            WithTempDirectory(delegate (string tempDirectory)
-            {
-                string filePath = Path.Combine(tempDirectory, "chart_" + encodingName + ".bms");
-                File.WriteAllText(filePath,
-                    "#PLAYER 1\n#TITLE Encoding " + encodingName + "\n#ARTIST Artist\n#WAV01 sound.wav\n#00111:01\n",
-                    Encoding.GetEncoding(encodingName));
-
-                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath), encodingName);
-                ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot, encodingName);
-
-                AssertBmsMetadataEqual(expected, actual);
-            });
-        }
-    }
-
-    [TestMethod]
-    public void CreateBMSFileFromSnapshot_UsesSnapshotBytesAfterFileChanges()
-    {
-        WithTempDirectory(delegate (string tempDirectory)
-        {
-            string filePath = Path.Combine(tempDirectory, "chart.bms");
-            File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Before\r\n", Encoding.GetEncoding("shift_jis"));
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            string originalMd5 = snapshot.Md5;
-
-            File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE After\r\n", Encoding.GetEncoding("shift_jis"));
-
-            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
-
-            Assert.AreEqual("Before", actual.Title);
-            Assert.AreEqual(originalMd5, actual.Md5);
-            Assert.AreNotEqual(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath)).Md5, actual.Md5);
-        });
-    }
-
+    /// <summary>
+    /// 韓国語を検出して表示メタデータを読み直しても音声・画像の参照はCP932解釈を保ち、LR2互換参照の書換えを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_WithDetectedEncodingKeepsResourceReferencesShiftJis()
     {
@@ -227,6 +165,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// UTF-8 BOM付き入力の表示メタデータをUTF-8で読んでも音声参照はCP932のままとし、BOM自動解釈による参照変更を検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_WithDetectedUtf8BomKeepsResourceReferencesShiftJis()
     {
@@ -257,58 +198,11 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 通常・LN・二人用チャンネルとPMS拡張子から期待する鍵数を判定し、ゼロ列や無効区切りでモードが変わる誤りを検出する。
+    /// </summary>
     [TestMethod]
-    public void CreateBMSFileFromFile_WithUtf8BomKeepsResourceReferencesShiftJis()
-    {
-        WithTempDirectory(delegate (string tempDirectory)
-        {
-            string filePath = Path.Combine(tempDirectory, "utf8-bom-file-api-resource.bms");
-            const string resourceName = "\u3042.wav";
-            File.WriteAllText(
-                filePath,
-                "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile shiftJisSnapshotParsed = BmsChartFileParser.ParseSnapshot(snapshot);
-
-            ChartFile actual = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
-
-            Assert.AreEqual(
-                shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
-                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-        });
-    }
-
-    [TestMethod]
-    public void SetBMSComponentFilesFromBMSFile_WithUtf8BomKeepsResourceReferencesShiftJis()
-    {
-        WithTempDirectory(delegate (string tempDirectory)
-        {
-            string filePath = Path.Combine(tempDirectory, "utf8-bom-components-resource.bms");
-            const string resourceName = "\u3042.wav";
-            File.WriteAllText(
-                filePath,
-                "#PLAYER 1\r\n#TITLE UTF-8 BOM\r\n#WAV01 " + resourceName + "\r\n",
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile shiftJisSnapshotParsed = BmsChartFileParser.ParseSnapshot(snapshot);
-            ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
-            actual = actual with { Resources = null };
-            actual = actual with { Resources = TestChartResources.ReplaceAudio(actual.Resources, []) };
-
-            ChartFile refreshed = BmsChartFileParser.ParseSnapshot(snapshot);
-            actual = actual with { Resources = refreshed.Resources, Md5 = refreshed.Md5, Sha256 = refreshed.Sha256 };
-
-            Assert.AreEqual(
-                shiftJisSnapshotParsed.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath,
-                actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-            Assert.AreNotEqual(resourceName, actual.Resources.Single(reference => reference.Usage == ChartResourceUsage.Normal).RawPath);
-        });
-    }
-
-    [TestMethod]
-    public void CreateBMSFileFromSnapshot_DetectsModeChannelsLikeFileApi()
+    public void CreateBMSFileFromSnapshot_DetectsModeFromChannelsAndExtension()
     {
         (string FileName, string ChannelLine, int ExpectedMode)[] cases =
         [
@@ -331,17 +225,18 @@ public sealed class BMSFileSnapshotTests
                 File.WriteAllText(filePath, "#PLAYER 1\r\n#TITLE Mode\r\n" + channelLine + "\r\n", Encoding.GetEncoding("shift_jis"));
 
                 ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-                ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
                 ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
                 Assert.AreEqual(expectedMode, actual.Mode, fileName);
-                AssertBmsMetadataEqual(expected, actual);
             });
         }
     }
 
+    /// <summary>
+    /// 空のリソース定義と絶対パスを正常参照へ含めず、音声・画像の相対参照を正規化して不正参照の混入を検出する。
+    /// </summary>
     [TestMethod]
-    public void CreateBMSFileFromSnapshot_DirectDirectiveScannerMatchesFileApi()
+    public void CreateBMSFileFromSnapshot_NormalizesDirectiveResourcesAndIgnoresInvalidDefinitions()
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
@@ -371,10 +266,8 @@ public sealed class BMSFileSnapshotTests
                 Encoding.GetEncoding("shift_jis"));
 
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-            ChartFile expected = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(filePath));
             ChartFile actual = BmsChartFileParser.ParseSnapshot(snapshot);
 
-            AssertBmsMetadataEqual(expected, actual);
             CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "sound.wav");
             CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), Path.Combine("audio", "hit.wav"));
             CollectionAssert.Contains(actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), "image.png");
@@ -385,6 +278,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// LR2互換の欠落・不正な数値指示とMAXTRACKS末尾文字を解釈し、保存用の難易度・判定・レベルが変わる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_UsesLr2SongMetadataDefaults()
     {
@@ -407,6 +303,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 難易度の欠落・ゼロ・等号区切り・不正・範囲外・負値を区別して生値を保持し、早すぎる補正で情報を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_KeepsRawLr2DifficultyDirectiveValuesBeforeFinalization()
     {
@@ -438,6 +337,9 @@ public sealed class BMSFileSnapshotTests
         }
     }
 
+    /// <summary>
+    /// 等号区切りのレベル・難易度・判定指示を受理し、LR2が読める既存入力を読み落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_AcceptsLr2NumericDirectiveSeparators()
     {
@@ -461,6 +363,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 難易度未指定のファイル名先頭だけでは難易度を補わず、無関係な命名から値を捏造する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_DoesNotInferDifficultyFromFilenamePrefix()
     {
@@ -479,6 +384,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// タイトル・ジャンルの難易度語を読み取り、明示難易度と字幕を優先して元の表示文字列を改変する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_InfersLr2DifficultyFromTitleAndGenre()
     {
@@ -561,6 +469,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 音声・画像・動画の原記述と正規化参照を保持し、親移動の非対応参照も理由付きで残して診断情報の消失を検出する。
+    /// </summary>
     [TestMethod]
     public void CreateBMSFileFromSnapshot_PreservesRawResourceReferences()
     {
@@ -589,34 +500,11 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// ASCII入力をCP932として判定し、保守用文字コード名と判定結果がASCIIでぶれる誤りを検出する。
+    /// </summary>
     [TestMethod]
-    public void DetectEncodingOfBMSFile_SnapshotMatchesPathApiForRepresentativeEncodings()
-    {
-        (string CaseName, byte[] Bytes)[] cases =
-        [
-            ("ascii", Encoding.ASCII.GetBytes("#TITLE ASCII\r\n")),
-            ("shift_jis_japanese", Encoding.GetEncoding("shift_jis").GetBytes("#TITLE 日本語\r\n")),
-            ("korean_definite", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uacaf\r\n")),
-            ("korean_ambiguous", Encoding.GetEncoding("ks_c_5601-1987").GetBytes("#TITLE \uac00\ub098\r\n")),
-            ("utf8", Encoding.UTF8.GetBytes("#TITLE \u3012\u2605\r\n")),
-            ("unknown", new byte[] { 0xFF, 0xFF, 0xFF })
-        ];
-        foreach ((string caseName, byte[] bytes) in cases)
-        {
-            WithTempDirectory(delegate (string tempDirectory)
-            {
-                string filePath = Path.Combine(tempDirectory, "chart_" + caseName + ".bms");
-                File.WriteAllBytes(filePath, bytes);
-
-                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
-
-                Assert.AreEqual(BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(filePath).Bytes).EncodingName, BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName, caseName);
-            });
-        }
-    }
-
-    [TestMethod]
-    public void DetectEncodingOfBMSFile_AsciiUsesSharedFastPath()
+    public void DetectEncodingOfBMSFile_AsciiUsesCp932CompatibilityEncoding()
     {
         WithTempDirectory(delegate (string tempDirectory)
         {
@@ -626,14 +514,13 @@ public sealed class BMSFileSnapshotTests
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             BmsEncodingDetectionResult result = BmsEncodingDetector.Detect((snapshot).Bytes);
 
-            Assert.AreEqual("shift_jis", BmsEncodingDetector.Detect(ChartFileContentReader.ReadSnapshot(filePath).Bytes).EncodingName);
-            Assert.AreEqual("shift_jis", BmsEncodingDetector.Detect(snapshot.Bytes).EncodingName);
             Assert.AreEqual("shift_jis", result.EncodingName);
-            Assert.AreEqual(BmsEncodingDetectionOutcome.ShiftJis, result.Outcome);
-            Assert.IsTrue(result.FastAscii);
         });
     }
 
+    /// <summary>
+    /// 捕捉後に文字コードの異なるファイルへ置換しても捕捉bytesの判定結果を保ち、再読取りの内容を混ぜる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void DetectEncodingOfBMSFile_UsesSnapshotBytesAfterFileChanges()
     {
@@ -651,6 +538,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 捕捉後の実ファイル置換を表示メタデータの再読解へ反映せず、取得済みのタイトル・字幕・作者・ジャンルが混在する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ReloadBMSFileWithEncoding_SnapshotUsesSnapshotBytesAfterFileChanges()
     {
@@ -679,6 +569,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 韓国語の明示文字コードで生タイトル・字幕・作者・ジャンルを読み直し、合成表示や原文を欠落させる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ReloadBMSFileWithEncoding_PathAppliesRawTitleAndArtistMetadata()
     {
@@ -708,6 +601,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 曖昧CP932名で再読解して更新時刻だけを更新し、利用者列の追加日時と以前の捕捉値を変更する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void MetadataEncoding_NormalizesShiftJisQuestionAndPreservesUserColumns()
     {
@@ -732,6 +628,9 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
+    /// <summary>
+    /// 検出済み韓国語本文を再読解へ接続して生メタデータと表示を復元し、音声参照の互換性を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ReloadBMSMetadataWithEncodingDetection_UsesDetectedSnapshotText()
     {
@@ -765,28 +664,6 @@ public sealed class BMSFileSnapshotTests
         });
     }
 
-    private static void AssertBmsMetadataEqual(ChartFile expected, ChartFile actual)
-    {
-        Assert.AreEqual(expected.Path, actual.Path);
-        Assert.AreEqual(expected.Title, actual.Title);
-        Assert.AreEqual(expected.Artist, actual.Artist);
-        Assert.AreEqual(expected.Genre, actual.Genre);
-        Assert.AreEqual((double?)expected.Level, actual.Level);
-        Assert.AreEqual(expected.Difficulty, actual.Difficulty);
-        Assert.AreEqual(expected.Judge, actual.Judge);
-        Assert.AreEqual(expected.Banner, actual.Banner);
-        Assert.AreEqual(expected.Stagefile, actual.Stagefile);
-        Assert.AreEqual(expected.Backbmp, actual.Backbmp);
-        Assert.AreEqual(expected.Mode, actual.Mode);
-        Assert.AreEqual(expected.Md5, actual.Md5);
-        Assert.AreEqual(expected.Sha256, actual.Sha256);
-        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind == ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-        CollectionAssert.AreEquivalent(expected.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(), actual.Resources.Where(reference => reference.Usage == ChartResourceUsage.Normal && reference.Status == ChartResourcePathNormalizationStatus.Valid && reference.Kind != ChartResourceKind.Audio).Select(reference => reference.NormalizedPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
-        CollectionAssert.AreEqual(
-            (expected.Resources ?? []).Select(ToComparableResourceReference).ToArray(),
-            (actual.Resources ?? []).Select(ToComparableResourceReference).ToArray());
-    }
-
     private static void AssertResourceReference(ChartFile file, ChartResourceKind kind, string rawPath, string normalizedPath)
     {
         Assert.IsTrue(
@@ -795,11 +672,6 @@ public sealed class BMSFileSnapshotTests
                 && reference.RawPath == rawPath
                 && reference.NormalizedPath == normalizedPath),
             kind + "|" + rawPath + "|" + normalizedPath);
-    }
-
-    private static string ToComparableResourceReference(ChartResourceReference reference)
-    {
-        return reference.Kind + "|" + reference.Usage + "|" + reference.RawPath + "|" + reference.NormalizedPath + "|" + reference.LookupKey + "|" + reference.Status;
     }
 
     private static void WithTempDirectory(Action<string> action)

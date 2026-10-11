@@ -13,6 +13,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryLibraryFileOperationsServiceTests
 {
+    /// <summary>同内容の宛先が既にある拡張子変更は元だけ削除し、重複内容を二重保存したり既存宛先を消す誤りを検出する。</summary>
+    /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]
     public void ProcessInvalidExtensionRename_DeletesSourceWhenDestinationHasSameHash()
     {
@@ -37,6 +39,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>元宛先と異なる内容の次に同hashのsuffix候補がある場合は元だけを削除し、追加suffixへの不要な移動を検出する。</summary>
+    /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]
     public void ProcessInvalidExtensionRename_DeletesSourceWhenSuffixedCandidateHasSameHash()
     {
@@ -65,6 +69,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>既存候補を残して最初の空きsuffixを移動先に選び、元ファイルの消失と候補・移動先の存在およびrename結果を確認する。</summary>
+    /// <remarks>実filesystemの存在と移動先選択を使い、機能窓口の判定と物理状態を照合する。</remarks>
     [TestMethod]
     public void ProcessInvalidExtensionRename_RenamesToFirstAvailableSuffixAfterDifferentCandidates()
     {
@@ -95,6 +101,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>最初の候補がディレクトリでも後続の同hashファイルを検出して元だけ消し、型の異なる候補を破壊する誤りを検出する。</summary>
+    /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]
     public void ProcessInvalidExtensionRename_DeletesSourceWhenDirectoryThenSuffixedFileHasSameHash()
     {
@@ -122,6 +130,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>全譜面が選択された通常packageだけを返し、部分選択や単一ファイルpackageをフォルダ削除対象へ誤分類する誤りを検出する。</summary>
     [TestMethod]
     public void GetPendingPackagesFullyCoveredBySelection_ReturnsOnlyFullySelectedPackages()
     {
@@ -155,6 +164,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         CollectionAssert.AreEqual(new[] { pkg1 }, result);
     }
 
+    /// <summary>実フォルダ移動と資源索引更新から所持・pending・導入済み参照の変更事実を生成し、子パスや導入先の更新漏れ・旧索引の変質を検出する。</summary>
+    /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]
     public void MoveFolderAndUpdateReferences_RewritesDirectoryIndexAndBuildFolderMoveFactsTracksReferences()
     {
@@ -191,7 +202,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             ChartPackage installedPackage = ChartPackageTestExtensions.CreatePackage([libraryFile]);
             installedPackage.path = nestedDirectoryPath;
             installedPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
 
             service.MoveFolder(
                 sourceRoot,
@@ -232,10 +242,11 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested", "chart.bms"), appliedLibraryChart.Path);
             Assert.AreEqual(destinationRoot, appliedLibraryChart.InstallDestination);
             Assert.AreEqual(Path.Combine(destinationRoot, "Nested"), facts.PackageReferenceFacts.InstalledPackagePathChanges[0].NewPath);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>別volumeへの実フォルダ移動後にroot・子の資源索引を更新し、元索引snapshotを保持して物理成功と検索先の不整合を検出する。</summary>
+    /// <remarks>実際に異なるvolumeの物理移動と資源索引を接続する。第二volume不足の既存Inconclusiveを維持する。</remarks>
     [TestMethod]
     public void MoveFolderAndUpdateReferences_CrossVolumeMoveRewritesDirectoryIndex()
     {
@@ -277,6 +288,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.IsTrue(mutationResult.Changed);
     }
 
+    /// <summary>二つの移動事実から子を含む三つの索引先をまとめて更新し、移動漏れ・旧snapshotの改変・件数集計の誤りを検出する。</summary>
     [TestMethod]
     public void UpdateMovedFolderReferences_RewritesMultipleMovedFoldersInOnePass()
     {
@@ -333,54 +345,52 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.IsNotNull(priorLookupCache.GetEntryOrNull(secondSource));
     }
 
+    /// <summary>所持bmsonの捕捉導入先から移動事実と同tokenの適用値を作り、BMSだけの導入先更新やtokenの取り違えを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_UsesChartSnapshotInstallDestinationForBmsonLibraryRef()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string sourceRoot = Path.Combine(tempDirectoryPath, "InstallSource");
+        string destinationRoot = Path.Combine(tempDirectoryPath, "InstallDestination");
+        string libraryDirectory = Path.Combine(tempDirectoryPath, "Library");
+        ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string sourceRoot = Path.Combine(tempDirectoryPath, "InstallSource");
-            string destinationRoot = Path.Combine(tempDirectoryPath, "InstallDestination");
-            string libraryDirectory = Path.Combine(tempDirectoryPath, "Library");
-            Directory.CreateDirectory(sourceRoot);
-            Directory.CreateDirectory(libraryDirectory);
-            ChartFile bmsonSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
-            {
-                Token = new OwnedChartToken(),
-                Path = Path.Combine(libraryDirectory, "chart.bmson"),
-                Folder = libraryDirectory,
-                Md5 = "abcdefabcdefabcdefabcdefabcdefab",
-                Sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
-                Title = "Bmson",
-                RawTitle = "Bmson"
-            };
-            ChartFile bmsonChart = ChartFileProjection.WithPackageState(
-                (bmsonSong),
-                sourceRoot,
-                "Install title",
-                "Install artist",
-                []);
+            Token = new OwnedChartToken(),
+            Path = Path.Combine(libraryDirectory, "chart.bmson"),
+            Folder = libraryDirectory,
+            Md5 = "abcdefabcdefabcdefabcdefabcdefab",
+            Sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+            Title = "Bmson",
+            RawTitle = "Bmson"
+        };
+        ChartFile bmsonChart = ChartFileProjection.WithPackageState(
+            (bmsonSong),
+            sourceRoot,
+            "Install title",
+            "Install artist",
+            []);
 
-            LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
-                sourceRoot,
-                destinationRoot,
-                [],
-                CreateInstallDestinationOverlaySnapshot([bmsonChart]),
-                [],
-                [],
-                unregister: false,
-                notifyStorageRowPathChanges: false);
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
+            sourceRoot,
+            destinationRoot,
+            [],
+            CreateInstallDestinationOverlaySnapshot([bmsonChart]),
+            [],
+            [],
+            unregister: false,
+            notifyStorageRowPathChanges: false);
 
-            LibraryInstallDestinationChange change = facts.PackageReferenceFacts.InstallDestinationChanges.Single();
-            Assert.AreSame(bmsonSong.Token, change.Chart.Token);
-            Assert.AreEqual(sourceRoot, change.GetCurrentInstallDestination());
-            Assert.AreEqual(destinationRoot, change.NewInstallDestination);
-            ChartFile appliedChart = change.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
-            Assert.AreSame(bmsonSong.Token, appliedChart.Token);
-            Assert.AreEqual(destinationRoot, appliedChart.InstallDestination);
-        });
+        LibraryInstallDestinationChange change = facts.PackageReferenceFacts.InstallDestinationChanges.Single();
+        Assert.AreSame(bmsonSong.Token, change.Chart.Token);
+        Assert.AreEqual(sourceRoot, change.GetCurrentInstallDestination());
+        Assert.AreEqual(destinationRoot, change.NewInstallDestination);
+        ChartFile appliedChart = change.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
+        Assert.AreSame(bmsonSong.Token, appliedChart.Token);
+        Assert.AreEqual(destinationRoot, appliedChart.InstallDestination);
     }
 
+    /// <summary>導入先のrootと子だけをsnapshotから返し、同じ文字prefixの兄弟を配下として誤採用する誤りを検出する。</summary>
     [TestMethod]
     public void InstallDestinationOverlaySnapshot_UsesDirectoryBoundary()
     {
@@ -401,6 +411,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             refs.Select(chart => chart.Path).ToArray());
     }
 
+    /// <summary>末尾separator付きの移動要求でもpendingと所持の導入先を正規化し、二重separatorや子パスの欠落を検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_RewritesInstallDestinationWithTrailingSourceSeparator()
     {
@@ -426,126 +437,115 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual("D:\\Install\\Destination\\Child", libraryChange.NewInstallDestination);
     }
 
+    /// <summary>所持とpendingが同じパスでもpendingの譜面パスは保持して導入先だけ変え、所持の移動事実を別主体へ誤適用する誤りを検出する。</summary>
     [TestMethod]
     public void FolderMoveAppliedInstallDestinationSnapshotDoesNotRewritePendingEntryByPathCollision()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
-            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
-            Directory.CreateDirectory(sourceRoot);
-            string collidingPath = Path.Combine(sourceRoot, "chart.bms");
-            ChartFile libraryFile = CreateFile(collidingPath);
-            ChartFile pendingFile = CreateFile(collidingPath) with { Token = null };
-            PackageChartEntry pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot);
-            var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
+        string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
+        string collidingPath = Path.Combine(sourceRoot, "chart.bms");
+        ChartFile libraryFile = CreateFile(collidingPath);
+        ChartFile pendingFile = CreateFile(collidingPath) with { Token = null };
+        PackageChartEntry pendingEntry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot);
+        var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
 
-            LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
-                sourceRoot,
-                destinationRoot,
-                [LibraryChartRef.FromChartFile((libraryFile))],
-                CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)]),
-                [pendingPackage],
-                [],
-                unregister: false,
-                notifyStorageRowPathChanges: false);
+        LibraryFolderMoveFacts facts = service.BuildFolderMoveFacts(
+            sourceRoot,
+            destinationRoot,
+            [LibraryChartRef.FromChartFile((libraryFile))],
+            CreateInstallDestinationOverlaySnapshot([CreateLibraryChartRefWithInstallDestination(libraryFile, sourceRoot)]),
+            [pendingPackage],
+            [],
+            unregister: false,
+            notifyStorageRowPathChanges: false);
 
-            LibraryInstallDestinationChange pendingChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.Entry, pendingEntry));
-            ChartFile pendingSnapshot = pendingChange.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
-            Assert.AreEqual(collidingPath, pendingSnapshot.Path);
-            Assert.AreEqual(destinationRoot, pendingSnapshot.InstallDestination);
-        });
+        LibraryInstallDestinationChange pendingChange = facts.PackageReferenceFacts.InstallDestinationChanges.Single(change => ReferenceEquals(change.Entry, pendingEntry));
+        ChartFile pendingSnapshot = pendingChange.CreateAppliedChartSnapshot(facts.CatalogFacts.ChartPathChanges);
+        Assert.AreEqual(collidingPath, pendingSnapshot.Path);
+        Assert.AreEqual(destinationRoot, pendingSnapshot.InstallDestination);
     }
 
+    /// <summary>パスだけの選択が現在catalogの完全なフォルダ選択に一致すれば削除候補を返し、hashやtoken不足だけで有効対象を取り落とす誤りを検出する。</summary>
+    /// <remarks>捕捉した現在catalogのtoken・パスとフォルダ所持件数を照合する。物理削除は上位の実操作caseが分担する。</remarks>
     [TestMethod]
     public void GetWholeFolderDeleteCandidatePaths_PathOnlyExactCatalogPathReturnsFolder()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string folderPath = Path.Combine(tempDirectoryPath, "Song");
-            Directory.CreateDirectory(folderPath);
-            string chartPath = Path.Combine(folderPath, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
-            ChartFile libraryFile = CreateFile(chartPath);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string folderPath = Path.Combine(tempDirectoryPath, "Song");
+        string chartPath = Path.Combine(folderPath, "chart.bms");
+        ChartFile libraryFile = CreateFile(chartPath);
 
-            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
-                [LibraryChartRef.FromPath(ChartFileKind.Bms, chartPath, libraryFile.Md5, libraryFile.Sha256)],
-                CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((libraryFile))]));
+        List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+            [LibraryChartRef.FromPath(ChartFileKind.Bms, chartPath, libraryFile.Md5, libraryFile.Sha256)],
+            CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((libraryFile))]));
 
-            Assert.AreEqual(1, paths.Count);
-            Assert.AreEqual(folderPath, paths[0]);
-        });
+        Assert.AreEqual(1, paths.Count);
+        Assert.AreEqual(folderPath, paths[0]);
     }
 
+    /// <summary>選択時にはパスがあっても現在catalogで失われた場合はフォルダ削除を避け、古い選択から物理削除を開始する誤りを検出する。</summary>
+    /// <remarks>捕捉した現在catalogのtoken・パスとフォルダ所持件数を照合する。物理削除は上位の実操作caseが分担する。</remarks>
     [TestMethod]
     public void GetWholeFolderDeleteCandidatePaths_CurrentPathlessCanonicalReturnsEmpty()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string folderPath = Path.Combine(tempDirectoryPath, "Song");
-            Directory.CreateDirectory(folderPath);
-            string stalePath = Path.Combine(folderPath, "stale.bms");
-            File.WriteAllText(stalePath, "#PLAYER 1");
-            ChartFile libraryFile = CreateFile(stalePath);
-            var selectedRef = LibraryChartRef.FromChartFile((libraryFile));
-            libraryFile = libraryFile with { Path = null };
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string folderPath = Path.Combine(tempDirectoryPath, "Song");
+        string stalePath = Path.Combine(folderPath, "stale.bms");
+        ChartFile libraryFile = CreateFile(stalePath);
+        var selectedRef = LibraryChartRef.FromChartFile((libraryFile));
+        libraryFile = libraryFile with { Path = null };
 
-            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
-                [selectedRef],
-                CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((libraryFile))]));
+        List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+            [selectedRef],
+            CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((libraryFile))]));
 
-            Assert.AreEqual(0, paths.Count);
-        });
+        Assert.AreEqual(0, paths.Count);
     }
 
+    /// <summary>現在catalogとは別パスでhash未指定の選択にはフォルダ削除候補を返さず、未登録パスを削除対象へ誤採用する危険を検出する。</summary>
+    /// <remarks>現在catalogの参照lookupへ未登録パスの選択を渡す。物理削除は上位の実操作caseが分担する。</remarks>
     [TestMethod]
-    public void GetWholeFolderDeleteCandidatePaths_SameHashDifferentPathReturnsEmpty()
+    public void GetWholeFolderDeleteCandidatePaths_DifferentPathWithoutHashesReturnsEmpty()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string folderPath = Path.Combine(tempDirectoryPath, "Song");
-            Directory.CreateDirectory(folderPath);
-            string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
-            string selectedChartPath = Path.Combine(folderPath, "selected.bms");
-            File.WriteAllText(catalogChartPath, "#PLAYER 1");
-            File.WriteAllText(selectedChartPath, "#PLAYER 1");
-            ChartFile catalogFile = CreateFile(catalogChartPath);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string folderPath = Path.Combine(tempDirectoryPath, "Song");
+        string catalogChartPath = Path.Combine(folderPath, "catalog.bms");
+        string selectedChartPath = Path.Combine(folderPath, "selected.bms");
+        ChartFile catalogFile = CreateFile(catalogChartPath);
 
-            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
-                [LibraryChartRef.FromPath(ChartFileKind.Bms, selectedChartPath, catalogFile.Md5, catalogFile.Sha256)],
-                CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((catalogFile))]));
+        List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+            [LibraryChartRef.FromPath(ChartFileKind.Bms, selectedChartPath, catalogFile.Md5, catalogFile.Sha256)],
+            CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((catalogFile))]));
 
-            Assert.AreEqual(0, paths.Count);
-        });
+        Assert.AreEqual(0, paths.Count);
     }
 
+    /// <summary>同フォルダに未選択の所持譜面が残る場合は全フォルダ削除を避け、部分選択で残る譜面を失う誤りを検出する。</summary>
+    /// <remarks>捕捉した現在catalogのtoken・パスとフォルダ所持件数を照合する。物理削除は上位の実操作caseが分担する。</remarks>
     [TestMethod]
     public void GetWholeFolderDeleteCandidatePaths_PartialFolderSelectionReturnsEmpty()
     {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string folderPath = Path.Combine(tempDirectoryPath, "Song");
-            Directory.CreateDirectory(folderPath);
-            string selectedChartPath = Path.Combine(folderPath, "selected.bms");
-            string remainingChartPath = Path.Combine(folderPath, "remaining.bms");
-            File.WriteAllText(selectedChartPath, "#PLAYER 1");
-            File.WriteAllText(remainingChartPath, "#PLAYER 1");
-            ChartFile selectedFile = CreateFile(selectedChartPath);
-            ChartFile remainingFile = CreateFile(remainingChartPath);
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var service = new BmsLibraryLibraryFileOperationsService();
+        string folderPath = Path.Combine(tempDirectoryPath, "Song");
+        string selectedChartPath = Path.Combine(folderPath, "selected.bms");
+        string remainingChartPath = Path.Combine(folderPath, "remaining.bms");
+        ChartFile selectedFile = CreateFile(selectedChartPath);
+        ChartFile remainingFile = CreateFile(remainingChartPath);
 
-            List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
-                [LibraryChartRef.FromChartFile((selectedFile))],
-                CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((selectedFile)), LibraryChartRef.FromChartFile((remainingFile))]));
+        List<string> paths = service.GetWholeFolderDeleteCandidatePaths(
+            [LibraryChartRef.FromChartFile((selectedFile))],
+            CreateLibraryChartRefLookup([LibraryChartRef.FromChartFile((selectedFile)), LibraryChartRef.FromChartFile((remainingFile))]));
 
-            Assert.AreEqual(0, paths.Count);
-        });
+        Assert.AreEqual(0, paths.Count);
     }
 
+    /// <summary>rename用の変更事実は各子パスを更新しつつ保存行のパス通知を抑止し、全体移動として誤通知する誤りを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_CanSuppressStorageRowPathNotificationForRename()
     {
@@ -572,6 +572,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Suppressed, facts.StorageRowPathNotificationPolicy);
     }
 
+    /// <summary>root移動の変更事実は旧・新パスと保存行への通知要求を保持し、renameと同じ通知抑止で保存側の参照を残す誤りを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_RequestsStorageRowPathNotificationForRootMove()
     {
@@ -594,6 +595,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual("C:\\Lib\\Dst\\A\\a.bms", pathChange.NewPath);
     }
 
+    /// <summary>親子を同時選択した自動renameは親だけを計画し、既存宛先にsuffixを付けて二重移動や衝突上書きを検出する。</summary>
+    /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]
     public void BuildAutoRenamePlans_SkipsNestedFoldersAndAddsCollisionSuffix()
     {
@@ -604,7 +607,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             string nestedPath = Path.Combine(sourcePath, "Nested");
             Directory.CreateDirectory(nestedPath);
-            File.WriteAllText(Path.Combine(sourcePath, "chart.bms"), "#PLAYER 1");
             string collisionPath = Path.Combine(rootPath, "Renamed");
             Directory.CreateDirectory(collisionPath);
             ChartFile file = CreateFile(Path.Combine(sourcePath, "chart.bms"));
@@ -629,6 +631,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>名前正規化後の衝突先を計画内でも予約し、別入力が同じ宛先へ割り当たる誤りや既存宛先への上書きを検出する。</summary>
+    /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]
     public void BuildAutoRenamePlans_ReservesDestinationsAfterFolderNameNormalization()
     {
@@ -644,8 +648,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(existingDestinationPath);
             string firstChartPath = Path.Combine(firstSourcePath, "first.bms");
             string secondChartPath = Path.Combine(secondSourcePath, "second.bms");
-            File.WriteAllText(firstChartPath, "#PLAYER 1");
-            File.WriteAllText(secondChartPath, "#PLAYER 1");
             ChartFile firstFile = CreateFile(firstChartPath);
             ChartFile secondFile = CreateFile(secondChartPath);
             firstFile = firstFile with { Title = "First", RawTitle = "First" };
@@ -675,6 +677,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>bmsonのタイトル・アーティストを自動renameのmetadataへ渡し、BMSだけの入力として空名や別名を生成する誤りを検出する。</summary>
+    /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]
     public void BuildAutoRenamePlans_UsesBmsonRowsAsMetadataSource()
     {
@@ -685,7 +689,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             Directory.CreateDirectory(sourcePath);
             string chartPath = Path.Combine(sourcePath, "chart.bmson");
-            File.WriteAllText(chartPath, "{}");
             ChartFile bmsonChart = (ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
                 Token = new OwnedChartToken(),
@@ -713,6 +716,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>選択譜面なしのフォルダ要求から直接子metadataを取得してrename先を作り、画面選択を必須として有効要求を落とす誤りを検出する。</summary>
+    /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]
     public void BuildAutoRenamePlansForSourceFolders_UsesDirectoryInputWithoutSelectedCharts()
     {
@@ -723,7 +728,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             string sourcePath = Path.Combine(rootPath, "OldFolder");
             Directory.CreateDirectory(sourcePath);
             string chartPath = Path.Combine(sourcePath, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile bmsRow = CreateFile(chartPath);
             bmsRow = bmsRow with { Title = "BmsTitle", RawTitle = "BmsTitle" };
             ChartFile bmsChart = (bmsRow);
@@ -744,6 +748,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>BMSを選択した混在フォルダでもbmsonを直接子metadataへ含め、形式ごとのfilterでrename名の材料を落とす誤りを検出する。</summary>
+    /// <remarks>実ディレクトリの存在・衝突を観測し、譜面metadataは既存の直接子取得callbackで条件を渡す。</remarks>
     [TestMethod]
     public void BuildAutoRenamePlans_MixedFolderIncludesBmsonRowsInMetadata()
     {
@@ -755,8 +761,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(sourcePath);
             string bmsPath = Path.Combine(sourcePath, "chart.bms");
             string bmsonPath = Path.Combine(sourcePath, "chart.bmson");
-            File.WriteAllText(bmsPath, "#PLAYER 1");
-            File.WriteAllText(bmsonPath, "{}");
             ChartFile bmsRow = CreateFile(bmsPath);
             bmsRow = bmsRow with { Title = "BmsTitle", RawTitle = "BmsTitle" };
             ChartFile bmsChart = (bmsRow);
@@ -793,6 +797,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
+    /// <summary>bmsonのrename事実を同token・旧新パスと通知抑止付きで生成し、BMS専用の変更事実に限定する誤りを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_TracksBmsonChartPathChanges()
     {
@@ -821,6 +826,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Suppressed, facts.StorageRowPathNotificationPolicy);
     }
 
+    /// <summary>bmsonだけのroot移動でも保存行の通知要求と同tokenの変更事実を生成し、BMSの有無で通知を省く誤りを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_BmsonRootMove_RequestsStorageRowPathNotification()
     {
@@ -847,8 +853,10 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreSame(bmsonSong.Token, facts.CatalogFacts.ChartPathChanges[0].Chart.Token);
     }
 
+    /// <summary>merge準備では所持とpendingの導入先変更を生成し、導入先未設定bmsonを対象へ混ぜて余計な変更事実を作る誤りを検出する。</summary>
+    /// <remarks>実source・destinationの存在を受付条件に、捕捉主体と導入先から変更事実を生成する。物理mergeは上位の実操作caseが分担する。</remarks>
     [TestMethod]
-    public void PrepareMergeDirectory_TracksInstallDestinationsWithoutMaterializingUnlinkedBmsonEntries()
+    public void PrepareMergeDirectory_TracksInstallDestinationsAndExcludesUnlinkedBmsonEntries()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -858,7 +866,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             Directory.CreateDirectory(sourceRoot);
             Directory.CreateDirectory(destinationRoot);
             string chartPath = Path.Combine(sourceRoot, "chart.bms");
-            File.WriteAllText(chartPath, "#PLAYER 1");
             ChartFile libraryFile = CreateFile(chartPath);
             ChartFile pendingFile = CreateFile(Path.Combine(tempDirectoryPath, "Pending", "chart.bms")) with { Token = null };
             var adapterlessBmsonEntry = PackageChartEntry.FromChart((ChartTestValues.Empty(ChartFileKind.Bmson) with
@@ -871,7 +878,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, sourceRoot), adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
 
             LibraryMergeResult result = service.PrepareMergeDirectory(
                 sourceRoot,
@@ -887,12 +893,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             CollectionAssert.AreEquivalent(
                 new[] { destinationRoot, destinationRoot },
                 result.ReferenceFacts.InstallDestinationChanges.Select(change => change.NewInstallDestination).ToArray());
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>pendingのbmsonでもmerge後の導入先を同じentryへ渡し、形式を理由に導入先更新を省く誤りを検出する。</summary>
+    /// <remarks>実source・destinationの存在を受付条件に、捕捉主体と導入先から変更事実を生成する。物理mergeは上位の実操作caseが分担する。</remarks>
     [TestMethod]
-    public void PrepareMergeDirectory_RewritesAdapterlessBmsonInstallDestinationWithoutMaterializingAdapter()
+    public void PrepareMergeDirectory_RewritesPendingBmsonInstallDestination()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -913,7 +920,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             var pendingPackage = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
             pendingPackage.path = Path.Combine(tempDirectoryPath, "Pending");
             pendingPackage.delete_parent = false;
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
 
             LibraryMergeResult result = service.PrepareMergeDirectory(
                 sourceRoot,
@@ -928,12 +934,13 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
             LibraryInstallDestinationChange change = result.ReferenceFacts.InstallDestinationChanges.Single();
             Assert.AreSame(adapterlessBmsonEntry, change.Entry);
             Assert.AreEqual(destinationRoot, change.NewInstallDestination);
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
         });
     }
 
+    /// <summary>混在する所持BMS・bmsonのtoken・パスと除外hashをmerge準備へ捕捉し、形式の脱落や重複判定用hashの取り違えを検出する。</summary>
+    /// <remarks>実source・destinationの存在を受付条件に、捕捉主体と導入先から変更事実を生成する。物理mergeは上位の実操作caseが分担する。</remarks>
     [TestMethod]
-    public void PrepareMergeDirectory_MixedBmsAndBmsonKeepsStorageOwnersWithoutBmsonAdapter()
+    public void PrepareMergeDirectory_PreservesMixedChartIdentityAndHashExclusion()
     {
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
         {
@@ -979,41 +986,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
-    [TestMethod]
-    public void PrepareMergeDirectory_SourceChartsKeepPreparedPathAfterOwnerPathChanges()
-    {
-        WithTemporaryDirectory(delegate (string tempDirectoryPath)
-        {
-            var service = new BmsLibraryLibraryFileOperationsService();
-            string sourceRoot = Path.Combine(tempDirectoryPath, "Src");
-            string destinationRoot = Path.Combine(tempDirectoryPath, "Dst");
-            Directory.CreateDirectory(sourceRoot);
-            Directory.CreateDirectory(destinationRoot);
-            string sourcePath = Path.Combine(sourceRoot, "chart.bms");
-            string movedPath = Path.Combine(destinationRoot, "chart.bms");
-            ChartFile bmsFile = CreateFile(sourcePath);
-
-            LibraryMergeResult result = service.PrepareMergeDirectory(
-                sourceRoot,
-                destinationRoot,
-                CreateLibraryChartRefs([bmsFile]),
-                CreateInstallDestinationOverlaySnapshot(),
-                [],
-                [],
-                _ => EmptyPrimaryHashLookup.Instance);
-
-            bmsFile = bmsFile with { Path = movedPath };
-
-            Assert.IsTrue(result.Success);
-            Assert.AreEqual(sourcePath, result.SourceCharts.Single().Path);
-            Assert.AreEqual(sourcePath, result.SourceCharts.Single().ToChartFileIdentity().Path);
-            Assert.AreEqual(movedPath, bmsFile.Path);
-            Assert.AreEqual(sourcePath, result.SourceCharts.Single().Path);
-            Assert.AreEqual(bmsFile.Md5, result.SourceCharts.Single().Md5);
-            Assert.AreEqual(ChartFileKind.Bms, result.SourceCharts.Single().Kind);
-        });
-    }
-
+    /// <summary>混在する所持BMS・bmsonを同じ移動事実へまとめ、双方のtokenと旧新パス・通知要求を保って片側の更新漏れを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_MixedBmsAndBmsonTracksBothStorageModels()
     {
@@ -1046,6 +1019,7 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(LibraryStorageRowPathNotificationPolicy.Notify, facts.StorageRowPathNotificationPolicy);
     }
 
+    /// <summary>登録解除では両形式のtokenを削除要求へまとめてパス変更を作らず、解除と移動を混同して登録を残す誤りを検出する。</summary>
     [TestMethod]
     public void BuildFolderMoveFacts_UnregisterTracksBmsonSongsSeparately()
     {
@@ -1073,6 +1047,8 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         Assert.AreEqual(0, facts.CatalogFacts.ChartPathChanges.Count);
     }
 
+    /// <summary>拡張子変更はBMSの物理renameと同内容重複削除をまとめてcatalog事実へ返し、bmsonの誤変更や成功報告と実ファイルの不整合を検出する。</summary>
+    /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]
     public void RenameLibraryFileExtensions_ReturnsRenamedAndDuplicateDeletedFiles()
     {

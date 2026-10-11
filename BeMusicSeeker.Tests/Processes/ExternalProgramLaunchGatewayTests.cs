@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ExternalProgramLaunchGatewayTests
 {
+    /// <summary>実行先を基準作業先で起動し、空・空白入りpath・日本語の各引数をArgumentListで分割せず渡します。</summary>
     [TestMethod]
     public void Launch_UsesAbsoluteExecutableWorkingDirectoryAndExactArgumentTokens()
     {
@@ -38,6 +39,7 @@ public sealed class ExternalProgramLaunchGatewayTests
             capturedStartInfo.ArgumentList.ToArray());
     }
 
+    /// <summary>実行ファイルと譜面の欠落を別原因で返し、どちらもprocess starterを呼びません。</summary>
     [TestMethod]
     public void Launch_MissingExecutableOrChartDoesNotInvokeStarter()
     {
@@ -72,6 +74,7 @@ public sealed class ExternalProgramLaunchGatewayTests
         Assert.AreEqual(0, startCalls);
     }
 
+    /// <summary>相対実行pathは拒否し、起動例外は元の型を持つStartFailedとして返して正常終了へ隠しません。</summary>
     [TestMethod]
     public void Launch_RejectsRelativeExecutableAndReturnsStarterFailure()
     {
@@ -98,6 +101,7 @@ public sealed class ExternalProgramLaunchGatewayTests
         Assert.IsInstanceOfType(thrown.Exception, typeof(InvalidOperationException));
     }
 
+    /// <summary>starterがprocessを返さない場合はNullProcessで失敗し、存在しないprocessを成功扱いや待機対象にしません。</summary>
     [TestMethod]
     public void Launch_NullProcessIsAnExplicitFailureAndDoesNotWait()
     {

@@ -20,6 +20,7 @@ public sealed class ExternalPlayerProcessGatewayTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>実Windows processの終了通知でadapter自身をsenderとして渡し、利用側が別のprocess instanceを参照しません。</summary>
     [TestMethod]
     public void WindowsProcessSessionPublishesItselfAsExitSender()
     {
@@ -50,6 +51,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         Assert.AreSame(session, observedSender);
     }
 
+    /// <summary>空白付き・大小文字重複のprocess名を正規化して重複除去し、探索先を二重に扱いません。</summary>
     [TestMethod]
     public void DiscoveryRequestNormalizesAndCopiesProcessNames()
     {
@@ -63,6 +65,7 @@ public sealed class ExternalPlayerProcessGatewayTests
             request.ProcessNames.ToArray());
     }
 
+    /// <summary>空白・未指定のprocess探索名と実行pathを拒否し、対象を特定できないprocess操作を作りません。</summary>
     [TestMethod]
     public void RequestFactoriesRejectMissingValues()
     {
@@ -71,19 +74,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         Assert.ThrowsException<ArgumentException>(() => ExternalPlayerProcessLaunchRequest.Create(" ", "args"));
     }
 
-    [TestMethod]
-    public void LaunchRequestPreservesExecutableArgumentsAndWindowStyle()
-    {
-        var request = ExternalPlayerProcessLaunchRequest.Create(
-            @"C:\Players\LR2body.exe",
-            @"-A -NS ""C:\Songs\alpha.bms""",
-            ProcessWindowStyle.Hidden);
-
-        Assert.AreEqual(@"C:\Players\LR2body.exe", request.ExecutablePath);
-        Assert.AreEqual(@"-A -NS ""C:\Songs\alpha.bms""", request.Arguments);
-        Assert.AreEqual(ProcessWindowStyle.Hidden, request.WindowStyle);
-    }
-
+    /// <summary>終了の速い実processでも準備後の購読が起動前に成立し、終了通知を取り逃しません。</summary>
     [TestMethod]
     public void WindowsGatewaySubscribesBeforeStartingPreparedSession()
     {
@@ -108,6 +99,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         Assert.IsTrue(SpinWait.SpinUntil(() => exitObserved, TimeSpan.FromSeconds(5)));
     }
 
+    /// <summary>LR2の実プレイヤー入口から探索名・譜面引数・非表示起動をgatewayへ渡し、window未準備の失敗を返します。</summary>
     [TestMethod]
     public void Lr2bodyIssuesDiscoveryAndLaunchRequestsThroughGateway()
     {
@@ -139,6 +131,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>BMIIDXの実入口から両探索名・譜面引数・最小化起動をgatewayへ渡し、processの早期終了を成功扱いしません。</summary>
     [TestMethod]
     public void BmiIdxViewIssuesDiscoveryAndLaunchRequestsThroughGateway()
     {
@@ -163,6 +156,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>BMIIDX終了通知を供給したhandlerへ一回渡し、sessionとEventArgsを別の値に置換しません。</summary>
     [TestMethod]
     public void BmiIdxViewInvokesSuppliedExitHandlerWhenProcessRaisesExited()
     {
@@ -197,6 +191,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>完了も中止もない待機は設定期限で元のTimeout診断を返し、無期限に停止しません。</summary>
     [TestMethod]
     public void ExternalPlayerWaitPolicyFailsInsteadOfWaitingIndefinitely()
     {
@@ -216,6 +211,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         Assert.IsTrue(stopwatch.Elapsed < TimeSpan.FromSeconds(2));
     }
 
+    /// <summary>BMIIDXのwindow準備が期限超過したら起動processへ閉鎖とkillを一回行い、所有processを生存させません。</summary>
     [TestMethod]
     public void BmiIdxMainWindowTimeoutCleansUpStartedProcess()
     {
@@ -240,6 +236,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>準備済みBMIIDX windowの埋込みと再生開始をhostへ順に通知し、前景復旧も試行します。</summary>
     [TestMethod]
     public void BmiIdxEmbedsReadyWindowThroughWindowHost()
     {
@@ -270,6 +267,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>停止不能BMIIDXは明示失敗してprocessを保持し、原因解消後の明示closeで同じprocessを回収します。</summary>
     [TestMethod]
     public void BmiIdxCloseTimeoutRetainsProcessForAVisibleRetry()
     {
@@ -300,6 +298,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>LR2のstyle・拡張style・保存配置を順にhostへ適用し、終了時に捕捉した配置を設定へ戻します。</summary>
     [TestMethod]
     public void Lr2AppliesWindowStyleAndPlacementThroughWindowHost()
     {
@@ -348,6 +347,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>style適用中のLR2終了を失敗として返し、後続配置適用を止めて試聴用設定を復元します。</summary>
     [TestMethod]
     public void Lr2ReportsFailureWhenProcessExitsDuringWindowStyleApply()
     {
@@ -386,6 +386,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>試聴起動用XMLを一時公開しても設定draftは保存済み値を読み、起動後・終了後とも元の値と欠落要素を保持します。</summary>
     [TestMethod]
     public void Lr2PreviewRestoresSavedFieldsAndKeepsPlayerConfigInstanceUnchanged()
     {
@@ -449,6 +450,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>試聴開始時に捕捉した設定draftのルート編集を実保存し、player終了でその編集を古いXMLへ戻しません。</summary>
     [TestMethod]
     public void Lr2PreviewUsesTheSameDraftForRootSaveAfterStartupBoundary()
     {
@@ -496,6 +498,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>process開始前の失敗は元例外と元XMLを保持し、未起動processの終了確認・close・killを行わず次起動を許可します。</summary>
     [TestMethod]
     public void Lr2StartFailureBeforeProcessStartRestoresPublishedPreviewWithoutProcessCleanup()
     {
@@ -538,6 +541,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>window待機とkillの失敗を両方返し元XMLを復元し、残るprocessを原因解消後の明示closeで回収します。</summary>
     [TestMethod]
     public void Lr2MainWindowTimeoutRetainsUnkillableProcessForExplicitClose()
     {
@@ -582,6 +586,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>起動済みLR2のstyle待機だけが期限超過しても再生をkillせず、配置適用と元XML復元を継続します。</summary>
     [TestMethod]
     public void Lr2WindowStyleTimeoutKeepsEstablishedPlaybackRunning()
     {
@@ -621,6 +626,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>起動後XML復元がlockで失敗しても元IOExceptionを返してprocessを保持し、lock解除後closeで復元と回収を完了します。</summary>
     [TestMethod]
     public void Lr2PreviewRestoreFailureAfterStartupKeepsRunningProcessForExplicitClose()
     {
@@ -669,6 +675,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>起動側失敗とXML復元失敗が重なったら元の両例外と設定pathを保持し、後片付け失敗だけへ置換しません。</summary>
     [TestMethod]
     public void Lr2PreviewRestoreFailureKeepsPrimaryFailureAndConfigPath()
     {
@@ -731,6 +738,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         return document.Element("config")?.Element(sectionName)?.Element(fieldName)?.Value;
     }
 
+    /// <summary>uBMplayの探索・起動・埋込みと一時停止/早送りのkey入力をhostへ渡し、既存windowの終了時にはdetachします。</summary>
     [TestMethod]
     public void UbmplayUsesWindowHostForAttachAndKeyMapping()
     {
@@ -779,6 +787,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>uBMplayの一時INI変更を終了通知・明示close・起動失敗それぞれで元のバイト列へ復元します。</summary>
     [TestMethod]
     public void UbmplayRestoresTemporarySettingsOnCloseAndStartupFailure()
     {
@@ -838,6 +847,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>kill失敗後もINI復元権を保持し、processの遅い書込み後の終了通知で元のバイト列へ戻します。</summary>
     [TestMethod]
     public void UbmplayCloseTimeoutRetainsSettingsUntilOwnedProcessEventuallyExits()
     {
@@ -877,6 +887,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>追加要求processの停止失敗も所有し続け、遅いINI書込み後の終了通知で保存済み値を復元します。</summary>
     [TestMethod]
     public void UbmplayRequestTimeoutRetainsTransientProcessUntilEventualExit()
     {
@@ -926,6 +937,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>既存uBMplayの置換時に試聴用INIを維持し、新しい所有processのcloseで元のバイト列へ復元します。</summary>
     [TestMethod]
     public void UbmplayKeepsRewriteWhenReplacingExistingProcess()
     {
@@ -974,6 +986,7 @@ public sealed class ExternalPlayerProcessGatewayTests
         });
     }
 
+    /// <summary>保存済みの最大化配置は通常windowとして指定サイズへ復元し、過去のflagsや最大化状態を持ち越しません。</summary>
     [TestMethod]
     public void SavedWindowPlacementRestoreNormalizesFlagsAndSize()
     {

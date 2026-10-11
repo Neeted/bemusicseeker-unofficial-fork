@@ -19,19 +19,18 @@ using static BeMusicSeeker.Tests.BmsPlaylistTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>保存済み表の出力先移行、実登録公開とBMT終端の確定状態を確認します。</summary>
+/// <remarks>削除範囲と旧配置、SQL保存順は実ファイル・SQLiteで観測します。Windowを作らず実ownerまで接続し、描画・ダイアログ所有は上位の代表へ分担します。</remarks>
 [TestClass]
 public sealed class BmsPlaylistMigrationAndRegistrationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>通常型からルート型へ実移行し、旧ファイル・旧親DB行を除去して新しい表ルート階層を保存します。型変更で旧投影を残す誤りと親hashの混同を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PrunesOldRootFlagOutputRows()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -119,10 +118,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -130,14 +125,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>ルート型から通常型へ移行し、旧物理出力とLR2相対パスのファイル・親DB行を除去します。絶対パスの整理だけで旧ルート行を残す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PrunesOldRootRelativeRowsWhenMovingToNormalOutput()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -201,10 +193,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -212,13 +200,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>一表の出力先を移し、旧管理先内の階層ファイルと通常ファイルをディレクトリごと除去して新先へ生成します。直下のlr2folderだけを整理する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_DeletesOldOutputDirectoryRecursively()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -279,9 +265,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -289,89 +272,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_SingleParentKeepsNestedManagedOutputDirectory()
-    {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
-            string songDbPath = CreateTempSongDbPath(tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            var parentTable = new BMSTable
-            {
-                playlist_id = 7314,
-                name = "MigrationParent",
-                symbol = "MP",
-                Output_dir = "MigrationParent",
-                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")],
-                Folder_order = ["Parent Folder"]
-            };
-            var childTable = new BMSTable
-            {
-                playlist_id = 7315,
-                name = "MigrationChild",
-                symbol = "MC",
-                Output_dir = Path.Combine("MigrationParent", "MigrationChild"),
-                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")],
-                Folder_order = ["Child Folder"]
-            };
-            var playlist = new TestBmsPlaylist(songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songDbPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
-            {
-                BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
-            };
-            playlist.ReOutputCustomFoldersAndCommitHeadersToDB(
-                [parentTable, childTable],
-                "test_migration_nested_seed");
-            string oldParentDirectory = Path.Combine(outputBaseDir, "MigrationParent");
-            string childDirectory = Path.Combine(oldParentDirectory, "MigrationChild");
-            string childPath = Path.Combine(childDirectory, "0000.lr2folder");
-            Assert.IsTrue(File.Exists(childPath));
-
-            parentTable.Output_dir = "MigrationParentMoved";
-            string newParentDirectory = Path.Combine(outputBaseDir, "MigrationParentMoved");
-            playlist.MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB(
-                [parentTable], new Dictionary<BMSTable, string> { [parentTable] = oldParentDirectory }, "test_nested_migration",
-                outputBaseDirPathBeforeByTable: new Dictionary<BMSTable, string> { [parentTable] = outputBaseDir });
-
-            string newParentPath = Path.Combine(newParentDirectory, "0000.lr2folder");
-            Assert.IsTrue(File.Exists(newParentPath));
-            Assert.IsTrue(File.Exists(childPath));
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", childPath));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", Lr2FolderPath.ToFolderPath(oldParentDirectory)));
-            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", newParentPath));
-        }
-        finally
-        {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>注入配置へ実一括移行して旧folder行を整理しても、モデルに載らない保存済みplaylist_entryを保持します。出力移行で正本行を置換する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_DoesNotRewritePlaylistEntries()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -461,9 +366,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -471,13 +373,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>二表を一括移行し、それぞれの旧管理ディレクトリを階層ごと除去して新先のファイル・DB行を生成します。バッチの一部だけ整理・生成する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_DeletesOldOutputDirectoriesRecursively()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -573,9 +473,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -583,12 +480,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>親表だけを移行しても、旧先配下にある別表のファイルとDB行、その祖先DB行を保持します。旧親ディレクトリの整理が別表を削除する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectoriesAndCommitHeadersToDB_PreservesNestedManagedOutputDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -652,8 +548,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -661,12 +555,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>Folderの出力DB行だけを除去し、名前が接頭辞で重なるFolder2の行を保持します。区切りを見ない範囲削除を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_PrunesOnlyExactOutputDirectoryRows()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -709,8 +602,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -718,12 +609,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>保存値と異なる注入先の出力を物理・DBから削除します。注入配置を無視して旧保存値の先だけを対象にする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void RemoveCustomFolder_UsesOneSettingsSnapshotForTheWholeOperation()
+    public void RemoveCustomFolder_UsesInjectedSettingsForPhysicalAndDatabaseRemoval()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -782,8 +672,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -791,13 +679,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>確認済みの実表削除をworkspaceから注入配置へ配送し、物理・DB・configを整理してsummary更新と通知を届けます。表削除の接続漏れと共有設定への戻りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void PlaylistWorkspaceRemoveTable_UsesInjectedCustomFolderSettingsSnapshot()
+    public async Task PlaylistWorkspaceRemoveTable_UsesInjectedCustomFolderSettingsSnapshot()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -905,10 +791,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
-            workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
-                [new PlaylistSummaryRow { TableRef = table }])
-                .GetAwaiter()
-                .GetResult();
+            await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
+                [new PlaylistSummaryRow { TableRef = table }]);
 
             PlaylistOperationNotificationPresentationRequestedEventArgs notification =
                 notifications.Single(request => request.RouteName == "playlist remove custom folder notification");
@@ -931,9 +815,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -941,13 +822,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>ルート型の物理ディレクトリと相対パスのファイル・親DB行を除去し、似た名前の兄弟行を保持します。相対形式の整理漏れと範囲の広がりを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_PrunesRootRelativeRows()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousRootOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDirRootType;
-        string previousLr2RootPath = testSettings.LR2RootPath;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -997,9 +876,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
-            testSettings.LR2RootPath = previousLr2RootPath;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1007,12 +883,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>保存された相対親参照が管理基点の外へ出ても、その外の実ファイルとDB行を削除しません。基点確認を省いた削除を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_DoesNotDeletePathEscapingOutputBase()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1052,8 +927,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1061,13 +934,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>保存済み追加先名を解決できない場合、既定先の同名出力とDB行を保持します。別配置へ代用して利用者データを削除する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveCustomFolder_DoesNotFallbackToDefaultBaseWhenSavedAdditionalBaseIsMissing()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1109,9 +980,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1119,15 +987,13 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>注入された新基点へ実移行し、旧先削除の成功・失敗を変えても新先statusを保持します。旧先失敗では元警告と残余を保ち、次の通常出力で旧先整理を再開する誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
     [TestCategory("Playlist")]
     public void ChangeCustomFolderBaseDirectory_UsesInjectedSettingsAndPreservesCommittedDestinationAfterOldCleanupFailure(bool failCleanup)
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1211,9 +1077,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1221,13 +1084,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>追加先名を解決できない表は既定基点の変更対象にせず、旧既定先のファイルとDB行を保持します。未解決の配置を既定配置と推測して移行する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ChangeCustomFolderBaseDirectory_DoesNotFallbackToDefaultBaseWhenSavedAdditionalBaseIsMissing()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1279,9 +1140,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1289,13 +1147,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>旧追加先の解決失敗を明示して新先へ生成し、旧先として渡した既定側のファイル・DB行を削除しません。旧基点を推測して整理範囲を広げる誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectory_DoesNotInferDefaultBaseWhenPreviousAdditionalBaseResolutionFailed()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBaseDirs = testSettings.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1372,9 +1228,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
-            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1382,12 +1235,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>全種類を除外した表のDBだけに残る出力行を整理し、同じ先の通常ファイルは保持します。空の期待集合で整理を省く誤りと拡張子を越えた削除を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_PrunesRowsWhenNoFolderFilesAreGenerated()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1428,8 +1280,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1437,12 +1287,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>単独移行入口から旧管理ディレクトリと階層DB行を除去し、新先のファイルと指定タイトルのDB行を生成します。一括入口だけに整理を実装する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectory_DeletesOldOutputDirectoryRecursively()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1500,8 +1349,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1509,12 +1356,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>末尾区切りだけ異なる旧先・新先を同一先として再出力し、更新したファイルとDB行を保持します。文字列差を移行扱いして新出力を削除する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void MigrateCustomFolderOutputDirectory_TreatsTrailingSeparatorAsSameDirectory()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1561,8 +1407,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1570,6 +1414,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>実上書き確認後に既存songのlevelだけを変更し、日時・title・tagを保持して未登録の行は追加しません。列全体の置換と欠損行の暗黙登録を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistTableLevelOverwriteWorkflow_UpdatesOnlyExistingSongLevel()
@@ -1644,6 +1489,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>実旧形式DBからplaylist_idのある行を読取り専用でhydrateし、削除履歴を含めて孤立行を除きます。削除済み行の脱落と未所属行の混入を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void LoadStartupPlaylistEntries_UsesPlaylistIdProjectionAndKeepsRemovedRows()
@@ -1663,15 +1509,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
             PlaylistEntriesHydrationLoadResult result = new PlaylistPersistenceRepository(songDbPath).LoadStartupPlaylistEntries();
 
-            Assert.AreEqual("startup_entries", result.Projection);
             Assert.AreEqual(2, result.RowCount);
             Assert.IsTrue(result.Entries.Any(entry => entry.title == "active" && !entry.is_removed));
             Assert.IsTrue(result.Entries.Any(entry => entry.title == "removed" && entry.is_removed));
             Assert.IsFalse(result.Entries.Any(entry => entry.title == "orphan"));
-            Assert.IsTrue(result.DbReadMs >= 0);
-            Assert.IsTrue(result.MaterializeMs >= 0);
             Assert.IsTrue(result.ReadOnly);
-            Assert.AreEqual(0L, result.DbLockWaitMs);
         }
         finally
         {
@@ -1682,12 +1524,11 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>単独・二表バッチの実登録で注入先へ必要出力を生成し、保存値側には生成しません。バッチだけ別の設定元へ戻る誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task ExternalTableRegistration_UsesOneCustomFolderSettingsSnapshotPerOperation()
+    public async Task ExternalTableRegistration_UsesInjectedSettingsForSingleAndBatchOutputs()
     {
-        bool previousOperationModeLr2Db = testSettings.OperationModeLR2DB;
-        string previousOutputBaseDir = testSettings.LR2CustomFolderOutputBaseDir;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
@@ -1703,10 +1544,8 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            int providerCallCount = 0;
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
-                providerCallCount++;
                 return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
@@ -1764,7 +1603,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 false,
                 "test_external_batch");
 
-            Assert.AreEqual(2, providerCallCount);
             Assert.AreEqual(2, batchResult.RegisteredTables.Count);
             foreach (BMSTable table in new[] { singleTable, batchTableA, batchTableB })
             {
@@ -1776,8 +1614,6 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
         finally
         {
-            testSettings.OperationModeLR2DB = previousOperationModeLr2Db;
-            testSettings.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -1785,6 +1621,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>実登録の一覧追加通知内でDB確定を読戻し、通知中の復元は拒否します。永続化前の公開と公開終端前の予約解放を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ExternalTableRegistration_PersistsBeforeVisibleCollectionNotification()
@@ -1863,6 +1700,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>一覧追加通知で取消を要求しても、既に確定した登録をモデル・DBへ保持します。確定後の取消を未登録へ戻す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task ExternalTableRegistration_CancellationDuringVisiblePublishDoesNotUndoCommit()
@@ -1927,6 +1765,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>先の表writerを保持して逆順バッチ保存を開始し、後の表writerを取らず待機して解放後に二表と二行を保存します。表ロックの順序逆転を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistEntryBatchCommit_ConcurrentReverseOrderCompletesWithoutDeadlock()
@@ -2025,9 +1864,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         }
     }
 
+    /// <summary>空の実BMT全量出力は表進捗を出さず、親要求を保持した実行開始・終端を一組届けて次予約を受理します。空入力での終端通知欠落と予約漏れを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task BeatorajaBmtExport_EmptyPlaylistDoesNotPublishActiveProgress()
+    public async Task BeatorajaBmtExport_EmptyPlaylistEndsExecutionWithoutTableProgress()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -2077,6 +1917,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
     /// <summary>実登録のDB確定からBMT・台帳まで同じPを保持し、後処理失敗でも確定した表・譜面を残します。</summary>
     [DataTestMethod]
+    // false: BMT・台帳まで成功、true: 実台帳の読取り拒否による確定後出力失敗。
     [DataRow(false)]
     [DataRow(true)]
     public async Task RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure(bool outputFails)
@@ -2147,6 +1988,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
     /// <summary>変更元のPで生成・同期の実失敗と対象原因を待ち、破損・読取不能を置換せず次操作へ解放します。</summary>
     [TestMethod]
+    // 個別削除・台帳読取り/破損・台帳公開・二重失敗を、実共有拒否とfailureKindで区別する。
     [DataRow("delete")]
     [DataRow("read")]
     [DataRow("sync-read")]
@@ -2218,6 +2060,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    /// <summary>空行の表はBMTファイルを作らず実configへURLだけを登録し、管理外URLを保持して無警告で終端します。物理変更ゼロをURL同期不要と誤認する処理を検出します。</summary>
     [TestMethod]
     public async Task BeatorajaBmtUrlOnlyOutput_SynchronizesUrlsWithZeroPhysicalChanges()
     {

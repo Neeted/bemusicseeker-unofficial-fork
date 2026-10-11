@@ -11,8 +11,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DroppedInstallIngressMaterializerTests
 {
+    /// <summary>外部temp入力を専用rootへ確保し、借用元の消失後も内容を読み取れて未消費終端でrootを回収する寿命違反を検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
-    public void Acquire_ExternalTempFileStagesDurableCopyAndNeverDeletesOriginal()
+    public void Acquire_ExternalTempCopyRemainsAfterBorrowedSourceIsRemoved()
     {
         using var fixture = new MaterializerFixture();
         string source = fixture.CreateExternalFile(Path.Combine("archiver", "chart.bms"), "borrowed");
@@ -31,6 +33,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsFalse(Directory.Exists(fixture.LastIngressRoot));
     }
 
+    /// <summary>安定したfile・folderと現管理fileは元pathを渡してrootを作らず、不要なコピーやpath変更を検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_StableAndCurrentManagedPathsPassThroughWithoutCopy()
     {
@@ -54,6 +58,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsNull(fixture.LastIngressRoot);
     }
 
+    /// <summary>安定folder内のreparse属性を見つけた場合は全体を拒否し、入力の削除や危険なtreeの受理を検出します。</summary>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
     [TestMethod]
     public void Acquire_StableDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
     {
@@ -74,6 +80,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsTrue(File.Exists(Path.Combine(descendant, "chart.bms")));
     }
 
+    /// <summary>管理folder内でもreparse属性を見つけた場合は全体を拒否し、所有分類による安全検査の迂回を検出します。</summary>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
     [TestMethod]
     public void Acquire_ManagedDirectoryContainingInjectedReparseDescendantRejectsWholeBatch()
     {
@@ -94,6 +102,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsTrue(File.Exists(Path.Combine(descendant, "chart.bms")));
     }
 
+    /// <summary>同名の外部入力二件をtemp相対配置と別々の内容のまま確保し、flattenによる衝突や対象の取り違えを検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_MultipleSourcesPreserveSystemTempRelativeLayout()
     {
@@ -114,8 +124,10 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("two", File.ReadAllText(result.Request.Paths[1]));
     }
 
+    /// <summary>重なるfile・親folder入力でも返却pathの包含関係と内容を保ち、重複入力の配置ずれを検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
-    public void Acquire_OverlappingDirectoryAndFileCopiesTreeOnceAndPreservesInputMapping()
+    public void Acquire_OverlappingFileAndDirectoryPreserveInputMapping()
     {
         using var fixture = new MaterializerFixture();
         string directory = fixture.CreateExternalDirectory(Path.Combine("tree", "package"));
@@ -129,6 +141,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("chart", File.ReadAllText(result.Request.Paths[0]));
     }
 
+    /// <summary>一入力の読取りlockでコピーが失敗すると作業rootを一回回収し、外部入力の誤削除や部分rootの残留を検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_PartialCopyFailureDeletesIngressRootButNotExternalOriginals()
     {
@@ -147,6 +161,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsTrue(File.Exists(locked));
     }
 
+    /// <summary>確保先が入力tree内にある場合は拒否して専用rootだけを回収し、再帰コピーや元入力の削除を検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_DestinationInsideSourceIsRejectedAndOriginalIsPreserved()
     {
@@ -165,6 +181,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual(1, fixture.DeleteIngressRootCount);
     }
 
+    /// <summary>temp基点そのものの入力はroot作成前に拒否し、全tempの確保を始める誤りを検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_SystemTempRootIsRejectedWithoutCreatingIngressRoot()
     {
@@ -177,6 +195,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.IsNull(fixture.LastIngressRoot);
     }
 
+    /// <summary>信頼するtemp基点のreparse属性は検査対象に含めず、通常の子入力を誤拒否することを検出します。</summary>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
     [TestMethod]
     public void Acquire_TrustedReparseTempRootDoesNotRejectNormalLogicalDescendant()
     {
@@ -196,6 +216,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("chart", File.ReadAllText(result.Request.Paths.Single()));
     }
 
+    /// <summary>temp基点より下のreparse祖先で探索を止め、未存在の子へ進む誤りや専用rootを先に作る誤りを検出します。</summary>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
     [TestMethod]
     public void Acquire_ReparseAncestorBelowTrustedRootIsRejectedBeforeCopy()
     {
@@ -215,6 +237,8 @@ public sealed class DroppedInstallIngressMaterializerTests
             "The first reparse ancestor must stop root-to-leaf probing before a missing descendant is touched.");
     }
 
+    /// <summary>実symlinkを含むtreeは拒否してリンク先のsentinelを保ち、外部treeを辿ってコピー・削除する誤りを検出します。</summary>
+    /// <remarks>実FSの入力・専用rootと内容を観測します。属性注入ケースはreparse分類を制御し、実symlinkのケースは作成できない環境で既存のInconclusiveを維持します。</remarks>
     [TestMethod]
     public void Acquire_DirectoryContainingReparsePointRejectsBatchAndPreservesTarget()
     {
@@ -244,6 +268,8 @@ public sealed class DroppedInstallIngressMaterializerTests
         Assert.AreEqual("external-sentinel", File.ReadAllText(sentinel));
     }
 
+    /// <summary>app名のtemp内に置いた手動fileも確保後の回収では元内容を保ち、名称だけで所有扱いして消す誤りを検出します。</summary>
+    /// <remarks>実FSで確保・読取り・回収の接続を観測し、queue以後の導入処理は別の入口ケースが担います。</remarks>
     [TestMethod]
     public void Acquire_ManualFileUnderBeMusicSeekerTempIsCopiedButNeverOwnedAsOriginal()
     {

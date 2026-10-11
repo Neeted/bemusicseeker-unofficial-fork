@@ -10,6 +10,7 @@ using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>世代の公開と回収、長いパス、共有ロックは実ファイル操作が必要です。各ケースは専用領域を回収し、SQLite 整理は小さい実 DB で確認します。</remarks>
 [TestClass]
 public sealed class BackupTests
 {
@@ -93,6 +94,7 @@ public sealed class BackupTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>長いパスにあるファイルと入れ子のディレクトリを実保存し、内容欠落や通常パス API による保存失敗を検出します。</summary>
     [TestMethod]
     public void SaveBackups_CopiesLongPathFileAndDirectory()
     {
@@ -128,6 +130,7 @@ public sealed class BackupTests
         }
     }
 
+    /// <summary>保存先がないとき保存失敗と元の欠損分類を返し、成功や警告だけへ置換する誤りを検出します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_ReturnsFailureException_WhenDestinationIsMissing()
     {
@@ -140,6 +143,7 @@ public sealed class BackupTests
         Assert.AreEqual(0, result.Warnings.Count);
     }
 
+    /// <summary>旧 API で保存先欠損を呼出し、結果返却への変更で従来の例外通知を失う誤りを検出します。</summary>
     [TestMethod]
     public void SaveBackups_RethrowsFailureException_ForLegacyCallers()
     {
@@ -148,7 +152,7 @@ public sealed class BackupTests
         Assert.ThrowsException<DirectoryNotFoundException>(() => Backup.SaveBackups(missingBackupRoot, TimeSpan.Zero, 1, ["dummy.db"]));
     }
 
-    // B5-LR2-BACKUP-1: each case owns its files, locks and attributes; return is completion.
+    /// <summary>後半の対象を排他ロックしてコピーを失敗させ、旧世代の維持と途中コピーの回収を確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_CopyFailurePreservesOldGenerationsAndRemovesPartialCopy()
     {
@@ -170,6 +174,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>日付世代の公開先に競合ファイルがある場合、競合内容と旧世代を保持して公開前の失敗を返すことを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_PublicationFileCollisionPreservesExistingContents()
     {
@@ -188,6 +193,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>欠損対象を単独または正常対象と混在させ、部分成功で公開したり旧世代を削除する誤りを検出します。</summary>
     [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -208,6 +214,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>対象が null と空配列の場合の双方で、保存・警告・ファイル作成をしないことを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_NullOrEmptySelectionDoesNothing()
     {
@@ -224,6 +231,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>保持数を一世代と複数世代に指定し、新世代を含めて数え、新しい旧世代から保持することを内容と残存先で確認します。</summary>
     [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
@@ -251,6 +259,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>旧世代の読取り専用ファイルで削除を失敗させ、公開済み内容を保持し保存成功と対象を示す警告を返すことを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_PruneFailureWarnsAfterSuccessfulPublication()
     {
@@ -270,6 +279,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>コピー失敗後に作業領域も削除できない場合、主原因を保持して残留先を警告し、次保存では残留先を世代として再利用・削除しないことを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_CleanupFailurePreservesPrimaryAndLeavesStageIgnoredOnRetry()
     {
@@ -287,7 +297,7 @@ public sealed class BackupTests
 
             Assert.IsFalse(failed.Saved);
             Assert.IsNotNull(failed.FailureException);
-            // The primary failure identifies the locked source, not the read-only staging copy.
+            // 主原因がコピー元のロックを示し、後片付けの失敗で置き換わらないことを確認します。
             StringAssert.Contains(failed.FailureException.Message, locked);
             AssertOldGenerations(old);
             Assert.IsFalse(Directory.Exists(TodayPath(root)));
@@ -306,6 +316,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>保存後に元ファイルを変更して同日に再保存し、既存世代を上書きせず正常な省略を返すことを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_SameDaySaveSkipsWithoutOverwriting()
     {
@@ -323,6 +334,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>最新世代から設定間隔が経過していない場合、世代の内容と集合を保って保存を省略することを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_NotDueLeavesGenerationsUntouched()
     {
@@ -337,6 +349,7 @@ public sealed class BackupTests
         });
     }
 
+    /// <summary>最終公開のディレクトリ衝突で、競合先と候補の内容を混在・上書きせず例外を返す実ファイル境界を確認します。</summary>
     [TestMethod]
     public void PublicationGateway_DirectoryCollisionDoesNotMergeOrOverwrite()
     {
@@ -355,7 +368,7 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S1: 選択済み Score の欠落は保存失敗として旧世代を保持する。
+    /// <summary>設定と欠損スコアを選択し、欠損対象を除外して部分公開する誤りを旧世代保持と新世代非公開で検出します。</summary>
     [TestMethod]
     public void SaveSelectedBackupsWithResult_ConfigAndMissingScoreFailsAndPreservesOldGenerations()
     {
@@ -382,7 +395,7 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S2: Score だけを選択して欠落した場合も no-op にしない。
+    /// <summary>欠損スコアだけを選択し、対象なしの正常省略へ置換せず旧世代を維持することを確認します。</summary>
     [TestMethod]
     public void SaveSelectedBackupsWithResult_MissingScoreOnlyFailsAndPreservesOldGenerations()
     {
@@ -409,17 +422,16 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S3: 選択フラグごとの対象集合と内容を実保存で確認する。
+    /// <summary>設定・楽曲・スコアの個別選択と全選択で実保存し、フラグが要求した対象だけを内容付きで公開することを確認します。</summary>
     [TestMethod]
-    [DataRow((int)Backup.Target.Config, "config.xml")]
-    [DataRow((int)Backup.Target.SongDB, "song.db")]
-    [DataRow((int)Backup.Target.ScoreDB, "Score")]
-    [DataRow((int)Backup.Target.All, "config.xml|song.db|Score")]
-    public void SaveSelectedBackupsWithResult_FlagsSelectOnlyConfiguredSources(int rawTargets, string expectedRootEntries)
+    [DataRow(Backup.Target.Config, "config.xml")]
+    [DataRow(Backup.Target.SongDB, "song.db")]
+    [DataRow(Backup.Target.ScoreDB, "Score")]
+    [DataRow(Backup.Target.All, "config.xml|song.db|Score")]
+    public void SaveSelectedBackupsWithResult_FlagsSelectOnlyConfiguredSources(Backup.Target targets, string expectedRootEntries)
     {
         WithSelectedBackupTree((root, configPath, songDbPath, scoreDirectoryPath) =>
         {
-            var targets = (Backup.Target)rawTargets;
             Backup.BackupSaveResult result = Backup.SaveSelectedBackupsWithResult(
                 root,
                 TimeSpan.Zero,
@@ -450,7 +462,7 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S3: 未選択の欠落は選択対象の保存を妨げない。
+    /// <summary>未選択のスコアだけが欠損しても選択した設定・楽曲 DB を保存し、無関係な欠損で全体を失敗させる誤りを検出します。</summary>
     [TestMethod]
     public void SaveSelectedBackupsWithResult_UnselectedMissingScoreDoesNotBlockConfigAndSongDB()
     {
@@ -479,7 +491,7 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S4: 新世代を含む保持数と全対象の内容を確認する。
+    /// <summary>選択入口から全対象を一世代または複数世代保持で保存し、対象の配送と新世代を含む保持数の接続を確認します。</summary>
     [TestMethod]
     [DataRow(1)]
     [DataRow(3)]
@@ -516,7 +528,7 @@ public sealed class BackupTests
         });
     }
 
-    // B5-LR2-SELECTION-1 / S5: None は対象パスの状態にかかわらず保存しない。
+    /// <summary>選択フラグなしでは旧世代やスコアを変更せず、新しい世代と警告を作らないことを確認します。</summary>
     [TestMethod]
     public void SaveSelectedBackupsWithResult_NoneDoesNotSave()
     {

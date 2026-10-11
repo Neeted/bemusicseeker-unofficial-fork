@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RankingCacheDownloadWorkflowOwnerTests
 {
+    /// <summary>
+    /// 保証：空白ハッシュしかない要求では照会・確認・結果画面を開始せず、無対象の通信を行わない。
+    /// </summary>
     [TestMethod]
     public void EmptyRequest_DoesNotQueryOrShowDialog()
     {
@@ -29,6 +32,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.MessageRequests.Count);
     }
 
+    /// <summary>
+    /// 保証：空白を除きハッシュの大小文字差を重複排除して照会し、候補なしなら利用者へ未発見を通知する。
+    /// </summary>
     [TestMethod]
     public void Request_NormalizesCaseInsensitiveHashesAndShowsNotFound()
     {
@@ -43,6 +49,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_ranking_cache_notfound, dialogs.MessageRequests[0].MessageBoxText);
     }
 
+    /// <summary>
+    /// 保証：候補とスキップ件数を承認前に示し、承認された取得を一度行って成功・失敗件数を結果へ反映する。
+    /// </summary>
     [TestMethod]
     public void Candidates_ConfirmationIncludesCountsAndAcceptedDownloadPublishesSummary()
     {
@@ -64,6 +73,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, BeMusicSeeker.Properties.Resources.Failure + ": 1");
     }
 
+    /// <summary>
+    /// 保証：利用者が取得確認を取消したらダウンロードや成功通知を行わず、照会と確認までで終端する。
+    /// </summary>
     [TestMethod]
     public void ConfirmationRejected_DoesNotDownload()
     {
@@ -83,6 +95,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.AreEqual(0, runtime.DownloadCount);
     }
 
+    /// <summary>
+    /// 保証：スコア元利用不能等の通常の操作失敗は専用警告へ返し、ドメイン例外を未処理のまま外へ漏らさない。
+    /// </summary>
     [TestMethod]
     public void RuntimeInvalidOperation_ShowsWarningWithoutLeakingDomainFailure()
     {
@@ -99,6 +114,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_warn_cache_download, dialogs.MessageRequests[0].MessageBoxText);
     }
 
+    /// <summary>
+    /// 保証：予期しない取得準備の失敗は元の例外内容を含むエラーとして通知し、成功や利用者取消へ読み替えない。
+    /// </summary>
     [TestMethod]
     public void RuntimeUnexpectedFailure_ShowsErrorWithExceptionMessage()
     {
@@ -115,6 +133,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         StringAssert.Contains(dialogs.MessageRequests[0].MessageBoxText, "network failure");
     }
 
+    /// <summary>
+    /// 保証：確認ダイアログの失敗は処理失敗として返し、取消やドメイン警告に変換せず取得を開始しない。
+    /// </summary>
     [TestMethod]
     public void ConfirmationDialogFailure_IsNotConvertedToWarningOrCancellation()
     {
@@ -142,6 +163,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.MessageRequests.Count);
     }
 
+    /// <summary>
+    /// 保証：要求した入力配列を遅延実行前に捕捉し、呼出側が後で変更しても照会対象を別ハッシュへ変えない。
+    /// </summary>
     [TestMethod]
     public void RequestCopiesInputBeforeDeferredExecution()
     {
@@ -166,6 +190,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         CollectionAssert.AreEqual(new[] { "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, (System.Collections.ICollection)runtime.LastHashes);
     }
 
+    /// <summary>
+    /// 保証：順位更新能力を持つ対象と現在の有効LR2 IDがある場合だけ要求を許可し、一般ファイルや未設定IDから開始しない。
+    /// </summary>
     [TestMethod]
     public void RankingAvailability_UsesTargetCapabilityAndCurrentLr2Id()
     {
@@ -185,6 +212,9 @@ public sealed class RankingCacheDownloadWorkflowOwnerTests
         Assert.IsFalse(owner.HasRankingTarget([otherTarget]));
     }
 
+    /// <summary>
+    /// 保証：遅延取得へ渡す選択対象はLR2 IR能力のあるハッシュだけを捕捉し、無能力対象や後の選択変更を混入させない。
+    /// </summary>
     [TestMethod]
     public void RequestTargets_PreparesOnlyLr2IrHashesAsSnapshot()
     {

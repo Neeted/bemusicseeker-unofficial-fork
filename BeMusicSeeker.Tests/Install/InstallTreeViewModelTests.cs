@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -13,6 +12,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class InstallTreeViewModelTests
 {
+    /// <summary>library接続で両区画の現在collectionと保留書込状態を公開し、初回区画通知や参照接続の欠落を検出します。</summary>
+    /// <remarks>library窓口の公開collectionと購読を接続します。実WindowとDB保存は使わず、空のDBファイルは構築条件だけを満たします。</remarks>
     [TestMethod]
     public void Attach_ExposesCanonicalCollectionsAndPublishesSections()
     {
@@ -33,6 +34,8 @@ public sealed class InstallTreeViewModelTests
         });
     }
 
+    /// <summary>公開された保留collectionをBCLの読取り専用observable wrapperとして保ち、consumerへ構造変更可能なcollectionを公開する誤りを検出します。</summary>
+    /// <remarks>architectureの読取りモデル責務をcompiled境界で検査します。個別Addの拒否や所有者の更新は観測せず、接続・通知・置換・detachは他ケースが担います。</remarks>
     [TestMethod]
     public void PendingCollection_IsReadOnlyAtLibraryBoundary()
     {
@@ -45,6 +48,8 @@ public sealed class InstallTreeViewModelTests
         });
     }
 
+    /// <summary>追加・除去・resetを対応区画だけへ通知し、collection置換後の旧購読残留と新購読の欠落を検出します。</summary>
+    /// <remarks>library窓口の公開collectionと購読を接続します。実WindowとDB保存は使わず、空のDBファイルは構築条件だけを満たします。</remarks>
     [TestMethod]
     public void CollectionChanges_PublishOnlyTheChangedSectionAndReplacementRebinds()
     {
@@ -90,6 +95,8 @@ public sealed class InstallTreeViewModelTests
         });
     }
 
+    /// <summary>指定区画だけのproperty更新を通知し、他区画の余計な更新や複合要求の通知漏れを検出します。</summary>
+    /// <remarks>library窓口の公開collectionと購読を接続します。実WindowとDB保存は使わず、空のDBファイルは構築条件だけを満たします。</remarks>
     [TestMethod]
     public void ApplyPresentation_NotifiesOnlyRequestedSections()
     {
@@ -118,6 +125,8 @@ public sealed class InstallTreeViewModelTests
         });
     }
 
+    /// <summary>detachで公開値を解除して保留編集を抑止し、旧collection変更から再び通知が届く誤りを検出します。</summary>
+    /// <remarks>library窓口の公開collectionと購読を接続します。実WindowとDB保存は使わず、空のDBファイルは構築条件だけを満たします。</remarks>
     [TestMethod]
     public void Detach_ClearsPresentationAndStopsOldCollectionNotifications()
     {
@@ -158,13 +167,6 @@ public sealed class InstallTreeViewModelTests
         File.WriteAllBytes(songDbPath, []);
         try
         {
-            using (var songDb = new LR2SongDBExtended(songDbPath))
-            {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            }
             var library = new TestBmsLibrary(songDbPath)
             {
                 ChartPackagesInstalled = CreatePackageCollection([]),

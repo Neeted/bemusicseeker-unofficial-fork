@@ -14,6 +14,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDirectoryAvailabilityTests
 {
+    /// <summary>
+    /// 保証：差分再読込み前に登録ルートが消えたら型付き停止を返し、未接続ルートの譜面・bmson・folderと利用者列をDB・目録から削除しない。
+    /// </summary>
+    /// <remarks>実ライブラリの走査入口と実DBを使い、単なる検査例外だけでなく差分確定による誤削除が起きないことを確認する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_WhenRegisteredRootDisappears_PreservesCatalogSentinel()
     {
@@ -80,7 +84,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using var verify = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
@@ -105,6 +109,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             string.Equals(row?.Path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// 保証：走査入力取得中に登録ルートが消えたら後段検査で停止し、取得済みの部分入力で既存譜面と関連行を削除しない。
+    /// </summary>
+    /// <remarks>scanner開始時に実ディレクトリを移動し、再読込み入口から実DBの確定保護まで観測する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_WhenRootDisappearsDuringPrefetch_PreservesCatalogSentinel()
     {
@@ -180,7 +188,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using var verify = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);
@@ -197,6 +205,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
                 StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// 保証：全再初期化前に登録ルートが消えたら停止し、欠落を空ライブラリへ読み替えず既存譜面・bmson・folderを保持する。
+    /// </summary>
+    /// <remarks>実再初期化入口で登録ディレクトリの検査とDB保護の接続を確認する。</remarks>
     [TestMethod]
     public void Reinitialize_WhenRegisteredRootDisappears_PreservesCatalogSentinel()
     {
@@ -263,7 +275,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             }
         }
 
-        using var verify = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
         Assert.IsNotNull(verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase)));
         Assert.IsNotNull(verify.Table<LR2SongDBExtended.bmson_song>().SingleOrDefault(row =>
@@ -277,6 +289,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             string.Equals(row?.Path, chartPathB, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// 保証：登録root欠落で差分更新を停止した後、rootを戻して再実行でき、利用者のtag・favorite・adddateと所持譜面を維持する。
+    /// </summary>
+    /// <remarks>実差分更新入口の事前検査でroot欠落を起こし、復旧後の再受付と保存値の保持まで確認する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_AfterPreflightFailureAndRootRestore_Succeeds()
     {
@@ -346,7 +362,7 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
 
         library.ReloadFileDiff();
 
-        using var verify = new LR2SongDBExtended(scope.SongDbPath);
+        using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
         LR2SongDB.song? preserved = verify.Table<LR2SongDB.song>().SingleOrDefault(row =>
             string.Equals(row?.path, chartPathB, StringComparison.OrdinalIgnoreCase));
         Assert.IsNotNull(preserved);

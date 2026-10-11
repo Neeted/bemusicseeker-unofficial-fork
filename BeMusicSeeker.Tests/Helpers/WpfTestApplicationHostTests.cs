@@ -126,6 +126,7 @@ public sealed class WpfTestApplicationHostTests
         }
     }
 
+    /// <summary>呼出し本体の例外を同じ例外として返し、その後の呼出しも実行できることから、一要求の失敗で共有Dispatcherを破壊する誤りを検出します。</summary>
     [TestMethod]
     public void Invoke_ActionFailurePreservesHealthyHostAndFollowingRequest()
     {
@@ -136,6 +137,7 @@ public sealed class WpfTestApplicationHostTests
         Assert.IsTrue(followingCompleted);
     }
 
+    /// <summary>正常なDispatcher停止の回収から戻った時点で専有STAスレッドが終了していることを確認し、終了通知だけで回収を終える誤りを検出します。</summary>
     [TestMethod]
     public void OwnedDispatcher_NormalRecoveryJoinsBeforeReturning()
     {
@@ -224,6 +226,7 @@ public sealed class WpfTestApplicationHostTests
         });
     }
 
+    /// <summary>連続した呼出しが同じApplicationとSTAのDispatcherスレッドへ届くことを確認し、要求ごとに別のWPF環境を作る誤りを検出します。</summary>
     [TestMethod]
     public void Invoke_ReusesSingleApplicationDispatcherAndStaThread()
     {
@@ -257,6 +260,7 @@ public sealed class WpfTestApplicationHostTests
         Assert.AreEqual(ApartmentState.STA, firstApartmentState);
     }
 
+    /// <summary>利用者設定に依存しないテスト用Lightテーマの起動で意味別ブラシを解決できることを確認し、テーマ未適用による画面検証の不安定化を検出します。</summary>
     [TestMethod]
     public void Startup_AppliesLightComponentThemeWithSemanticResources()
     {
@@ -276,6 +280,7 @@ public sealed class WpfTestApplicationHostTests
         });
     }
 
+    /// <summary>設定・初期設定・プレイリスト・読込・進捗の実コンストラクターでテンプレートに意味別ブラシが届くことを確認し、表示前のコンポーネント資源接続漏れを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void CompiledDialogSurfaces_ResolveSemanticBrushesOnConstructorOnlyControls()
@@ -346,6 +351,7 @@ public sealed class WpfTestApplicationHostTests
         });
     }
 
+    /// <summary>ApplicationIdleを連続して塞いでも実Windowの描画・Binding更新と回収が完了することを確認し、描画待ちや後片付けをIdle到達に依存させる誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void PresentationAndCleanup_CompleteWhileApplicationIdleIsBlocked()
@@ -431,6 +437,7 @@ public sealed class WpfTestApplicationHostTests
         });
     }
 
+    /// <summary>内側のスコープ開始後に表示した外側の親とそのnative ownerを内側の回収で残し、外側終了では閉じることから、入れ子のWindow所有権を取り違える誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void NestedCleanup_PreservesExistingParentShownAfterInnerScopeStarts()
@@ -495,6 +502,7 @@ public sealed class WpfTestApplicationHostTests
         });
     }
 
+    /// <summary>実Windowのロード・配置とHWND取得が済んでもContentRenderedを抑止した場合は待機を成功させないことを確認し、描画通知の代わりに配置完了で判定する誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void ShowAndWaitForContentRendered_DoesNotSucceedWithoutRenderNotification()
@@ -524,6 +532,7 @@ public sealed class WpfTestApplicationHostTests
         }
     }
 
+    /// <summary>親・子・Popupの実表示が非活性かつ画面外となり、スコープ終了で全HWNDを回収することを確認し、利用者画面への干渉や子ウィンドウの残留を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void RunWindowTest_NonActivatingPresentationStaysOffscreenAndCleansWindowAndPopupHwnds()
@@ -599,6 +608,7 @@ public sealed class WpfTestApplicationHostTests
         }
     }
 
+    /// <summary>本体・表示・回収の失敗が重なる各組合せで優先例外と二次失敗情報を保持することを確認し、後片付けの失敗で元の失敗を上書きする誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void RunWindowTest_FailurePriorityIsBodyThenPresentationThenCleanup()

@@ -18,10 +18,13 @@ using static BeMusicSeeker.Tests.RegularChartListOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>通常一覧の要求から構築・確定、仮想cacheの採用と失効までをWindowなしで検証します。</summary>
+/// <remarks>実FSと健全性索引は警告準備の接続に使い、表示操作はMainWindowが担当します。cacheキーの構築値でなく実ownerの公開・拒否・退役を観測します。</remarks>
 [TestClass]
 public sealed class RegularChartViewBuildAndOrderingTests
 {
 
+    /// <summary>行準備中の入れ子要求だけを確定し、最新detail退役receiptでsourceを消して通常modeを通知することで、外側の旧結果採用と早すぎるsource破棄を検出します。</summary>
     [TestMethod]
     public void ApplyRegularView_NestedNewerRequestKeepsLatestRetirementReceipt()
     {
@@ -75,7 +78,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         workspace.IsPlaylistDetailViewActive = true;
-        var owner = new RegularChartListOwner(
+        using var owner = new RegularChartListOwner(
             table,
             workspace,
             logs.Add,
@@ -133,6 +136,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>退役ログが失敗しても通常mode公開を先に終えsourceを回収し、診断失敗で画面modeや退役を止める誤りを検出します。</summary>
     [TestMethod]
     public void ApplyRegularView_RetentionLogFailureStillPublishesRegularModeBeforeRetirement()
     {
@@ -177,6 +181,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>通常画面の準備で旧要求を失効させ、library未接続の新経路は空行と新summaryを一回確定して、旧候補や旧件数の残留を検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_DelegatesMainLibraryRouteToRegularPipeline()
     {
@@ -241,6 +246,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>未構築の健全性索引を実譜面から用意して欠損警告付き仮想行を公開し、索引準備前の警告なし表示を検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_PreparesColdResourceHealthBeforeVirtualRows()
     {
@@ -290,6 +296,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>実WAV欠損と健全譜面を最新健全性で警告順へ整列し、同じ再要求はsource・order・健全性snapshotを再利用して古い警告順と再構築を検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_PreparesResourceHealthBeforeWarningSortAndReusesRows()
     {
@@ -394,6 +401,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>保留一覧の実体行sortを適用しても保留scopeと操作sectionを保持し、sort要求を通常library操作へ誤分類する誤りを検出します。</summary>
     [TestMethod]
     public void TryApplyMaterialized_TransientSortRetainsResolvedPendingOperationContext()
     {
@@ -416,44 +424,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>履歴用routeを通常一覧入口へ渡すと引数例外にし、別画面のrouteを通常一覧として実行する誤りを検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_RejectsNonMainLibraryRoute()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ApplyPlayHistoryView,
             MainViewUpdateMode.PlayHistorySelected,
@@ -472,45 +447,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>逆順の実体行をownerで構築・sort・終端確定し、Alpha/Beta順と絞込み件数を反映して、途中結果だけを返す誤りを検出します。</summary>
     [TestMethod]
     public void MaterializedApply_OwnsBuildAndTerminalPipeline()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         List<LibraryChartRow> rows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Folder A", "Beta").Chart),
@@ -555,45 +497,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>実体行の準備中に入れ子要求を確定すると外側の旧要求を拒否し、最新行だけを表示して後着旧結果の上書きを検出します。</summary>
     [TestMethod]
     public void MaterializedApply_NestedNewerRequestRejectsOuterTerminal()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         List<LibraryChartRow> outerRows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Outer", "outer.bms").Chart)
@@ -623,44 +532,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>同tokenの仮想行を再利用し、削除token通知でowner cacheから退役させて、二重生成と削除済み行の保持を検出します。</summary>
     [TestMethod]
     public void VirtualRowCache_ReusesAndRemovesBmsOwnerRowsThroughRegularOwner()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         ChartFile file = ChartTestValues.Empty() with
         {
             Path = @"C:\Charts\Owner\chart.bms",
@@ -679,44 +555,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>未版指定の変更と新しい正本版はsourceを失効し、同じ正本版の重複は失効しないことで、通知重複による再構築を検出します。</summary>
     [TestMethod]
     public void SourceInvalidation_ConsumesEachPositiveOwnedCollectionVersionOnce()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
 
         Assert.IsTrue(owner.TryInvalidateSourceForOwnedCollectionVersion(0, out _));
         Assert.AreEqual(1L, owner.SourceGeneration);
@@ -727,44 +570,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>sourceまたはidentity sortを失効した後の旧lookup公開は拒否し、現在lookupだけ同じsourceを再利用して、古いcacheの復活を検出します。</summary>
     [TestMethod]
     public void VirtualSourceRows_StaleLookupCannotRepopulateInvalidatedCache()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
 
@@ -786,44 +596,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>libraryを替えて予備計算を開始するとsourceとorderを失効して前library要求を取消し、別libraryへ旧orderを使う誤りを検出します。</summary>
     [TestMethod]
     public void VirtualSourceRows_LibraryIdentityChangeInvalidatesDerivedOrders()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
@@ -853,44 +630,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>二つのlibraryが初期cache missを競合すると後のlibraryだけのsourceを採用し、前libraryの遅い公開による混入を検出します。</summary>
     [TestMethod]
     public void VirtualSourceRows_ConcurrentInitialLibraryMissRejectsStalePublisher()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
@@ -912,44 +656,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>別libraryへの予備計算要求は実行中leaseを取消し、同時に別予備計算を受理しないことで異なるlibraryの並行公開を検出します。</summary>
     [TestMethod]
     public void VirtualOrderPrewarm_LibrarySwitchCancelsRunningDifferentLibraryLease()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
@@ -961,44 +672,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>既存sourceのタイトル予備sortを実行してa/bのorderをowner cacheへ公開し、lease完了も返して、計算漏れと終端未回収を検出します。</summary>
     [TestMethod]
     public void VirtualOrderPrewarm_BuildsOwnedOrderAndCompletesLease()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         List<ChartListSourceRow> rows =
         [
             CreateSourceRow("Folder A", "b.bms"),
@@ -1031,45 +709,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>通常一覧のfolder絞込みとtitle降順を終端へ確定し、同条件の次要求はsourceとorderを再利用して、絞込み欠けと不要再計算を検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         List<ChartListSourceRow> sourceRows =
         [
             CreateSourceRow("Folder A", "Alpha"),
@@ -1115,45 +760,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>欠損部分一覧をtitle降順と異なるfolder数で確定し、同条件の次要求はorderを再利用して、部分集合の順やsummaryの誤りを検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetApply_OwnsProjectionOrderFilterAndTerminalReuse()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         List<ChartFile> charts =
         [
             CreateSourceRow("Folder A", "Alpha").Chart,
@@ -1198,45 +810,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>通常一覧入口の非対応sortを解除し、タイトル昇順の仮想経路へ確定して、非対応要求の残留と行欠けを検出します。</summary>
     [TestMethod]
     public void RegularEntry_SelectsDefaultVirtualAndResetsUnsupportedSort()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -1269,45 +848,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>owner入口へ渡すkeywordで仮想sourceを絞り、該当Alphaだけを確定して、検索条件を無視する誤りを検出します。</summary>
     [TestMethod]
     public void RegularEntry_AppliesOwnerFilterState()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -1321,45 +867,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>履歴列modeの確定は保留中の通常一覧要求を取消し、別画面への旧結果公開を検出します。</summary>
     [TestMethod]
     public void PlayHistoryColumnModeCommit_CancelsPendingRegularRequest()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         RegularChartListRequestLease pending = owner.BeginRequest();
 
         table.CommitAppliedColumnMode(MainViewUpdateMode.PlayHistorySelected);
@@ -1369,45 +882,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>owner入口の7keys条件で9keysを除外してSevenだけ確定し、mode条件の適用漏れを検出します。</summary>
     [TestMethod]
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -1421,45 +901,12 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>libraryの重複groupを通常入口から部分仮想経路へ配送し、二行を保持して別sourceの選択や行欠けを検出します。</summary>
     [TestMethod]
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
         ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
         ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
         var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
@@ -1481,6 +928,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>重複groupの特定folderだけを捕捉し、元groupを後で空にしても一致譜面を保持して、別folder混入とcaller可変入力への依存を検出します。</summary>
     [TestMethod]
     public void RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts()
     {
@@ -1498,48 +946,14 @@ public sealed class RegularChartViewBuildAndOrderingTests
         groups[0].ChartFiles.Clear();
 
         CollectionAssert.AreEqual(new[] { matching }, source.SourceCharts.ToArray());
-        Assert.AreEqual("duplicate_folder", source.Name);
     }
 
 
+    /// <summary>score依存の通常と部分orderを公開後、score失効で両方とも退役させ、一方の旧orderだけが残る誤りを検出します。</summary>
     [TestMethod]
     public void DependencyInvalidation_PrunesDefaultAndSubsetOrderCachesTogether()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var versions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey defaultKey = owner.CreateVirtualOrderKey(
@@ -1571,44 +985,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>計算中にscore版が変わった通常orderは公開もcache採用もしないことで、古い得点順の復活を検出します。</summary>
     [TestMethod]
     public void VirtualOrder_ExternalVersionChangeRejectsStalePublish()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var initialVersions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -1629,44 +1010,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>計算中に解析版が変わった部分orderは公開もcache採用もしないことで、古いnotes順の復活を検出します。</summary>
     [TestMethod]
     public void VirtualSubsetOrder_ExternalVersionChangeRejectsStalePublish()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var initialVersions = new RegularChartListExternalVersions(score: 0, chartInfo: 1, maintenanceHydration: 0);
         VirtualChartSubsetSortCacheKey key = owner.CreateVirtualSubsetOrderKey(
             owner.SourceGeneration,
@@ -1690,44 +1038,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
     }
 
 
+    /// <summary>警告orderは導入先変更と健全性変更のどちらでもcacheを退役し、警告の依存関係不足による旧順残留を検出します。</summary>
     [TestMethod]
     public void WarningOrderCache_IsPrunedByInstallDestinationAndMaintenanceChanges()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
-            action => action(),
-            new MainChartListViewModel(action => action()),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
-            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
-            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.KeywordSearchFavoritesSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
-            () => null!,
-            () => null!,
-            _ => { },
-            new ObservableCollection<BMSTable>(),
-            (_, _) => false,
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 1);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey installKey = owner.CreateVirtualOrderKey(

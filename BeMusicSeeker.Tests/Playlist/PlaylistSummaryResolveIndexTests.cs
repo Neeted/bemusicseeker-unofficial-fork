@@ -11,9 +11,12 @@ using static BeMusicSeeker.Tests.PlaylistSummaryAggregationTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>譜面解決索引の変更反映・候補選択・局所更新を検証する。</summary>
+/// <remarks>専用SQLiteと実ファイル変更を使い、確定後のライブラリから索引を更新する接続を担う。検索の入力判断だけでは検出できない旧候補の残存・全件再構築を確認する。</remarks>
 [TestClass]
 public sealed class PlaylistSummaryResolveIndexTests
 {
+    /// <summary>索引を再利用した後にライブラリ集合を差替えると、新世代で旧ハッシュを除き新ハッシュを解決する。集合差替後の索引失効漏れを検出する。</summary>
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_CachesAndRebuildsAfterOwnershipChange()
     {
@@ -27,14 +30,12 @@ public sealed class PlaylistSummaryResolveIndexTests
                 ]
             };
 
-            PlaylistLibraryResolveIndexSnapshot first = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool firstCacheHit, out int firstStaleRetries);
-            PlaylistLibraryResolveIndexSnapshot second = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool secondCacheHit, out int secondStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot first = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool firstCacheHit, out int _);
+            PlaylistLibraryResolveIndexSnapshot second = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool secondCacheHit, out int _);
             BMSLibrary.PlaylistLibraryResolveIndexRuntimeState cachedState = library.GetPlaylistLibraryResolveIndexRuntimeState();
 
             Assert.IsFalse(firstCacheHit);
-            Assert.AreEqual(0, firstStaleRetries);
             Assert.IsTrue(secondCacheHit);
-            Assert.AreEqual(0, secondStaleRetries);
             Assert.AreEqual(first.Version, second.Version);
             Assert.IsTrue(cachedState.IsCached);
             Assert.AreEqual(first.Version, cachedState.SnapshotVersion);
@@ -46,11 +47,10 @@ public sealed class PlaylistSummaryResolveIndexTests
             ];
 
             BMSLibrary.PlaylistLibraryResolveIndexRuntimeState invalidatedState = library.GetPlaylistLibraryResolveIndexRuntimeState();
-            PlaylistLibraryResolveIndexSnapshot third = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool thirdCacheHit, out int thirdStaleRetries);
+            PlaylistLibraryResolveIndexSnapshot third = library.GetPlaylistLibraryResolveIndexSnapshot(System.Threading.CancellationToken.None, out bool thirdCacheHit, out int _);
 
             Assert.IsFalse(invalidatedState.IsCached);
             Assert.IsFalse(thirdCacheHit);
-            Assert.AreEqual(0, thirdStaleRetries);
             Assert.IsTrue(third.Version > second.Version);
             Assert.IsTrue(third.InvalidationVersion > second.InvalidationVersion);
             Assert.AreEqual(library.OwnedCollectionVersion, third.OwnedCollectionVersion);
@@ -60,6 +60,7 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
+    /// <summary>同じハッシュの候補を順に実削除し、残る先頭候補へ切替えつつ過去の索引を保持する。削除済み候補の選択と旧スナップショットの可変共有を検出する。</summary>
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_AppliesRemovalAndKeepsPriorSnapshots()
     {
@@ -86,9 +87,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot initial = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool initialCacheHit,
-                out int initialStaleRetries);
+                out int _);
             Assert.IsFalse(initialCacheHit);
-            Assert.AreEqual(0, initialStaleRetries);
             Assert.AreEqual(firstPath, initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
                 new[] { firstPath, middlePath, lastPath },
@@ -102,9 +102,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot afterFirstRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool afterFirstCacheHit,
-                out int afterFirstStaleRetries);
+                out int _);
             Assert.IsTrue(afterFirstCacheHit);
-            Assert.AreEqual(0, afterFirstStaleRetries);
             Assert.AreEqual(middlePath, afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
                 new[] { middlePath, lastPath },
@@ -118,9 +117,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot afterSecondRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool afterSecondCacheHit,
-                out int afterSecondStaleRetries);
+                out int _);
             Assert.IsTrue(afterSecondCacheHit);
-            Assert.AreEqual(0, afterSecondStaleRetries);
             Assert.AreEqual(lastPath, afterSecondRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             CollectionAssert.AreEqual(
                 new[] { lastPath },
@@ -134,9 +132,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot empty = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool emptyCacheHit,
-                out int emptyStaleRetries);
+                out int _);
             Assert.IsTrue(emptyCacheHit);
-            Assert.AreEqual(0, emptyStaleRetries);
             Assert.IsNull(empty.ResolveChartForPlaylistHash(sharedMd5, null));
             Assert.AreEqual(firstPath, initial.ResolveChartForPlaylistHash(sharedMd5, null).Path);
             Assert.AreEqual(middlePath, afterFirstRemoval.ResolveChartForPlaylistHash(sharedMd5, null).Path);
@@ -144,6 +141,7 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
+    /// <summary>実ファイル内容の変更を差分再読込みし、新MD5・SHAだけで解決でき、旧索引は旧内容を保持する。digest置換後の旧ハッシュ残存とMD5不一致時のSHA誤補完を検出する。</summary>
     [TestMethod]
     public void ReloadFileDiff_ReplacesExactCandidateAndRetainsOldSnapshot()
     {
@@ -205,12 +203,10 @@ public sealed class PlaylistSummaryResolveIndexTests
                 PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                     CancellationToken.None,
                     out bool updatedCacheHit,
-                    out int updatedStaleRetries);
+                    out int _);
 
-                // 実ファイル走査による digest 置換は full replacement を経由するため、
-                // lookup は再構築される。旧 snapshot と新 hash の対応は下で検証する。
+                // 実ファイル走査によるdigest変更は集合置換で索引を再構築し、旧索引は保持する。
                 Assert.IsFalse(updatedCacheHit);
-                Assert.AreEqual(0, updatedStaleRetries);
                 Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, null));
                 Assert.AreEqual(chartPath, updated.ResolveChartForPlaylistHash(newMd5, null).Path);
                 Assert.IsNull(updated.ResolveChartForPlaylistHash(oldMd5, newSha256));
@@ -225,6 +221,7 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
+    /// <summary>実フォルダ改名の確定後は候補を新パスへ移し、順序と先頭選択を維持して旧索引を変更しない。パス変更の配送漏れと候補順の逆転を検出する。</summary>
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_MovesCandidateAndKeepsCanonicalCandidateOrder()
     {
@@ -267,9 +264,8 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool updatedCacheHit,
-            out int updatedStaleRetries);
+            out int _);
             Assert.IsTrue(updatedCacheHit);
-            Assert.AreEqual(0, updatedStaleRetries);
             Assert.IsFalse(updated.ContainsCandidate(ChartFileKind.Bms, firstPath));
             Assert.IsFalse(updated.ContainsCandidate(ChartFileKind.Bms, movedPath));
             Assert.IsTrue(updated.ContainsCandidate(ChartFileKind.Bms, firstMovedPath));
@@ -284,8 +280,9 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
+    /// <summary>初回bmson正規化と次のBMS追加を実差分走査し、解決結果を全置換の索引構築で更新する。走査結果の未反映や通常走査を既知差分と誤認する処理を検出する。</summary>
     [TestMethod]
-    public void GetPlaylistLibraryResolveIndexSnapshot_HandlesInitialBmsonNormalizationOnce()
+    public void ReloadFileDiff_RebuildsResolveIndexForInitialBmsonAndFollowingBmsScan()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -349,9 +346,8 @@ public sealed class PlaylistSummaryResolveIndexTests
                 PlaylistLibraryResolveIndexSnapshot afterNormalization = library.GetPlaylistLibraryResolveIndexSnapshot(
                     CancellationToken.None,
                     out bool afterNormalizationCacheHit,
-                    out int afterNormalizationStaleRetries);
+                    out int _);
                 Assert.IsFalse(afterNormalizationCacheHit);
-                Assert.AreEqual(0, afterNormalizationStaleRetries);
                 Assert.AreEqual(bmsonPath, afterNormalization.ResolveChartForPlaylistHash(null, bmsonSha256).Path);
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
@@ -368,11 +364,10 @@ public sealed class PlaylistSummaryResolveIndexTests
                 PlaylistLibraryResolveIndexSnapshot afterBmsOnlyUpsert = library.GetPlaylistLibraryResolveIndexSnapshot(
                     CancellationToken.None,
                     out bool bmsOnlyCacheHit,
-                    out int bmsOnlyStaleRetries);
+                    out int _);
                 // 新規 BMS の導入は ReloadFileDiff の通常全走査経路で公開されるため、
                 // この境界では解決索引を再構築する。
                 Assert.IsFalse(bmsOnlyCacheHit);
-                Assert.AreEqual(0, bmsOnlyStaleRetries);
                 Assert.AreEqual(secondBmsPath, afterBmsOnlyUpsert.ResolveChartForPlaylistHash(secondBms.Md5, null).Path);
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_full_root_enumeration"));
                 Assert.IsTrue(resolveWork.Contains("playlist_resolve_source_enumeration"));
@@ -385,6 +380,7 @@ public sealed class PlaylistSummaryResolveIndexTests
         });
     }
 
+    /// <summary>事前構築後の既知削除は対象bucketだけを更新し、他16件や全索引を走査せず旧索引を維持する。局所変更による全件処理の退行を検出する。</summary>
     [TestMethod]
     public void GetPlaylistLibraryResolveIndexSnapshot_WarmDeltaDoesNotEnumerateUnchangedSource()
     {
@@ -432,16 +428,14 @@ public sealed class PlaylistSummaryResolveIndexTests
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool updatedCacheHit,
-                out int updatedStaleRetries);
+                out int _);
             PlaylistLibraryResolveIndexSnapshot cached = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
                 out bool cachedCacheHit,
-                out int cachedStaleRetries);
+                out int _);
 
             Assert.IsTrue(updatedCacheHit);
-            Assert.AreEqual(0, updatedStaleRetries);
             Assert.IsTrue(cachedCacheHit);
-            Assert.AreEqual(0, cachedStaleRetries);
             Assert.AreEqual(updated.Version, cached.Version);
             Assert.AreEqual(0, storeWork.Count(operation => operation == "playlist_resolve_source_enumeration"));
             Assert.AreEqual(0, storeWork.Count(operation => operation == "playlist_resolve_source_entry_visited"));

@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistSummaryOwnedHashTests
 {
+    /// <summary>取消済み要求で所持hash索引を取得すると取消を返し、取消後の索引構築成功を検出します。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_RejectsCanceledBuildBeforeReadingStorage()
     {
@@ -25,6 +26,7 @@ public sealed class PlaylistSummaryOwnedHashTests
         });
     }
 
+    /// <summary>BMSとbmsonのMD5・SHA-256を同じ所持索引へ収録し、形式やhash種類による欠落を検出します。</summary>
     [TestMethod]
     public void GetOwnedChartHashIndexSnapshot_IncludesBmsonHashes()
     {

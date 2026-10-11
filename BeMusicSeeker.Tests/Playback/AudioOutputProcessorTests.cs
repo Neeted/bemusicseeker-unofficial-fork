@@ -8,6 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AudioOutputProcessorTests
 {
+    /// <summary>呼出側の初期gainを最初のPCMから適用し、途中float値を単位範囲へクリップせずpeakを測る。</summary>
     [TestMethod]
     public void InitialGainIsImmediateAndDoesNotClipIntermediateFloatPcm()
     {
@@ -21,6 +22,7 @@ public sealed class AudioOutputProcessorTests
         Assert.IsFalse(result.ExceededFullScale);
     }
 
+    /// <summary>gain変更を5msの各フレームへ線形適用し、最後のフレームで目標値に到達させて急変と終点ずれを防ぐ。</summary>
     [TestMethod]
     public void RampUsesFiveMillisecondsAndReachesTargetOnTheLastFrame()
     {
@@ -35,6 +37,7 @@ public sealed class AudioOutputProcessorTests
         Assert.AreEqual(5, processor.RampFrameCount);
     }
 
+    /// <summary>5msに対応する半端フレームを偶数丸めし、極低レートでも一フレーム以上のrampを維持する。</summary>
     [TestMethod]
     public void RampLengthUsesTiesToEvenAndAtLeastOneFrame()
     {
@@ -43,6 +46,7 @@ public sealed class AudioOutputProcessorTests
         Assert.AreEqual(1, new AudioOutputProcessor(1, 1d).RampFrameCount);
     }
 
+    /// <summary>同じPCMを一括・複数callbackで処理して同じgain軌跡を保ち、callback分割でrampを再起動しない。</summary>
     [TestMethod]
     public void RampIsIndependentOfHowTheCallbackSplitsItsFrames()
     {
@@ -61,6 +65,7 @@ public sealed class AudioOutputProcessorTests
         CollectionAssert.AreEqual(whole, split);
     }
 
+    /// <summary>ramp途中で目標を変えた際に最後の適用係数から続け、初期値への跳躍を防ぐ。</summary>
     [TestMethod]
     public void MidRampRetargetStartsFromTheLastAppliedCoefficient()
     {
@@ -76,6 +81,7 @@ public sealed class AudioOutputProcessorTests
         Assert.AreEqual(0.68f, next[0], 1e-6f);
     }
 
+    /// <summary>全チャンネルへ同じフレームgainを適用し、過大レベルは値を保ったままpeakと超過として報告する。</summary>
     [TestMethod]
     public void EveryChannelUsesTheSameGainAndOverLevelIsReportedWithoutClamping()
     {
@@ -94,6 +100,7 @@ public sealed class AudioOutputProcessorTests
         Assert.IsTrue(result.ExceededFullScale);
     }
 
+    /// <summary>オフライン固定gainを元PCMへ直接反映し、全サンプルの最大絶対値を報告する。</summary>
     [TestMethod]
     public void ConstantOfflineGainModifiesOnePcmBufferInPlace()
     {
@@ -105,6 +112,7 @@ public sealed class AudioOutputProcessorTests
         Assert.AreEqual(0.625d, peak, 1e-12d);
     }
 
+    /// <summary>非有限gain・PCMを拒否し、破損した数値を正常音声として後段へ流さない。</summary>
     [TestMethod]
     public void NonFinitePcmAndGainAreRejected()
     {
@@ -117,6 +125,7 @@ public sealed class AudioOutputProcessorTests
             () => AudioOutputProcessor.ApplyConstantGain([0f], double.PositiveInfinity));
     }
 
+    /// <summary>callbackの非有限入力・演算後の非有限出力を例外生成せず異なる故障値として返す。</summary>
     [TestMethod]
     public void CallbackGainFailureIsReturnedAsAValue()
     {
@@ -137,6 +146,7 @@ public sealed class AudioOutputProcessorTests
         Assert.AreEqual(AudioOutputProcessFailure.NonFiniteOutput, outputFailure);
     }
 
+    /// <summary>整数出力の過大peakから必要減衰dBを算出し、利用者が修正すべきレベル情報を失わない。</summary>
     [TestMethod]
     public void IntegerOutputRangeFailureRetainsPeakAndRequiredAttenuation()
     {

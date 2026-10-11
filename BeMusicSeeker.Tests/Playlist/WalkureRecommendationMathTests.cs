@@ -11,6 +11,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class WalkureRecommendationMathTests
 {
+    /// <summary>独立した上流の固定scoreとreportからrating・候補集合・確率順を比較し、courseを除いて推薦計算の互換性退行を検出します。</summary>
     [TestMethod]
     public void BundledModel_MatchesFixedUpstreamPlayerReport()
     {
@@ -25,7 +26,6 @@ public sealed class WalkureRecommendationMathTests
             .Where(row => row.Value<string>("entryType") == "chart")
             .Select(row => Key(row.Value<string>("hash") ?? throw new FormatException(),
                 ParseLamp(row.Value<string>("targetClearLamp") ?? throw new FormatException()), row.Value<double>("recommendationProbabilityPercent"))).ToArray();
-        Assert.AreEqual(649, actual.Length);
         CollectionAssert.AreEquivalent(expected, actual.Select(row => Key(row.Entry.Md5, row.Lamp, row.Percent)).ToArray());
         foreach (IGrouping<WalkureLamp, WalkureRecommendation> group in actual.GroupBy(row => row.Lamp))
         {
@@ -35,6 +35,7 @@ public sealed class WalkureRecommendationMathTests
         Assert.IsTrue(actual.All(row => !row.Entry.IsCourse));
     }
 
+    /// <summary>独立ケースの混在lampでratingを比較し、通常・未プレイ失敗扱い・失敗未プレイ扱いの観測集合を照合してpolicy違いの計算誤りを検出します。</summary>
     [TestMethod]
     public void Estimate_MixedLampsAndThreePoliciesMatchIndependentUpstreamCases()
     {
@@ -58,6 +59,7 @@ public sealed class WalkureRecommendationMathTests
         }
     }
 
+    /// <summary>表内の補間と上下端外の外挿を各thetaで照合し、端値への丸め込みや区間の取り違えを検出します。</summary>
     [TestMethod]
     public void ConvertStarRating_InterpolatesAndExtrapolatesEndIntervals()
     {
@@ -68,7 +70,9 @@ public sealed class WalkureRecommendationMathTests
         }
     }
 
+    /// <summary>表の正確な二進入力から得る推定星の小数丸めを上流Javascript期待へ揃え、境界値だけ互換性が崩れる誤りを検出します。</summary>
     [DataTestMethod]
+    // 星1.13と2.67の丸め境界を、同じthetaで異なる端点から確認します。
     [DataRow(-.125, .875, 1.13)]
     [DataRow(-1.675, -.675, 2.67)]
     public void EstimatedStars_MatchJavascriptRoundingOfExactBinaryValues(double firstPoint, double lastPoint, double expected)
@@ -83,6 +87,7 @@ public sealed class WalkureRecommendationMathTests
         Assert.AreEqual(expected, rating.StarRating);
     }
 
+    /// <summary>確率20%境界の前後、達成済みlamp以上と未定義FCを組み合わせ、推薦集合と確率を照合して閾値や候補範囲の誤りを検出します。</summary>
     [TestMethod]
     public void Recommendations_UseRawThresholdHigherLampAndUndefinedStar()
     {
@@ -100,6 +105,7 @@ public sealed class WalkureRecommendationMathTests
         Assert.AreEqual(2, model.Recommend(scores, boundary + 1e-6).Length);
     }
 
+    /// <summary>新FAILEDを加えても任意policyのratingは不変で元入力も保持し、観測不足は失敗して入力変更と空rating成功を検出します。</summary>
     [TestMethod]
     public void Policy_NewFailedDoesNotChangeOptionalPolicyRatingOrRawInput()
     {

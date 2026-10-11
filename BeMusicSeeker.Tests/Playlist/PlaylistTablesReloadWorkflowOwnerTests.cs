@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistTablesReloadWorkflowOwnerTests
 {
+    /// <summary>reloadと外部同期を順に実完了まで待ち、同じ生存capabilityとtoken・参照通知要求を渡して、別受付の再取得と早期完了を検出します。</summary>
     [TestMethod]
     public async Task ReloadAsync_BorrowsSameCapabilityAndAwaitsBothRequiredTasks()
     {
@@ -43,7 +44,6 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
                 Assert.AreSame(capability, reload!.Capability);
                 Assert.AreSame(capability, sync!.Capability);
                 Assert.AreEqual(17L, sync.OperationToken);
-                Assert.AreEqual("ReloadTables", sync.Reason);
                 Assert.IsTrue(sync.FromReloadTables);
                 Assert.IsTrue(sync.PublishReferenceReceipt);
                 releaseSync.TrySetResult(true);
@@ -61,6 +61,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         }
     }
 
+    /// <summary>reload失敗では元例外を返して外部同期を開始せず、失敗後の続行と原因置換を検出します。</summary>
     [TestMethod]
     public async Task ReloadAsync_ReloadFailureDoesNotStartSyncAndPreservesException()
     {
@@ -74,6 +75,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         Assert.AreEqual(0, syncCalls);
     }
 
+    /// <summary>reload成功後の実外部同期失敗は元例外として返し、同期完了前の成功返却を検出します。</summary>
     [TestMethod]
     public async Task ReloadAsync_ActualSyncFailureIsPropagatedAfterSuccessfulReload()
     {
@@ -87,6 +89,7 @@ public sealed class PlaylistTablesReloadWorkflowOwnerTests
         Assert.AreEqual(1, reloadCalls);
     }
 
+    /// <summary>reloadの実取消終端は取消として返し外部同期を開始せず、取消要求から新しい通信を始める誤りを検出します。</summary>
     [TestMethod]
     public async Task ReloadAsync_CancellationDoesNotStartExternalSync()
     {

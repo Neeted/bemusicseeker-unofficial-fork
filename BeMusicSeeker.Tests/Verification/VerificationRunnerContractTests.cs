@@ -14,6 +14,10 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class VerificationRunnerContractTests
 {
+    /// <summary>
+    /// 必須FQNの大文字小文字を含む完全一致と一件だけのPassedを要求し、欠落・重複・非成功をリリース合格にする誤りを検出する。
+    /// </summary>
+    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
     [TestMethod]
     public void ReleaseOutcomeGateRequiresExactPassedCardinality()
     {
@@ -62,6 +66,10 @@ public sealed class VerificationRunnerContractTests
         }
     }
 
+    /// <summary>
+    /// 理由付きの明示許可対象だけをskip受付記録へ残し、未登録の除外・理由欠落・許可対象の実失敗まで受理する誤りを検出する。
+    /// </summary>
+    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
     [TestMethod]
     public void ReleaseOutcomeGateAllowsOnlyExactOptionalSkipWithReason()
     {
@@ -152,6 +160,10 @@ public sealed class VerificationRunnerContractTests
         }
     }
 
+    /// <summary>
+    /// 指定したrosterの必須ケースを実結果と照合し、既定一覧だけを使って指定入力を無視する誤りを検出する。
+    /// </summary>
+    /// <remarks>合成TRX/JSON/rosterを実PowerShellの合否判定へ渡し、検証runnerが消費する形式と除外受付の接続を確認する。</remarks>
     [TestMethod]
     public void ReleaseOutcomeGateLoadsRequiredRosterFromSuppliedPath()
     {

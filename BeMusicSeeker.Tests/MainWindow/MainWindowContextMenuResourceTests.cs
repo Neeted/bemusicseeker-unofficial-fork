@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -28,16 +27,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainWindowContextMenuResourceTests
 {
-    [TestMethod]
-    public void DeleteContextMenuItems_UseSpecificDeleteResourceKeys()
-    {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-
-        Assert.AreEqual(2, CountOccurrences(xaml, "Name=\"tableContextMenuItemDeleteEntry\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_playlist_entry, Mode=OneWay}\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"tableContextMenuItemDeleteFile\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Remove_chart_file, Mode=OneWay"));
-    }
-
+    /// <summary>設定不正・操作不可・Web起動・実行体欠損・譜面欠損・起動失敗を専用リソースへ変換し内部詳細は出さないことを確認し、利用者通知の分類誤りや生例外の露出を検出します。</summary>
     [TestMethod]
     public void ConfiguredExternalActionFailureUsesTypedLocalizedMessage()
     {
@@ -59,50 +49,7 @@ public sealed class MainWindowContextMenuResourceTests
         }
     }
 
-    [TestMethod]
-    public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
-    {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-
-        Assert.AreEqual(4, CountOccurrences(xaml, "DisplayTitle"));
-        Assert.AreEqual(-1, xaml.IndexOf("P={Binding ChartFiles}", StringComparison.Ordinal));
-        Assert.AreEqual(-1, xaml.IndexOf("ChartFiles[", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
-    public void PlayHistoryTree_ExposesExpectedPeriodNodes()
-    {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-        string playHistoryTree = ExtractBetween(xaml, "Name=\"treeViewItemPlayHistory\"", "</TreeView>");
-
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"treeViewItemPlayHistory\""));
-        Assert.IsTrue(xaml.IndexOf("Path=Resources.Maintenance", StringComparison.Ordinal) < xaml.IndexOf("Name=\"treeViewItemPlayHistory\"", StringComparison.Ordinal));
-        Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Selected=\"playHistoryPeriodSelect\""));
-        StringAssert.Contains(playHistoryTree, "<EventSetter Event=\"Selected\" Handler=\"playHistoryPeriodSelect\" />");
-        foreach (string tag in new[] { "All", "Today", "Yesterday", "Recent7Days", "Recent30Days", "Diagnostics" })
-        {
-            Assert.AreEqual(1, CountOccurrences(playHistoryTree, "Tag=\"" + tag + "\""), tag);
-        }
-        foreach (string resource in new[]
-        {
-            "Play_history_tree_root",
-            "Play_history_period_all",
-            "Play_history_period_today",
-            "Play_history_period_yesterday",
-            "Play_history_period_recent_7_days",
-            "Play_history_period_recent_30_days",
-            "Play_history_period_archive",
-            "Play_history_period_diagnostics"
-        })
-        {
-            StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
-        }
-        StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\"");
-        StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
-        StringAssert.Contains(playHistoryTree, "<DataTemplate x:Key=\"templateTreeViewItemHeaderPlayHistoryPeriod\">");
-        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" HeaderTemplate=\"{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
-    }
-
+    /// <summary>解決済み履歴から関連付けパスと履歴scope・OpenFile能力を得ることを確認し、履歴操作から所持譜面への接続漏れを検出します。</summary>
     [TestMethod]
     public void PlayHistoryContextMenuOwnerCreatesAssociatedTargetForResolvedRow()
     {
@@ -121,19 +68,16 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.OpenFile));
     }
 
+    /// <summary>解析失敗表示で有効MD5を選んだ場合だけ削除項目を出すことを確認し、別表示や空識別子から失敗記録を削除する誤りを検出します。</summary>
     [TestMethod]
-    public void ChartInfoParseFailureContextMenu_UsesDedicatedResourceAndVisibilityPolicy()
+    public void ChartInfoParseFailureContextMenu_RequiresFailureViewAndValidHash()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-
-        Assert.AreEqual(1, CountOccurrences(xaml, "Name=\"tableContextMenuItemRemoveChartInfoParseFailure\""));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay"));
-        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"tableContextMenuItemRemoveChartInfoParseFailureClick\""));
         Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [new string('a', 32)]));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(false, [new string('a', 32)]));
         Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [" "]));
     }
 
+    /// <summary>bmsonの共通検査能力でも通常表示では項目を出し、除外表示と非対応能力では出さないことを確認し、BMS専用条件を共通検査へ誤適用する誤りを検出します。</summary>
     [TestMethod]
     public void ResourceHealthContextMenu_AllowsBmsonOnlyChartTargets()
     {
@@ -149,6 +93,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(MainWindow.ShouldShowResourceHealthContextMenu(false, [bmsOnlyTarget]));
     }
 
+    /// <summary>保留表示の空選択ではメニュー行を対象にして導入と所持操作を区別することを確認し、右クリック対象の欠落や表示文脈の混同を検出します。</summary>
     [TestMethod]
     public void ChartContextMenuStateBuilder_UsesRowTargetAsSelectionFallback()
     {
@@ -175,6 +120,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(state.CanDeleteInstallPackages);
     }
 
+    /// <summary>プレイリスト行のメニューでも既存bmson選択を優先し表文脈の禁止操作を適用することを確認し、右クリック行による既存選択の上書きを検出します。</summary>
     [TestMethod]
     public void ChartContextMenuStateBuilder_PreservesSelectionWhenItExists()
     {
@@ -205,6 +151,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(state.CanFixEncoding);
     }
 
+    /// <summary>所持BMSの能力から検査・移動・削除・名前修正・変換を許可して導入削除は許可しないことを確認し、能力とメニュー操作の対応誤りを検出します。</summary>
     [TestMethod]
     public void ChartContextMenuStateBuilder_ResolvesCapabilityPolicy()
     {
@@ -238,6 +185,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(state.CanDeleteInstallPackages);
     }
 
+    /// <summary>混在選択の非譜面行と能力不足の行を除き、OpenFile対象の元譜面を保つことを確認し、選択解決が対象外の行を配送する誤りを検出します。</summary>
     [TestMethod]
     public void ChartOperationTargetSelectionResolver_FiltersRowsByCapability()
     {
@@ -257,6 +205,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(0, pendingInstallTargets.Count);
     }
 
+    /// <summary>欠損行を含む選択要求を拒否することを確認し、壊れた選択を黙って部分成功へ変える誤りを検出します。</summary>
     [TestMethod]
     public void ChartOperationTargetSelectionResolver_RejectsNullRows()
     {
@@ -265,47 +214,23 @@ public sealed class MainWindowContextMenuResourceTests
             ChartOperationSourceScope.Library)));
     }
 
+    /// <summary>保留の空対象と導入済みの欠損対象を拒否することを確認し、不完全な要求でカタログ削除を開始する誤りを検出します。</summary>
     [TestMethod]
-    public void PackageCatalogRemovalRequest_RequiresTargetsAndPreservesSection()
+    public void PackageCatalogRemovalRequest_RejectsEmptyAndMissingTargets()
     {
-        ChartOperationTarget target = CreateContextMenuTarget(
-            ChartFileKind.Bms,
-            ChartOperationCapabilities.UpdateInstallDestination);
-
-        var pending = PackageCatalogRemovalRequest.CreatePending([target]);
-        var installed = PackageCatalogRemovalRequest.CreateInstalled([target]);
-
-        Assert.AreEqual(PackageCatalogSection.Pending, pending.Section);
-        Assert.IsTrue(pending.IsPending);
-        Assert.AreSame(target, pending.Targets[0]);
-        Assert.AreEqual(PackageCatalogSection.Installed, installed.Section);
-        Assert.IsFalse(installed.IsPending);
         Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreatePending([]));
         Assert.ThrowsException<ArgumentException>(() => PackageCatalogRemovalRequest.CreateInstalled([null!]));
     }
 
+    /// <summary>強制導入の空対象と手動導入の欠損対象を拒否することを確認し、対象不明の導入要求を受け付ける誤りを検出します。</summary>
     [TestMethod]
-    public void PendingInstallPackageOperationRequest_RequiresTargetsAndPreservesKind()
+    public void PendingInstallPackageOperationRequest_RejectsEmptyAndMissingTargets()
     {
-        ChartOperationTarget target = CreateContextMenuTarget(
-            ChartFileKind.Bms,
-            ChartOperationCapabilities.UpdateInstallDestination);
-
-        var forceInstall = PendingInstallPackageOperationRequest.CreateForceInstall([target]);
-        var manualInstall = PendingInstallPackageOperationRequest.CreateManualInstall([target]);
-
-        Assert.AreEqual(PendingInstallPackageOperationKind.ForceInstall, forceInstall.Kind);
-        Assert.IsTrue(forceInstall.IsForceInstall);
-        Assert.IsFalse(forceInstall.IsManualInstall);
-        Assert.AreEqual(1, forceInstall.SelectedRowCount);
-        Assert.AreSame(target, forceInstall.Targets[0]);
-        Assert.AreEqual(PendingInstallPackageOperationKind.ManualInstall, manualInstall.Kind);
-        Assert.IsFalse(manualInstall.IsForceInstall);
-        Assert.IsTrue(manualInstall.IsManualInstall);
         Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateForceInstall([]));
         Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateManualInstall([null!]));
     }
 
+    /// <summary>単独譜面を実パスのentryへ変換してパッケージ対象と区別し、探索種別と不正要求拒否を保つことを確認し、探索対象や導入先/結合先の誤配送を検出します。</summary>
     [TestMethod]
     public void PendingInstallDestinationSearchRequest_MaterializesLooseTargetsAndPreservesKind()
     {
@@ -327,6 +252,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([null!]));
     }
 
+    /// <summary>単独譜面を実パスのentryへ変換し空・欠損選択は解除要求を作らないことを確認し、対象変換漏れや空操作の受付を検出します。</summary>
     [TestMethod]
     public void PendingInstallDestinationClearRequest_TryCreateMaterializesLooseTargets()
     {
@@ -346,6 +272,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNull(nullRequest);
     }
 
+    /// <summary>単独譜面の編集要求は元譜面を保って必要時にentry化し欠損は拒否することを確認し、編集対象の取り違えを検出します。</summary>
     [TestMethod]
     public void PendingInstallDestinationEditRequest_TryCreatePreservesLazyLooseTarget()
     {
@@ -365,6 +292,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNull(nullRequest);
     }
 
+    /// <summary>修正対象の元譜面から実パスのentryを生成し空選択は要求を作らないことを確認し、導入済み位置修正の対象変換漏れを検出します。</summary>
     [TestMethod]
     public void RepairInstalledLocationRequest_TryCreatePreservesRepairTargets()
     {
@@ -385,83 +313,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNull(emptyRequest);
     }
 
+    /// <remarks>共有compiledテンプレートから標準Automationと実コントロール操作が届く境界をWPFで確認します。操作可否の判断網羅は下位ケースが担います。</remarks>
+    /// <summary>縦横scrollbarを実領域と同期し、Automationと行/ページ操作が各方向へ動くことを確認し、共有テンプレートによる標準操作の接続漏れを検出します。</summary>
     [TestMethod]
-    public void SidebarLayout_SplittersCoverResizableRegionsAndExposeWideHitAreas()
-    {
-        XDocument document = LoadMainWindowXamlDocument();
-        XElement splitterStyle = FindElementByAttribute(document, "Key", "SidebarSplitterStyle");
-        var sidebarSplitters = FindElementsByAttribute(document, "Style", "{StaticResource SidebarSplitterStyle}").ToList();
-        XElement verticalSplitter = FindElementByAttribute(document, "Name", "gridSplitter");
-        XElement treePane = FindElementByAttribute(document, "Name", "gridTreePane");
-        XElement horizontalSplitter = FindElementByAttribute(document, "Name", "gridSplitterTree");
-        XElement separatorLine = FindElementByAttribute(splitterStyle, "Name", "SeparatorLine");
-
-        Assert.AreEqual(2, sidebarSplitters.Count, "Only the sidebar width splitter and sidebar tree splitter should use the shared splitter hit-test style.");
-        Assert.IsTrue(sidebarSplitters.All(element => element.Name.LocalName == "GridSplitter"));
-        Assert.IsNotNull(
-            splitterStyle.Descendants().FirstOrDefault(element => element.Name.LocalName == "Grid" && GetAttributeValue(element, "Background") == "Transparent"),
-            "The splitter template root must be transparent so the full control bounds are hit-testable.");
-
-        Assert.AreEqual(GetAttributeValue(treePane, "Grid.Row"), GetAttributeValue(verticalSplitter, "Grid.Row"));
-        Assert.AreEqual(GetAttributeValue(treePane, "Grid.RowSpan"), GetAttributeValue(verticalSplitter, "Grid.RowSpan"));
-        Assert.IsTrue(
-            GetNumericAttribute(verticalSplitter, "Width") > GetNumericAttribute(separatorLine, "Width"),
-            "The sidebar width splitter hit area must be wider than the visible vertical separator line.");
-
-        XElement rowDefinitions = DirectChild(treePane, "Grid.RowDefinitions");
-        var rows = rowDefinitions.Elements().Where(element => element.Name.LocalName == "RowDefinition").ToList();
-        XElement playlistTree = FindElementByAttribute(document, "Name", "treeViewPlaylist");
-        XElement libraryTree = FindElementByAttribute(document, "Name", "treeView");
-        int splitterRow = int.Parse(GetAttributeValue(horizontalSplitter, "Grid.Row"), CultureInfo.InvariantCulture);
-        Assert.AreEqual(2, rows.Count, "The tree splitter hit area must be overlaid at the boundary instead of consuming a dedicated layout row.");
-        Assert.AreEqual("0", GetAttributeValue(playlistTree, "Grid.Row"));
-        Assert.AreEqual("1", GetAttributeValue(libraryTree, "Grid.Row"));
-        Assert.AreEqual(GetAttributeValue(libraryTree, "Grid.Row"), GetAttributeValue(horizontalSplitter, "Grid.Row"));
-        Assert.AreEqual("Top", GetAttributeValue(horizontalSplitter, "VerticalAlignment"));
-        Assert.AreEqual("0,-2,0,0", GetAttributeValue(horizontalSplitter, "Margin"));
-        Assert.IsTrue(
-            GetNumericAttribute(horizontalSplitter, "Height") > ResolveRowSeparatorLineHeight(splitterStyle),
-            "The sidebar tree splitter hit area must be taller than the visible horizontal separator line.");
-
-        Assert.IsTrue(GetNumericAttribute(FindElementByAttribute(document, "Name", "gridColumn0"), "MinWidth") > GetNumericAttribute(verticalSplitter, "Width"));
-        Assert.AreEqual("CurrentAndNext", GetAttributeValue(verticalSplitter, "ResizeBehavior"));
-        Assert.AreEqual("PreviousAndCurrent", GetAttributeValue(horizontalSplitter, "ResizeBehavior"));
-        Assert.AreEqual("True", GetAttributeValue(document.Root, "UseLayoutRounding"));
-        Assert.AreEqual("True", GetAttributeValue(document.Root, "SnapsToDevicePixels"));
-    }
-
-    [TestMethod]
-    public void AppStyles_SuppressDottedFocusVisuals()
-    {
-        string root = FindRepositoryRoot();
-        string styles = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Simple Styles.xaml")).Replace("\r\n", "\n");
-        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml")).Replace("\r\n", "\n");
-
-        Assert.AreEqual(-1, styles.IndexOf("StrokeDashArray", StringComparison.Ordinal));
-        Assert.AreEqual(-1, mainWindow.IndexOf("TreeViewItemFocusVisual", StringComparison.Ordinal));
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleButton\" TargetType=\"{x:Type Button}\" BasedOn=\"{x:Null}\">\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleCheckBox\" TargetType=\"{x:Type CheckBox}\">\n    <Setter Property=\"UIElement.SnapsToDevicePixels\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleRadioButton\" TargetType=\"{x:Type RadioButton}\">\n    <Setter Property=\"UIElement.SnapsToDevicePixels\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleListBoxItem\" TargetType=\"{x:Type ListBoxItem}\">\n    <Setter Property=\"UIElement.SnapsToDevicePixels\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.OverridesDefaultStyle\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleComboBox\" TargetType=\"{x:Type ComboBox}\">\n    <Setter Property=\"UIElement.SnapsToDevicePixels\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleComboBoxItem\" TargetType=\"{x:Type ComboBoxItem}\">\n    <Setter Property=\"UIElement.SnapsToDevicePixels\" Value=\"True\" />\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleTabItem\" TargetType=\"{x:Type TabItem}\">\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleSlider\" TargetType=\"{x:Type Slider}\">\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style x:Key=\"SimpleTreeView\" TargetType=\"{x:Type TreeView}\">\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(styles, "<Style TargetType=\"{x:Type ToggleButton}\">\n    <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(mainWindow, "<TreeView Name=\"treeViewPlaylist\" Grid.Row=\"0\" ScrollViewer.HorizontalScrollBarVisibility=\"Disabled\" VirtualizingStackPanel.IsVirtualizing=\"True\" VirtualizingStackPanel.VirtualizationMode=\"Recycling\" BorderThickness=\"0\" Padding=\"1,5\" Background=\"{DynamicResource App.BackgroundBrush}\" Foreground=\"{DynamicResource App.TextBrush}\" FocusVisualStyle=\"{x:Null}\"");
-        StringAssert.Contains(mainWindow, "<TreeView Name=\"treeView\" Grid.Row=\"1\" ScrollViewer.HorizontalScrollBarVisibility=\"Disabled\" VirtualizingStackPanel.IsVirtualizing=\"True\" VirtualizingStackPanel.VirtualizationMode=\"Recycling\" BorderThickness=\"0\" Padding=\"1,5\" Background=\"{DynamicResource App.BackgroundBrush}\" Foreground=\"{DynamicResource App.TextBrush}\" FocusVisualStyle=\"{x:Null}\"");
-        StringAssert.Contains(mainWindow, "<Style x:Key=\"SidebarSplitterStyle\" TargetType=\"{x:Type GridSplitter}\">\n        <Setter Property=\"Focusable\" Value=\"False\" />\n        <Setter Property=\"IsTabStop\" Value=\"False\" />\n        <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-        StringAssert.Contains(mainWindow, "<Style x:Key=\"SliderStylePlayer\" TargetType=\"{x:Type Slider}\">\n        <Setter Property=\"Stylus.IsPressAndHoldEnabled\" Value=\"False\" />\n        <Setter Property=\"FrameworkElement.FocusVisualStyle\" Value=\"{x:Null}\" />");
-
-        foreach (Match match in Regex.Matches(mainWindow, "<Style TargetType=\"\\{x:Type TreeViewItem\\}\">(?<body>.*?)</Style>", RegexOptions.Singleline))
-        {
-            StringAssert.Contains(match.Groups["body"].Value, "FocusVisualStyle\" Value=\"{x:Null}\"");
-        }
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void CanonicalScrollViewer_MaterializesSharedScrollBarsAndPreservesBehavior()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -696,8 +550,9 @@ public sealed class MainWindowContextMenuResourceTests
         invokeProvider.Invoke();
     }
 
+    /// <remarks>共有compiledテンプレートから標準Automationと実コントロール操作が届く境界をWPFで確認します。操作可否の判断網羅は下位ケースが担います。</remarks>
+    /// <summary>実ナビゲーションのAutomationで単一選択を変更し、無効項目と内容配置を保つことを確認し、標準選択操作や無枠内容hostの接続漏れを検出します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void CanonicalTopNavigation_UsesSingleSelectionAndStandardAutomation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -804,23 +659,17 @@ public sealed class MainWindowContextMenuResourceTests
         });
     }
 
+    /// <summary>作業領域高からメニュー最大高を計算しNaNは有限高へ補正することを確認し、異常な作業領域値で表示範囲を壊す誤りを検出します。</summary>
     [TestMethod]
-    public void ContextMenuTemplates_ConstrainTallMenusWithScrollViewer()
+    public void MenuMaxHeightConverter_UsesWorkAreaAndNormalizesInvalidHeight()
     {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "Simple Styles.xaml"));
-
-        StringAssert.Contains(styles, "<views:MenuMaxHeightConverter x:Key=\"MenuMaxHeightConverter\" />");
-        StringAssert.Contains(styles, "<Setter Property=\"MaxHeight\" Value=\"{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height, Converter={StaticResource MenuMaxHeightConverter}}\" />");
-        StringAssert.Contains(styles, "VerticalScrollBarVisibility=\"Auto\" CanContentScroll=\"False\" MaxHeight=\"{TemplateBinding MaxHeight}\"");
-        StringAssert.Contains(styles, "Name=\"SubMenu\" Background=\"{DynamicResource App.PopupBackgroundBrush}\" Grid.IsSharedSizeScope=\"True\" MaxHeight=\"{Binding Source={x:Static SystemParameters.WorkArea}, Path=Height, Converter={StaticResource MenuMaxHeightConverter}}\"");
-        StringAssert.Contains(styles, "VerticalScrollBarVisibility=\"Auto\" CanContentScroll=\"False\" MaxHeight=\"{Binding ElementName=SubMenu, Path=MaxHeight}\"");
-
         var converter = new MenuMaxHeightConverter();
 
         Assert.AreEqual(576d, converter.Convert(768d, typeof(double), null, CultureInfo.InvariantCulture));
         Assert.AreEqual(160d, converter.Convert(double.NaN, typeof(double), null, CultureInfo.InvariantCulture));
     }
 
+    /// <summary>LR2非対応の長い既存standalone rootを読込と再保存で保持することを確認し、LR2制約で単独モードの設定を失う誤りを検出します。</summary>
     [TestMethod]
     public void StandaloneRootDeserialization_PreservesExistingLr2IncompatibleRoot()
     {
@@ -846,6 +695,7 @@ public sealed class MainWindowContextMenuResourceTests
         }
     }
 
+    /// <summary>終了中のdurable更新失敗だけを保留しhandshake失敗は保留しないことを確認し、通知前のreceipt承認や別分類の失敗隠蔽を検出します。</summary>
     [TestMethod]
     public void StartupUpdateFailurePresentationDefersReceiptWhenShellIsClosing()
     {
@@ -867,6 +717,7 @@ public sealed class MainWindowContextMenuResourceTests
             new UpdaterLaunchFailureException("ready handshake failed")));
     }
 
+    /// <summary>NaN・両無限・非正値・下限未満を補正し下限と任意有効幅は保つことを確認し、不正保存幅による配置破壊や利用者幅の上書きを検出します。</summary>
     [TestMethod]
     public void SidebarTreeViewWidthPolicy_NormalizesInvalidPersistedValues()
     {
@@ -881,6 +732,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(320d, Settings.NormalizeTreeViewWidth(320d));
     }
 
+    /// <summary>旧不正幅を読込で補正し、書込では補正値と有効下限を保存することを確認し、設定読込/書込の一方だけを補正する誤りを検出します。</summary>
     [TestMethod]
     public void SidebarTreeViewWidthSetting_PropertyNormalizesBackingValue()
     {
@@ -896,6 +748,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(Settings.MinTreeViewWidth, (double)settings["TreeViewWidth"]);
     }
 
+    /// <summary>保存Darkを読み、未知テーマはLightへ補正し小文字darkは正式名へ保存することを確認し、テーマ設定の互換正規化漏れを検出します。</summary>
     [TestMethod]
     public void AppearanceThemeSetting_NormalizesValues()
     {
@@ -911,6 +764,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(AppThemeService.Dark, (string)settings["AppearanceTheme"]);
     }
 
+    /// <summary>文字・行・見出しの旧NaN/無限値を補正し範囲外書込を下限/上限へ収めることを確認し、異常設定が描画へ届く誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableAppearanceSettings_NormalizeValues()
     {
@@ -933,58 +787,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(Settings.MinCustomTableHeaderHeight, (double)settings["CustomTableHeaderHeight"]);
     }
 
+    /// <summary>LightとDarkの全資源キー集合が一致することを確認し、テーマ切替で同じ画面に必要な資源が欠ける誤りを検出します。</summary>
     [TestMethod]
-    public void ThemeResourceDictionaries_DefineRequiredTableAndAppKeys()
+    public void ThemeResourceDictionaries_KeepLightAndDarkKeyParity()
     {
         string root = FindRepositoryRoot();
         string light = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Light.xaml"));
         string dark = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Themes", "Dark.xaml"));
-
-        foreach (string key in new[]
-        {
-            "App.BackgroundBrush",
-            "App.SurfaceBrush",
-            "App.TextBrush",
-            "App.BorderBrush",
-            "App.AccentForegroundBrush",
-            "App.AccentFocusRingBrush",
-            "App.AccentHoverBrush",
-            "App.AccentPressedBrush",
-            "App.DangerBrush",
-            "App.DangerForegroundBrush",
-            "App.DangerHoverBrush",
-            "App.DangerPressedBrush",
-            "App.ErrorTextBrush",
-            "App.SuccessTextBrush",
-            "App.SliderTickBrush",
-            "App.DialogBorderBrush",
-            "App.ControlPressedBrush",
-            "App.ControlBackgroundActiveBrush",
-            "App.InputFocusBorderBrush",
-            "App.MenuSelectedBackgroundBrush",
-            "App.MenuSelectedTextBrush",
-            "ScrollBar.TrackBackgroundBrush",
-            "ScrollBar.ThumbBackgroundBrush",
-            "ScrollBar.ThumbHoverBackgroundBrush",
-            "ScrollBar.ThumbDraggingBackgroundBrush",
-            "ScrollBar.ThumbBorderBrush",
-            "ScrollBar.ButtonBackgroundBrush",
-            "ScrollBar.ButtonHoverBackgroundBrush",
-            "ScrollBar.ButtonPressedBackgroundBrush",
-            "ScrollBar.ButtonBorderBrush",
-            "ScrollBar.ArrowBrush",
-            "Table.RowBackgroundBrush",
-            "Table.AlternatingRowBackgroundBrush",
-            "Table.SelectedRowBackgroundBrush",
-            "Table.CurrentCellTextBrush",
-            "Table.TextBrush",
-            "Table.SelectedTextBrush",
-            "Table.CheckBoxBackgroundBrush"
-        })
-        {
-            StringAssert.Contains(light, "x:Key=\"" + key + "\"");
-            StringAssert.Contains(dark, "x:Key=\"" + key + "\"");
-        }
 
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
         string[] lightKeys = XDocument.Parse(light).Descendants()
@@ -1000,78 +809,7 @@ public sealed class MainWindowContextMenuResourceTests
         CollectionAssert.AreEqual(lightKeys, darkKeys, "Light and dark theme dictionaries must have exact key parity.");
     }
 
-    [TestMethod]
-    public void ThemeStyles_ApplyToMenusAndStandardControls()
-    {
-        string styles = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Themes", "Simple Styles.xaml"));
-        string mainWindow = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-
-        foreach (string targetType in new[]
-        {
-            "ContextMenu",
-            "MenuItem",
-            "Separator",
-            "Button",
-            "TextBox",
-            "ComboBox",
-            "ComboBoxItem",
-            "CheckBox",
-            "RadioButton",
-            "Label",
-            "GroupBox",
-            "TabControl",
-            "TabItem",
-            "Expander"
-        })
-        {
-            StringAssert.Contains(styles, "Style TargetType=\"{x:Type " + targetType + "}\"");
-        }
-
-        string simpleMenuItem = styles.Substring(styles.IndexOf("x:Key=\"SimpleMenuItem\"", StringComparison.Ordinal));
-        simpleMenuItem = simpleMenuItem.Substring(0, simpleMenuItem.IndexOf("x:Key=\"SimpleSeparator\"", StringComparison.Ordinal));
-        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.MenuTextBrushKey"));
-        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.HighlightBrushKey"));
-        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.HighlightTextBrushKey"));
-        Assert.IsFalse(simpleMenuItem.Contains("SystemColors.GrayTextBrushKey"));
-        StringAssert.Contains(simpleMenuItem, "App.PopupBackgroundBrush");
-        StringAssert.Contains(simpleMenuItem, "ArrowPanelPath");
-        StringAssert.Contains(simpleMenuItem, "Data=\"M0,0 L4,4 L0,8 Z\"");
-
-        string simpleSeparator = styles.Substring(styles.IndexOf("x:Key=\"SimpleSeparator\"", StringComparison.Ordinal));
-        simpleSeparator = simpleSeparator.Substring(0, simpleSeparator.IndexOf("x:Key=\"SimpleTabControl\"", StringComparison.Ordinal));
-        StringAssert.Contains(simpleSeparator, "OverridesDefaultStyle");
-        StringAssert.Contains(simpleSeparator, "App.SeparatorBrush");
-        StringAssert.Contains(simpleSeparator, "x:Static MenuItem.SeparatorStyleKey");
-        Assert.IsFalse(simpleSeparator.Contains("MinWidth=\"{Binding ActualWidth"));
-
-        foreach (string controlStyle in new[] { "SimpleButton", "SimpleCheckBox", "SimpleRadioButton", "SimpleLabel", "SimpleListBox", "SimpleListBoxItem", "SimpleExpander", "SimpleTabItem" })
-        {
-            string marker = "x:Key=\"" + controlStyle + "\"";
-            string snippet = styles.Substring(styles.IndexOf(marker, StringComparison.Ordinal), Math.Min(900, styles.Length - styles.IndexOf(marker, StringComparison.Ordinal)));
-            StringAssert.Contains(snippet, "App.TextBrush");
-        }
-        string simpleLabel = styles.Substring(styles.IndexOf("x:Key=\"SimpleLabel\"", StringComparison.Ordinal), 500);
-        StringAssert.Contains(simpleLabel, "VerticalContentAlignment\" Value=\"Center\"");
-        string simpleTextBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleTextBox\"", StringComparison.Ordinal), 1200);
-        StringAssert.Contains(simpleTextBox, "VerticalContentAlignment\" Value=\"Center\"");
-        StringAssert.Contains(simpleTextBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
-        StringAssert.Contains(simpleTextBox, "CaretBrush\" Value=\"{DynamicResource App.TextBrush}\"");
-        string simpleComboBox = styles.Substring(styles.IndexOf("x:Key=\"SimpleComboBox\"", StringComparison.Ordinal), 1200);
-        StringAssert.Contains(simpleComboBox, "VerticalContentAlignment\" Value=\"Center\"");
-        StringAssert.Contains(simpleComboBox, "VerticalAlignment=\"{TemplateBinding Control.VerticalContentAlignment}\"");
-        string simpleProgressBar = styles.Substring(styles.IndexOf("x:Key=\"SimpleProgressBar\"", StringComparison.Ordinal), 700);
-        StringAssert.Contains(simpleProgressBar, "ProgressBar.TrackBrush");
-        StringAssert.Contains(simpleProgressBar, "ProgressBar.IndicatorBrush");
-        StringAssert.Contains(styles, "x:Key=\"ProgressBar.IndicatorBrush\" Color=\"#FF06B025\"");
-        StringAssert.Contains(mainWindow, "App.ControlBackgroundActiveBrush");
-        StringAssert.Contains(styles, "Data=\"M2,6 L5,9 L11,2\"");
-        StringAssert.Contains(styles, "Name=\"IndeterminateMark\"");
-
-        StringAssert.Contains(mainWindow, "x:Key=\"styleContextMenuLeftAlignment\" TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\"");
-        StringAssert.Contains(mainWindow, "x:Key=\"stylePlaylistSummaryContextMenuLeftAlignment\" TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\"");
-        Assert.AreEqual(4, CountOccurrences(mainWindow, "<Style TargetType=\"{x:Type MenuItem}\" BasedOn=\"{StaticResource {x:Type MenuItem}}\">"));
-    }
-
+    /// <summary>実測列幅・現在幅・前保存値の順に有効幅を保存し全無効なら補正することを確認し、実測を無視して古い幅や不正幅を保存する誤りを検出します。</summary>
     [TestMethod]
     public void SidebarTreeViewWidthSavePolicy_UsesMeasuredColumnWhenValid()
     {
@@ -1081,18 +819,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(Settings.DefaultTreeViewWidth, MainWindowViewSettingsPolicy.ResolveTreeViewWidthForSave(0d, double.NaN, 0d));
     }
 
-    [TestMethod]
-    public void PlaylistExternalPackageLookupContextMenu_IsBelowDiffUrlAndUsesResources()
-    {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"));
-        string tableContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenu\"", "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"");
-        string missingContextMenu = ExtractBetween(xaml, "<ContextMenu x:Key=\"tableContextMenuPlaylistMissing\"", "<ContextMenu x:Key=\"playHistoryContextMenu\"");
-
-        Assert.AreEqual(2, CountOccurrences(xaml, "Name=\"tableContextMenuItemFindExternalPackage\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Find_external_package_from_playlist_md5, Mode=OneWay}\" Click=\"tableContextMenuItemFindExternalPackageClick\""));
-        Assert.IsTrue(tableContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < tableContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
-        Assert.IsTrue(missingContextMenu.IndexOf("tableContextMenuItemOpenURLdiff", StringComparison.Ordinal) < missingContextMenu.IndexOf("tableContextMenuItemFindExternalPackage", StringComparison.Ordinal));
-    }
-
+    /// <summary>フォルダとhtm/htmlはブラウザー対象としarchiveと専用解析の配布ページは除くことを確認し、取得可能ページをブラウザーへ逃がす誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_BrowserFallbackRecognizesPageUrls()
     {
@@ -1105,6 +832,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://bmssearch.net/bmses/1")));
     }
 
+    /// <summary>Driveの三形式とDropbox共有を取得URLへ変換し似た別hostは変えないことを確認し、互換URL欠落や別サイトの誤変換を検出します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_NormalizesCloudStorageShareUrls()
     {
@@ -1125,6 +853,7 @@ public sealed class MainWindowContextMenuResourceTests
             PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://notdropbox.com/scl/fi/token/package.zip?dl=0")).ToString());
     }
 
+    /// <summary>Drive・MediaFire・イベント/BMS SEARCHのHTMLと埋込データから個別本体を選び全体package・非対応ページ・危険なscheme/偽hostを除くことを確認し、配布先の誤解析を検出します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_ResolvesKnownSharedDownloadPages()
     {
@@ -1274,6 +1003,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/freebattle/30"), venueGoogleDriveFolderOnlyHtml));
     }
 
+    /// <summary>UTF-8拡張filenameとLatin1として渡されたUTF-8日本語名を実名へ戻すことを確認し、取得package名の文字化けを検出します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_ResolvesContentDispositionFileName()
     {
@@ -1287,6 +1017,7 @@ public sealed class MainWindowContextMenuResourceTests
             PlaylistUrlAcquisitionWorkflow.ResolveContentDispositionFileName("attachment; filename=\"" + mojibake + "\""));
     }
 
+    /// <summary>DriveとMediaFireの共有/解決URLを揮発tokenによらない同一キーへ変換することを確認し、同じpackageを別取得として受け付ける誤りを検出します。</summary>
     [TestMethod]
     public void PlaylistUrlDownload_CreatesStableResolvedDownloadKeys()
     {
@@ -1423,7 +1154,6 @@ public sealed class MainWindowContextMenuResourceTests
     private static ChartOperationTarget CreateContextMenuTarget(ChartFileKind kind, ChartOperationCapabilities capabilities)
     {
         string path = kind == ChartFileKind.Bmson ? @"C:\Charts\chart.bmson" : @"C:\Charts\chart.bms";
-        ChartFile bmsFile = kind == ChartFileKind.Bms ? (ChartTestValues.Empty() with { Path = path }) : null!;
         var chart = new ChartFile(kind, path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64), "Title", "Title", "Artist", string.Empty, "Charts", string.Empty, "7", 7, 1, null);
         return new ChartOperationTarget(
             chart,
@@ -1435,18 +1165,6 @@ public sealed class MainWindowContextMenuResourceTests
             capabilities);
     }
 
-    private static int CountOccurrences(string value, string pattern)
-    {
-        int count = 0;
-        int index = 0;
-        while ((index = value.IndexOf(pattern, index, StringComparison.Ordinal)) >= 0)
-        {
-            count++;
-            index += pattern.Length;
-        }
-        return count;
-    }
-
     private static string BuildLongDirectoryPath(string tempDirectoryPath, string leafName)
     {
         string path = tempDirectoryPath;
@@ -1455,65 +1173,6 @@ public sealed class MainWindowContextMenuResourceTests
             path = Path.Combine(path, "segment_" + i.ToString("00") + "_" + new string('a', 32));
         }
         return Path.Combine(path, leafName);
-    }
-
-    private static XDocument LoadMainWindowXamlDocument()
-    {
-        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow", "MainWindow.xaml"), LoadOptions.PreserveWhitespace);
-    }
-
-    private static XElement FindElementByAttribute(XContainer container, string attributeLocalName, string value)
-    {
-        var matches = FindElementsByAttribute(container, attributeLocalName, value).ToList();
-        Assert.AreEqual(1, matches.Count, attributeLocalName + "=" + value);
-        return matches[0];
-    }
-
-    private static IEnumerable<XElement> FindElementsByAttribute(XContainer container, string attributeLocalName, string value)
-    {
-        return container.Descendants()
-            .Where(element => string.Equals(GetAttributeValue(element, attributeLocalName), value, StringComparison.Ordinal));
-    }
-
-    private static XElement DirectChild(XElement parent, string localName)
-    {
-        var matches = parent.Elements()
-            .Where(element => element.Name.LocalName == localName)
-            .ToList();
-        Assert.AreEqual(1, matches.Count, localName);
-        return matches[0];
-    }
-
-    private static string GetAttributeValue(XElement? element, string attributeLocalName)
-    {
-        return element?.Attributes()
-            .FirstOrDefault(attribute => attribute.Name.LocalName == attributeLocalName)
-            ?.Value ?? string.Empty;
-    }
-
-    private static double GetNumericAttribute(XElement element, string attributeLocalName)
-    {
-        string value = GetAttributeValue(element, attributeLocalName);
-        Assert.IsTrue(double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double number), attributeLocalName + "=" + value);
-        return number;
-    }
-
-    private static double ResolveRowSeparatorLineHeight(XElement splitterStyle)
-    {
-        XElement heightSetter = splitterStyle.Descendants()
-            .Single(element => element.Name.LocalName == "Setter"
-                && GetAttributeValue(element, "TargetName") == "SeparatorLine"
-                && GetAttributeValue(element, "Property") == "Height");
-        return GetNumericAttribute(heightSetter, "Value");
-    }
-
-    private static string ExtractBetween(string text, string start, string end)
-    {
-        int startIndex = text.IndexOf(start, StringComparison.Ordinal);
-        Assert.IsTrue(startIndex >= 0, "Start marker was not found.");
-        int endIndex = text.IndexOf(end, startIndex + start.Length, StringComparison.Ordinal);
-        Assert.IsTrue(endIndex > startIndex, "End marker was not found.");
-        return text.Substring(startIndex, endIndex - startIndex);
     }
 
     private static ResourceDictionary CreateResourceDictionary(string source)

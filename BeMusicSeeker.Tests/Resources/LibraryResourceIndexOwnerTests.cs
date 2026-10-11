@@ -11,6 +11,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class LibraryResourceIndexOwnerTests
 {
+    /// <summary>
+    /// 保証：索引置換後のフォルダ移動は現行世代だけへ反映し、置換前と移動前のsnapshotのフォルダ対応を保持する。
+    /// </summary>
     [TestMethod]
     public void ReplaceThenMoveFolderReferences_MutatesOnlyCurrentIndex()
     {
@@ -42,6 +45,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNull(initialIndex.DirectoryLookupCache.GetEntryOrNull(newDirectory));
     }
 
+    /// <summary>
+    /// 保証：追加・削除の実変更だけで世代を進め、重複追加・欠落削除ではsnapshotを維持して不要な再構築を起こさない。
+    /// </summary>
     [TestMethod]
     public void CurrentMutationCommands_AdvanceGenerationForReportedChanges()
     {
@@ -72,6 +78,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsFalse(missingRemoveReceipt.Snapshot.DirectoryLookupCache.Keys.Any());
     }
 
+    /// <summary>
+    /// 保証：六分類のハッシュを順序・重複に依存せず同値判定し、同値入力は無変更、実際の分類変化は新世代として公開する。
+    /// </summary>
     [TestMethod]
     public void AddDirectory_SemanticallyEqualSixCategories_IsNoOp()
     {
@@ -111,6 +120,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.AreEqual(first.Snapshot.Generation + 1L, changed.Snapshot.Generation);
     }
 
+    /// <summary>
+    /// 保証：音声・画像・動画の全体と自己所有の各分類の実変化を新snapshotへ反映し、以前のsnapshotの対象分類は保持する。
+    /// </summary>
     [TestMethod]
     public void AddDirectory_EachCategoryChangePublishesOnlyNewSnapshotPayload()
     {
@@ -139,6 +151,9 @@ public sealed class LibraryResourceIndexOwnerTests
         }
     }
 
+    /// <summary>
+    /// 保証：ファイル名列挙が途中で失敗した追加は旧snapshot・世代を維持し、部分入力のディレクトリを公開しない。
+    /// </summary>
     [TestMethod]
     public void AddDirectory_WhenFileEnumerationThrows_PreservesPublishedSnapshot()
     {
@@ -155,6 +170,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNull(after.DirectoryLookupCache.GetEntryOrNull(@"C:\Library\Failing"));
     }
 
+    /// <summary>
+    /// 保証：走査入力の一要素ハッシュ配列を後から書き換えても、公開済み索引のハッシュを変更させない。
+    /// </summary>
     [TestMethod]
     public void AddDirectory_DoesNotRetainSingletonHashArrayAlias()
     {
@@ -172,6 +190,9 @@ public sealed class LibraryResourceIndexOwnerTests
             receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(@"C:\Library\Chart").AudioRelativePathHashArray);
     }
 
+    /// <summary>
+    /// 保証：旧snapshotで計算済みの欠落候補は新フォルダ追加後も変えず、新世代だけへ実候補を反映する。
+    /// </summary>
     [TestMethod]
     public void AddDirectory_SeparatesOldAndNewLazyReverseLookupBuckets()
     {
@@ -196,6 +217,9 @@ public sealed class LibraryResourceIndexOwnerTests
             receipt.Snapshot.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(hash).ToArray());
     }
 
+    /// <summary>
+    /// 保証：元フォルダと子孫の除去・走査済み追加を一つの新世代として公開し、旧snapshotには元の対応を保持する。
+    /// </summary>
     [TestMethod]
     public void ReplaceSourceDirectoryWithScan_PublishesCombinedMutationOnce()
     {
@@ -220,6 +244,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNull(prior.DirectoryLookupCache.GetEntryOrNull(destination));
     }
 
+    /// <summary>
+    /// 保証：元と意味上同じ走査で置換する場合は世代・索引を維持し、無意味な除去追加や候補再構築を起こさない。
+    /// </summary>
     [TestMethod]
     public void ReplaceSourceDirectoryWithScan_SemanticallyIdenticalReplacementIsNoOp()
     {
@@ -249,6 +276,9 @@ public sealed class LibraryResourceIndexOwnerTests
             receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(nested).ImageRelativePathHashArray);
     }
 
+    /// <summary>
+    /// 保証：置換先ディレクトリの列挙失敗では元フォルダ・snapshot・世代を保持し、列挙済みprefixだけを適用しない。
+    /// </summary>
     [TestMethod]
     public void ReplaceSourceDirectoryWithDirectories_WhenEnumerationThrows_PreservesPriorSnapshot()
     {
@@ -271,6 +301,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNull(prior.DirectoryLookupCache.GetEntryOrNull(@"C:\Library\Destination"));
     }
 
+    /// <summary>
+    /// 保証：複数ディレクトリの追加を一度の世代更新へまとめ、旧snapshotを変えず全対象を新世代へ公開する。
+    /// </summary>
     [TestMethod]
     public void AddDirectories_PublishesOneGenerationAndPreservesPriorSnapshot()
     {
@@ -298,6 +331,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.IsNotNull(receipt.Snapshot.DirectoryLookupCache.GetEntryOrNull(secondDirectory));
     }
 
+    /// <summary>
+    /// 保証：成功した削除subtreeだけを一つの更新へ集約し、失敗対象と旧snapshotを保持して逆引きの全件更新を繰り返さない。
+    /// </summary>
     [TestMethod]
     public void RemoveUnderSourceDirectories_PublishesSuccessfulSubtreesAndUpdatesEntriesLocally()
     {
@@ -346,6 +382,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.AreSame(receipt.Snapshot.Index, owner.CaptureSnapshot().Index);
     }
 
+    /// <summary>
+    /// 保証：親子と大小文字違いの削除要求を集約し、同じprefixの兄弟フォルダを除去せず旧snapshotを保持する。
+    /// </summary>
     [TestMethod]
     public void RemoveUnderSourceDirectories_PreservesSiblingWithSharedPrefixAndDeduplicatesRoots()
     {
@@ -372,7 +411,7 @@ public sealed class LibraryResourceIndexOwnerTests
     }
 
     /// <summary>
-    /// 保持したentry順に対して、同一command内の削除slot再利用とfull/lazy逆引き順を確認する。
+    /// 保証：一回の走査置換で全構築・遅延逆引きそれぞれの既存候補順を守り、旧snapshotの候補順と内容も保持する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -406,7 +445,7 @@ public sealed class LibraryResourceIndexOwnerTests
     }
 
     /// <summary>
-    /// commandをまたぐforkでは過去の空slotを持ち越さず、削除後の追加を末尾順に保つ。
+    /// 保証：除去と追加が別の操作なら旧操作の空slotを再利用せず、残存候補の後ろへ追加し各世代の候補順を保持する。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -438,6 +477,9 @@ public sealed class LibraryResourceIndexOwnerTests
         AssertAllCategoryCandidates(oldSnapshot.DirectoryLookupCache, hash, initial);
     }
 
+    /// <summary>
+    /// 保証：空・空白・欠落の除去要求では世代や項目・逆引きを書き換えず、無変更処理で全件複製を起こさない。
+    /// </summary>
     [TestMethod]
     public void RemoveUnderSourceDirectories_EmptyAndMissingInputsDoNotPublishOrCopy()
     {
@@ -460,6 +502,9 @@ public sealed class LibraryResourceIndexOwnerTests
         Assert.AreEqual(0, writes.Count);
     }
 
+    /// <summary>
+    /// 保証：確定削除対象の列挙が途中で失敗しても元例外と旧索引を保持し、先に列挙した対象だけを公開除去しない。
+    /// </summary>
     [TestMethod]
     public void RemoveUnderSourceDirectories_EnumerationFailureDoesNotPublishItsPrefix()
     {
@@ -484,6 +529,9 @@ public sealed class LibraryResourceIndexOwnerTests
         CollectionAssert.AreEqual(new[] { first, second }, after.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(17u).ToArray());
     }
 
+    /// <summary>
+    /// 保証：パッケージ追加ごとの世代と候補列を保持し、後のパッケージの新ハッシュ・候補を先のsnapshotへ混入させない。
+    /// </summary>
     [TestMethod]
     public void ResourcePackages_KeepPerPackageGenerationsAndEarlierCandidateSnapshots()
     {

@@ -13,6 +13,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CommonChartPayloadContractTests
 {
+    /// <summary>
+    /// 代表境界の保持状態と非privateの引数・戻り値に保存行がなく、空のsealed tokenと直接共通値を返すparserを保ってDB責務が戻る誤りを検出する。
+    /// </summary>
+    /// <remarks>compiled型から代表境界の構造契約を検査する。捕捉後の実入力変更からの独立性はBMSFileSnapshotTests等が分担する。</remarks>
     [TestMethod]
     public void CompiledCommonValuesAndRequestsDoNotContainStorageRows()
     {

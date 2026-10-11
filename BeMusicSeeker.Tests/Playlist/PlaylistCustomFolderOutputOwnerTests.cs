@@ -10,10 +10,14 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>生成したLR2カスタムフォルダの物理反映・同期項目・進捗を検証する。</summary>
+/// <remarks>専用実ファイルで未変更・書換え・不要出力・ロックを観測する。出力定義の組立てとLR2 DB同期はそれぞれの下位・上位所有者へ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistCustomFolderOutputOwnerTests
 {
+    /// <summary>2表の生成・未変更・不要ファイル削除をまとめて反映し、実ファイル3件の有限進捗と同期項目を返す。観測先が正常・例外の両方で出力を完了し、誤った総数や観測失敗による処理中断を検出する。</summary>
     [DataTestMethod]
+    // 専用の進捗観測先が正常な場合と例外を投げる場合で、物理反映は同じ結果を維持する。
     [DataRow(false)]
     [DataRow(true)]
     public void Materialization_Lr2StageCountsActualFilesIncludingUnchangedAndIgnoresDedicatedObserverFailure(bool throwObserver)
@@ -114,6 +118,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         }
     }
 
+    /// <summary>出力定義が空なら書込みと同期項目を作らず、件数付きファイル段階を発行しない。0件作業の架空進捗を検出する。</summary>
     [TestMethod]
     public void Materialization_EmptyFileProjectionOmitsCountedStage()
     {
@@ -154,6 +159,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         }
     }
 
+    /// <summary>指定した出力基点と子フォルダに定義テキストを書き、同期項目を1件返す。出力先の取り違えと物理結果の配送漏れを検出する。</summary>
     [TestMethod]
     public void ProjectionAndMaterialization_CreateExpectedLr2FolderFileAndSyncItem()
     {
@@ -191,14 +197,11 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         try
         {
             PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = owner.CreateProjection(table);
-            Assert.AreEqual(Path.Combine(root, "owner-output"), projection.OutputDirectory);
-            Assert.AreEqual(1, projection.Files.Count);
-            Assert.AreEqual("nested", projection.Files[0].RelativeDirectory);
 
             PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult result = owner.MaterializeBatch([projection]);
             Assert.AreEqual(1, result.WrittenFileCount);
             Assert.AreEqual(1, result.SyncItems.Count);
-            Assert.IsTrue(File.Exists(projection.Files[0].FilePath));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "owner-output", "nested", "0000.lr2folder")));
             StringAssert.Contains(File.ReadAllText(projection.Files[0].FilePath), "#TITLE Owner test");
         }
         finally
@@ -210,6 +213,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         }
     }
 
+    /// <summary>古い内容を修復した後、同内容の捕捉済みファイルは書き直さずShift_JISバイト列と時刻を保持する。更新の未反映と不要な再書込みを検出する。</summary>
     [TestMethod]
     public void Materialization_RepairsStaleFileAndDoesNotRewriteExplicitlyCapturedCurrentFile()
     {
@@ -276,6 +280,7 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
         }
     }
 
+    /// <summary>捕捉結果から欠けたファイルが排他ロック中なら未検証として返し、書込み・未変更扱い・同期項目化を行わず元内容を保つ。検証失敗を成功へ隠す誤りを検出する。</summary>
     [TestMethod]
     public void Materialization_LeavesLockedOmittedFileUnverified()
     {

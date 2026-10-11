@@ -10,6 +10,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class StartupLibraryInitializationWorkflowOwnerTests
 {
+    /// <summary>
+    /// 保証：初期化gateの権限を重複解放しても一度だけ返却し、待っていた次の初期化へ直ちに引き渡す。
+    /// </summary>
     [TestMethod]
     public async Task GateLease_ReleasesExactlyOnceAndAllowsImmediateNextAcquire()
     {
@@ -31,6 +34,9 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         Assert.AreEqual(1, gate.CurrentCount);
     }
 
+    /// <summary>
+    /// 保証：必須プレイリストの完了通知で待機を終える一方、独立した導入推定準備完了を先に公開しない。
+    /// </summary>
     [TestMethod]
     public async Task StartupReadiness_TracksRequiredCompletionIndependentlyFromInstallEstimation()
     {
@@ -44,6 +50,9 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         Assert.IsFalse(coordinator.IsInstallEstimationReady);
     }
 
+    /// <summary>
+    /// 保証：終了取消のcallbackが失敗しても他callbackと必須・導入推定の待機を終端させ、元のcallback失敗を保持する。
+    /// </summary>
     [TestMethod]
     public async Task StartupReadiness_ShutdownTerminalizesWaitersDespiteCallbackFailure()
     {
@@ -64,6 +73,9 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => readinessWaiter);
     }
 
+    /// <summary>
+    /// 保証：プレイリスト初期化の失敗は元の例外で待機側へ伝わり、失敗した必須処理を準備完了として公開しない。
+    /// </summary>
     [TestMethod]
     public async Task StartupReadiness_FailedInitializationPreservesOriginalFailure()
     {
@@ -77,6 +89,9 @@ public sealed class StartupLibraryInitializationWorkflowOwnerTests
         Assert.IsFalse(coordinator.IsRequiredPlaylistReady);
     }
 
+    /// <summary>
+    /// 保証：初期化の継続処理が失敗すると元例外をAggregateExceptionへ保持し、完了待ちだけで成功扱いしない。
+    /// </summary>
     [TestMethod]
     public void InitializationService_RunInitialization_PropagatesContinuationFailure()
     {

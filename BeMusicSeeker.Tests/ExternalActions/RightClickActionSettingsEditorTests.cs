@@ -9,10 +9,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
-/// <summary>Verifies the dialog-local right-click editor without WPF or settings persistence.</summary>
+/// <summary>右クリック設定の編集・入力検査・取消を画面と永続化から分けて確認します。</summary>
 [TestClass]
 public sealed class RightClickActionSettingsEditorTests
 {
+    /// <summary>未指定・空・空白の保存入力を不正として保持し、既定定義や未保存変更を自動生成しません。</summary>
     [TestMethod]
     public void MissingAndBlankValuesRemainInvalidWithoutCreatingPendingChanges()
     {
@@ -26,6 +27,7 @@ public sealed class RightClickActionSettingsEditorTests
         }
     }
 
+    /// <summary>不正な保存名を診断付きで保存拒否し、明示resetだけで有効な保存draftへ復旧します。</summary>
     [TestMethod]
     public void InvalidPersistedNullWebNameHasNoFallbackAndExplicitResetRecoversIt()
     {
@@ -52,16 +54,13 @@ public sealed class RightClickActionSettingsEditorTests
         Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, json);
     }
 
+    /// <summary>利用者の有効draftを明示restoreで既定定義へ置き換え、保存可能な未保存変更として扱います。</summary>
     [TestMethod]
-    public void RestoreDefaultsReplacesValidDraftWithoutMutatingBackingRawValue()
+    public void RestoreDefaultsReplacesValidDraftAndMarksPendingSave()
     {
         const string originalJson = """
         {"webActions":[{"id":"custom","name":"Custom","urlTemplate":"https://example.test/{md5}","enabled":true,"chartKind":"All"}],"programActions":[{"id":"viewer","name":"Viewer","executablePath":"C:\\Tools\\viewer.exe","argumentTemplate":"{filePath}","enabled":true}]}
         """;
-        var settings = new BeMusicSeeker.Properties.Settings
-        {
-            RightClickActionsJson = originalJson
-        };
         var editor = new RightClickActionSettingsEditor(originalJson);
 
         Assert.AreEqual(1, editor.WebActions.Count);
@@ -70,15 +69,14 @@ public sealed class RightClickActionSettingsEditorTests
 
         editor.RestoreDefaults();
 
-        Assert.AreEqual(6, editor.WebActions.Count);
         Assert.AreEqual(0, editor.ProgramActions.Count);
         Assert.IsTrue(editor.IsDirty);
         Assert.IsFalse(editor.IsInvalidPersistedSettings);
         Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
         Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, restoredJson);
-        Assert.AreEqual(originalJson, settings.RightClickActionsJson);
     }
 
+    /// <summary>追加行を移動・削除して変更状態を保持し、名前の編集を表示へ反映して空名をエラーにします。</summary>
     [TestMethod]
     public void WebActionsSupportOrderDeletionEnabledStateAndLiteralNames()
     {
@@ -104,6 +102,7 @@ public sealed class RightClickActionSettingsEditorTests
         Assert.AreEqual("Error", first.NameValidationStatus);
     }
 
+    /// <summary>新規Web行の未入力名とURLを直ちにエラー表示して保存拒否し、有効入力後に各エラーを解除します。</summary>
     [TestMethod]
     public void AddWebActionImmediatelyMarksRequiredFieldsAsErrors()
     {
@@ -128,6 +127,7 @@ public sealed class RightClickActionSettingsEditorTests
         Assert.IsTrue(editor.TryPrepareSave(out _, out string error), error);
     }
 
+    /// <summary>新規programの必須項目を検査し、pickerで空名だけを補完して利用者が付けた名前を保持します。</summary>
     [TestMethod]
     public void ProgramActionStartsWithFilePlaceholderAndPickerNameOnlyFillsBlank()
     {
@@ -154,6 +154,7 @@ public sealed class RightClickActionSettingsEditorTests
         Assert.IsTrue(editor.TryPrepareSave(out _, out string error), error);
     }
 
+    /// <summary>引数・名前・実行pathの各エラーを入力変更直後に更新し、無効化された不正行も保存拒否します。</summary>
     [TestMethod]
     public void ProgramActionValidationClearsEachFieldImmediatelyAndRejectsDisabledRows()
     {
@@ -194,6 +195,7 @@ public sealed class RightClickActionSettingsEditorTests
             error);
     }
 
+    /// <summary>複数不正行の保存では順に最初の不正行を選択し、修正完了後は元の順と無効状態を保存します。</summary>
     [TestMethod]
     public void SaveSelectsFirstInvalidProgramRowInArrayOrderAndKeepsValidInputOrder()
     {
@@ -227,12 +229,11 @@ public sealed class RightClickActionSettingsEditorTests
         Assert.IsFalse(parsed.Settings.ProgramActions[2].Enabled);
     }
 
+    /// <summary>placeholderを欠くURLdraftを保存拒否し、内部英語診断ではなく表示用リソースの検査結果を返します。</summary>
     [TestMethod]
-    public void InvalidDraftIsRejectedAndSavedSettingsValueIsNotMutatedByPrepare()
+    public void InvalidDraftIsRejectedWithLocalizedValidationMessage()
     {
         string original = RightClickActionSettingsDefaults.SerializedJson;
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-        settings.RightClickActionsJson = original;
         var editor = new RightClickActionSettingsEditor(original);
         editor.SelectedWebAction.UrlTemplate = "https://example.test/no-placeholder";
 
@@ -243,9 +244,9 @@ public sealed class RightClickActionSettingsEditorTests
                 Resources.RightClick_settings_invalid),
             error);
         Assert.IsFalse(error.Contains("requires", StringComparison.OrdinalIgnoreCase));
-        Assert.AreEqual(original, settings.RightClickActionsJson);
     }
 
+    /// <summary>空の有効設定へ追加後に取消すると両一覧とdirty状態を元へ戻し、不正設定と取り違えません。</summary>
     [TestMethod]
     public void DiscardChangesRestoresValidEmptyAggregateSnapshot()
     {

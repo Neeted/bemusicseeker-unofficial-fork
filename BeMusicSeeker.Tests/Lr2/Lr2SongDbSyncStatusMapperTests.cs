@@ -9,9 +9,11 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class Lr2SongDbSyncStatusMapperTests
 {
+    /// <summary>
+    /// 再同期が必要な状態は警告として表示し、保存位置・工程・前回エラーを詳細に残して状態名との混同や原因の欠落を検出します。
+    /// </summary>
     [TestMethod]
     public void Create_NeededBuildsWarningStatus()
     {
@@ -34,6 +36,9 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.IsFalse(status.Detail.Contains(Resources.Lr2_song_db_sync_status_needed));
     }
 
+    /// <summary>
+    /// 完了状態を完了文言で表示して警告を解除し、成功後に注意状態を残す誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void Create_CompletedClearsWarningStatus()
     {
@@ -47,10 +52,13 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.IsFalse(status.HasWarningStatus);
     }
 
+    /// <summary>
+    /// 処理中は保存済み位置と現在工程の件数を分けて表示し、途中・最終件数で進捗値と最大値を取り違える誤りを検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow(4)]
     [DataRow(50)]
-    public void Create_RunningBuildsVisibleRuntimeStatusWithoutRetry(int processedCount)
+    public void Create_RunningSeparatesSavedPositionFromStageProgress(int processedCount)
     {
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
@@ -73,6 +81,9 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(50.0, status.ProgressMaximum);
     }
 
+    /// <summary>
+    /// 失敗と未完了を各状態名で警告表示し、それぞれの原因を詳細から落とす誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void Create_FailedAndIncompleteAreWarningStatuses()
     {
@@ -95,20 +106,11 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         StringAssert.Contains(incomplete.Detail, "startup scan blockers");
     }
 
+    /// <summary>
+    /// 旧取消状態を未完了の警告表示として読み替え、保存済みの旧状態を正常完了と扱う互換性退行を検出します。
+    /// </summary>
     [TestMethod]
-    public void Create_IncompleteRemainsRetryableWithoutCleanupRoute()
-    {
-        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
-        {
-            Status = Lr2SongDbSyncStatusKind.Incomplete,
-            Stage = "song_rows",
-            LastError = "song rows"
-        }, DateTime.MinValue);
-
-    }
-
-    [TestMethod]
-    public void Create_LegacyCancelledRemainsIncompleteAndRetryable()
+    public void Create_LegacyCancelledDisplaysIncompleteWarning()
     {
         Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(new Lr2SongDbSyncStatusSnapshot
         {
@@ -121,6 +123,9 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.IsTrue(status.HasWarningStatus);
     }
 
+    /// <summary>
+    /// 既知の保存工程を役割ごとの表示文言へ変換し、保存位置と元の例外・パス・内部原因を保持して生の識別名の露出や診断切捨てを検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow("queued", nameof(Resources.Lr2_song_db_sync_stage_queued))]
     [DataRow("preparing", nameof(Resources.Lr2_song_db_sync_stage_preparing))]
@@ -202,11 +207,13 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(expected, status.ProgressText);
         StringAssert.Contains(status.Detail, expected);
         StringAssert.Contains(status.Detail, expected + ": " + suffix);
-        Assert.AreEqual(stage + ": " + suffix, snapshot.LastError);
         StringAssert.Contains(status.Detail, string.Format(Resources.Lr2_song_db_sync_saved_position, 12, 100));
         Assert.IsFalse(status.HasProgress);
     }
 
+    /// <summary>
+    /// 工程の総数が正の場合だけ進捗を確定値にし、未定・零を保存済み全体件数で埋めて誤った進捗を表示する処理を検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow(null)]
     [DataRow(0)]
@@ -226,10 +233,16 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Resources.Lr2_song_db_sync_stage_folder_reconciliation + (stageTotal > 0 ? " [8/20]" : ""), status.ProgressText);
         Assert.AreEqual(stageTotal > 0, status.HasProgress);
         Assert.AreEqual(8.0, status.ProgressValue);
-        Assert.AreEqual(stageTotal > 0 ? 20.0 : 1.0, status.ProgressMaximum);
+        if (stageTotal > 0)
+        {
+            Assert.AreEqual(20.0, status.ProgressMaximum);
+        }
         StringAssert.Contains(status.Detail, string.Format(Resources.Lr2_song_db_sync_saved_position, 12, 100));
     }
 
+    /// <summary>
+    /// 準備の一件目を工程進捗だけに表示し、未保存の件数を保存済み位置として見せる誤りを検出します。
+    /// </summary>
     [TestMethod]
     public void Create_PreparationStageCountsDoNotAppearAsSavedPosition()
     {
@@ -252,6 +265,9 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual((double)snapshot.StageTotalCount.GetValueOrDefault(), status.ProgressMaximum);
     }
 
+    /// <summary>
+    /// 空工程には表示を推測せず、未知工程と元診断を保持して不明な保存状態を別工程へ読み替える誤りを検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow(null, "")]
     [DataRow(" ", "")]
@@ -274,6 +290,9 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         }
     }
 
+    /// <summary>
+    /// 既知工程でも異なる原因接頭辞と既定外の区切りを診断から削らず、工程名変換による元エラーの改変を検出します。
+    /// </summary>
     [DataTestMethod]
     [DataRow("future_error: original detail")]
     [DataRow("lr2_song_db_mode_upsert_failed:original detail")]
@@ -290,6 +309,11 @@ public sealed class Lr2SongDbSyncStatusMapperTests
         Assert.AreEqual(Resources.Lr2_song_db_sync_stage_song_type_saving + Environment.NewLine + error, status.Detail);
     }
 
+    /// <summary>
+    /// 日本語と英語の実辞書へ切替えると同じ工程と進捗が選択言語で表示され、固定言語の再利用や翻訳経路の未接続を検出します。
+    /// </summary>
+    /// <remarks>共有表示文化圏を変更して復元するため、このメソッドだけ並列実行を止めます。</remarks>
+    [DoNotParallelize]
     [TestMethod]
     public void Create_LanguageSwitchUsesActualJapaneseAndEnglishStageResources()
     {

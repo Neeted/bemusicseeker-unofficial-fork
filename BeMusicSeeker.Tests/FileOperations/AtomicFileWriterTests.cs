@@ -13,6 +13,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AtomicFileWriterTests
 {
+    /// <summary>既存宛先への公開が失敗したとき元バイトを保持して所有stageを消し、元例外と対象場所を失う誤りや保存内容の破壊を検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_WhenExistingDestinationPublishFails_PreservesDestinationAndCleansOwnedStage()
     {
@@ -38,6 +40,8 @@ public sealed class AtomicFileWriterTests
         });
     }
 
+    /// <summary>stageへ一部書いた後の失敗でも既存宛先を保持してstageを回収し、未完成データの公開や残留を検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_WhenStagingWriteFails_PreservesExistingDestinationAndCleansOwnedStage()
     {
@@ -64,6 +68,8 @@ public sealed class AtomicFileWriterTests
         });
     }
 
+    /// <summary>新規宛先への公開が失敗したとき宛先を生成せずstageも回収し、失敗を空の正常ファイルとして残す誤りを検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_WhenInitialDestinationPublishFails_DoesNotCreateDestination()
     {
@@ -86,6 +92,8 @@ public sealed class AtomicFileWriterTests
         });
     }
 
+    /// <summary>日本語をUTF8のBOMなしバイトとして実保存し、内容・符号化の変化や成功後のstage残留を検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_WhenSuccessfulPublishesUtf8BytesAndLeavesNoStage()
     {
@@ -108,6 +116,8 @@ public sealed class AtomicFileWriterTests
         });
     }
 
+    /// <summary>公開portが排他でstageを開けることを確認してから実公開し、書込みstreamを開いたまま公開する順序違反を検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_PublisherObservesClosedStageBeforePublishing()
     {
@@ -142,6 +152,8 @@ public sealed class AtomicFileWriterTests
         });
     }
 
+    /// <summary>公開とstage回収の両方を失敗させ、両原因と絶対stageパスを診断へ保持して二次失敗による主因の消失を検出する。</summary>
+    /// <remarks>固有ディレクトリの実バイトとstageの寿命を観測し、portの呼出し回数だけで保存を保証しない。</remarks>
     [TestMethod]
     public void Write_WhenPublishAndCleanupFail_RetainsBothCausesAndStagePath()
     {
@@ -163,8 +175,6 @@ public sealed class AtomicFileWriterTests
             var causes = (AggregateException)failure.InnerException;
             Assert.IsTrue(causes.InnerExceptions.Contains(publishFailure));
             Assert.IsTrue(causes.InnerExceptions.Contains(cleanupFailure));
-            Assert.IsTrue(ContainsException(failure, publishFailure));
-            Assert.IsTrue(ContainsException(failure, cleanupFailure));
             string[] siblingPathsAfter = Directory.GetFiles(tempDirectoryPath);
             string stagingPath = siblingPathsAfter
                 .Except(siblingPathsBefore, StringComparer.OrdinalIgnoreCase)
@@ -183,21 +193,6 @@ public sealed class AtomicFileWriterTests
     {
         byte[] bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(contents);
         stream.Write(bytes, 0, bytes.Length);
-    }
-
-    private static bool ContainsException(Exception candidate, Exception expected)
-    {
-        if (ReferenceEquals(candidate, expected))
-        {
-            return true;
-        }
-        if (candidate is AggregateException aggregate
-            && aggregate.InnerExceptions.Any(exception => ContainsException(exception, expected)))
-        {
-            return true;
-        }
-        return candidate?.InnerException != null
-            && ContainsException(candidate.InnerException, expected);
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)

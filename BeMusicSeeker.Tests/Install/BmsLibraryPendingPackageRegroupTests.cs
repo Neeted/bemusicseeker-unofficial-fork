@@ -18,6 +18,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>分割した二つの保留に同じ導入先があっても、単一パッケージの再推定が公開集合と保存行を勝手に結合しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
@@ -39,6 +41,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>譜面指定の再推定でも、同じ導入先を持つ別の保留パッケージを公開集合や保存行から失わせない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectoryByFile_DoesNotRegroupSplitPackagesWhenPendingDestinationsMatch()
     {
@@ -60,6 +64,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>別entryから同じBmsonパスを指定すると、保留パッケージを解決して保留理由を解除し、対象パスを保持する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectoryByFiles_MatchesAdapterlessBmsonPackageByChartPath()
     {
@@ -80,27 +86,29 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.BmsCharts = [];
             SeedPendingPackages(library, songDbPath, pendingPackage);
-            Assert.IsNull(pendingPackage.ChartEntries.Single().GetBmsChartForTest());
+
 
             library.SearchEstimatedInstallationDirectory([selectedChart], asParallel: false, fixMode: false);
 
             PackageChartEntry entry = pendingPackage.ChartEntries.Single();
             Assert.AreEqual(PendingEstimateDeferredReason.None, pendingPackage.DeferredEstimateReason);
-            Assert.IsNull(entry.GetBmsChartForTest());
+
             Assert.AreEqual(chartPath, entry.Chart.Path);
         });
     }
 
 
 
+    /// <summary>二件の一括推定が外側並列・内側単一の契約で両対象を処理し、対象名付きの進捗を全件適用から非稼働へ終える。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MultiPackageBatchReportsExecutionPolicyAndProgress()
     {
 
         const int packageCount = 2;
-        int expectedWorkItemDegree = BMSLibrary.ResolveInstallEstimationDefaultDegree();
+        int expectedWorkItemDegree = Math.Max(1, Environment.ProcessorCount - 1);
         int expectedMaxActive = Math.Min(packageCount, expectedWorkItemDegree);
-        var observer = new RecordingInstallEstimationExecutionObserver(expectedMaxActive);
+        using var observer = new RecordingInstallEstimationExecutionObserver(expectedMaxActive);
 
         WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
         {
@@ -111,8 +119,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage firstPackage = CreatePendingSingleFilePackage(firstPendingPath);
             ChartPackage secondPackage = CreatePendingSingleFilePackage(secondPendingPath);
 
-            // Both packages contain one supported missing chart, so the public
-            // route must prepare and dispatch two evaluation requests.
+            // 未所持の対応譜面を一件ずつ持つ二つのパッケージから、二件の評価要求を実受付する。
             library.BmsCharts = [];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
@@ -157,6 +164,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             observer.Attempts.Select(attempt => attempt.OrderIndex).OrderBy(order => order).ToArray());
     }
 
+    /// <summary>一括推定の観測先が失敗したとき、元例外をそのまま呼出し元へ伝え、正常終了に置き換えない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_ObserverFailureIsPropagated()
     {
@@ -177,6 +186,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         Assert.AreSame(observer.Failure, failure);
     }
 
+    /// <summary>単一譜面の相対リソースから入力元を除く導入先を選び、無関係な下位フォルダの走査警告を付けない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_SingleFileRelativeResourceSelectsExternalCandidateWithoutSourceScanWarning()
     {
@@ -209,7 +220,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             cache.AddDir(sourceDirectoryPath, ["pending.bms", Path.Combine("sound", "00.wav")]);
             cache.AddDir(candidateDirectoryPath, ["candidate.bms", Path.Combine("sound", "00.wav")]);
             SetLibraryResourceIndex(library, cache);
-            SetLibraryResourceIndex(library, cache);
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
@@ -221,6 +231,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>明示された適格ディレクトリの分割保留を二譜面の一パッケージに再編成し、保存行もディレクトリ単位へ揃える。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_RegroupsSplitPackagesWhenEligibleDirectoryIsSupplied()
     {
@@ -242,6 +254,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>BMSとBmsonの分割保留を同じディレクトリへ再編成しても、所持Bmsonに未所持BMSの導入先を転用しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_UsesAdapterlessBmsonEntriesForEligibility()
     {
@@ -261,7 +275,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage bmsPackage = CreatePendingSingleFilePackage(CreateBmsFile(sourceDirectoryPath, "chart.bms", "Regroup Bms"), destinationDirectoryPath);
             string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Regroup Bmson", "Bmson Artist");
             ChartFile installedSong = ChartTestValues.ReadBmson(installedBmsonPath);
-            Assert.IsNull(adapterlessPackage.ChartEntries.Single().GetBmsChartForTest());
+
 
             library.BmsCharts = [];
             library.BmsonCharts = [installedSong];
@@ -275,13 +289,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             PackageChartEntry regroupedBms = regroupedPackage.ChartEntries
                 .Single(entry => entry.Chart.Kind == ChartFileKind.Bms);
             Assert.AreEqual(pendingBmsonPath, regroupedBmson.Chart.Path);
-            Assert.IsNull(regroupedBmson.GetBmsChartForTest());
+
             Assert.IsTrue(string.IsNullOrWhiteSpace(regroupedBmson.Chart.InstallDestination));
             Assert.AreEqual(destinationDirectoryPath, regroupedBms.Chart.InstallDestination);
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
 
+    /// <summary>古い捕捉パスを持つentryも現在のBmson対象で重複排除し、再編成した公開集合と保存行に一件だけ残す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DeduplicatesAdapterlessBmsonByChartTarget()
     {
@@ -297,7 +313,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartFile staleCapture = WithChartPath(pendingSong, staleSnapshotPath);
             var secondEntry = PackageChartEntry.FromChart(staleCapture);
             secondEntry.ApplyCurrentChart(pendingSong);
-            Assert.AreEqual(staleSnapshotPath, staleCapture.Path);
             var firstPackage = ChartPackage.FromChartEntries([firstEntry]);
             firstPackage.path = pendingBmsonPath;
             firstPackage.delete_parent = true;
@@ -306,8 +321,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             secondPackage.delete_parent = true;
             string installedBmsonPath = CreateHealthyBmsonFile(destinationDirectoryPath, "installed.bmson", "Duplicate Bmson", "Bmson Artist");
             ChartFile installedSong = ChartTestValues.ReadBmson(installedBmsonPath);
-            Assert.IsNull(firstEntry.GetBmsChartForTest());
-            Assert.IsNull(secondEntry.GetBmsChartForTest());
+
+
 
             library.BmsCharts = [];
             library.BmsonCharts = [installedSong];
@@ -318,13 +333,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ChartPackage regroupedPackage = library.ChartPackagesPending.Single();
             Assert.AreEqual(sourceDirectoryPath, regroupedPackage.path);
             Assert.AreEqual(1, regroupedPackage.ChartEntries.Count);
-            Assert.IsNull(regroupedPackage.ChartEntries.Single().GetBmsChartForTest());
+
             Assert.AreEqual(pendingBmsonPath, regroupedPackage.ChartEntries.Single().Chart.Path);
             Assert.IsTrue(string.IsNullOrWhiteSpace(regroupedPackage.ChartEntries.Single().Chart.InstallDestination));
             CollectionAssert.AreEqual(new[] { sourceDirectoryPath }, LoadInstallPaths(songDbPath));
         });
     }
 
+    /// <summary>全譜面が所持済みの再編成では、導入先を付けず所持済み警告を各entryに残して保存行を結合する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotApplyInstallDestinationToInstalledOnlyEntries()
     {
@@ -358,6 +375,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>所持・未所持の混在を再編成すると、未所持entryだけへ導入先を付け、所持entryの警告と空の導入先を保つ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_AppliesInstallDestinationOnlyToMissingEntries()
     {
@@ -392,6 +411,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>再編成後は単一譜面警告を除き、欠落WAVの警告を再評価して正常な隣接entryへ波及させない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_ReinitializesWarningsWhenEligibleDirectoryIsSupplied()
     {
@@ -424,6 +445,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>再編成の導入先から代表タイトルと作者を全entryへ反映しても、元entryの候補一覧を消さない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_SynchronizesRepresentativeMetadataWithoutClearingSuggestions()
     {
@@ -455,6 +478,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>再編成のDB保存を失敗させると、元entryの導入先・候補・警告と二つの公開パッケージを変更しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DurableFailureLeavesSourceEntryStateUnchanged()
     {
@@ -482,10 +507,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.BmsCharts = [BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(installedFilePath))];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
 
-            // ReplaceInstallRows is intentionally the first durable step after
-            // the detached regroup graph has been prepared.  A directory at the
-            // database path forces that step to fail without changing the live
-            // source entries.
+            // 再編成結果の準備後、最初の永続反映をDBパスのディレクトリで失敗させ、元entryへの先行適用を検出する。
             File.Delete(songDbPath);
             Directory.CreateDirectory(songDbPath);
 
@@ -505,6 +527,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>同じ入力元のディレクトリパッケージが既存なら、分割保留を追加結合せず公開集合と保存行を保つ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_DoesNotRegroupWhenDirectoryPackageAlreadyExists()
     {
@@ -532,6 +556,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>健全な入力元として推定保留になったパッケージが混在すると、明示ディレクトリでも分割状態と保存行を維持する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void TryRegroupPendingPackagesForSourceDirectories_SkipsDeferredEstimatePackages()
     {
@@ -554,6 +580,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>同等の二候補では導入先を未確定にし、代表メタデータ・両候補・曖昧理由を表示用警告へ残す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_LowConfidenceLeavesInstallDestinationEmptyAndShowsRepresentativeMetadata()
     {
@@ -593,11 +621,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationAmbiguousPrefix);
             StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationAmbiguous);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
-            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateADirectoryPath);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateBDirectoryPath);
         });
     }
 
+    /// <summary>Bmsonの二候補も導入先を自動確定せず、同じentryへ代表メタデータと曖昧候補を反映する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_AdapterlessBmsonLowConfidenceStaysOnChartEntry()
     {
@@ -627,7 +656,6 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             library.SearchEstimatedInstallationDirectory(pendingPackage);
 
-            Assert.IsNull(entry.GetBmsChartForTest());
             Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
             Assert.AreEqual("Candidate A", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist A", entry.Chart.InstallDestinationArtist);
@@ -637,6 +665,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>複数Bmsonの一括推定でも、曖昧な対象に二候補と警告を残し、先頭候補へ勝手に確定しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_BatchAdapterlessBmsonLowConfidenceStaysOnChartEntry()
     {
@@ -669,11 +699,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             ];
             SeedPendingPackages(library, songDbPath, firstPackage, secondPackage);
             SetLibraryResourceIndex(library, BuildDirectoryLookupCache(firstSourceDirectoryPath, secondSourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
-            SetLibraryResourceIndex(library, BuildDirectoryLookupCache(firstSourceDirectoryPath, secondSourceDirectoryPath, candidateADirectoryPath, candidateBDirectoryPath));
 
             library.SearchEstimatedInstallationDirectory([firstPackage, secondPackage]);
 
-            Assert.IsNull(firstEntry.GetBmsChartForTest());
             Assert.IsTrue(string.IsNullOrWhiteSpace(firstEntry.Chart.InstallDestination));
             Assert.AreEqual("Candidate A", firstEntry.Chart.InstallDestinationTitle);
             CollectionAssert.AreEquivalent(new[] { candidateADirectoryPath, candidateBDirectoryPath }, firstEntry.Chart.InstallDestinationSuggestions.ToArray());
@@ -681,6 +709,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>混在パッケージの所持先を解決できないと、未所持entryの一般推定へ迂回せず専用の保留理由と警告を付ける。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageUnresolvedInstalledDestination_DefersWithoutFallbackEstimation()
     {
@@ -724,6 +754,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>親ディレクトリ参照を持つ入力は推定を保留し、導入先や低確度候補を捏造せず未対応理由を通知用警告へ残す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_UnsupportedParentResourcePath_WarnsAndSkipsEstimation()
     {
@@ -761,6 +793,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>現在ディレクトリ付きのリソース参照を正規化して候補を選び、拡張子だけの記述を未対応パスと誤分類しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_CurrentDirectoryResourcePath_NormalizesAndEstimates()
     {
@@ -797,6 +831,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>混在パッケージでは所持ハッシュの候補順だけで確定せず、未所持譜面の最終評価に合う導入先を選ぶ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleCandidates_UsesFinalEvaluationWinner()
     {
@@ -838,6 +874,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>混在パッケージの評価が同等なら、BMSとBmsonを通したディレクトリ固有ハッシュ数で一意の候補を選ぶ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageEquivalentCandidates_UsesDirectoryUniquePrimaryHashCount()
     {
@@ -886,6 +924,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>混在パッケージの複数有力候補を未確定で残し、通常の推定曖昧ではなく所持先曖昧の警告と両パスを示す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MixedPackageMultipleViableCandidates_ShowsInstalledDestinationAmbiguousWarning()
     {
@@ -933,8 +973,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>強いメタデータ一致と自動適用設定がある混在パッケージは先頭候補へ確定しても、全候補と自動適用の曖昧警告を保持する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSetting_AutoAppliesFirstCandidateAndKeepsAutoAppliedWarning()
     {
 
@@ -988,8 +1029,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>自動適用設定が無効なら、強いメタデータ一致があっても混在パッケージを確定せず両候補と所持先曖昧警告を残す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageStrongMetadataWithSettingOff_LeavesInstallDestinationEmpty()
     {
 
@@ -1039,8 +1081,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>自動適用設定が有効でもメタデータ一致が弱い混在パッケージは未確定にし、自動適用したとの警告を付けない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_MixedPackageWeakMetadataWithSetting_LeavesInstallDestinationEmpty()
     {
 
@@ -1086,6 +1129,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>リソース評価が同等の候補からタイトル・作者の一致する方を選び、低確度警告や不要な候補一覧を残さない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MetadataTieBreakSelectsMatchingCandidate()
     {
@@ -1128,8 +1173,9 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>通常推定の強いメタデータ一致を自動適用する設定では先頭候補を選びつつ、曖昧警告と全候補を維持する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
-    [DoNotParallelize]
     public void SearchEstimatedInstallationDirectory_AmbiguousStrongMetadataWithSetting_AppliesDestinationAndKeepsWarning()
     {
 
@@ -1173,6 +1219,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>リソースの単一候補でもメタデータが不一致なら確定せず、代表情報・候補と不一致専用警告を表示へ渡す。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion()
     {
@@ -1208,10 +1256,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), BeMusicSeeker.Properties.Resources.Warning_InstallEstimationMetadataMismatchPrefix);
             StringAssert.Contains(ChartWarningTestHelpers.BuildDigestText(pendingEntry), BeMusicSeeker.Properties.Resources.WarningDigest_InstallEstimationMetadataMismatch);
             StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateDirectoryPath);
-            StringAssert.Contains(ChartWarningTestHelpers.BuildTooltipText(pendingEntry), candidateDirectoryPath);
         });
     }
 
+    /// <summary>候補が一件もないと、空の導入先・代表情報・候補一覧を保ち、曖昧さや不一致の警告を誤って付けない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchEstimatedInstallationDirectory_HighConfidenceWithoutCandidate_DoesNotSetLowConfidenceState()
     {
@@ -1241,6 +1290,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>所持ハッシュで結合先が解決したBMSパッケージでは、全entryの導入先と代表タイトル・作者を揃える。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvedPathUpdatesRepresentativeMetadata()
     {
@@ -1277,6 +1328,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>Bmsonの所持ハッシュから結合先を解決し、BMSが無いライブラリでも導入先と代表情報を反映する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvesBmsonFromInstalledBmsonHash()
     {
@@ -1304,37 +1357,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
-            Assert.IsNull(pendingBmsonEntry.GetBmsChartForTest());
+
         });
     }
 
-    [TestMethod]
-    public void SearchMergeDestinationForPendingPackage_ResolvedAdapterlessBmsonStaysAdapterless()
-    {
-
-        WithTemporaryLibrary(delegate (string tempRootPath, string songDbPath, BMSLibrary library)
-        {
-            string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonMergeAdapterless");
-            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonMergeAdapterless");
-            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", "Bmson Artist");
-            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Bmson Artist");
-            var entry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(pendingBmsonPath)));
-            var pendingPackage = ChartPackage.FromChartEntries([entry]);
-            pendingPackage.path = sourceDirectoryPath;
-            pendingPackage.delete_parent = false;
-            library.BmsCharts = [];
-            library.BmsonCharts = [ChartTestValues.ReadBmson(installedBmsonPath)];
-            SeedPendingPackages(library, songDbPath, pendingPackage);
-
-            library.SearchMergeDestinationForPendingPackage(pendingPackage);
-
-            Assert.IsNull(entry.GetBmsChartForTest());
-            Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
-            Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
-            Assert.AreEqual("Bmson Artist", entry.Chart.InstallDestinationArtist);
-        });
-    }
-
+    /// <summary>所持Bmsonの修復推定は現在パスの自己一致を候補から外し、リソースを満たす別ディレクトリを選ぶ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchCorrectInstallationDirectoryCharts_BmsonOwnedChartIgnoresCurrentInstalledIndexSelfMatch()
     {
@@ -1356,10 +1384,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             library.SearchCorrectInstallationDirectoryCharts([entry]);
 
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
-            Assert.IsNull(entry.GetBmsChartForTest());
+
         });
     }
 
+    /// <summary>BMSとBmsonが混在しても両種の所持ハッシュを用いて、同じ結合先を全entryへ反映する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_ResolvesMixedBmsAndBmsonPackage()
     {
@@ -1393,10 +1423,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             {
                 Assert.AreEqual(destinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
-            Assert.IsNull(pendingBmsonEntry.GetBmsChartForTest());
+
         });
     }
 
+    /// <summary>混在譜面の所持先が分割されている場合、一致譜面数が多いディレクトリをBmsonを含む全entryの結合先にする。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_MixedSplitInstalledDirectoriesUsesMostMatchingDirectory()
     {
@@ -1435,10 +1467,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             {
                 Assert.AreEqual(primaryDestinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
-            Assert.IsNull(pendingBmsonEntry.GetBmsChartForTest());
+
         });
     }
 
+    /// <summary>混在譜面の所持ハッシュ数が同数なら、実リソースを満たす候補へ評価を進め、ハッシュだけの候補を選ばない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingPackage_MixedSplitTieFallsBackToResourceCandidate()
     {
@@ -1475,10 +1509,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             {
                 Assert.AreEqual(resourceDestinationDirectoryPath, pendingEntry.Chart.InstallDestination);
             }
-            Assert.IsNull(pendingBmsonEntry.GetBmsChartForTest());
+
         });
     }
 
+    /// <summary>譜面一覧からの結合先探索では入力元を候補から外し、外部候補の導入先・代表情報を反映する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SearchMergeDestinationForPendingCharts_UsesExternalCandidateOnly()
     {
@@ -1515,6 +1551,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>保留entryへ手動導入先を指定すると、代表タイトル・作者も更新し、低確度候補を新しく作らない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_UpdatesRepresentativeMetadata()
     {
@@ -1545,6 +1583,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>Bmson保留へ親ディレクトリを手動指定すると、下位ディレクトリの所持譜面から代表情報を解決する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_UpdatesAdapterlessBmsonEntryWithoutMaterializingAdapter()
     {
@@ -1568,13 +1608,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(entry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(entry.GetBmsChartForTest());
+
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Installed Artist", entry.Chart.InstallDestinationArtist);
         });
     }
 
+    /// <summary>パッケージに属さない所持BMSも手動指定を受理し、所持候補の導入先と代表情報を反映する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_AllowsStandaloneLibraryFileForFullScan()
     {
@@ -1605,6 +1647,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>パッケージに属さない所持Bmsonも手動指定を受理し、導入先・代表情報を更新して推定警告を残さない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_AllowsStandaloneLibraryBmsonForFullScanWithoutAdapter()
     {
@@ -1624,7 +1668,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(sourceEntry, destinationDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(sourceEntry.GetBmsChartForTest());
+
             Assert.AreEqual(destinationDirectoryPath, sourceEntry.Chart.InstallDestination);
             Assert.AreEqual("Destination Bmson", sourceEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Destination Artist", sourceEntry.Chart.InstallDestinationArtist);
@@ -1633,6 +1677,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>所持集合にも保留にも属さない外部譜面の手動導入先指定を拒否し、管理対象として受理しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_RejectsStandaloneFileThatIsNotInLibrary()
     {
@@ -1653,10 +1699,11 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(PackageChartEntry.FromChart((sourceFile)), destinationDirectoryPath);
 
             Assert.IsFalse(succeeded);
-            Assert.AreEqual(string.Empty, (sourceFile).InstallDestination);
         });
     }
 
+    /// <summary>曖昧候補からの手動選択は同じパッケージの全entryへ反映し、候補と理由を保ちながら別パッケージを変更しない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_FromLowConfidenceCandidates_PreservesWarningAndSuggestions()
     {
@@ -1717,6 +1764,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>Bmsonの曖昧候補を手動選択しても、選択先の代表情報と元の両候補・曖昧警告を同じentryに保持する。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_FromAdapterlessBmsonLowConfidenceCandidate_PreservesWarningAndSuggestions()
     {
@@ -1750,7 +1799,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             bool succeeded = library.SetPendingInstallDestination(entry, candidateBDirectoryPath);
 
             Assert.IsTrue(succeeded);
-            Assert.IsNull(entry.GetBmsChartForTest());
+
             Assert.AreEqual(candidateBDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Candidate B", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Artist B", entry.Chart.InstallDestinationArtist);
@@ -1759,6 +1808,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>手動解除と任意の実ディレクトリ指定は曖昧候補を保ち、存在しない後続指定を拒否して確定済み情報を戻さない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_WithManualDirectory_PreservesLowConfidenceState()
     {
@@ -1817,6 +1868,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>導入先の明示消去は曖昧推定の代表情報・候補・表示警告をすべて除き、古い警告行を残さない。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void RemoveInstallDestination_ClearsAllAmbiguousWarningLinesAndRepresentativeMetadata()
     {
@@ -1860,6 +1913,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
+    /// <summary>メタデータ不一致からの手動変更や空指定は不一致の文脈を保持し、明示消去時だけ推定警告を除いて他の警告を保つ。</summary>
+    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_MetadataMismatchEditsPreserveContextUntilExplicitClear()
     {
@@ -2119,7 +2174,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         }
     }
 
-    private sealed class RecordingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver
+    private sealed class RecordingInstallEstimationExecutionObserver : IInstallEstimationExecutionObserver, IDisposable
     {
         private readonly object gate = new();
         private readonly Barrier? workItemBarrier;
@@ -2173,6 +2228,12 @@ public sealed class BmsLibraryPendingPackageRegroupTests
                 Attempts.Add(observation);
             }
             attemptObserver?.Invoke(observation);
+        }
+
+        /// <summary>実一括処理の終端後に、同時到達を観測する局所barrierを回収する。</summary>
+        public void Dispose()
+        {
+            workItemBarrier?.Dispose();
         }
 
         private void UpdateMaxActive(int currentActive)

@@ -12,8 +12,8 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class MainChartColumnSettingsBoundaryTests
 {
+    /// <summary>実compositionの一覧読み込みとsummary resetが同じ列保存主体へ到達し、reset一回の結果をworkspaceへ反映します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public async Task CompositionSharesColumnSettingsStoreAcrossMainTableAndSummaryCoordinator()
     {
         var store = new FakeMainChartColumnSettingsStore();
@@ -24,6 +24,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
         var composition = new ApplicationComposition(
             () => new BmsLibraryOptionsSnapshot(),
             mainChartColumnSettingsStore: store,
+            settingsEditSession: new NoOpSettingsEditSession(MainWindowViewModelTestFactory.CreateIsolatedSettings()),
             playlistWorkspaceDialogService: dialogs,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
@@ -40,6 +41,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
         Assert.AreEqual(1, store.ResetPlaylistSummaryCallCount);
     }
 
+    /// <summary>初期一覧の読み込みで列resetとsummary互換補完を保存主体へ要求し、取得した列を実選択結果へ渡します。</summary>
     [TestMethod]
     public void MainChartListUsesStoreForInitializationAndSummaryCompatibility()
     {

@@ -110,7 +110,7 @@
 | 列幅、選択、キーボード・Automation、一覧移動 | [`PlaylistLampViewerWindow`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs)、[`PlaylistLampViewerViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs) | [`PlaylistLampViewerWindowPresentationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs) |
 | トグルのフォーカス装飾なし、NPと未使用領域の判別 | `PlaylistLampViewerWindow.xaml` の局所トグルスタイルと左右4箇所のバー背景 | 既存表示テストでモード選択・グラフ操作の維持を確認し、一時WPF描画でLight/Dark・820/1290 DIPの曲数表示を確認する。実機入力・DPIは自動検査の対象外。 |
 | 表示モード、共通尺度、幅不変の即時ラベル、切替の副作用なし、更新 | `PlaylistLampViewerViewModel`、`PlaylistLampWeightedStackPanel`、`PlaylistLampSegmentLabelConverter` | `Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` は100/50/0件と特殊行、未実体化最大行、左右、参照・通知・捕捉／集計回数・一覧要求・選択・スクロール不変、最大100→200を確認する。 |
-| 複数窓の独立、初期割合、全0件・フォルダなし | `PlaylistLampViewerViewModel`、`PlaylistLampViewerWindow` | `Viewer_displayModeIsIndependentAcrossWindowsAndNewWindowsStartWithPercentage`、`Viewer_countModeRetainsZeroRowsAndHandlesNoFoldersAfterRefresh`。 |
+| 複数窓の表示モードの独立、全0件・フォルダなし | `PlaylistLampViewerViewModel`、`PlaylistLampViewerWindow` | `Viewer_displayModeIsIndependentAcrossWindows`、`Viewer_countModeRetainsZeroRowsAndHandlesNoFoldersAfterRefresh`。 |
 | 両モードのラベル収容、基準日・最新・LR2・利用不可からの復帰 | `PlaylistLampSegmentLabelConverter`、`PlaylistLampViewerViewModel` | `Viewer_widthAwareLabelsShowSelectedModeOnlyWhenTheSegmentCanContainIt`、既存の基準日・LR2表示テストでモード保持を確認する。翻訳対応は `LocalizationResourceParityTests` の共通検査を使う。 |
 
 ## 関連資料

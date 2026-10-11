@@ -318,27 +318,6 @@ internal static class MainViewRefreshDecisionService
     }
 
     /// <summary>
-    /// Gets the complete ordered list of normal-library sort-key invalidation reasons.
-    /// </summary>
-    /// <returns>Reasons used by tests to keep refresh invalidation coverage explicit.</returns>
-    internal static IReadOnlyList<string> GetSortKeyInvalidationReasons()
-    {
-        return
-        [
-            NormalLibraryBmsTitleChangedReason,
-            NormalLibraryBmsPathChangedReason,
-            NormalLibraryBmsonPathChangedReason,
-            NormalLibraryBmsonSourceIdentityChangedReason,
-            NormalLibraryBmsonSortKeyChangedReason,
-            NormalLibraryChartInfoDigestBackfilledReason,
-            NormalLibraryInstallDestinationChangedReason,
-            NormalLibraryReferenceTablesChangedReason,
-            NormalLibraryMaintenanceChangedReason,
-            NormalLibraryWarningChangedReason
-        ];
-    }
-
-    /// <summary>
     /// Determines whether source rows must be cleared for a normal-library sort-key invalidation reason.
     /// </summary>
     /// <param name="reason">Invalidation reason, potentially with a suffix added by a caller.</param>

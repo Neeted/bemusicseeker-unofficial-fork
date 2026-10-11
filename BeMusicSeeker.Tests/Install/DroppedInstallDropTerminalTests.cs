@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class DroppedInstallDropTerminalTests
 {
+    /// <summary>FileDrop入力の確保が成功した時だけCopyとtree展開を返し、入力転送漏れや成功前の表示変更を検出します。</summary>
     [TestMethod]
     public void Evaluate_SuccessPublishesCopyAndTreeExpansionOnlyAfterAcquisition()
     {
@@ -31,6 +32,7 @@ public sealed class DroppedInstallDropTerminalTests
         Assert.IsFalse(decision.LogUnsupportedFormats);
     }
 
+    /// <summary>非対応形式は確保を呼ばずNoneと専用警告・診断を返し、未対応入力を成功として表示する誤りを検出します。</summary>
     [TestMethod]
     public void Evaluate_UnsupportedFormatPublishesNoneAndVisibleUnsupportedWarning()
     {
@@ -52,6 +54,7 @@ public sealed class DroppedInstallDropTerminalTests
         Assert.IsTrue(decision.LogUnsupportedFormats);
     }
 
+    /// <summary>OLE形式の存在確認例外は元原因付き確保警告を返し、非対応形式として隠す誤りや確保開始を検出します。</summary>
     [TestMethod]
     public void Evaluate_PresenceProbeFailurePublishesNoneAndVisibleIngressWarning()
     {
@@ -69,6 +72,7 @@ public sealed class DroppedInstallDropTerminalTests
         Assert.IsFalse(decision.LogUnsupportedFormats);
     }
 
+    /// <summary>FileDrop値の取得例外は元原因を保持してNoneを返し、展開・入力確保に進む誤りを検出します。</summary>
     [TestMethod]
     public void Evaluate_ExtractionFailurePublishesNoneAndVisibleIngressWarning()
     {
@@ -85,6 +89,7 @@ public sealed class DroppedInstallDropTerminalTests
         Assert.AreSame(expected, decision.Exception);
     }
 
+    /// <summary>queue拒否を元原因付き専用警告へ写し、Copyやtree展開を返す誤りを検出します。</summary>
     [TestMethod]
     public void Evaluate_QueueRejectionPublishesNoneAndQueueWarning()
     {
@@ -109,8 +114,6 @@ public sealed class DroppedInstallDropTerminalTests
         Exception? presenceFailure = null,
         Exception? extractionFailure = null) : IDataObject
     {
-        internal int PresenceProbeCount { get; private set; }
-
         public object GetData(string format, bool autoConvert)
         {
             if (extractionFailure != null)
@@ -126,7 +129,6 @@ public sealed class DroppedInstallDropTerminalTests
 
         public bool GetDataPresent(string format, bool autoConvert)
         {
-            PresenceProbeCount++;
             if (presenceFailure != null)
             {
                 throw presenceFailure;

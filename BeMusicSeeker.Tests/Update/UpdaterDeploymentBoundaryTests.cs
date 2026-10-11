@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class UpdaterDeploymentBoundaryTests
 {
+    /// <summary>
+    /// 通常ビルドへツールを混在させず、指定する本体・ツールの公開プロファイルを分担して自己完結配布の成立条件を壊す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ApplicationProjectUsesDedicatedUpdaterPublishBoundary()
     {
@@ -98,6 +101,9 @@ public sealed class UpdaterDeploymentBoundaryTests
             "The superseded main-app profile must not remain.");
     }
 
+    /// <summary>
+    /// 公開スクリプトがReadyToRun依存を先にlocked restoreし、指定プロファイルでno-restore公開して依存準備と実行順の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void PublishScriptRestoresReadyToRunDependenciesBeforeNoRestorePublish()
     {
@@ -149,6 +155,10 @@ public sealed class UpdaterDeploymentBoundaryTests
             "--property:PublishProfile=WinX64SelfContained `");
     }
 
+    /// <summary>
+    /// 実公開出力の正常layoutを受理し、旧依存・利用者領域・x86部分木の混入を対象理由付きで拒否して禁止配置の見逃しを検出する。
+    /// </summary>
+    /// <remarks>配布layoutの実判定をPowerShell子なしコマンドで観測する。公開出力の指定がない通常実行では既存のInconclusiveを維持する。</remarks>
     [TestMethod]
     [TestCategory("ReleaseAcceptance")]
     public async Task PortablePackageLayoutValidatorAcceptsSelfContainedPublishOutput()
@@ -857,20 +867,6 @@ public sealed class UpdaterDeploymentBoundaryTests
         }
 
         throw new DirectoryNotFoundException("Repository root was not found.");
-    }
-
-    private static string ResolveReleaseOutputDirectory()
-    {
-        var testOutputDirectory = new DirectoryInfo(AppContext.BaseDirectory);
-        string targetFramework = testOutputDirectory.Name;
-        string? configuration = testOutputDirectory.Parent?.Name;
-        string? platform = testOutputDirectory.Parent?.Parent?.Name;
-        if (string.IsNullOrWhiteSpace(configuration) || string.IsNullOrWhiteSpace(platform))
-        {
-            throw new AssertFailedException("The test output path does not contain configuration and platform segments.");
-        }
-
-        return Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "bin", platform, configuration, targetFramework);
     }
 
     private static string ResolveSelfContainedPublishDirectory(string environmentVariableName, string childDirectoryName)

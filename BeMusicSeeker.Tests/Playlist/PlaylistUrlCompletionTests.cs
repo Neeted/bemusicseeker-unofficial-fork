@@ -15,6 +15,8 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>URL候補の解析・優先順位と、実playlistへの適用・編集保存を分担して確認します。</summary>
+/// <remarks>通信は固定応答にし、保存差・hash互換は実DBの新readerで観測します。画面の実接続はMainWindow側に分担します。</remarks>
 [TestClass]
 public sealed class PlaylistUrlCompletionTests
 {
@@ -42,6 +44,7 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>TSVの見出し・不正MD5・URL欠損を除外し、重複MD5は最初の主URLと差分URLを残して件数も区別します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseMd5UrlMappingTsv_SkipsHeaderInvalidRowsAndKeepsFirstDuplicate()
@@ -67,6 +70,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.IsNull(snapshot.Candidates["cccccccccccccccccccccccccccccccc"].UrlDiff);
     }
 
+    /// <summary>Stellaの主URL・差分URLを直接読み、重複は先勝ち、不正hash・URLは除外し、submissionだけから差分URLを作りません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseStellaUploadFullJson_UsesUrlAndUrlDiffWithoutSubmissionBuild()
@@ -90,6 +94,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.IsNull(snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].UrlDiff);
     }
 
+    /// <summary>大文字MD5キーとnull行を除外して小文字キーの有効行だけを受理し、誤った形の行を候補へ混入させません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseStellaUploadFullJson_PreservesCaseSensitiveAndWrongShapeFiltering()
@@ -107,6 +112,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/accepted"), snapshot.Candidates["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"].Url);
     }
 
+    /// <summary>配列の後ろに別JSON文書が続く入力を読取例外とし、先頭配列だけの成功へ隠しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ParseStellaUploadFullJson_RejectsTrailingDocument()
@@ -115,6 +121,7 @@ public sealed class PlaylistUrlCompletionTests
             () => PlaylistUrlCompletionSupport.ParseStellaUploadFullJson("[]{}"));
     }
 
+    /// <summary>外部JSONのURLをUriへ変換し、名前・symbol・小文字tagを読み、大文字tagで上書きしません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableSimple_ParsesTypedCaseSensitiveFields()
@@ -128,6 +135,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual("Second", table.tag2);
     }
 
+    /// <summary>外部JSONの壊れた絶対URLをUriFormatExceptionとして公開し、不正URLを空の成功へ置換しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableSimple_InvalidUrlPreservesFailureContract()
@@ -136,29 +144,21 @@ public sealed class PlaylistUrlCompletionTests
             () => new BMSTableSimple(JObject.Parse("{\"name\":\"Table\",\"url\":\"http://[broken\"}")));
     }
 
+    /// <summary>ローカル絶対パスをfileの絶対URIへ解決し、HTTP形式だけを受理する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void TryResolveSourceUri_LocalFilePath_ResolvesFileUri()
     {
-        string tempFilePath = Path.GetTempFileName();
-        try
-        {
-            bool resolved = PlaylistUrlCompletionSupport.TryResolveSourceUri(tempFilePath, out Uri uri);
+        string tempFilePath = Path.Combine(Path.GetTempPath(), "playlist-url-source.tsv");
+        bool resolved = PlaylistUrlCompletionSupport.TryResolveSourceUri(tempFilePath, out Uri uri);
 
-            Assert.IsTrue(resolved);
-            Assert.IsNotNull(uri);
-            Assert.IsTrue(uri.IsAbsoluteUri);
-            Assert.AreEqual(Uri.UriSchemeFile, uri.Scheme);
-        }
-        finally
-        {
-            if (File.Exists(tempFilePath))
-            {
-                File.Delete(tempFilePath);
-            }
-        }
+        Assert.IsTrue(resolved);
+        Assert.IsNotNull(uri);
+        Assert.IsTrue(uri.IsAbsoluteUri);
+        Assert.AreEqual(Uri.UriSchemeFile, uri.Scheme);
     }
 
+    /// <summary>上書き有効時は保存済みURLを保持したまま実効URLを補完候補へ切り替え、保存値そのものを破壊しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_EffectiveUrlPrefersRuntimeCompletionWhenOverwriteEnabled()
@@ -174,6 +174,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/runtime"), entry.EffectiveUrl);
     }
 
+    /// <summary>利用者が主URLと差分URLを編集すると各補完値を消し、手編集より古い補完を表示し続けません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_ExplicitUrlEditClearsRuntimeCompletion()
@@ -190,6 +191,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/manual-diff"), entry.EffectiveUrlDiff);
     }
 
+    /// <summary>上書き無効で通常の保存済みURLがある場合は補完候補を採らず、利用者のURLを優先します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_OverwriteDisabledKeepsPersistedUrl()
@@ -203,6 +205,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/persisted"), entry.EffectiveUrl);
     }
 
+    /// <summary>既知の失効サイトURLはarchive経由と省略schemeも補完し、上書き無効でも表示を更新しつつ元保存値を残します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_OverwriteDisabledCompletesKnownDeadPlaylistUrls()
@@ -222,6 +225,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.EffectiveUrlDiff);
     }
 
+    /// <summary>失効サイトでも候補がなければ元の主URL・差分URLを実効値として保持し、候補なしを理由に消しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_KnownDeadPlaylistUrlRemainsWhenCompletionCandidateIsMissing()
@@ -239,6 +243,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://web.archive.org/web/20200101000000/http://gnqg.rosx.net/diff.zip"), entry.EffectiveUrlDiff);
     }
 
+    /// <summary>前回の主URL・差分URL補完がある行から候補が消えると両方を解除し、古い実効URLを残しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_ApplyRuntimeUrlCompletion_ClearsWhenCandidateDisappears()
@@ -255,15 +260,12 @@ public sealed class PlaylistUrlCompletionTests
         Assert.IsNull(entry.EffectiveUrlDiff);
     }
 
+    /// <summary>同じ設定で再要求してもTSVとStellaを各一回取得し、競合はTSV優先、TSVのURI変更時だけ再取得して適用します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string previousTsvUri = testSettings.PlaylistMd5UrlMappingTsvUri;
-        bool previousEnableCompletion = testSettings.EnablePlaylistUrlCompletion;
-        bool previousOverwriteCompletion = testSettings.OverwritePlaylistUrlsWithCompletion;
-        bool previousEnableStella = testSettings.EnableStellaFullPlaylistUrlCompletion;
         try
         {
             int tsvFetchCount = 0;
@@ -322,23 +324,16 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
-            testSettings.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
-            testSettings.EnablePlaylistUrlCompletion = previousEnableCompletion;
-            testSettings.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
-            testSettings.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
 
+    /// <summary>Stella無効時は取得せず、有効化で適用後に再無効化すると補完を消し、不要な再取得もしません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion()
     {
         string tempDbPath = CreateEmptySongDbPath();
-        string previousTsvUri = testSettings.PlaylistMd5UrlMappingTsvUri;
-        bool previousEnableCompletion = testSettings.EnablePlaylistUrlCompletion;
-        bool previousOverwriteCompletion = testSettings.OverwritePlaylistUrlsWithCompletion;
-        bool previousEnableStella = testSettings.EnableStellaFullPlaylistUrlCompletion;
         try
         {
             int stellaFetchCount = 0;
@@ -390,10 +385,6 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
-            testSettings.PlaylistMd5UrlMappingTsvUri = previousTsvUri;
-            testSettings.EnablePlaylistUrlCompletion = previousEnableCompletion;
-            testSettings.OverwritePlaylistUrlsWithCompletion = previousOverwriteCompletion;
-            testSettings.EnableStellaFullPlaylistUrlCompletion = previousEnableStella;
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
@@ -474,6 +465,7 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>保存URLが未設定でも表示sourceは主URL・差分URLの補完を映し、保存値だけを参照して補完表示を落としません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void PlaylistDetailSourceRow_UsesEffectiveUrlForDisplay()
@@ -489,11 +481,15 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(new Uri("https://example.com/runtime-diff"), sourceRow.Url_diff);
     }
 
+    /// <summary>ローカル表のmemo編集保存で主URL・差分URLの補完も確定し、新DB読取と表の更新時刻へ反映します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task DetailEdit_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
@@ -502,7 +498,7 @@ public sealed class PlaylistUrlCompletionTests
             table.last_update = oldLastUpdate;
             BMSTableEntry entry = CreateEntry("ffffffffffffffffffffffffffffffff", "LocalSong");
             table.entries = [entry];
-            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
@@ -522,15 +518,26 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("url-completion-edit-fixture");
+            library?.RequestShutdown("url-completion-edit-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
 
+    /// <summary>外部同期表のmemoは保存する一方、主URL・差分URL補完は実効表示だけに保持し、外部由来の保存値へ混入させません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task DetailEdit_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
@@ -541,7 +548,7 @@ public sealed class PlaylistUrlCompletionTests
             table.EnableExternalSync();
             BMSTableEntry entry = CreateEntry("12121212121212121212121212121212", "ExternalSong");
             table.entries = [entry];
-            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
             entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
 
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
@@ -558,22 +565,33 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("url-completion-edit-fixture");
+            library?.RequestShutdown("url-completion-edit-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
 
+    /// <summary>MD5なしのSHA256行を二回memo編集しても一行を更新し、互換識別子で重複行を増やしません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task DetailEdit_Sha256Identity_ReplacesExistingRowWithoutDuplicates()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             TestablePlaylistEntry entry = CreateShaOnlyEntry("3434343434343434343434343434343434343434343434343434343434343434", "ShaSong", "before");
             table.entries = [entry];
-            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
 
             await SaveDetailMemoAsync(workspace, entry, "memo-1");
             await SaveDetailMemoAsync(workspace, entry, "memo-2");
@@ -586,15 +604,26 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("url-completion-edit-fixture");
+            library?.RequestShutdown("url-completion-edit-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
 
+    /// <summary>SHA256だけで保存された行の編集時にbmsonのMD5を補い、元SHA256を保って旧行を置換し二重登録しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task DetailEdit_AddedMd5ReplacesExistingSha256CompatibilityRow()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
@@ -602,7 +631,7 @@ public sealed class PlaylistUrlCompletionTests
             string sha256 = "4545454545454545454545454545454545454545454545454545454545454545";
             TestablePlaylistEntry entry = CreateShaOnlyEntry(sha256, "BmsonSong", "old");
             table.entries = [entry];
-            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
             ChartFile chart = ChartTestValues.Empty(ChartFileKind.Bmson) with
             {
                 Path = Path.Combine(Path.GetDirectoryName(tempDbPath)!, "song.bmson"),
@@ -621,10 +650,18 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("url-completion-edit-fixture");
+            library?.RequestShutdown("url-completion-edit-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
 
+    /// <summary>MD5なしのSHA256行をJSON経由で再読込し、hashとタイトルが外部形式への変換で失われません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_ToJsonObject_RoundTripsSha256()
@@ -637,6 +674,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(entry.title, reloaded.title);
     }
 
+    /// <summary>元譜面MD5のnullを空配列・空文字としてJSONへ正規化し、保存互換形式にnullを残しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_ToJsonObject_NormalizesNullOrgMd5ToEmpty()
@@ -651,6 +689,7 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(string.Empty, entry.org_md5);
     }
 
+    /// <summary>旧保存形式の文字列nullを元譜面なしとしてJSON出力し、文字列をhash候補へ誤解釈しません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BMSTableEntry_ParsesStringNullOrgMd5AsEmpty()
@@ -664,11 +703,15 @@ public sealed class PlaylistUrlCompletionTests
         Assert.AreEqual(string.Empty, (string?)json["org_md5"]);
     }
 
+    /// <summary>bmsonのmemo編集後もMD5・SHA256・元譜面MD5を新DB読取へ保存し、BMS専用処理で情報を落としません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task DetailEdit_BmsonPlaylistEntry_PersistsBothHashesAndOrgMd5()
     {
         string tempDbPath = CreateEmptySongDbPath();
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
         try
         {
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
@@ -691,7 +734,7 @@ public sealed class PlaylistUrlCompletionTests
             };
 
             table.entries = [entry];
-            PlaylistWorkspaceViewModel workspace = CreateSavedDetailWorkspace(tempDbPath, table);
+            workspace = CreateSavedDetailWorkspace(tempDbPath, table, out playlist, out library);
             await SaveDetailMemoAsync(workspace, entry, "saved memo");
 
             using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
@@ -703,6 +746,13 @@ public sealed class PlaylistUrlCompletionTests
         }
         finally
         {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("url-completion-edit-fixture");
+            library?.RequestShutdown("url-completion-edit-fixture");
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
@@ -840,6 +890,114 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>
+    /// 保存済みの現行項目へ無効URIを確定要求し、実Taskの終端後も編集行・source・正本・新DBが元URLと未編集属性を保ち、編集状態を解放することを確認します。
+    /// </summary>
+    /// <remarks>URI検査前の受付を実playlistへ通し、早期例外による見かけの非保存を除きます。正常保存とURL材料化は既存の実保存系列、取消時の解放はPlaylistViewPipelineTestsが分担します。</remarks>
+    [TestMethod]
+    public async Task DetailEdit_InvalidUriPreservesSavedEntryAndReleasesEditing()
+    {
+        const int playlistId = 4102;
+        const string originalUrl = "https://example.com/original-main";
+        const string originalDiffUrl = "https://example.com/original-diff";
+        string songDbPath = CreateEmptySongDbPath();
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = CreateTable(playlistId, "InvalidUri");
+            table.is_external_sync = false;
+            BMSTableEntry entry = CreateEntry(new string('c', 32), "Original");
+            entry.level = 7;
+            entry.Url = new Uri(originalUrl);
+            entry.Url_diff = new Uri(originalDiffUrl);
+            entry.comment = "original comment";
+            entry.memo = "original memo";
+            table.entries = [entry];
+            workspace = CreateSavedDetailWorkspace(songDbPath, table, out playlist, out library);
+            var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+            PlaylistDetailRow editedRow = source.CreateViewRow();
+            workspace.DetailViewState.Source.Rows = [source];
+            var context = new MainChartListCellEditContext(editedRow, nameof(PlaylistDetailRow.Url),
+                ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+
+            Assert.IsTrue(playlist.ContainsCurrentDetailEntry(entry));
+            Assert.IsTrue(workspace.CanBeginDetailEdit(context));
+            workspace.BeginDetailEdit(context);
+            Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+            await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "not a URI", commit: true));
+            Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+
+            void AssertEntry(BMSTableEntry actual)
+            {
+                Assert.AreEqual(playlistId, actual.playlist_id);
+                Assert.AreEqual(new string('c', 32), actual.md5);
+                Assert.AreEqual("Original", actual.title);
+                Assert.AreEqual("TestArtist", actual.artist);
+                Assert.AreEqual(string.Empty, actual.folder);
+                Assert.AreEqual(7d, actual.level);
+                Assert.AreEqual(new Uri(originalUrl), actual.Url);
+                Assert.AreEqual(new Uri(originalDiffUrl), actual.Url_diff);
+                Assert.AreEqual("original comment", actual.comment);
+                Assert.AreEqual("original memo", actual.memo);
+            }
+            void AssertRow(PlaylistDetailRow actual)
+            {
+                AssertEntry(actual.Entry);
+                Assert.AreEqual("7", actual.Level);
+                Assert.AreEqual(new Uri(originalUrl), actual.Url);
+                Assert.AreEqual(new Uri(originalDiffUrl), actual.Url_diff);
+                Assert.AreEqual("original comment", actual.comment);
+                Assert.AreEqual("original memo", actual.memo);
+            }
+            void AssertHeader(BMSTable actual)
+            {
+                Assert.AreEqual(playlistId, actual.playlist_id);
+                Assert.AreEqual("InvalidUri", actual.name);
+                Assert.AreEqual("I", actual.symbol);
+                Assert.AreEqual("InvalidUri", actual.Output_dir);
+                Assert.IsFalse(actual.is_external_sync);
+            }
+
+            AssertEntry(entry);
+            AssertRow(editedRow);
+            Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
+            Assert.AreSame(source, workspace.DetailViewState.Source.Rows.Single());
+            Assert.AreEqual(new Uri(originalUrl), source.Url);
+            AssertRow(source.CreateViewRow());
+            Assert.AreEqual(1, playlist.BMSTables.Count);
+            BMSTable currentTable = playlist.BMSTables.Single();
+            AssertHeader(currentTable);
+            Assert.AreEqual(1, currentTable.entries.Count);
+            BMSTableEntry currentEntry = currentTable.entries.Single();
+            Assert.AreSame(entry, currentEntry);
+            AssertEntry(currentEntry);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                // 操作後の正本を期待値に使わず、専用DBの全件数と保存入力を独立に照合します。
+                BMSTable[] storedTables = [.. db.Table<BMSTable>()];
+                BMSTableEntry[] storedEntries = [.. db.Table<BMSTableEntry>()];
+                Assert.AreEqual(1, storedTables.Length);
+                Assert.AreEqual(1, storedEntries.Length);
+                AssertHeader(storedTables.Single());
+                AssertEntry(storedEntries.Single());
+            }
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            playlist?.RequestShutdown("invalid-uri-edit-fixture");
+            library?.RequestShutdown("invalid-uri-edit-fixture");
+            DeleteTempSongDbDirectory(songDbPath);
+        }
+    }
+
     private static async Task ScheduleUrlCompletionRefreshAsync(BMSPlaylist playlist, string reason)
     {
         Task scheduledWork = Task.CompletedTask;
@@ -889,9 +1047,6 @@ public sealed class PlaylistUrlCompletionTests
             Output_dir = name
         };
     }
-
-    private PlaylistWorkspaceViewModel CreateSavedDetailWorkspace(string songDbPath, BMSTable table)
-        => CreateSavedDetailWorkspace(songDbPath, table, out _, out _);
 
     /// <summary>既存の保存fixtureを組み立て、実Task合流後に解放するplaylistとlibraryの所有者を返す。</summary>
     private PlaylistWorkspaceViewModel CreateSavedDetailWorkspace(string songDbPath, BMSTable table,
@@ -961,10 +1116,6 @@ public sealed class PlaylistUrlCompletionTests
             sha256 = value;
         }
 
-        public void SetMd5(string value)
-        {
-            md5 = value;
-        }
 
         public void SetTitle(string value)
         {

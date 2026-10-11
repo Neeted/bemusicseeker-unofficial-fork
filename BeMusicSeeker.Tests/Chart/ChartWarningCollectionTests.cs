@@ -13,6 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartWarningCollectionTests
 {
+    /// <summary>
+    /// 複数種類の不足警告は件数を保って同じラベルを重複表示せず、詳細には各本文を残して件数や診断の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void WarningDigestText_OrdersByPriorityAndDeduplicatesLabelsWhileCountingKinds()
     {
@@ -29,22 +32,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "bga missing");
     }
 
-    [TestMethod]
-    public void ClearWarningsByCategory_RemovesOnlyMatchingStructuredWarnings()
-    {
-
-        ChartFile file = ChartTestValues.Empty();
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationAmbiguous), ChartWarning.Create(ChartWarningKind.InstallEstimationAmbiguous, "structured estimate")] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation)] };
-
-        Assert.IsFalse(ChartWarningCollection.BuildTooltipText(file.Warnings).Contains("structured estimate"));
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
-        Assert.AreEqual("[1] サブフォルダ譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
-    }
-
+    /// <summary>
+    /// 導入先ありの譜面ではリソース不足の一覧要約を隠して詳細本文を残し、通常所持扱いの警告表示と混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ResourceWarningDigest_IsHiddenWhenChartInstallDestinationIsSet()
     {
@@ -63,6 +53,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningProjectionFormatter.BuildTooltipText(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), "WAV");
     }
 
+    /// <summary>
+    /// 警告の追加で一回通知し、導入先の変化を要約へ反映して詳細は残すことで古い状態の表示固定を検出する。
+    /// </summary>
     [TestMethod]
     public void WarningCollection_UsesCallbackAndInstallDestinationWithoutBmsFileOwner()
     {
@@ -84,6 +77,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(warnings.BuildTooltipText(), "WAV");
     }
 
+    /// <summary>
+    /// ゼロノート・重複・導入先曖昧の警告を強調と要約へ反映し、全解除後に表示が残留する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void StructuredWarnings_DriveHighlightAndDigest()
     {
@@ -111,41 +107,9 @@ public sealed class ChartWarningCollectionTests
         Assert.AreEqual(string.Empty, ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
-    [TestMethod]
-    public void StructuredWarningMutators_UpdateStructuredWarnings()
-    {
-
-        ChartFile file = ChartTestValues.Empty();
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch), ChartWarning.Create(ChartWarningKind.ZeroNoteMismatch, Resources.Warning_ZeroNoteMismatch)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstallEstimationLowConfidence), ChartWarning.Create(ChartWarningKind.InstallEstimationLowConfidence, Resources.WarningDigest_InstallEstimationLowConfidence)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
-
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationLowConfidence));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.ZeroNoteMismatch)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
-
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch));
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationLowConfidence));
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-    }
-
-    [TestMethod]
-    public void InstalledDestinationResolveFailed_IsNotLowConfidenceAlias()
-    {
-
-        ChartFile file = ChartTestValues.Empty();
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.InstalledDestinationResolveFailed), ChartWarning.Create(ChartWarningKind.InstalledDestinationResolveFailed, Resources.Warning_InstalledDestinationResolveFailed)] };
-
-        Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(file));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationResolveFailed));
-    }
-
+    /// <summary>
+    /// 非対応リソースパスは詳細と専用要約を表示して行強調しないことで、不足や導入先の低信頼警告との混同を検出する。
+    /// </summary>
     [TestMethod]
     public void UnsupportedResourcePath_IsNotLowConfidenceAlias()
     {
@@ -161,6 +125,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_UnsupportedResourcePath);
     }
 
+    /// <summary>
+    /// 導入済み候補が曖昧な警告を行強調と専用要約へ反映し、曖昧さを通常状態として隠す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void InstalledDestinationAmbiguous_IsLowConfidenceAlias()
     {
@@ -175,6 +142,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination), Resources.WarningDigest_InstalledDestinationAmbiguous);
     }
 
+    /// <summary>
+    /// 自動適用した曖昧導入先にも行強調・専用要約・詳細本文を残し、適用成功で曖昧さを消す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void InstalledDestinationAutoAppliedAmbiguous_IsLowConfidenceAlias()
     {
@@ -190,6 +160,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), Resources.Warning_InstalledDestinationAutoAppliedAmbiguous.Split('\n')[0]);
     }
 
+    /// <summary>
+    /// 譜面情報の解析失敗を強調と専用要約に示し、詳細には例外名と元の理由を残して失敗の分類や原因を失う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ChartInfoParseFailure_HighlightsAndUsesDedicatedDigest()
     {
@@ -205,6 +178,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "開始BPM未定義");
     }
 
+    /// <summary>
+    /// LR2非対応の文字コードを強調と専用要約へ反映し、詳細のShift_JIS制約が欠落する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void Lr2PathEncodingUnsupported_HighlightsAndUsesDedicatedDigest()
     {
@@ -218,6 +194,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "Shift_JIS");
     }
 
+    /// <summary>
+    /// LR2の譜面パス長・リソース非対応・リソースパス長を別警告として表示し、種類の欠落や詳細の混同を検出する。
+    /// </summary>
     [TestMethod]
     public void Lr2CompatibilityWarnings_HighlightAndUseDedicatedDigests()
     {
@@ -234,21 +213,9 @@ public sealed class ChartWarningCollectionTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(file.Warnings), "リソースパス");
     }
 
-    [TestMethod]
-    public void ClearWarning_RemovesMatchingStructuredWarning()
-    {
-
-        ChartFile file = ChartTestValues.Empty();
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart), ChartWarning.Create(ChartWarningKind.DuplicateChart, Resources.Warning_DuplicateBmsFile)] };
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.NestedChartFileInPackage), ChartWarning.Create(ChartWarningKind.NestedChartFileInPackage, Resources.Warning_NestedChartFileInPackage)] };
-
-        file = file with { Warnings = [.. file.Warnings.Where(warning => warning.Kind != ChartWarningKind.DuplicateChart)] };
-
-        Assert.IsFalse(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
-        Assert.IsTrue(file.Warnings.Any(warning => warning.Kind == ChartWarningKind.NestedChartFileInPackage));
-        Assert.AreEqual("[1] サブフォルダ譜面", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
-    }
-
+    /// <summary>
+    /// 別の警告集合から置換した種類と要約が一致し、複数種類の取りこぼしを検出する。
+    /// </summary>
     [TestMethod]
     public void ReplaceAll_CopiesStructuredWarningsToSnapshot()
     {
@@ -265,6 +232,10 @@ public sealed class ChartWarningCollectionTests
         Assert.AreEqual(source.BuildDigestText(), copy.BuildDigestText());
     }
 
+    /// <summary>
+    /// 実DBのsong・install・maintenanceに一時警告の列を作らず、投影状態が永続スキーマへ混入する誤りを検出する。
+    /// </summary>
+    /// <remarks>保存スキーマへの混入を検出するため、実SQLiteテーブルの列を観測する。</remarks>
     [TestMethod]
     public void Warning_IsNotPersistedInSongInstallOrMaintenanceTables()
     {

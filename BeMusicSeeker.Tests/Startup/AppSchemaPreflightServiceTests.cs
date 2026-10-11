@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class AppSchemaPreflightServiceTests
 {
+    /// <summary>
+    /// startup schemaを実DBへ作成してlibraryが所有する各表を保存し、起動後に必要な永続化先を欠かさない。
+    /// </summary>
     [TestMethod]
     public void EnsureLibraryStartupSchema_ContainsLibraryOwnedTables()
     {
@@ -22,7 +25,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             new BmsLibraryDbGateway(tempDbPath).EnsureLibraryStartupSchema();
 
-            using var db = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             List<string> tableNames = [.. db.Query<ColumnNameRow>(
                 "SELECT name FROM sqlite_master WHERE type = 'table';")
                 .Select(row => row.name)];
@@ -36,6 +39,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 旧playlist_entryを検査してSHA256とschema版の修復警告を返し、Inspect自体は旧表や版行を変更しない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_LegacyPlaylistEntrySchema_RequiresWarningWithoutMutatingDatabase()
@@ -45,11 +51,14 @@ public sealed class AppSchemaPreflightServiceTests
         {
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.DropTable<LR2SongDBExtended.playlist>();
-                db.DropTable<LR2SongDBExtended.playlist_entry>();
-                db.CreateTable<LR2SongDBExtended.playlist>();
-                db.Execute("CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
-                db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
+                db.RunInTransaction(() =>
+                {
+                    db.DropTable<LR2SongDBExtended.playlist>();
+                    db.DropTable<LR2SongDBExtended.playlist_entry>();
+                    db.CreateTable<LR2SongDBExtended.playlist>();
+                    db.Execute("CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
+                    db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
+                });
             }
 
             var service = new AppSchemaPreflightService();
@@ -60,7 +69,7 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsTrue(result.WarnRequired);
             Assert.IsTrue(result.RequiresWarning);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
             Assert.IsFalse(tableSql.IndexOf("sha256", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'app_schema_version';"));
@@ -71,6 +80,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 現行のplaylist・bmson・schema版を持つDBでは修復と警告を要求せず、正常DBへ不要な修復を促さない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_CurrentVersion_DoesNotRequireWarning()
@@ -98,7 +110,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    /// <summary>新規LR2 DBのInspectは無変更・無警告のまま、Ensure後に同じ入口で収束する。</summary>
+    /// <summary>
+    /// 新規LR2 DBには無警告でapp所有schemaを作成し、再Inspectで修復要求が収束して必要なdigest・bmson表が残る。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration()
@@ -124,7 +138,7 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsFalse(result.RepairRequired);
             Assert.IsFalse(result.WarnRequired);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'bmson_song';"));
@@ -135,6 +149,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 旧app_schema版を検出して修復警告を要求し、版が古いDBを現行として通過させない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_OldBmsonAppSchemaVersion_RequiresWarning()
@@ -162,7 +179,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    /// <summary>版行がない既存DBではInspectが修復警告だけを返し、Repair後の再Inspectで収束する。</summary>
+    /// <summary>
+    /// 版行だけがない既存DBには警告を返し、実Repair後は同じDBへの再Inspectで修復要求が収束する。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_MissingVersionRowConvergesPreflight()
@@ -195,6 +214,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// schema修復時に実譜面から欠けたdigestを補完せず、版更新と重い譜面解析を混同しない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_DoesNotBackfillMissingDigestFromSongFiles()
@@ -207,15 +229,18 @@ public sealed class AppSchemaPreflightServiceTests
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-                db.CreateTable<LR2SongDBExtended.chart_digest_map>();
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    db.CreateTable<LR2SongDBExtended.chart_digest_map>();
+                });
             }
 
             new BmsLibraryDbGateway(tempDbPath).RepairAppOwnedSchema();
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
         }
@@ -225,6 +250,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 不正なdigest・bmson表を再構築して保存互換列と索引を揃え、Inspectの構造修復要求を収束させる。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void EnsureBmsonSchema_RebuildsInvalidAppOwnedTables()
@@ -235,8 +263,11 @@ public sealed class AppSchemaPreflightServiceTests
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
-                db.Execute("CREATE TABLE bmson_song (path TEXT PRIMARY KEY, title TEXT NULL);");
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
+                    db.Execute("CREATE TABLE bmson_song (path TEXT PRIMARY KEY, title TEXT NULL);");
+                });
             }
 
             var service = new AppSchemaPreflightService();
@@ -252,7 +283,7 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsFalse(repairedResult.NeedsBmsonSongSchema);
             Assert.IsFalse(repairedResult.RepairRequired);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
             string bmsonSongSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'bmson_song';");
             Assert.IsFalse(chartDigestMapSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) >= 0);
@@ -272,6 +303,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 旧digest表の余分な列を退役してMD5-SHA256対応を保持し、schema版の更新で既存digestを失わない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_NormalizesChartDigestMapAndSetsVersion()
@@ -286,19 +320,22 @@ public sealed class AppSchemaPreflightServiceTests
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.CreateTable<LR2SongDB.song>();
-                ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
-                md5 = file.Md5;
-                sha256 = file.Sha256;
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-                db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, sha256 TEXT NULL, last_seen_path TEXT NULL, updated_at TEXT NULL);");
-                db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + md5 + "', '" + sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
+                    md5 = file.Md5;
+                    sha256 = file.Sha256;
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, sha256 TEXT NULL, last_seen_path TEXT NULL, updated_at TEXT NULL);");
+                    db.Execute("INSERT INTO chart_digest_map(md5, sha256, last_seen_path, updated_at) VALUES ('" + md5 + "', '" + sha256 + "', '" + chartPath.Replace("'", "''") + "', 'legacy');");
+                });
             }
 
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.RepairAppOwnedSchema();
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
             Assert.IsFalse(chartDigestMapSql.IndexOf("last_seen_path", StringComparison.OrdinalIgnoreCase) >= 0);
             Assert.IsFalse(chartDigestMapSql.IndexOf("updated_at", StringComparison.OrdinalIgnoreCase) >= 0);
@@ -312,7 +349,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    /// <summary>不正なdigest表を修復しても既存のMD5-SHA行を保持し、不要列だけを除去する。</summary>
+    /// <summary>
+    /// 現行版でも壊れたdigest表を修復し、修復後に保存できる孤立digestがInspectによって削除されない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_CurrentVersionWithInvalidDigestMapStillRepairsSchema()
@@ -325,8 +364,11 @@ public sealed class AppSchemaPreflightServiceTests
             gateway.RepairAppOwnedSchema();
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.DropTable<LR2SongDBExtended.chart_digest_map>();
-                db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
+                db.RunInTransaction(() =>
+                {
+                    db.DropTable<LR2SongDBExtended.chart_digest_map>();
+                    db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
+                });
             }
 
             var service = new AppSchemaPreflightService();
@@ -348,7 +390,7 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.IsFalse(after.RepairRequired);
             Assert.IsFalse(after.WarnRequired);
             Assert.IsFalse(after.RequiresWarning);
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             string chartDigestMapSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';");
             StringAssert.Contains(chartDigestMapSql, "sha256");
             Assert.IsFalse(chartDigestMapSql.IndexOf("broken", StringComparison.OrdinalIgnoreCase) >= 0);
@@ -360,7 +402,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
-    /// <summary>外側トランザクションの途中失敗で全旧状態を保ち、障害除去後の再試行で収束する。</summary>
+    /// <summary>
+    /// 修復の終盤失敗では旧表・索引・版・playlist・digestを全て保持し、原因除去後の再試行で同じDBが収束する。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RepairAppOwnedSchema_LateFailureRetryConvergesOnSameDatabase()
@@ -423,6 +467,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// bmson索引が欠けたDBでは既存bmson・digest行を落とさず必要な索引を再作成する。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void EnsureBmsonSchema_RecreatesMissingBmsonIndexesWithoutDroppingRows()
@@ -435,37 +482,40 @@ public sealed class AppSchemaPreflightServiceTests
             gateway.EnsureBmsonSchema();
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                db.RunInTransaction(() =>
                 {
-                    md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    sha256 = new string('b', 64)
-                }, typeof(LR2SongDBExtended.chart_digest_map));
-                db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
-                {
-                    Path = "song-path",
-                    Folder = "folder",
-                    RawTitle = "title",
-                    Subtitle = "subtitle",
-                    RawArtist = "artist",
-                    Genre = "genre",
-                    Level = 12,
-                    ModeHint = "beat-7k",
-                    Md5 = "0e5751c026e543b2e8ab2eb06099daa1",
-                    Sha256 = new string('c', 64),
-                    Banner = "banner.png",
-                    Backbmp = "back.png",
-                    Stagefile = "stage.png",
-                    PreviewMusic = "preview.ogg",
-                    LastWriteTimeUtc = DateTime.UtcNow
-                }), typeof(LR2SongDBExtended.bmson_song));
-                db.Execute("DROP INDEX IF EXISTS bmson_song_idx_md5;");
-                db.Execute("DROP INDEX IF EXISTS bmson_song_idx_sha256;");
-                db.Execute("DROP INDEX IF EXISTS bmson_song_idx_folder;");
+                    db.InsertOrReplace(new LR2SongDBExtended.chart_digest_map
+                    {
+                        md5 = "0e5751c026e543b2e8ab2eb06099daa1",
+                        sha256 = new string('b', 64)
+                    }, typeof(LR2SongDBExtended.chart_digest_map));
+                    db.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(ChartTestValues.Empty(ChartFileKind.Bmson) with
+                    {
+                        Path = "song-path",
+                        Folder = "folder",
+                        RawTitle = "title",
+                        Subtitle = "subtitle",
+                        RawArtist = "artist",
+                        Genre = "genre",
+                        Level = 12,
+                        ModeHint = "beat-7k",
+                        Md5 = "0e5751c026e543b2e8ab2eb06099daa1",
+                        Sha256 = new string('c', 64),
+                        Banner = "banner.png",
+                        Backbmp = "back.png",
+                        Stagefile = "stage.png",
+                        PreviewMusic = "preview.ogg",
+                        LastWriteTimeUtc = DateTime.UtcNow
+                    }), typeof(LR2SongDBExtended.bmson_song));
+                    db.Execute("DROP INDEX IF EXISTS bmson_song_idx_md5;");
+                    db.Execute("DROP INDEX IF EXISTS bmson_song_idx_sha256;");
+                    db.Execute("DROP INDEX IF EXISTS bmson_song_idx_folder;");
+                });
             }
 
             gateway.EnsureBmsonSchema();
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM bmson_song;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'index' AND name = 'bmson_song_idx_md5';"));
@@ -478,6 +528,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 別threadがLR2共通Monitorを保持中でもpathからのInspectが完了し、read-only検査をwriter待ちに接続しない。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void Inspect_PathOverload_DoesNotWaitForLr2SongDbExtendedMonitorLock()
@@ -602,6 +655,9 @@ public sealed class AppSchemaPreflightServiceTests
         primaryFailure?.Throw();
     }
 
+    /// <summary>
+    /// 旧maintenanceにLR2互換列とpath索引を追加し、既存の譜面状態行をschema更新で落とさない。
+    /// </summary>
     [TestMethod]
     public void EnsureMaintenanceSchema_AddsLr2CompatibilityColumnsWithoutDroppingRows()
     {
@@ -610,13 +666,16 @@ public sealed class AppSchemaPreflightServiceTests
         {
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
-                db.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
-                db.Execute("INSERT INTO maintenance (hash, path, encoding, is_files_warning_ignored) VALUES ('0123456789abcdef0123456789abcdef', 'D:\\BMS\\chart.bms', 'shift_jis', 0);");
+                db.RunInTransaction(() =>
+                {
+                    db.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
+                    db.Execute("INSERT INTO maintenance (hash, path, encoding, is_files_warning_ignored) VALUES ('0123456789abcdef0123456789abcdef', 'D:\\BMS\\chart.bms', 'shift_jis', 0);");
+                });
             }
 
             new BmsLibraryDbGateway(tempDbPath).EnsureMaintenanceSchema();
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             string[] columns = [.. verify.Query<ColumnNameRow>("PRAGMA table_info(maintenance);").Select(row => row.name)];
             CollectionAssert.Contains(columns, "lr2_warning_flags");
             CollectionAssert.Contains(columns, "lr2_resource_max_relative_cp932_bytes");
@@ -634,6 +693,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 旧maintenanceへLR2警告とpath長・親参照値を保存して読み戻し、列追加による指定値の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void UpsertMaintenanceInfos_AddsLr2CompatibilityColumnsAndRoundTripsValues()
     {
@@ -648,7 +710,7 @@ public sealed class AppSchemaPreflightServiceTests
 
             new BmsLibraryDbGateway(tempDbPath).UpsertMaintenanceInfos([MaintenanceStorageMapping.ToCommon(info)]);
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             LR2SongDBExtended.maintenance row = verify.Table<LR2SongDBExtended.maintenance>().Single(item => item.path == info.path);
             Assert.AreEqual(5, row.lr2_warning_flags);
             Assert.AreEqual(12, row.lr2_resource_max_relative_cp932_bytes);
@@ -660,6 +722,9 @@ public sealed class AppSchemaPreflightServiceTests
         }
     }
 
+    /// <summary>
+    /// 大文字小文字だけ異なる二つのpathへmaintenanceを一括保存し、別キーのhash・encoding・状態を混ぜない。
+    /// </summary>
     [TestMethod]
     public void CommitFileScanDiffChunk_BulkUpsertsMaintenanceRowsWithExactCaseDistinctPaths()
     {
@@ -675,7 +740,7 @@ public sealed class AppSchemaPreflightServiceTests
                 BmsLibraryDbGateway.CommitFileScanDiffChunk(db, chunk);
             }
 
-            using var verify = new LR2SongDBExtended(tempDbPath);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             List<LR2SongDBExtended.maintenance> rows = [.. verify.Table<LR2SongDBExtended.maintenance>().OrderBy(row => row.path, StringComparer.Ordinal)];
             Assert.AreEqual(2, rows.Count);
             LR2SongDBExtended.maintenance upperCaseRow = rows.Single(row => row.path == @"D:\BMS\Pack\Song\Chart.bms");
@@ -722,24 +787,27 @@ public sealed class AppSchemaPreflightServiceTests
         gateway.EnsureAppOwnedSchema();
 
         using var seed = new LR2SongDBExtended(songDbPath);
-        seed.DropTable<LR2SongDBExtended.playlist_entry>();
-        seed.Execute(
-            "CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
-        seed.Execute(
-            "CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
-        seed.Execute(
-            "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder, bmt_sort, is_bmt_output) "
-            + "VALUES (91, 'Legacy playlist', 'legacy', '', 0, 1, 0, 0, 0, NULL, NULL);");
-        seed.Execute(
-            "INSERT INTO playlist_entry (playlist_id, md5, level, title, artist, folder, is_removed) "
-            + "VALUES (91, '0123456789abcdef0123456789abcdef', 12, 'Legacy entry', 'Artist', '', 0);");
-        seed.Execute(
-            "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) "
-            + "VALUES ('0123456789abcdef0123456789abcdef', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');");
-        seed.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
-        seed.Execute(
-            "CREATE TRIGGER app_schema_repair_late_failure BEFORE INSERT ON app_schema_version "
-            + "BEGIN SELECT RAISE(ABORT, 'deterministic late schema repair failure'); END;");
+        seed.RunInTransaction(() =>
+        {
+            seed.DropTable<LR2SongDBExtended.playlist_entry>();
+            seed.Execute(
+                "CREATE TABLE playlist_entry (playlist_id INTEGER NOT NULL, md5 TEXT NULL, level REAL NULL, title TEXT, artist TEXT, folder TEXT, lr2_bmsid TEXT, url TEXT, url_diff TEXT, name_diff TEXT, org_md5 TEXT, adddate TEXT, comment TEXT, memo TEXT, is_removed INTEGER NOT NULL DEFAULT 0);");
+            seed.Execute(
+                "CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
+            seed.Execute(
+                "INSERT INTO playlist (playlist_id, name, symbol, folder_order, folder_sort_key, folder_sort_ascending, entry_type, is_external_sync, is_root_folder, bmt_sort, is_bmt_output) "
+                + "VALUES (91, 'Legacy playlist', 'legacy', '', 0, 1, 0, 0, 0, NULL, NULL);");
+            seed.Execute(
+                "INSERT INTO playlist_entry (playlist_id, md5, level, title, artist, folder, is_removed) "
+                + "VALUES (91, '0123456789abcdef0123456789abcdef', 12, 'Legacy entry', 'Artist', '', 0);");
+            seed.Execute(
+                "INSERT OR REPLACE INTO chart_digest_map (md5, sha256) "
+                + "VALUES ('0123456789abcdef0123456789abcdef', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');");
+            seed.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema';");
+            seed.Execute(
+                "CREATE TRIGGER app_schema_repair_late_failure BEFORE INSERT ON app_schema_version "
+                + "BEGIN SELECT RAISE(ABORT, 'deterministic late schema repair failure'); END;");
+        });
     }
 
     private static void DeleteTempSongDbDirectory(string songDbPath)
@@ -757,7 +825,7 @@ public sealed class AppSchemaPreflightServiceTests
 
     private static SchemaRepairSnapshot ReadSchemaRepairSnapshot(string songDbPath)
     {
-        using var db = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
         SchemaRepairRow row = db.Query<SchemaRepairRow>(
                 "SELECT bmt_sort AS BmtSort, is_bmt_output AS IsBmtOutput FROM playlist WHERE playlist_id = 91;")
             .Single();

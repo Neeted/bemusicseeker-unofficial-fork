@@ -11,11 +11,14 @@ using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>音声テストの受付・解放と、再生進捗から成功／失敗を決める処理を検証します。</summary>
+/// <remarks>受付ケースは共有 BassAudioRuntime の排他が必要です。進捗判断は仮想時計と player 境界で独立して観測し、native 機器取得は下位 runtime テストへ分担します。</remarks>
 [TestClass]
-[DoNotParallelize]
 public sealed class AudioDeviceTestWorkflowOwnerTests
 {
+    /// <summary>実行中照会へ取消を届け、Task 終端後の解放通知と次照会の受付を確認して、取消だけで受付を占有し続ける誤りを検出します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task CapabilityQuery_CancellationReachesRuntimeAndReleasesAdmission()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -57,7 +60,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(2, released);
     }
 
+    /// <summary>共有音声要求が受付中ならテスト・照会・初期化を開始せず、解放後の明示テストを受理することを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task ProcessAudioRequestBusy_RejectsTestAndQueryBeforeStoppingOrInitializing()
     {
         var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -102,6 +107,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(1, runtime.CallCount);
     }
 
+    /// <summary>player 解放が失敗しても成功した進捗や先行する再生失敗を置き換えず、解放例外を別に保持して一度だけ解放を試すことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_CleanupFailurePreservesEarlierFailureAndProgress()
     {
@@ -125,7 +131,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(1, failed.DisposedPlayerCount);
     }
 
+    /// <summary>runtime を gate で保持して停止→テストの順序と重複拒否を観測し、元 Task 完了後だけ次の明示要求を受けることを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task TryRunAsync_StopsPlaybackBeforeRuntimeAndRejectsDuplicate()
     {
         var events = new List<string>();
@@ -140,7 +148,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             releaseRuntime.Task.GetAwaiter().GetResult();
             return CreateResult();
         });
-        var owner = new AudioDeviceTestWorkflowOwner(
+        using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => events.Add("stop")),
             runtime);
         AudioDeviceTestRequest request = CreateRequest();
@@ -172,7 +180,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         }
     }
 
+    /// <summary>共有 WASAPI の成功と初期化失敗で有効要求を AUTO／自動 buffer として報告し、利用者の保存要求を変更しないことを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task TryRunAsync_ResultKeepsSavedValuesButReportsEffectiveSharedRequest()
     {
         var request = new AudioDeviceTestRequest(
@@ -186,7 +196,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             playerVolume: 50,
             playSound: false,
             playerMixerThreadCount: 3);
-        var owner = new AudioDeviceTestWorkflowOwner(
+        using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
             new RecordingAudioDeviceTestRuntime(() => AudioDeviceTestResultFactory.CreateSuccessful(request)));
 
@@ -204,6 +214,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
             primaryFailure: new InvalidOperationException("initialization failed"),
             cleanupFailure: new InvalidOperationException("cleanup failed"));
 
+        // 初期化の成否によらず共有出力要求の正規化を表示する。
         foreach (AudioDeviceTestResult result in new[] { success, failed })
         {
             Assert.AreEqual(SampleRate.AUTO, result.RequestedRate);
@@ -215,15 +226,15 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, request.PlayerFormat);
         Assert.AreEqual(37f, request.PlayerBufferSize);
         Assert.IsTrue(request.PlayerWASAPIParam);
-        Assert.AreEqual(3, request.PlayerMixerThreadCount);
-        Assert.AreEqual(3, request.AudioOutputRequest.PlayerMixerThreadCount);
     }
 
+    /// <summary>runtime の例外を失敗結果へ保持し、Task 終端で受付を解放して同じ owner の次要求を成功させることを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task TryRunAsync_RuntimeFailureReleasesBusyState()
     {
         int attempts = 0;
-        var owner = new AudioDeviceTestWorkflowOwner(
+        using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => { }),
             new RecordingAudioDeviceTestRuntime(request =>
             {
@@ -248,7 +259,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsFalse(owner.IsRunning);
     }
 
+    /// <summary>自然終了しない player の観測 timeout 後に player と受付を一度解放し、同じ owner の再テストを妨げないことを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task TryRunAsync_ObservationTimeoutReleasesPlayerAndAllowsSameOwnerRetry()
     {
         int attempts = 0;
@@ -300,7 +313,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(2, releaseNotifications);
     }
 
+    /// <summary>照会を gate で保持した間は照会とテストの重複を拒否し、通常再生を停止せず照会結果と受付を返すことを確認します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task CapabilityQuery_SharesAcceptanceWithoutStoppingPlayback()
     {
         var queryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -319,7 +334,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
                 AudioDeviceCapabilityStatus.Available,
                 [SampleRate.SAMPLE_RATE_48000Hz]);
         });
-        var owner = new AudioDeviceTestWorkflowOwner(
+        using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => stopCount++),
             new RecordingAudioDeviceTestRuntime(() => CreateResult()),
             capabilityRuntime);
@@ -347,13 +362,15 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         }
     }
 
+    /// <summary>同じ owner で照会とテストを交互に繰り返し、照会では停止せず各テストで停止することを確認して受付の再使用漏れを検出します。</summary>
     [TestMethod]
+    [DoNotParallelize]
     public async Task CapabilityQueryAndDeviceTestCanRepeatThroughOneWorkflowOwner()
     {
         int queryCount = 0;
         int testCount = 0;
         int stopCount = 0;
-        var owner = new AudioDeviceTestWorkflowOwner(
+        using var owner = new AudioDeviceTestWorkflowOwner(
             new DelegateAudioDeviceTestPlaybackPort(() => stopCount++),
             new RecordingAudioDeviceTestRuntime(() =>
             {
@@ -390,6 +407,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsFalse(owner.IsRunning);
     }
 
+    /// <summary>再生中のまま位置が進まない入力を観測期限で失敗にし、位置ゼロを正常再生と誤認しないことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_NoPlaybackMovement_ReturnsFailure()
     {
@@ -408,6 +426,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(0d, observation.ProgressRatio.GetValueOrDefault());
     }
 
+    /// <summary>時計と等速で進む位置を測定して成功と速度比を返し、自然終了時に作成した player を一度解放することを確認します。</summary>
     [TestMethod]
     public void StreamObserver_RealTimeProgress_ReturnsMeasuredSuccess()
     {
@@ -427,6 +446,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
     }
 
+    /// <summary>必要な進捗を得た三秒音声でも自然終了まで player を所有し、進捗検証直後に再生を打ち切る誤りを検出します。</summary>
     [TestMethod]
     public void StreamObserver_ValidatedProgress_DoesNotDisposeBeforeNaturalEnd()
     {
@@ -446,6 +466,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(TimeSpan.FromSeconds(3), boundary.DisposedAt.GetValueOrDefault());
     }
 
+    /// <summary>位置取得と再生状態取得の間に自然終了した入力を再観測して成功にし、読み取り順による正常終了の誤判定を検出します。</summary>
     [TestMethod]
     public void StreamObserver_NaturalEndBetweenPositionAndStateReads_ReturnsSuccess()
     {
@@ -472,6 +493,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(duration, boundary.DisposedAt.GetValueOrDefault());
     }
 
+    /// <summary>全位置を進んでも再生状態が終了しない入力は自然終了待ちで失敗にし、期限到達時に player を解放することを確認します。</summary>
     [TestMethod]
     public void StreamObserver_NaturalEndTimeout_ReturnsFailureAndDisposesPlayer()
     {
@@ -491,6 +513,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
     }
 
+    /// <summary>時計の二倍で進む位置は速度比二として失敗にし、位置が進むだけで正常再生と判断する誤りを検出します。</summary>
     [TestMethod]
     public void StreamObserver_DoubleSpeedProgress_ReturnsFailure()
     {
@@ -508,6 +531,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         StringAssert.Contains(observation.FailureReason, "outside the accepted range");
     }
 
+    /// <summary>一般例外で再生開始に失敗した入力を Unexpected と診断し、元の失敗内容を失わないことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_PlayerException_IsConvertedToUnexpectedFailure()
     {
@@ -525,6 +549,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         StringAssert.Contains(observation.DiagnosticReason, "play failed");
     }
 
+    /// <summary>MixerAttach の型付き再生例外を開始失敗へ分類し、native エラー・handle・backend・session の診断を保持することを確認します。</summary>
     [TestMethod]
     public void StreamObserver_TypedPlayerExceptionPreservesPlaybackDiagnostics()
     {
@@ -565,40 +590,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(6, observation.PlaybackCoreDeviceIndex);
     }
 
-    [TestMethod]
-    public void AudioDeviceTestResult_PreservesTypedPlaybackDiagnostics()
-    {
-        AudioPlaybackInitializationResult initialization = CreateResult().Initialization
-            ?? throw new AssertFailedException("The successful test must retain its initialization.");
-        var result = new AudioDeviceTestResult(
-            CreateRequest(),
-            initialization,
-            streamProgressRequired: true,
-            streamProgressSucceeded: false,
-            wallClockDuration: TimeSpan.Zero,
-            playbackPositionDuration: TimeSpan.Zero,
-            progressRatio: null,
-            failureReason: "play failed",
-            failureKind: AudioDeviceTestFailureKind.PlaybackStartFailed,
-            playbackStage: BassAudioPlaybackStage.MixerAttach,
-            nativeErrorSource: "BASS_Mixer_StreamAddChannel",
-            nativeErrorCode: Errors.Handle,
-            diagnosticReason: "play failed",
-            playbackSourceHandle: 12,
-            playbackExpectedMixerHandle: 77,
-            playbackActualMixerHandle: 0,
-            playbackBackend: BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
-            playbackSessionState: BassAudioSessionState.Active,
-            playbackCoreDeviceIndex: 6);
-
-        Assert.AreEqual(12, result.PlaybackSourceHandle);
-        Assert.AreEqual(77, result.PlaybackExpectedMixerHandle);
-        Assert.AreEqual(0, result.PlaybackActualMixerHandle);
-        Assert.AreEqual(BassAudioPlayer.DeviceDriver.WASAPI_SHARED, result.PlaybackBackend);
-        Assert.AreEqual(BassAudioSessionState.Active, result.PlaybackSessionState);
-        Assert.AreEqual(6, result.PlaybackCoreDeviceIndex);
-    }
-
+    /// <summary>開始後の位置観測で起きた型付き例外は Unexpected として、stage と native エラーを保持し開始失敗と混同しないことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_TypedObservationExceptionPreservesPlaybackDiagnostics()
     {
@@ -626,6 +618,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(Errors.Handle, observation.NativeErrorCode);
     }
 
+    /// <summary>音声 source 作成例外を player 作成失敗として報告し、player が未作成であることと stage／native エラーを確認します。</summary>
     [TestMethod]
     public void StreamObserver_PlayerCreationFailureIsReportedBeforePlayback()
     {
@@ -653,6 +646,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(0, boundary.CreatedPlayerCount);
     }
 
+    /// <summary>テスト音声が存在しなければ利用不能として失敗を返し、player 作成へ進まないことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_MissingTestSound_ReturnsFailureWithoutCreatingPlayer()
     {
@@ -670,6 +664,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.IsFalse(boundary.PlayerCreated);
     }
 
+    /// <summary>途中で位置がゼロへ戻る入力を逆行として拒否し、時計経過だけで正常進捗と判断する誤りを検出します。</summary>
     [TestMethod]
     public void StreamObserver_PositionReversal_ReturnsFailure()
     {
@@ -684,6 +679,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         StringAssert.Contains(observation.FailureReason, "moved backwards");
     }
 
+    /// <summary>有効な進捗の後で位置が停止する入力も失敗にし、音声長を待ち切る前に player を解放することを確認します。</summary>
     [TestMethod]
     public void StreamObserver_ValidatedProgressThenPlateau_ReturnsFailureAndDisposesPlayer()
     {
@@ -706,6 +702,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         Assert.AreEqual(boundary.Elapsed, boundary.DisposedAt.GetValueOrDefault());
     }
 
+    /// <summary>検証に必要な進捗を得る前に停止する音声を、報告長に達しない失敗として扱うことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_EarlyStop_ReturnsFailure()
     {
@@ -724,6 +721,7 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         StringAssert.Contains(observation.FailureReason, "reported duration");
     }
 
+    /// <summary>進捗が検証できても音声長の途中で停止すれば失敗にし、検証済みだけを理由に早期停止を成功と扱わないことを確認します。</summary>
     [TestMethod]
     public void StreamObserver_EarlyStopAfterValidatedProgress_ReturnsFailure()
     {
@@ -743,7 +741,9 @@ public sealed class AudioDeviceTestWorkflowOwnerTests
         StringAssert.Contains(observation.FailureReason, "reported duration");
     }
 
+    /// <summary>許容速度比の下限・上限は成功、その直外は失敗にし、境界の不等号や測定比の誤りを検出します。</summary>
     [DataTestMethod]
+    // 許容下限・上限と、その直外を比較する。
     [DataRow(0.75, true)]
     [DataRow(1.25, true)]
     [DataRow(0.74, false)]

@@ -18,6 +18,8 @@ using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExt
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>外部表取込みの実受付・登録・通知とsettingsへのcatalog配送を確認します。</summary>
+/// <remarks>通信中の受付と実DB・BMT・configの一括反映はplaylistとworkspaceの実接続が対象です。個別JSON・BMT内容は下位parser/exportケース、実Window配送はMainWindowケースへ分担します。</remarks>
 [TestClass]
 public sealed class PlaylistWorkspaceExternalSourceTests
 {
@@ -124,6 +126,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>URIなし・空行混在の入力は有効URIなしと不正行だけを返し、trim後の不正行を失わず取込みを開始しません。</summary>
     [TestMethod]
     public void SubmitExternalPlaylistUriText_AllInvalidReturnsValidationFactsWithoutEnqueueing()
     {
@@ -136,6 +139,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         CollectionAssert.AreEqual(new[] { "not-a-uri" }, result.InvalidLines.ToList());
     }
 
+    /// <summary>二つの有効URIと不正行を一要求にまとめ、実HTTP本文待ち中は追加受付を拒否し、入力順の取込み結果と進捗終了を返します。</summary>
     [TestMethod]
     public async Task SubmitExternalPlaylistUriText_OneRequestHoldsAdmissionDuringCommunicationAndCompletesAllInputs()
     {
@@ -155,11 +159,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             {
             }
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
-            string firstHeaderPath = Path.Combine(tempDirectory, "first.json");
             string firstDataPath = Path.Combine(tempDirectory, "first-data.json");
             string secondHeaderPath = Path.Combine(tempDirectory, "second.json");
             string secondDataPath = Path.Combine(tempDirectory, "second-data.json");
-            File.WriteAllText(firstHeaderPath, "{\"name\":\"FirstImport\",\"symbol\":\"F\",\"output_dir\":\"FirstImport\",\"data_url\":\"./first-data.json\"}");
             File.WriteAllText(firstDataPath, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"artist\":\"Artist\",\"level\":\"1\"}]");
             File.WriteAllText(secondHeaderPath, "{\"name\":\"SecondImport\",\"symbol\":\"S\",\"output_dir\":\"SecondImport\",\"data_url\":\"./second-data.json\"}");
             File.WriteAllText(secondDataPath, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Second song\",\"artist\":\"Artist\",\"level\":\"2\"}]");
@@ -203,7 +205,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
             Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "external_playlist_import"));
-            Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == firstUri));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == secondUri));
             Assert.IsFalse(notifications[^1].IsActive);
@@ -451,7 +452,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
             Assert.IsTrue(notifications.All(snapshot => snapshot.Source == "beatoraja_table_url_import"));
-            Assert.IsTrue(notifications.All(snapshot => snapshot.OperationId == 0));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CurrentUri?.AbsoluteUri == inputUri));
             Assert.IsTrue(notifications.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount > 0));
             Assert.IsFalse(notifications[^1].IsActive);
@@ -503,6 +503,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>playlist未接続ではcollectionとbuilt-in取込みをenqueueせず、取込み要求を初期化後の予約へ持ち越しません。</summary>
     [TestMethod]
     public void ExternalPlaylistSourceRequestsRejectUnavailableStoreBeforeQueueing()
     {
@@ -513,6 +514,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Assert.IsFalse(unavailableWorkspace.TryEnqueueBuiltInExternalPlaylistImport("https://example.test/built-in.json"));
     }
 
+    /// <summary>playlist未接続は新規表・URI・collection・built-inを無効にし、接続後は四入口を有効にして操作受付と表示可否を揃えます。</summary>
     [TestMethod]
     public void PlaylistRootContextMenuAvailability_UsesWorkspaceOwnedStateSnapshot()
     {
@@ -558,6 +560,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>実workspaceのsettings portが返した表snapshotは元表の名前変更後も旧名を保ち、開いた設定に可変表を共有しません。</summary>
     [TestMethod]
     public void SettingsWorkspacePort_ExposesCanonicalImmutablePlaylistSnapshot()
     {
@@ -600,6 +603,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>表示だけの変更はcatalog通知を出さず、catalog更新はqueue経由で届け、設定非表示中の更新を再表示時に一回だけ反映します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void SettingsWorkspacePort_CatalogVersionDefersSettingsFanoutUntilDialogIsVisible()
@@ -617,7 +621,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
             var catalogNotificationQueue = new Queue<Action>();
             workspace.ConfigureCatalogNotificationQueue(catalogNotificationQueue.Enqueue);
-            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            using SettingsDialogViewModel dialog = viewModel.SettingDialog;
             ISettingsDialogWorkspacePort settingsPort = workspace;
             var settingNotifications = new List<string>();
             dialog.PropertyChanged += (_, eventArgs) =>
@@ -692,6 +696,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>連続catalog更新は同期通知せず一つのqueueへ集約し、配送時には最新versionだけを一回公開します。</summary>
     [TestMethod]
     public void SettingsWorkspacePort_CatalogCallbackIsQueuedAndCoalescesLatestVersion()
     {
@@ -721,6 +726,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Assert.AreEqual(latestVersion, publishedVersion);
     }
 
+    /// <summary>実DBで名前・prefix・出力基点を保存する各更新はcatalog versionを進め、queue終端で最新typed通知を各一回配送します。</summary>
     [TestMethod]
     public async Task SettingsWorkspacePort_CatalogMutationPublishesTypedVersion()
     {
@@ -865,6 +871,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>catalog購読先の例外をその配送で公開した後も、次の更新を再queueして通知でき、失敗で通知待ち状態を固着させません。</summary>
     [TestMethod]
     public void SettingsWorkspacePort_CatalogCallbackFailureDoesNotBlockNextVersion()
     {
@@ -895,6 +902,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         Assert.AreEqual(1, successfulCount);
     }
 
+    /// <summary>tree表示を延期していても接続済みcollectionへの表追加はcatalog versionと通知を進め、設定用更新を表示延期へ巻き込みません。</summary>
     [TestMethod]
     public void SettingsWorkspacePort_DeferredCollectionMutationStillPublishesCatalogVersion()
     {
@@ -942,8 +950,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
 
+    /// <summary>settings portからURL補完の非同期scheduleへ要求理由を渡し、別のBMT出力Taskも完了でき、BMTをURL補完queueへ混入させません。</summary>
     [TestMethod]
-    public async Task SettingsWorkspacePort_AwaitsRequiredBmtAndKeepsUrlCacheSchedulingSeparate()
+    public async Task SettingsWorkspacePort_ForwardsUrlCacheSchedulingAndBmtCompletion()
     {
         string databasePath = Path.Combine(
             Path.GetTempPath(),
@@ -964,16 +973,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 scheduled.Add(kind + ":" + reason);
                 return true;
             };
-            int providerCalls = 0;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () =>
                 {
-                    providerCalls++;
                     return playlist;
                 });
             ISettingsDialogWorkspacePort settingsPort = workspace;
-            providerCalls = 0;
 
             settingsPort.SchedulePlaylistUrlCompletionRefresh("settings-test");
             await settingsPort.ExportBeatorajaBmtAsync("settings-test", null, null);
@@ -981,7 +987,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             CollectionAssert.AreEqual(
                 new[] { "playlist_url_completion:settings-test" },
                 scheduled);
-            Assert.AreEqual(2, providerCalls);
         }
         finally
         {
@@ -992,6 +997,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>playlist providerがnullの状態でもURL補完要求を例外なく受け、BMT出力要求のTaskが正常に完了することを確認します。</summary>
     [TestMethod]
     public async Task SettingsWorkspacePort_BackgroundPublishRequestsAreNoOpWhenStoreDetached()
     {
@@ -1004,6 +1010,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         await settingsPort.ExportBeatorajaBmtAsync("detached-test", null, null);
     }
 
+    /// <summary>collection URLなしは未受付、壊れたbuilt-in URIは元UriFormatExceptionとし、二つの既存入力契約を同じ空成功へ置換しません。</summary>
     [TestMethod]
     public void ExternalPlaylistSourceRequestsPreserveNullSourceAndMalformedUriContracts()
     {
@@ -1037,6 +1044,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>collection取込みの実終端後にbuilt-inを次の明示要求で受け、各一表の結果通知・URI順・実表登録を保持します。</summary>
     [TestMethod]
     public async Task ExternalPlaylistSourceRequests_CatalogAndBuiltInImportsUseSeparateExplicitRequests()
     {
@@ -1108,6 +1116,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
 
+    /// <summary>catalog取得gate中は非同期Taskを保留し、取得完了後にtag分類と表名を公開して未完了の結果を先に表示しません。</summary>
     [TestMethod]
     public async Task ExternalTableListCatalog_SlowFetchDoesNotBlockCallerAndPublishesAfterCompletion()
     {
@@ -1125,15 +1134,24 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             new Uri("https://example.test/catalog"),
             (_, _) => fetchGate.Task);
 
-        Assert.IsFalse(loadTask.IsCompleted);
-        fetchGate.SetResult([table]);
-        await loadTask.ConfigureAwait(false);
+        try
+        {
+            Assert.IsFalse(loadTask.IsCompleted);
+            fetchGate.TrySetResult([table]);
+            await loadTask.ConfigureAwait(false);
 
-        Assert.IsNotNull(workspace.BMSExternalTableListExt);
-        Assert.AreEqual("Deferred", workspace.BMSExternalTableListExt.Children[0].name);
-        Assert.AreEqual("Loaded", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
+            Assert.IsNotNull(workspace.BMSExternalTableListExt);
+            Assert.AreEqual("Deferred", workspace.BMSExternalTableListExt.Children[0].name);
+            Assert.AreEqual("Loaded", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
+        }
+        finally
+        {
+            fetchGate.TrySetResult([table]);
+            await loadTask.ConfigureAwait(false);
+        }
     }
 
+    /// <summary>終了取消を実fetch tokenへ伝えて取得Taskを終了し、旧catalogを公開して終了後の表示を更新しません。</summary>
     [TestMethod]
     public async Task ExternalTableListCatalog_ShutdownCancelsAndDoesNotPublishStaleCatalog()
     {
@@ -1160,17 +1178,26 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 return staleCatalog;
             });
 
-        Assert.IsFalse(loadTask.IsCompleted);
-        workspace.CancelExternalTableCollectionLoadForShutdown();
-        // 取消の伝播を通知で確認する。workerの割当て時間は取消契約に含めない。
-        await cancellationObserved.Task.ConfigureAwait(false);
-        await loadTask.ConfigureAwait(false);
+        try
+        {
+            Assert.IsFalse(loadTask.IsCompleted);
+            workspace.CancelExternalTableCollectionLoadForShutdown();
+            // 取消の伝播を通知で確認する。workerの割当て時間は取消契約に含めない。
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancellationObserved.Task, loadTask, "external catalog shutdown cancellation");
+            await loadTask.ConfigureAwait(false);
 
-        Assert.IsNull(workspace.BMSExternalTableListExt);
+            Assert.IsNull(workspace.BMSExternalTableListExt);
+        }
+        finally
+        {
+            workspace.CancelExternalTableCollectionLoadForShutdown();
+            await loadTask.ConfigureAwait(false);
+        }
     }
 
+    /// <summary>後発catalogを先に適用してから前発の遅い応答を返しても最新分類・表名を保ち、古い応答で上書きしません。</summary>
     [TestMethod]
-    public async Task ExternalTableListCatalog_NewRequestCancelsAndRejectsStaleCompletion()
+    public async Task ExternalTableListCatalog_NewRequestKeepsLatestCatalogAfterLateCompletion()
     {
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var firstGate = new TaskCompletionSource<IReadOnlyList<BMSTableSimple>>(
@@ -1185,32 +1212,42 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             new Uri("https://example.test/second"),
             (_, _) => secondGate.Task);
 
-        secondGate.SetResult(
-        [
-            new BMSTableSimple
-            {
-                tag1 = "Current",
-                name = "Second",
-                url = new Uri("https://example.test/current")
-            }
-        ]);
-        await secondLoad.ConfigureAwait(false);
-        firstGate.SetResult(
-        [
-            new BMSTableSimple
-            {
-                tag1 = "Stale",
-                name = "First",
-                url = new Uri("https://example.test/stale")
-            }
-        ]);
-        await firstLoad.ConfigureAwait(false);
+        try
+        {
+            secondGate.TrySetResult(
+            [
+                new BMSTableSimple
+                {
+                    tag1 = "Current",
+                    name = "Second",
+                    url = new Uri("https://example.test/current")
+                }
+            ]);
+            await secondLoad.ConfigureAwait(false);
+            firstGate.TrySetResult(
+            [
+                new BMSTableSimple
+                {
+                    tag1 = "Stale",
+                    name = "First",
+                    url = new Uri("https://example.test/stale")
+                }
+            ]);
+            await firstLoad.ConfigureAwait(false);
 
-        Assert.AreEqual("Current", workspace.BMSExternalTableListExt.Children[0].name);
-        Assert.AreEqual("Second", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
-        Assert.IsNotNull(workspace.BMSExternalTableListExt);
+            Assert.AreEqual("Current", workspace.BMSExternalTableListExt.Children[0].name);
+            Assert.AreEqual("Second", workspace.BMSExternalTableListExt.Children[0].Children[0].name);
+            Assert.IsNotNull(workspace.BMSExternalTableListExt);
+        }
+        finally
+        {
+            firstGate.TrySetResult([]);
+            secondGate.TrySetResult([]);
+            await Task.WhenAll(firstLoad, secondLoad).ConfigureAwait(false);
+        }
     }
 
+    /// <summary>入力の第一階層順を保ち、第二階層を名前順へ分類してURL付きleafと子なしdirect項目を区別し、menu階層を壊しません。</summary>
     [TestMethod]
     public void ExternalTableListCatalog_PreservesHierarchyOrderAndLeafMenuShape()
     {

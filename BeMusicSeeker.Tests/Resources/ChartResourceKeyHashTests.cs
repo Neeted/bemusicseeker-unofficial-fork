@@ -7,6 +7,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceKeyHashTests
 {
+    /// <summary>
+    /// 保証：同名ファイルの名前ハッシュを共有しても階層付き照合キーは区別し、別フォルダのリソースを同一候補へ混同しない。
+    /// </summary>
     [TestMethod]
     public void LookupHash_DistinguishesPathAwareKeyWhileFileNameHashCollapsesToBaseName()
     {

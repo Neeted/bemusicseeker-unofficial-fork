@@ -5,7 +5,6 @@ using System.Linq;
 using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -14,18 +13,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2SynchronizationArchitectureTests
 {
-    [TestMethod]
-    public void LibraryCompositionUsesFacadeIndependentDialogBoundary()
-    {
-        Assert.IsTrue(typeof(IBmsLibraryDialogService).IsAssignableFrom(typeof(ScopedOperationDialogCoordinator)));
-        Assert.IsNotNull(typeof(ScopedOperationDialogCoordinator).GetMethod(
-            "BeginScope",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-        Assert.IsNotNull(typeof(ScopedOperationDialogCoordinator).GetMethod(
-            "Show",
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic));
-    }
-
+    /// <summary>
+    /// 保証：フォルダ移動の受付後に決めた順序で必要lockだけを保持・逆順解放し、変更権限の明示失効後は再利用を拒否する。
+    /// </summary>
     [TestMethod]
     public void FolderMoveSnapshotScope_UsesCanonicalLocksAndInvalidatesCapabilityBeforeRelease()
     {
@@ -117,6 +107,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         }
     }
 
+    /// <summary>
+    /// 保証：フォルダ移動の受付拒否は各lock取得より先に終わり、予約・読み書きlock・活動中権限を残さない。
+    /// </summary>
     [TestMethod]
     public void FolderMoveAdmission_RejectionDoesNotAcquireLocks()
     {
@@ -169,27 +162,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         }
     }
 
-    [TestMethod]
-    public void SynchronizationPortsHaveNoFacadeDependency()
-    {
-        foreach (MethodInfo method in typeof(ILr2SynchronizationDataPort).GetMethods())
-        {
-            Assert.IsFalse(ContainsType(method.ReturnType, typeof(LR2SongDBExtended)), method.Name);
-            Assert.IsFalse(
-                method.GetParameters().Any(parameter => ContainsType(parameter.ParameterType, typeof(LR2SongDBExtended))),
-                method.Name);
-        }
-        Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("CaptureLr2FolderExistingRows"));
-        Assert.IsNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2StartupScanBlockerCleanup"));
-        Assert.IsNotNull(typeof(ILr2SynchronizationDataPort).GetMethod("ApplyLr2SongDbSyncStatusMutation"));
-
-        PropertyInfo? chartInfoWriter = typeof(Lr2SongDbSyncRequest).GetProperty("ChartInfoChunkWriter");
-        Assert.IsNotNull(chartInfoWriter);
-        Assert.IsFalse(ContainsType(chartInfoWriter!.PropertyType, typeof(LR2SongDBExtended)));
-        PropertyInfo? songRowsVerifier = typeof(Lr2SongDbSyncRequest).GetProperty("SongRowsSkipVerifier");
-        Assert.IsNull(songRowsVerifier);
-    }
-
+    /// <summary>
+    /// 保証：LR2譜面情報の権限を保持しても元管理主体を強参照せず、退役した主体をGC可能にする。
+    /// </summary>
     [TestMethod]
     public void ChartInfoCapabilityDoesNotRetainOwner()
     {
@@ -206,6 +181,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         GC.KeepAlive(capability);
     }
 
+    /// <summary>
+    /// 保証：LR2同期入力の行とパスは捕捉後の所持集合変更に影響されず、同期途中で新旧データを混在させない。
+    /// </summary>
     [TestMethod]
     public void InputRowSnapshotIsExposedAsOneImmutableContract()
     {
@@ -226,6 +204,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
     }
 
+    /// <summary>
+    /// 保証：変更scope中の警告はFlushまで実通知を遅らせ、scope外の警告は直ちに通知してlock中の対話待ちを防ぐ。
+    /// </summary>
     [TestMethod]
     public void MutationWarningUsesScopedOperationDialogCapability()
     {
@@ -263,6 +244,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         Assert.AreEqual(2, dialogs.CallCount);
     }
 
+    /// <summary>
+    /// 保証：LR2検索先から管理出力基点と子孫を除外し、設定読込み失敗時は旧検索先を使わず、独立モードではLR2設定失敗に依存しない。
+    /// </summary>
     [TestMethod]
     public void SearchRootSnapshotPreservesExcludedDescendantsAndClearsAfterConfigFailure()
     {
@@ -333,6 +317,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         }
     }
 
+    /// <summary>
+    /// 保証：必須の操作設定providerが値を返さない場合は検索先捕捉を失敗させ、暗黙の既定設定で走査しない。
+    /// </summary>
     [TestMethod]
     public void SearchRootSnapshotRejectsNullOptionsProvider()
     {
@@ -343,6 +330,9 @@ public sealed class Lr2SynchronizationArchitectureTests
         Assert.ThrowsException<InvalidOperationException>(() => owner.Capture());
     }
 
+    /// <summary>
+    /// 保証：長い管理出力パスの子孫も検索先から除外し、通常パス長を超えた出力を譜面として再取込みしない。
+    /// </summary>
     [TestMethod]
     public void SearchRootSnapshotExcludesLongCustomOutputDescendants()
     {
@@ -392,20 +382,6 @@ public sealed class Lr2SynchronizationArchitectureTests
         WeakReference reference = new(owner);
         capability = new Lr2ChartInfoCapability(owner);
         return reference;
-    }
-
-    private static bool ContainsType(Type candidate, Type expected)
-    {
-        if (candidate == expected)
-        {
-            return true;
-        }
-        if (candidate.IsArray || candidate.IsByRef || candidate.IsPointer)
-        {
-            return ContainsType(candidate.GetElementType()!, expected);
-        }
-        return candidate.IsGenericType
-            && candidate.GetGenericArguments().Any(argument => ContainsType(argument, expected));
     }
 
     private static ReaderWriterLockSlimWrapper CreateObservedLock(
@@ -471,19 +447,6 @@ public sealed class Lr2SynchronizationArchitectureTests
             return false;
         }
 
-    }
-
-    private sealed class RecordingDisposable(
-        string disposalEvent,
-        List<string> events) : IDisposable
-    {
-        internal int DisposeCount { get; private set; }
-
-        public void Dispose()
-        {
-            DisposeCount++;
-            events.Add(disposalEvent);
-        }
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService

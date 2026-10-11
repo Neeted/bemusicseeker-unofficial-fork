@@ -1,51 +1,17 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>画面が購読するモデル値とロック状態の通知・購読解除を検証する。</summary>
+/// <remarks>実モデル・実ロックを直接操作する。ソースの内部経路名では同期や設定捕捉を保証せず、それぞれの実所有者・出力テストへ分担する。</remarks>
 [TestClass]
 public sealed class PlaylistConcurrencyArchitectureTests
 {
-
-    [TestMethod]
-    public void ModelObservableState_UsesBclNotificationContract()
-    {
-        string modelsRoot = Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models");
-        string[] modelSources = Directory.GetFiles(modelsRoot, "*.cs", SearchOption.AllDirectories);
-
-        foreach (string modelSourcePath in modelSources)
-        {
-            string source = File.ReadAllText(modelSourcePath);
-            Assert.IsFalse(source.Contains("Livet.NotificationObject"), modelSourcePath);
-            Assert.IsFalse(source.Contains("PropertyChangedEventListener"), modelSourcePath);
-        }
-
-        Assert.AreEqual(typeof(ObservableObject), typeof(BMSLibrary).BaseType);
-        Assert.AreEqual(typeof(ObservableObject), typeof(BMSPlaylist).BaseType);
-        Assert.IsTrue(typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(BMSLibrary)));
-        Assert.IsTrue(typeof(INotifyPropertyChanged).IsAssignableFrom(typeof(BMSPlaylist)));
-
-        Type notificationObjectType = typeof(Livet.NotificationObject);
-        Type[] modelTypes = typeof(ObservableObject).Assembly
-            .GetTypes()
-            .Where(type => type.IsClass
-                && type.Namespace?.StartsWith("BeMusicSeeker.Models", StringComparison.Ordinal) == true)
-            .ToArray();
-        foreach (Type modelType in modelTypes)
-        {
-            Assert.IsFalse(
-                notificationObjectType.IsAssignableFrom(modelType),
-                modelType.FullName + " must not inherit Livet.NotificationObject.");
-        }
-    }
-
+    /// <summary>rankingを変更して同じ値を再代入しても通知は対象プロパティに一回だけ届く。変更通知漏れと同値再代入の重複通知を検出する。</summary>
     [TestMethod]
     public void ModelPropertyMutation_PublishesExistingPropertyNameOnce()
     {
@@ -56,9 +22,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
         score.ranking = 7;
         score.ranking = 7;
 
-        CollectionAssert.AreEqual(new[] { "ranking" }, changedProperties);
+        CollectionAssert.AreEqual(new[] { nameof(BMSScore.ranking) }, changedProperties);
     }
 
+    /// <summary>実読取りロックの取得・解放で読取り回数のプロパティ通知を各一回届ける。ロック状態が変わっても画面へ通知しない誤りを検出する。</summary>
     [TestMethod]
     public void ReaderWriterLock_PublishesLockCountThroughBclNotificationContract()
     {
@@ -69,10 +36,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
         readerWriterLock.EnterReadLock();
         readerWriterLock.ExitReadLock();
 
-        CollectionAssert.AreEqual(new[] { "LockingReadCount", "LockingReadCount" }, changedProperties);
-        readerWriterLock.Dispose();
+        CollectionAssert.AreEqual(new[] { nameof(ReaderWriterLockSlimWrapper.LockingReadCount), nameof(ReaderWriterLockSlimWrapper.LockingReadCount) }, changedProperties);
     }
 
+    /// <summary>登録プロパティの変更を転送し、購読を破棄した後の変更は転送しない。購読解除漏れによる終端後の通知を検出する。</summary>
     [TestMethod]
     public void PropertyChangedSubscription_ForwardsRegisteredPropertyAndStopsAfterDispose()
     {
@@ -88,296 +55,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.AreEqual(1, callbackCount);
     }
 
-    [TestMethod]
-    public void UiSchedulerContractKeepsWpfThreadingTypesAtTerminalAdapter()
-    {
-        string portsSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "ApplicationContextPorts.cs"));
-        int contractStart = portsSource.IndexOf("internal interface IUiScheduler", StringComparison.Ordinal);
-        int adapterStart = portsSource.IndexOf("internal sealed class WpfUiScheduler", StringComparison.Ordinal);
-        Assert.IsTrue(contractStart >= 0 && adapterStart > contractStart);
-        string contract = portsSource.Substring(contractStart, adapterStart - contractStart);
-        Assert.IsFalse(contract.Contains("Dispatcher"));
-        StringAssert.Contains(contract, "IUiScheduledOperation");
-
-        foreach (string relativePath in new[]
-        {
-            Path.Combine("BeMusicSeeker", "Models", "Library", "BMSLibrary.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Install", "BmsLibraryStateApplier.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Install", "PackageLifecycleOwner.cs"),
-            Path.Combine("BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistAggregatePersistenceOwner.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "ApplicationComposition.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "MainWindow", "LibraryFolderTreeViewModel.cs"),
-            Path.Combine("BeMusicSeeker", "ViewModels", "Playlist", "PlaylistPropertyDialogViewModel.cs")
-        })
-        {
-            string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), relativePath));
-            Assert.IsFalse(source.Contains("System.Windows.Threading"), relativePath);
-        }
-
-        string terminalAdapter = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "Views",
-            "Playback",
-            "WpfPlaybackUiDispatcher.cs"));
-        StringAssert.Contains(terminalAdapter, "UiSchedulePriority.DataBind");
-    }
-
-    [TestMethod]
-    public void PlaylistHydrationOwner_PublishesReceiptInsteadOfCallbackLists()
-    {
-        string ownerSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "Playlist",
-            "PlaylistEntriesHydrationOwner.cs"));
-        Assert.IsFalse(ownerSource.Contains("Action<PlaylistTableUpdateContext>"));
-        Assert.IsFalse(ownerSource.Contains("pendingUpdateCallbacks"));
-        Assert.IsFalse(ownerSource.Contains("pendingCompletionActions"));
-        StringAssert.Contains(ownerSource, "PlaylistEntriesHydrationReceipt");
-
-    }
-
-    [TestMethod]
-    public void PlaylistHydrationReceipt_QueuesCurrentAtomicReferenceSynchronization()
-    {
-        string ownerSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "Playlist",
-            "PlaylistEntriesHydrationOwner.cs"));
-        string workspaceSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "ViewModels",
-            "Playlist",
-            "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs"));
-        string referenceApplySource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "ViewModels",
-            "Playlist",
-            "PlaylistReferenceApplyWorkflowOwner.cs"));
-
-        StringAssert.Contains(ownerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
-        StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
-        StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
-        StringAssert.Contains(referenceApplySource, "ApplyHydrationReceipt(");
-        StringAssert.Contains(referenceApplySource, "Queue(receipt.Reason, operationToken: 0L, originatingRequest: receipt.ProgressRequest)");
-        StringAssert.Contains(referenceApplySource, "PrepareReferenceBMSTableSynchronization(tables)");
-        StringAssert.Contains(referenceApplySource, "TryCommitReferenceBMSTableSynchronization(synchronizationPlan)");
-        Assert.IsFalse(workspaceSource.Contains("SynchronizeReferenceBMSTableSnapshots("));
-        Assert.IsFalse(workspaceSource.Contains("Select(fact => fact.Table)"));
-    }
-
-    [TestMethod]
-    public void PlaylistHydrationCompletion_DoesNotQueueMutableReferenceResnapshot()
-    {
-        string viewModelSource = File.ReadAllText(Path.Combine(
-            FindRepositoryRoot(),
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "MainWindowViewModel.cs"));
-        string hydrationCompletion = ExtractMethodBody(
-            viewModelSource,
-            "private void PlaylistWorkspacePlaylistEntriesHydrationCompleted(");
-
-        Assert.IsFalse(
-            hydrationCompletion.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal) >= 0,
-            "Hydration receipt consumption must not enqueue a mutable table resnapshot route.");
-        StringAssert.Contains(hydrationCompletion, "TryCompleteStartupProgressPlaylistReferenceFromHydration(");
-    }
-
-    [TestMethod]
-    public void PlaylistUrlCompletionSettings_UseDedicatedProviderBoundary()
-    {
-        string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
-        string urlCompletionSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.UrlCompletion.cs"));
-
-        Assert.IsFalse(playlistSource.Contains("Settings.Default.EnablePlaylistUrlCompletion"));
-        Assert.IsFalse(urlCompletionSource.Contains("Settings.Default."));
-        StringAssert.Contains(playlistSource, "IsPlaylistUrlCompletionEnabled,");
-        StringAssert.Contains(urlCompletionSource, "GetPlaylistUrlCompletionOptions()");
-        StringAssert.Contains(urlCompletionSource, "tsvResult.Snapshot.Candidates");
-        StringAssert.Contains(urlCompletionSource, "stellaResult.Snapshot.Candidates");
-    }
-
-    [TestMethod]
-    public void BeatorajaBmtSettings_UseDedicatedProviderBoundary()
-    {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "Playlist", "PlaylistBmtOutputOwner.cs"));
-
-        foreach (string pathSource in new[] { source, ownerSource })
-        {
-            Assert.IsFalse(pathSource.Contains("Settings.Default.EnableBeatorajaBmtOutput"));
-            Assert.IsFalse(pathSource.Contains("Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled"));
-            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaRootPath"));
-            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaBmtTablePath"));
-            Assert.IsFalse(pathSource.Contains("Settings.Default.RegisterBeatorajaBmtUrls"));
-            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaBmtHashOutputMode"));
-        }
-        StringAssert.Contains(ownerSource, "GetOptions()");
-    }
-
-    [TestMethod]
-    public void CustomFolderProjectionAndMaterialization_UseDedicatedOwner()
-    {
-        string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(
-            root,
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "Playlist",
-            "PlaylistCustomFolderOutputOwner.cs"));
-        string maintenanceOwnerSource = File.ReadAllText(Path.Combine(
-            root,
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "Playlist",
-            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
-
-        StringAssert.Contains(playlistSource, "customFolderOutputOwner.CreateProjection");
-        StringAssert.Contains(playlistSource, "customFolderOutputMaintenanceOwner.ReOutputProjectionsAsync");
-        StringAssert.Contains(playlistSource, "CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration,");
-        Assert.IsFalse(playlistSource.Contains("customFolderOutputOwner,\n            ResolveCustomFolderOutputPhysicalSurface"));
-        Assert.IsFalse(playlistSource.Contains("private CustomFolderOutputProjection CreateCustomFolderOutputProjection("));
-        Assert.IsFalse(playlistSource.Contains("private CustomFolderBatchMaterializationResult MaterializeCustomFolderOutputBatch("));
-        foreach (string legacyHelper in new[]
-        {
-            "RemoveStaleManagedCustomFolderFiles",
-            "EnumerateManagedCustomFolderFiles",
-            "TryDeleteManagedCustomFolderFile",
-            "AddCustomFolderPruneScopePath",
-            "RemoveEmptyCustomFolderDirectories",
-            "TryDeleteEmptyCustomFolderDirectory",
-            "private static void WriteAllText("
-        })
-        {
-            Assert.IsFalse(playlistSource.Contains(legacyHelper), "BMSPlaylist must not retain materialization writer helper: " + legacyHelper);
-        }
-        StringAssert.Contains(ownerSource, "internal CustomFolderOutputProjection CreateProjection(");
-        StringAssert.Contains(ownerSource, "internal CustomFolderBatchMaterializationResult MaterializeBatch(");
-        StringAssert.Contains(ownerSource, "RemoveStaleManagedFiles(");
-        StringAssert.Contains(ownerSource, "WriteAllText(file.FilePath");
-        StringAssert.Contains(maintenanceOwnerSource, "outputOwner.MaterializeBatch(");
-    }
-
-    [TestMethod]
-    public void CustomFolderMaintenance_UsesDedicatedLifecycleOwner()
-    {
-        string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(
-            root,
-            "BeMusicSeeker",
-            "Models",
-            "BmsLibraryInternal",
-            "Playlist",
-            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
-
-        foreach (string route in new[]
-        {
-            "customFolderOutputMaintenanceOwner.TryReOutputPreparedCustomFolder",
-            "customFolderOutputMaintenanceOwner.TryMigratePreparedCustomFolderOutputDirectory",
-            "customFolderOutputMaintenanceOwner.TryRemoveCustomFolder",
-            "customFolderOutputMaintenanceOwner.ReOutputPreparedTablesAsync",
-            "customFolderOutputMaintenanceOwner.MigratePreparedCustomFolderOutputDirectories",
-            "customFolderOutputMaintenanceOwner.SyncRootFolderOutputDirectoriesToLr2Config",
-            "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange"
-        })
-        {
-            StringAssert.Contains(playlistSource, route);
-        }
-
-        foreach (string legacyRoute in new[]
-        {
-            "migrateCustomFolderOutputDirectoryFiles",
-            "reOutputCustomFolderFiles",
-            "DeleteCustomFolderOutputDirectoryTree",
-            "CleanupMigratedCustomFolderOutputDirectories",
-            "CreateCustomFolderMigrationProtectedOutputDirectories",
-            "private bool removeCustomFolder("
-        })
-        {
-            Assert.IsFalse(playlistSource.Contains(legacyRoute), "BMSPlaylist must not retain custom-folder maintenance route: " + legacyRoute);
-        }
-
-        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult TryMigratePreparedCustomFolderOutputDirectory(");
-        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult MigratePreparedCustomFolderOutputDirectories(");
-        StringAssert.Contains(ownerSource, "internal CustomFolderBatchOutputResult TryRemoveCustomFolder(");
-        StringAssert.Contains(ownerSource, "internal Task<CustomFolderBatchOutputResult> ReOutputPreparedTablesAsync(");
-        StringAssert.Contains(ownerSource, "CreateMigrationProtectedOutputDirectories(");
-    }
-
-    [TestMethod]
-    public void StartupSettingsSnapshot_DoesNotDependOnNestedSettingDialogParser()
-    {
-        string root = FindRepositoryRoot();
-        string snapshotSource = File.ReadAllText(Path.Combine(
-            root,
-            "BeMusicSeeker",
-            "ViewModels",
-            "Startup",
-            "StartupSettingsSnapshot.cs"));
-
-        StringAssert.Contains(snapshotSource, "StandaloneBmsRootPathSettings.Deserialize(");
-        StringAssert.Contains(snapshotSource, "CreateCurrent(Settings settings)");
-        Assert.IsFalse(snapshotSource.Contains("Settings.Default."));
-        Assert.IsFalse(snapshotSource.Contains("SettingDialogViewModel"));
-
-        string compositionSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "ApplicationComposition.cs"));
-        StringAssert.Contains(compositionSource, "StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
-    }
-
-    [TestMethod]
-    public void CompositionWorkflowSnapshots_UseTheInjectedSettingsSession()
-    {
-        string root = FindRepositoryRoot();
-        string compositionSource = File.ReadAllText(Path.Combine(
-            root,
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindow",
-            "ApplicationComposition.cs"));
-
-        StringAssert.Contains(compositionSource, "PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
-        StringAssert.Contains(compositionSource, "BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
-
-        string[] snapshotPaths =
-        [
-            Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "PlaylistUrlCompletionOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "BeatorajaBmtOptionsSnapshot.cs"),
-            Path.Combine(root, "BeMusicSeeker", "Models", "Playlist", "CustomFolderOutputSettingsSnapshot.cs")
-        ];
-
-        foreach (string snapshotPath in snapshotPaths)
-        {
-            Assert.IsFalse(
-                File.ReadAllText(snapshotPath).Contains("Settings.Default."),
-                $"Workflow snapshot must not read Settings.Default directly: {snapshotPath}");
-        }
-    }
-
-    [TestMethod]
-    public void PlaybackStartContractReturnsAnObservableTask()
-    {
-        Assert.AreEqual(
-            typeof(Task),
-            typeof(IBMSPlayer).GetMethod(nameof(IBMSPlayer.PlayStart))!.ReturnType);
-    }
-
+    /// <summary>読取り・書込み・昇格可能読取りの実取得で対応する回数を増やし、各解放で0へ戻す。Lock APIと観測状態のずれを検出する。</summary>
     [TestMethod]
     public void ReaderWriterLockSlimWrapper_RawLockApiUpdatesObservableCounts()
     {
@@ -415,84 +93,5 @@ public sealed class PlaylistConcurrencyArchitectureTests
             rwlock.ExitUpgradeableReadLock();
         }
         Assert.AreEqual(0u, rwlock.LockingWriteCount);
-    }
-
-    private static string ExtractMethodBody(string source, string methodName)
-    {
-        int nameIndex = source.IndexOf(methodName, StringComparison.Ordinal);
-        Assert.IsTrue(nameIndex >= 0, methodName + " was not found.");
-        int braceIndex = source.IndexOf('{', nameIndex);
-        Assert.IsTrue(braceIndex >= 0, methodName + " body was not found.");
-
-        int depth = 0;
-        for (int i = braceIndex; i < source.Length; i++)
-        {
-            if (source[i] == '{')
-            {
-                depth++;
-            }
-            else if (source[i] == '}')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    return source.Substring(braceIndex, i - braceIndex + 1);
-                }
-            }
-        }
-
-        Assert.Fail(methodName + " body was not closed.");
-        return string.Empty;
-    }
-
-    private static bool HasCaptureBeforeTerminalCompletion(string source)
-    {
-        int captureIndex = source.IndexOf("CaptureWindowStateForClosing();", StringComparison.Ordinal);
-        int completionIndex = source.IndexOf("CompleteTerminalShutdown();", StringComparison.Ordinal);
-        return captureIndex >= 0 && completionIndex >= 0 && captureIndex < completionIndex;
-    }
-
-    private static string ExtractBlockBody(string source, string blockHeader)
-    {
-        int headerIndex = source.IndexOf(blockHeader, StringComparison.Ordinal);
-        Assert.IsTrue(headerIndex >= 0, blockHeader + " was not found.");
-        int braceIndex = source.IndexOf('{', headerIndex);
-        Assert.IsTrue(braceIndex >= 0, blockHeader + " body was not found.");
-
-        int depth = 0;
-        for (int i = braceIndex; i < source.Length; i++)
-        {
-            if (source[i] == '{')
-            {
-                depth++;
-            }
-            else if (source[i] == '}')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    return source.Substring(braceIndex, i - braceIndex + 1);
-                }
-            }
-        }
-
-        Assert.Fail(blockHeader + " body was not closed.");
-        return string.Empty;
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        string directory = AppDomain.CurrentDomain.BaseDirectory;
-        while (!string.IsNullOrEmpty(directory))
-        {
-            if (File.Exists(Path.Combine(directory, "BeMusicSeeker.sln")))
-            {
-                return directory;
-            }
-            DirectoryInfo? parent = Directory.GetParent(directory);
-            directory = parent == null ? string.Empty : parent.FullName;
-        }
-        Assert.Fail("Repository root was not found.");
-        return string.Empty;
     }
 }

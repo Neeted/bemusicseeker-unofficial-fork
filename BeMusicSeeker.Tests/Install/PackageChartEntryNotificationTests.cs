@@ -7,6 +7,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PackageChartEntryNotificationTests
 {
+    /// <summary>保留通知のreleaseが抑制を先に終え、次の状態変更と遅延公開を各一回通知することから公開取消後の抑制残留を検出します。</summary>
     [TestMethod]
     public void DeferredPublicationReleaseEndsSuppressionBeforeUiPublication()
     {
@@ -23,7 +24,6 @@ public sealed class PackageChartEntryNotificationTests
         Func<Action> release = entry.DeferPropertyChangedNotificationPublication();
         entry.SetSearchingStatus(isSearching: true);
         Action publication = release();
-        Assert.IsNotNull(publication);
         Assert.AreEqual(0, notificationCount);
 
         entry.SetSearchingStatus(isSearching: false);

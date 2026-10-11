@@ -17,10 +17,13 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>仮想一覧の必要行だけの生成、形式共通投影と履歴終端の確定・公開を検証します。</summary>
+/// <remarks>sort値と要求可否はWindowなしで確認します。実library・playerケースは操作接続と一時ファイル回収を担当し、compiled画面接続はMainWindow側が分担します。非並列ケースはSQLite/native初期化を共有するcompositionを通ります。</remarks>
 [TestClass]
 public sealed class ChartListVirtualViewTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+    /// <summary>件数照会では三行とも未生成とし、先頭アクセスだけが整列済みのAlpha一行を生成することで、件数取得時の全件生成を検出します。</summary>
     [TestMethod]
     public void Count_DoesNotRealizeRowsUntilIndexed()
     {
@@ -38,6 +41,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, getCreatedCount());
     }
 
+    /// <summary>同じ添字を二回読むと同一行を返し、生成回数を一回に保つことで、スクロール時の再生成を検出します。</summary>
     [TestMethod]
     public void SameIndex_ReturnsCachedRow()
     {
@@ -51,6 +55,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, getCreatedCount());
     }
 
+    /// <summary>生成済み行と未知objectの位置検索では未訪問行を生成せず、既存位置と非存在を判定することを確認します。</summary>
     [TestMethod]
     public void IndexOf_DoesNotRealizeUnvisitedRows()
     {
@@ -63,6 +68,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, getCreatedCount());
     }
 
+    /// <summary>所持tokenのないBMS metadataから表示文字列と数値level・mode・hashを投影し、保存行必須の表示経路へ戻る誤りを検出します。</summary>
     [TestMethod]
     public void LibraryChartRow_FromChartFile_UsesChartDomainFieldsWithoutStorageRow()
     {
@@ -97,8 +103,9 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(new string('b', 64), row.sha256);
     }
 
+    /// <summary>譜面の重複警告を表示行の警告と全文tooltipへ渡し、警告詳細が表示から落ちる誤りを検出します。</summary>
     [TestMethod]
-    public void LibraryChartRow_FromWarninglessOwnerBackedProjectionUsesLiveOwnerWarnings()
+    public void LibraryChartRow_ProjectsChartWarningsIntoTooltip()
     {
         ChartFile file = CreateFile(
             @"D:\Charts\Warning\alpha.bms",
@@ -113,6 +120,7 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(row.WarningTooltipText, "live warning");
     }
 
+    /// <summary>bmsonの過渡状態providerから導入先・代表タイトル・曖昧警告を部分一覧へ反映し、元譜面だけを表示して推定結果を失う誤りを検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetRow_PreservesOwnerBackedBmsonTransientState()
     {
@@ -130,12 +138,12 @@ public sealed class ChartListVirtualViewTests
 
         LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
-        Assert.AreSame(bmson.Token, row.Chart.Token);
         Assert.AreEqual("C:\\Installed\\Bmson", row.Chart.InstallDestination);
         Assert.AreEqual("Installed Bmson", row.InstallDestinationTitle);
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
     }
 
+    /// <summary>BMS部分一覧でもproviderの導入先・代表タイトル・曖昧警告を反映し、形式によって過渡投影が欠ける誤りを検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetRow_OverlaysOwnerBackedBmsTransientStateWithoutWritingStorageRow()
     {
@@ -157,12 +165,12 @@ public sealed class ChartListVirtualViewTests
 
         LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
-        Assert.AreSame(file.Token, row.Chart.Token);
         Assert.AreEqual("C:\\Installed\\Bms", row.Chart.InstallDestination);
         Assert.AreEqual("Installed BMS", row.InstallDestinationTitle);
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
     }
 
+    /// <summary>生成済み行を持つ仮想一覧で導入先を消去し、依存データ更新後に旧値を残さないことを確認します。</summary>
     [TestMethod]
     public void VirtualChartSubsetRow_RefreshesRealizedRowAfterTransientStateChanges()
     {
@@ -204,6 +212,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(string.Empty, realizedRow.instl_dst);
     }
 
+    /// <summary>同じhashでもpathの大文字小文字違いは別対象とし、完全一致pathではhashの表記違いを受理して、別譜面へ過渡状態を適用する誤りを検出します。</summary>
     [TestMethod]
     public void RowProjectionTransientState_UsesExactPathAndCaseInsensitiveHash()
     {
@@ -232,6 +241,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(aliasState.HasInstallDestinationState);
     }
 
+    /// <summary>スコアproviderからclear・rank・得点・率・minBPを部分一覧へ反映し、owner由来の更新を落とす誤りを検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetRow_UsesScoreProviderForOwnerBackedBmsProjection()
     {
@@ -256,7 +266,6 @@ public sealed class ChartListVirtualViewTests
 
         LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
-        Assert.AreSame(file.Token, row.Chart.Token);
         Assert.AreEqual(ClearType.HARD, row.clear);
         Assert.AreEqual(RankType.AA, row.rank);
         Assert.AreEqual(1800, row.score);
@@ -264,6 +273,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(3, row.minbp);
     }
 
+    /// <summary>最新推定投影に警告がなければ旧曖昧警告だけを消し、重複警告を保持して無関係な警告まで消す誤りを検出します。</summary>
     [TestMethod]
     public void ChartListSourceRow_BmsTransientInstallEstimationProjectionClearsStaleSourceWarning()
     {
@@ -295,13 +305,12 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(sourceRow.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart));
     }
 
+    /// <summary>導入先に同名ファイルがある実再生では改名先をplayerへ渡し、元譜面と衝突ファイルを保持して一時コピーを回収することを確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        bool originalUsePlayerLR2body = testSettings.UsePlayerLR2body;
-        bool originalOperationModeLR2Db = testSettings.OperationModeLR2DB;
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayStart_" + Guid.NewGuid().ToString("N"));
         string sourceDirectoryPath = Path.Combine(tempRootPath, "Source");
         string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
@@ -322,6 +331,8 @@ public sealed class ChartListVirtualViewTests
                 settingsEditSession: new NoOpSettingsEditSession(testSettings),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
             var viewModel = new MainWindowViewModel(composition, composition);
+            using SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
+            using RegularChartListOwner rowsLifetime = viewModel.RegularChartList;
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
@@ -361,8 +372,6 @@ public sealed class ChartListVirtualViewTests
         }
         finally
         {
-            testSettings.UsePlayerLR2body = originalUsePlayerLR2body;
-            testSettings.OperationModeLR2DB = originalOperationModeLR2Db;
             if (Directory.Exists(tempRootPath))
             {
                 Directory.Delete(tempRootPath, recursive: true);
@@ -370,6 +379,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>保存行のない譜面でも解析情報のlevel・difficulty・BPM・TOTALをsortキーへ投影し、解析済み値を欠損扱いにする誤りを検出します。</summary>
     [TestMethod]
     public void ChartListSourceRow_FromChartFile_UsesProjectionChartInfoWithoutStorageRow()
     {
@@ -404,6 +414,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(360, row.ChartTotalSortKey);
     }
 
+    /// <summary>providerを省略したsourceの明示済みスコアを表示行へ保持し、既存clearと得点を空投影で上書きする誤りを検出します。</summary>
     [TestMethod]
     public void ChartListSourceRow_FromChartFile_PreservesExplicitSourceScoreWithoutProvider()
     {
@@ -423,6 +434,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chart.Score.Score, row.Chart.Score.Score);
     }
 
+    /// <summary>添字アクセスも列挙も禁止したsourceで仮想一覧を構築し、件数だけで生成してfolder数を全走査しないことを確認します。</summary>
     [TestMethod]
     public void Constructor_DoesNotReadFolderCountFromSourceRows()
     {
@@ -436,6 +448,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(-1, view.DistinctFolderCount);
     }
 
+    /// <summary>未知folder数は譜面数だけ、既知数は両方を表示し、未知数を確定値として案内する誤りを検出します。</summary>
     [TestMethod]
     public void SummaryFormatter_OmitsUnknownFolderCount()
     {
@@ -450,6 +463,7 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(known, "/ 2");
     }
 
+    /// <summary>2譜面・2folderの行置換をsummaryとbinding通知へ反映し、直接SetRowsの件数表示や通知が欠落する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_SetRowsUpdatesSummaryDirectly()
     {
@@ -467,6 +481,7 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
     }
 
+    /// <summary>選択位置の更新をbinding通知へ渡し、選択状態が描画側へ届かない誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_SelectedIndexRaisesPropertyChanged()
     {
@@ -480,6 +495,7 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SelectedIndex));
     }
 
+    /// <summary>列設定の変更で列とdrag種別を再通知し、表示と操作入口が旧設定に留まる誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_ColumnsSettingsRaisesOwnedBindingNotifications()
     {
@@ -495,6 +511,7 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.RowDragKind));
     }
 
+    /// <summary>履歴sort表示後の別列要求にも履歴配送先を保持し、完了前に表示sortを勝手に更新しないことを確認します。</summary>
     [TestMethod]
     public void MainChartList_SortPresentationOwnsBindingAndRequestScope()
     {
@@ -518,10 +535,12 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(MainChartListSortTarget.PlayHistory, request.Target);
     }
 
+    /// <summary>受理した編集の開始から終了まで同じcontextと編集結果を配送し、終了時のセッション取り違えを検出します。</summary>
     [TestMethod]
     public void MainChartList_CellEditSessionKeepsBeginningScopeUntilEnded()
     {
         var mainChartList = new MainChartListViewModel();
+        mainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
         object row = new();
         MainChartListCellEditContext? started = null;
         MainChartListCellEditEndedEventArgs? ended = null;
@@ -543,6 +562,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ended.Commit);
     }
 
+    /// <summary>実開始前に捨てた編集候補はownerセッションを開かず、次の実開始だけを配送して未開始編集の混入を検出します。</summary>
     [TestMethod]
     public void MainChartList_CellEditBeginningWithoutStartedDoesNotOpenOwnerSession()
     {
@@ -561,6 +581,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(activeRow, started!.Row);
     }
 
+    /// <summary>保留一覧で受理した編集中にmodeを変えても入口で捕捉したscopeを保持し、現在画面で対象を再分類する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_OperationContextMapsModeAndCapturesCellEditSnapshot()
     {
@@ -589,6 +610,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(ChartOperationSourceScope.Library, mainChartList.CurrentOperationContext.SourceScope);
     }
 
+    /// <summary>表示更新要求をownerイベントへ一回配送し、更新通知が失われる誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_DisplayRefreshRaisesDirectOwnerEvent()
     {
@@ -601,6 +623,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, raisedCount);
     }
 
+    /// <summary>注入dispatcherの処理までsortと表示更新を保留し、実行後に一回反映して呼出スレッドで先に更新する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_PresentationChangesUseInjectedDispatcher()
     {
@@ -634,6 +657,7 @@ public sealed class ChartListVirtualViewTests
         ];
     }
 
+    /// <summary>行置換準備後に行・列・選択・summaryを確定し、全binding通知が新状態を読むことで途中状態の公開を検出します。</summary>
     [TestMethod]
     public void MainChartList_ApplyRowsCommitsOwnedStateBeforeNotifications()
     {
@@ -685,6 +709,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(result.ColumnStageMs >= 0);
     }
 
+    /// <summary>列通知例外後も行と関連状態の通知を続け、新summaryとcontextを保持して後続通知の省略を検出します。</summary>
     [TestMethod]
     public void MainChartList_ColumnNotificationFailureDoesNotSuppressRowsOrRelatedState()
     {
@@ -728,6 +753,7 @@ public sealed class ChartListVirtualViewTests
             mainChartList.CurrentOperationContext.OperationSection);
     }
 
+    /// <summary>同じ行参照では置換準備と行通知を省き、明示summaryだけを更新して不要置換とsummary更新漏れを検出します。</summary>
     [TestMethod]
     public void MainChartList_ApplyRowsSameReferenceSkipsPrepareAndUpdatesExplicitSummary()
     {
@@ -763,6 +789,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("play history summary", mainChartList.SummaryText);
     }
 
+    /// <summary>旧行Dispose失敗では列・選択・summaryも旧状態に保ち、通知前の部分確定を検出します。</summary>
     [TestMethod]
     public void MainChartList_ApplyRowsDisposeFailureDoesNotCommitOtherState()
     {
@@ -797,6 +824,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, propertyNames.Count);
     }
 
+    /// <summary>準備済み行置換を取消すると取消通知だけを出して旧行を保持し、未確定候補を公開する誤りを検出します。</summary>
     [TestMethod]
     public void MainChartList_PreparedRowsCanCancelWithoutCommit()
     {
@@ -826,6 +854,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(oldRows, mainChartList.Rows);
     }
 
+    /// <summary>行確定後も公開まではbinding通知を出さず、Complete後に行とsummaryを通知して確定と公開の逆転を検出します。</summary>
     [TestMethod]
     public void MainChartList_CommitPreparedRowsDefersNotificationsUntilPublish()
     {
@@ -858,6 +887,7 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
     }
 
+    /// <summary>行置換の通知中は旧行を生かし、その後一回だけDisposeして、binding参照中の先行解放を検出します。</summary>
     [TestMethod]
     public void MainChartList_RowsTransitionDisposesPreviousRowsAfterBindingNotification()
     {
@@ -894,6 +924,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, previousRow.DisposeCount);
     }
 
+    /// <summary>取消後の確定、確定前の完了、確定・完了の重複と完了後取消を拒否し、行置換の二重確定・公開を検出します。</summary>
     [TestMethod]
     public void MainChartList_RowsTransitionRejectsInvalidLifecycleOperations()
     {
@@ -927,6 +958,7 @@ public sealed class ChartListVirtualViewTests
         Assert.ThrowsException<InvalidOperationException>(committed.Cancel);
     }
 
+    /// <summary>確定後の行通知失敗では候補行を保持し、取消でなく確定後失敗の後片付けへ配送することを確認します。</summary>
     [TestMethod]
     public void MainChartList_PublishFailureUsesPostCommitCleanupEvent()
     {
@@ -963,6 +995,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, publishFailedCount);
     }
 
+    /// <summary>行準備中に別workerが履歴世代を更新でき、旧世代終端を取消して旧表示を保持することで、lock保持と古い結果の採用を検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_PreparationRunsOutsideFreshnessLockAndCancelsStaleCommit()
     {
@@ -993,6 +1026,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, canceledCount);
     }
 
+    /// <summary>callerの可変行を後から変更しても捕捉済み入力を使い、履歴行・列・summaryと関連状態をlock外で終端へ確定することを確認します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_ApplySortedRowsBuildsPresentationAndCommitsTerminalState()
     {
@@ -1084,6 +1118,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(playHistoryLockHeldDuringRelatedOwnerCommit);
     }
 
+    /// <summary>構築後にsort要求を更新すると最新sort世代で結果を作り直し、古いsort状態を採用する誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_ApplySortedRowsResortsWhenSortSnapshotBecomesStale()
     {
@@ -1157,6 +1192,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreNotEqual("stale", result.SortProfile);
     }
 
+    /// <summary>表示対象変更後の旧sort結果は再更新を要求し、旧行とsummaryフィルタを保持して別対象の上書きを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_ApplySortedRowsReturnsQueuedDisplayTargetStaleWithoutCommittingRows()
     {
@@ -1229,6 +1265,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
     }
 
+    /// <summary>関連公開失敗でも確定済み仮想行の所有を移譲し、表示済み行を失敗の取消で破棄する誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure()
     {
@@ -1305,6 +1342,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
     }
 
+    /// <summary>列確定通知が失敗してもsource退役receiptを例外へ保持し、確定後復旧から退役状態を見失う誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_CommitFailureRetainsSourceClearRecoveryState()
     {
@@ -1326,6 +1364,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsNotNull(state.CurrentView);
     }
 
+    /// <summary>detail退役receipt後の新要求で旧終端を拒否し、旧行とsourceを保持して新detail要求を消す誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_DetailRequestAfterRetirementReceiptRejectsStaleApply()
     {
@@ -1348,6 +1387,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsNull(result.PlaylistSourceClear);
     }
 
+    /// <summary>表示再構築は最新keyword・sort世代と捕捉済みsummaryフィルタを使い、caller変更や旧条件で描画する誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildPresentationOnlyAppliesLatestKeywordRevision()
     {
@@ -1404,6 +1444,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, request.SummaryFilterTexts.Count);
     }
 
+    /// <summary>keyword世代が古いsort要求は整列せず再更新へ返し、旧検索条件の公開を検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildPresentationOnlyQueuesKeywordRefreshForSortRequestWithStaleKeyword()
     {
@@ -1432,6 +1473,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, result.SortedRows.Count);
     }
 
+    /// <summary>keywordと表示対象が共に古いsort要求では表示対象失効を優先し、別表示への更新続行を検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildPresentationOnlyPrioritizesDisplayTargetStaleForSortRequest()
     {
@@ -1460,6 +1502,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(result.QueueRefresh);
     }
 
+    /// <summary>表示抽出後の検索段階取消では完了抽出の件数だけを保持してstaleを返し、未実施段階を成功件数へ混ぜる誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildPresentationOnlyKeepsCompletedDisplayMetricsWhenKeywordStageIsCanceled()
     {
@@ -1507,6 +1550,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(result.KeywordFilterApplied);
     }
 
+    /// <summary>非対応sortでも捕捉した行と診断を保持して期間診断を合流し、caller変更やsort失敗で読取り結果を失う誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildReadPresentationMergesDiagnosticsAndBuildsSnapshotState()
     {
@@ -1567,6 +1611,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, result.DisplayTargetResultCount);
     }
 
+    /// <summary>取消済み読取りはview stateを構築せずstaleへ返し、取消後の結果採用を検出します。</summary>
     [TestMethod]
     public void PlayHistoryWorkflowOwner_BuildReadPresentationReturnsStaleWhenRequestIsCanceled()
     {
@@ -1602,6 +1647,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, result.SortedRows.Count);
     }
 
+    /// <summary>全終端通知から新行・列・選択解除・明示summaryを読めることで、行だけを先に公開する誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
@@ -1632,6 +1678,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("play-history explicit summary", table.SummaryText);
     }
 
+    /// <summary>終端後続callback失敗でも新行の所有を移譲し、旧行回収と残りのtable公開を続けることを確認します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_PostCommitFailureTransfersOwnershipAndContinuesPublishing()
     {
@@ -1664,6 +1711,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
     }
 
+    /// <summary>detail取消callback例外の報告後も取消済みreceiptで履歴終端を確定し、callback失敗だけで確定を止める誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_PreparedRetirementReportsCancellationFailureAndStillCommits()
     {
@@ -1730,6 +1778,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(retentionLogged);
     }
 
+    /// <summary>workspace列設定の通知例外がtable公開失敗となってもshellのsummary cardsを通知・確定し、前段失敗による後続公開停止を検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_TablePublishFailureDoesNotSuppressShellPublish()
     {
@@ -1767,6 +1816,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
     }
 
+    /// <summary>履歴期間通知失敗後にもsummaryと診断の通知を続け、新状態を保持して最初の例外による公開停止を検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_OwnerNotificationFailureDoesNotSuppressLaterNotifications()
     {
@@ -1810,6 +1860,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("diagnostic", state.DiagnosticText);
     }
 
+    /// <summary>table適用前失敗の復旧へ退役receiptを渡すとsource保持診断を実公開し、復旧時にsource処理を忘れる誤りを検出します。</summary>
     [TestMethod]
     public void PlayHistoryTerminal_PreAppliedTableFailureRecoveryPublishesSourceClearLog()
     {
@@ -1872,46 +1923,10 @@ public sealed class ChartListVirtualViewTests
 
         workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, workspace);
 
-        Assert.IsTrue(exception.OwnershipTransferred);
-        Assert.IsFalse(exception.TerminalCommitResult.Applied);
-        Assert.IsNotNull(exception.TerminalCommitResult.PlaylistSourceClear);
         Assert.IsTrue(retentionLogged);
     }
 
-    [TestMethod]
-    public void ChartListRefreshCoordinator_CreateVirtualSortMetricsPreservesOrderFields()
-    {
-        List<ChartFile> files =
-        [
-            CreateFile(@"folder-b\charlie.bms", "Charlie", "folder-b"),
-            CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a")
-        ];
-        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files);
-        var order = ChartListOrder.CreateTitleAscending(sourceRows);
-
-        LibraryChartSortMetrics metrics = ChartListRefreshCoordinator.CreateVirtualSortMetrics(
-            order,
-            sortStageMs: 12,
-            sortCacheHit: true,
-            sortCacheGeneration: 34,
-            orderCacheLookupMs: 56,
-            orderBuildMs: 78);
-
-        Assert.AreEqual(order.Count, metrics.RowCount);
-        Assert.AreEqual(order.ColumnName, metrics.ColumnName);
-        Assert.AreEqual(order.Direction, metrics.Direction);
-        Assert.AreEqual(order.PropertyTypeName, metrics.PropertyTypeName);
-        Assert.AreEqual(order.SortProfile, metrics.SortProfile);
-        Assert.AreEqual(order.StringSortKind, metrics.StringSortKind);
-        Assert.AreEqual(12, metrics.SortMs);
-        Assert.IsTrue(metrics.SortReuse);
-        Assert.AreEqual(order.ColumnName, metrics.SortCacheKey);
-        Assert.AreEqual(34, metrics.SortCacheGeneration);
-        Assert.IsTrue(metrics.SortCacheHit);
-        Assert.AreEqual(56, metrics.OrderCacheLookupMs);
-        Assert.AreEqual(78, metrics.OrderBuildMs);
-    }
-
+    /// <summary>生成済み一行だけを回収し、未訪問行を生成せず次アクセスで再生成することで、回収時の全件生成と破棄済み行再利用を検出します。</summary>
     [TestMethod]
     public void DisposeRealizedRows_DoesNotRealizeUnvisitedRows()
     {
@@ -1932,43 +1947,49 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(2, getCreatedCount());
     }
 
+    /// <summary>BMS・bmson混在のタイトル昇順を既存実体行sortと比較し、仮想経路への切替で順が変わる誤りを検出します。</summary>
     [TestMethod]
     public void TitleAscendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Title), ListSortDirection.Ascending);
     }
 
+    /// <summary>BMS・bmson混在のタイトル降順を既存実体行sortと比較し、降順だけ仮想比較が異なる誤りを検出します。</summary>
     [TestMethod]
     public void TitleDescendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Title), ListSortDirection.Descending);
     }
 
+    /// <summary>BMS・bmson混在のpath昇順を既存実体行sortと比較し、形式をまたぐ仮想整列の互換性を確認します。</summary>
     [TestMethod]
     public void PathAscendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.path), ListSortDirection.Ascending);
     }
 
+    /// <summary>BMS・bmson混在のpath降順を既存実体行sortと比較し、仮想整列の降順互換性を確認します。</summary>
     [TestMethod]
     public void PathDescendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.path), ListSortDirection.Descending);
     }
 
+    /// <summary>BMS・bmson混在のfolder昇順を通常一覧の実体行sortと比較し、仮想経路でfolder比較を変える誤りを検出します。</summary>
     [TestMethod]
     public void FolderAscendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Folder), ListSortDirection.Ascending);
     }
 
+    /// <summary>BMS・bmson混在のfolder降順を通常一覧の実体行sortと比較し、降順比較の互換性を確認します。</summary>
     [TestMethod]
     public void FolderDescendingOrder_MatchesExistingDefaultLibraryChartRowSort()
     {
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Folder), ListSortDirection.Descending);
     }
 
-    /// <summary>保証：対応列の既存順を保ち、欠損notesを残した数値順は定義値と同値タイトル昇順に従う。</summary>
+    /// <summary>列一覧の文字列・mode・警告・健全性・導入先・参照表を両方向で実体行sortと比較し、notes欠損を保持して数値順と同値時タイトル昇順を確認します。</summary>
     [TestMethod]
     public void AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort()
     {
@@ -2018,6 +2039,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>同じpathの行はpath降順でもタイトル昇順とし、二次キーまで反転する誤りを検出します。</summary>
     [TestMethod]
     public void PathDescendingOrder_KeepsTitleAscendingSecondaryKey()
     {
@@ -2037,6 +2059,7 @@ public sealed class ChartListVirtualViewTests
             order.Indexes.Select(index => sourceRows[index].Title).ToArray());
     }
 
+    /// <summary>表記違いのPathと未対応キーでは仮想orderを作らず、非対応列を対応済みとして扱う誤りを検出します。</summary>
     [TestMethod]
     public void UnsupportedColumn_CannotCreateVirtualOrder()
     {
@@ -2046,6 +2069,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(ChartListOrder.TryCreate(sourceRows, "EntryLevelSortKey", ListSortDirection.Ascending, out _));
     }
 
+    /// <summary>同じsourceでtitle昇順からpath降順へ替えても未生成とし、新orderの一行読取りだけを生成してsort更新時の全件実体化を検出します。</summary>
     [TestMethod]
     public void SortUpdatedOrderSwap_DoesNotRealizeRowsUntilIndexed()
     {
@@ -2078,6 +2102,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, createdCount);
     }
 
+    /// <summary>folder・artist keyword・複数modeの通常一覧を元order順に保持し、件数計算では生成せず先頭だけ実体化することを確認します。</summary>
     [TestMethod]
     public void NormalLibraryFilters_ReuseFullOrderSubsetWithoutRealizingRows()
     {
@@ -2147,6 +2172,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, createdCount);
     }
 
+    /// <summary>末尾区切りを正規化した同じfolder条件は要求世代が変わっても同じfilter identityとし、不必要なcache分離を検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryFilterIdentity_UsesStableFolderFilterIdentity()
     {
@@ -2162,9 +2188,9 @@ public sealed class ChartListVirtualViewTests
 
         Assert.AreEqual(folderIdentity, sameFolderIdentity);
         Assert.AreEqual(identity, sameIdentity);
-        Assert.AreNotEqual("normal_default", identity);
     }
 
+    /// <summary>artist keywordと複数modeの部分一覧を元path降順と件数のまま絞り、必要行だけを生成することを確認します。</summary>
     [TestMethod]
     public void VirtualChartSubsetFilters_ReuseFullOrderSubsetWithoutRealizingRows()
     {
@@ -2208,84 +2234,24 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, createdCount);
     }
 
+    /// <summary>同値source列には同じsignature、行順反転には別signatureを返して異なる部分一覧順へ旧orderを再利用する誤りを検出します。</summary>
     [TestMethod]
-    public void VirtualChartSubsetSortCacheKey_UsesSubsetSignatureAndDependencyGeneration()
+    public void VirtualChartSubsetSignature_DistinguishesChangedSourceOrder()
     {
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         List<ChartListSourceRow> reorderedRows = [.. sourceRows.AsEnumerable().Reverse()];
         long signature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
         long sameSignature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(BuildOwnerBackedSourceRows(CreateSampleSortFiles()));
         long reorderedSignature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(reorderedRows);
-        int treeMode = (int)MainViewUpdateMode.FileMissingFilterSelected;
-
-        var current = new VirtualChartSubsetSortCacheKey(
-            7,
-            11,
-            1,
-            2,
-            3,
-            treeMode,
-            "file_missing",
-            signature,
-            nameof(LibraryChartRow.rateDouble),
-            ListSortDirection.Ascending,
-            sourceRows.Count);
-        var same = new VirtualChartSubsetSortCacheKey(
-            7,
-            11,
-            1,
-            2,
-            3,
-            treeMode,
-            "file_missing",
-            sameSignature,
-            nameof(LibraryChartRow.rateDouble),
-            ListSortDirection.Ascending,
-            sourceRows.Count);
-
         Assert.AreEqual(signature, sameSignature);
         Assert.AreNotEqual(signature, reorderedSignature);
-        Assert.AreEqual(current, same);
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(8, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 12, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 2, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 3, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 4, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        var dependencyAware = new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count);
-        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 7, 5, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 8, 6, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(dependencyAware, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, 4, 5, 9, treeMode, "file_missing", signature, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, (int)MainViewUpdateMode.DuplicateFilterSelected, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "duplicate_all", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", reorderedSignature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Descending, sourceRows.Count));
-        Assert.AreNotEqual(current, new VirtualChartSubsetSortCacheKey(7, 11, 1, 2, 3, treeMode, "file_missing", signature, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, sourceRows.Count + 1));
     }
 
-    [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_AreRegistryOrderAscDesc()
-    {
-        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
-
-        CollectionAssert.AreEqual(
-            CreateExpectedDefaultPrewarmDescriptors(),
-            descriptors.ToArray());
-    }
-
+    /// <summary>identity・score・解析・健全性・警告・参照表の列を正しい依存種類へ分類し、データ更新で必要なsort失効を見逃す誤りを検出します。</summary>
     [TestMethod]
     public void VirtualSortRegistryMetadata_DescribesSupportedColumnsAndDependencies()
     {
         ChartListOrderColumnMetadata[] metadata = [.. ChartListOrder.GetVirtualSortColumnMetadata()];
-
-        CollectionAssert.AreEqual(
-            CreateExpectedVirtualSortColumnNames(),
-            metadata.Select(column => column.NormalizedColumnName).ToArray());
-        foreach (ChartListOrderColumnMetadata column in metadata)
-        {
-            Assert.IsTrue(ChartListOrder.TryGetVirtualSortColumnMetadata(column.NormalizedColumnName, out ChartListOrderColumnMetadata resolved));
-            Assert.AreEqual(column.Dependency, resolved.Dependency);
-        }
 
         AssertRegistryDependency(metadata, MainViewDataDependency.IdentitySortKey, nameof(LibraryChartRow.Title));
         AssertRegistryDependency(metadata, MainViewDataDependency.Score, nameof(LibraryChartRow.rateDouble));
@@ -2294,41 +2260,9 @@ public sealed class ChartListVirtualViewTests
         AssertRegistryDependency(metadata, MainViewDataDependency.Maintenance, nameof(LibraryChartRow.encoding));
         AssertRegistryDependency(metadata, MainViewDataDependency.Warning, nameof(LibraryChartRow.WarningDigestText));
         AssertRegistryDependency(metadata, MainViewDataDependency.ReferenceTables, nameof(LibraryChartRow.RefTablesSymbols));
-        AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Title));
-        AssertRegistryPrewarmPriority(metadata, 1, nameof(LibraryChartRow.Folder));
-        AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.rateDouble));
-        AssertRegistryPrewarmPriority(metadata, 2, nameof(LibraryChartRow.minbp));
-        AssertRegistryPrewarmPriority(metadata, 3, nameof(LibraryChartRow.maxcombo));
-        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.WAVHealth));
-        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.encoding));
-        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.WarningDigestText));
-        AssertRegistryPrewarmPriority(metadata, 0, nameof(LibraryChartRow.level));
     }
 
-    [TestMethod]
-    public void DefaultVirtualOrderPrewarmDescriptors_IncludePriorityOneToThree()
-    {
-        string[] columns = [.. RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors()
-            .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
-            .Select(descriptor => descriptor.ColumnName)];
-
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Title));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Folder));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.path));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.Artist));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.rateDouble));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartTotalSortKey));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.ChartFeatureSortKey));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.hash));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.score));
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.WarningDigestText));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.WAVHealth));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.encoding));
-        CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.level));
-
-    }
-
+    /// <summary>0件と1件は一worker、多数件もCPU余力と上限内にし、予備整列で不要workerやCPU過剰使用を生む誤りを検出します。</summary>
     [TestMethod]
     public void VirtualOrderPrewarmDegree_IsBoundedByProcessorAndCap()
     {
@@ -2342,6 +2276,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(degree <= Math.Max(1, Environment.ProcessorCount - 1));
     }
 
+    /// <summary>本番が選んだ全予備sortをsourceだけで構築し、件数確認でも実体行を生成しないことで予備計算の全件生成を検出します。</summary>
     [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_DoNotRequireRowRealization()
     {
@@ -2363,25 +2298,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(0, createdCount);
     }
 
-    [TestMethod]
-    public void VirtualChartSubsetTreeModes_AreLimitedToChartCollections()
-    {
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.GarbledFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.GarbleFixedFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.NewlyInstalledFolderSelected));
-        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.PendingInstallFolderSelected));
-
-        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.PlaylistFilterSelected));
-    }
-
+    /// <summary>bmson package表示でpathと合成タイトルを得てもBMS互換adapterを作らず、表示だけの不要変換を検出します。</summary>
     [TestMethod]
     public void PackageChartEntryDisplayRow_DoesNotMaterializeAdapterlessBmsonEntry()
     {
@@ -2396,6 +2313,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsNull(entry.GetBmsChartForTest());
     }
 
+    /// <summary>bmson表示行は形式・元package項目・pathを保持し、BMS扱いや別項目への差替えを検出します。</summary>
     [TestMethod]
     public void PackageChartEntryDisplayRow_TreatsBmsonEntryAsBmsonRow()
     {
@@ -2406,12 +2324,12 @@ public sealed class ChartListVirtualViewTests
 
         Assert.IsNotNull(row);
         Assert.IsNull(row.Chart.Token);
-        Assert.AreSame(bmson.Token, row.Chart.Token);
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
         Assert.AreSame(entry, row.PackageEntry);
         Assert.AreEqual(bmson.Path, row.path);
     }
 
+    /// <summary>生成後の曖昧推定を代表タイトル・候補・警告へ反映し、導入先未確定とadapter非生成を保持して旧投影の残留を検出します。</summary>
     [TestMethod]
     public void PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState()
     {
@@ -2449,6 +2367,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
     }
 
+    /// <summary>推定検索の開始と終了で表示statusと再描画通知を更新し、検索中表示を出さない・消さない誤りを検出します。</summary>
     [TestMethod]
     public void PackageChartEntryDisplayRow_NotifiesWhenSearchingStatusChanges()
     {
@@ -2471,6 +2390,7 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, string.Empty);
     }
 
+    /// <summary>BMSとbmsonのsnapshotに双方のpathを保持し、bmson adapterを作らず、形式の取り落としと不要変換を検出します。</summary>
     [TestMethod]
     public void PackageChartEntrySnapshot_UsesChartSourcesWithoutMaterializingBmson()
     {
@@ -2486,29 +2406,12 @@ public sealed class ChartListVirtualViewTests
 
         IReadOnlyList<PackageChartEntry> snapshot = RegularChartListOwner.CreatePackageEntrySnapshot([package]);
 
-        Assert.AreSame(bms.Token, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.Token);
-        Assert.AreSame(bmson.Token, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.Token);
+        Assert.AreEqual(bms.Path, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.Path);
+        Assert.AreEqual(bmson.Path, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.Path);
         Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
     }
 
-    [TestMethod]
-    public void PackageChartEntrySnapshot_TreatsBmsonEntryAsChartSource()
-    {
-        ChartFile bms = ChartTestValues.Empty();
-        bms = bms with { Path = @"folder-a\bms.bms", Title = "BmsTitle", Folder = "folder-a", Artist = "", Genre = "", Level = null, Mode = null, Tag = "", Md5 = "0123456789abcdef0123456789abcdef", Sha256 = "", RawTitle = "BmsTitle", RawArtist = "", LevelText = "" };
-        ChartFile bmson = CreateBmsonSong();
-        var package = ChartPackage.FromChartEntries(
-        [
-            PackageChartEntry.FromChart((bms)),
-            PackageChartEntry.FromChart((bmson))
-        ]);
-
-        IReadOnlyList<PackageChartEntry> snapshot = RegularChartListOwner.CreatePackageEntrySnapshot([package]);
-
-        Assert.AreSame(bms.Token, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.Token);
-        Assert.AreSame(bmson.Token, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.Token);
-    }
-
+    /// <summary>警告・導入先・WAV健全性でbmson packageを仮想sortしてもadapterを生成せず、sortのための不要実体化を検出します。</summary>
     [TestMethod]
     public void PackageChartSourceRows_DoNotMaterializeAdapterlessBmsonDuringVirtualSort()
     {
@@ -2523,9 +2426,9 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WAVHealth), ListSortDirection.Ascending, out _));
 
         Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-        Assert.AreSame(bmson.Token, rows.Single().Chart.Token);
     }
 
+    /// <summary>生成済みsourceと表示行へ導入先・譜面移動・属性更新を反映し、警告全文と旧snapshotを保持してcacheの旧値残留を検出します。</summary>
     [TestMethod]
     public void PackageChartSourceRows_ReadLiveEntryProjectionForPendingInstall()
     {
@@ -2582,6 +2485,7 @@ public sealed class ChartListVirtualViewTests
 
     }
 
+    /// <summary>導入先設定と消去は通知中も最新値を読め、推定候補と警告を保持した次検索へ元項目を渡して、旧値復活と推定消失を検出します。</summary>
     [TestMethod]
     public void PackageChartSourceRows_InstallDestinationEditsNotifyCurrentProjectionAndPreserveEstimation()
     {
@@ -2655,7 +2559,6 @@ public sealed class ChartListVirtualViewTests
             CollectionAssert.AreEqual(candidates, nextChart.InstallDestinationSuggestions.ToArray());
             CollectionAssert.AreEqual(estimationWarnings, nextChart.Warnings.ToArray());
             Assert.IsNull(entry.GetBmsChartForTest());
-            Assert.AreSame(bmson.Token, row.Chart.Token);
         }
         finally
         {
@@ -2682,6 +2585,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>再生snapshotへBMSとbmsonのpathを両方渡してadapterを生成せず、形式別配送欠けと不要変換を検出します。</summary>
     [TestMethod]
     public void PackagePlaybackTargetSnapshot_UsesChartEntriesWithoutMaterializingBmsonAdapters()
     {
@@ -2697,11 +2601,12 @@ public sealed class ChartListVirtualViewTests
 
         List<ChartFile> targets = MainWindowViewModel.CreatePackagePlaybackTargetSnapshot([package]);
 
-        Assert.AreSame(bms.Token, targets.Single(chart => chart.Kind == ChartFileKind.Bms).Token);
-        Assert.AreSame(bmson.Token, targets.Single(chart => chart.Kind == ChartFileKind.Bmson).Token);
+        Assert.AreEqual(bms.Path, targets.Single(chart => chart.Kind == ChartFileKind.Bms).Path);
+        Assert.AreEqual(bmson.Path, targets.Single(chart => chart.Kind == ChartFileKind.Bmson).Path);
         Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
     }
 
+    /// <summary>library未接続でもpackage導入先を消去しadapterを作らず、未接続時の消去漏れを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
@@ -2724,6 +2629,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
     }
 
+    /// <summary>実libraryの保留packageへ消去要求を渡すと導入先を空にしadapterを作らず、実操作から旧BMS経路へ戻る誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
@@ -2776,58 +2682,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
-    [TestMethod]
-    [DoNotParallelize]
-    public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
-    {
-        using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
-        using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
-        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartListVirtualViewTests_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempRootPath);
-        string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
-        ChartFile bmsonSong = CreateBmsonSong();
-        var adapterlessBmsonEntry = PackageChartEntry.FromChart(
-            ChartFileProjection.WithPackageState(
-                (bmsonSong),
-                @"C:\Installed\Target",
-                "Installed",
-                "Artist",
-                []));
-        var package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
-        try
-        {
-            TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(songDbPath, testSettings);
-            library.ChartPackagesPending = new ObservableCollection<ChartPackage>([package]);
-            typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
-            var target = new ChartOperationTarget(
-                adapterlessBmsonEntry.Chart,
-                null,
-                ChartOperationSourceScope.PendingPackage,
-                isOwned: false,
-                isPending: true,
-                isPlaylistMissing: false,
-                ChartOperationCapabilities.UpdateInstallDestination,
-                adapterlessBmsonEntry);
-
-            Assert.IsTrue(PendingInstallDestinationClearRequest.TryCreate(
-                [target],
-                out PendingInstallDestinationClearRequest request));
-            await viewModel.PendingPackages.ClearPendingAsync(request);
-
-            Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());
-            Assert.AreEqual(string.Empty, adapterlessBmsonEntry.Chart.InstallDestination);
-        }
-        finally
-        {
-            if (Directory.Exists(tempRootPath))
-            {
-                Directory.Delete(tempRootPath, recursive: true);
-            }
-        }
-    }
-
+    /// <summary>同じpathのpackage項目と独立譜面を選んでもpackage導入先だけ消し、独立譜面の値とadapter非生成を保持して対象混同を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
@@ -2895,6 +2750,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>表示行から操作targetと逆変換まで元package項目を保持し、譜面だけで操作して項目を失う誤りを検出します。</summary>
     [TestMethod]
     public void PackageEntryRowsCarryPackageEntryIntoChartOperationTarget()
     {
@@ -2913,6 +2769,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreSame(entry, target.ToPackageChartEntry());
     }
 
+    /// <summary>実libraryで保留bmsonの導入先検索を完了してもadapterを生成せず、検索入口の旧形式依存を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_SearchPendingDoesNotResolveAdapterlessBmsonCompatibilityFile()
@@ -2959,6 +2816,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>実storeで保留bmsonの統合先を検索してもadapterを生成せず、統合検索だけの旧形式依存を検出します。</summary>
     [TestMethod]
     public void InstallDestinationStore_SearchMergeDoesNotResolveAdapterlessBmsonCompatibilityFile()
     {
@@ -3001,6 +2859,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>捕捉後に同じ譜面の項目を置換しても現在項目の導入先を消し、旧項目だけを編集する誤りを検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
@@ -3060,6 +2919,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>全mode組合せで通常folder・全走査に対応する要求だけ仮想経路へ配送し、別画面の更新を通常一覧として受理する誤りを検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryRequestModes_CoverRootAndFullScanTrees()
     {
@@ -3096,6 +2956,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>通常folderはfolder条件を適用し、全走査は適用しないことで全件表示へ残存条件を掛ける誤りを検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryFullScanTree_IgnoresFolderFilter()
     {
@@ -3103,6 +2964,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(RegularChartListOwner.ShouldApplyDefaultTreeFilter(MainViewUpdateMode.FullScanAllChartsFilterSelected));
     }
 
+    /// <summary>全mode組合せで譜面集合とその検索・mode・sort更新だけを受理し、非対応画面へ部分一覧を配送する誤りを検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetRequestModes_CoverFilterAndSortUpdates()
     {
@@ -3152,6 +3014,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>BMS・bmson混在重複groupから双方のpathとbmson重複警告を持つsourceを生成し、形式による行・警告脱落を検出します。</summary>
     [TestMethod]
     public void DuplicateVirtualSourceRows_PreserveCommonFormatAndWarnings()
     {
@@ -3196,6 +3059,7 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(bmsonRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
     }
 
+    /// <summary>通常・重複・全走査・導入の実列factoryが配送するsortキーを混在sourceで受理し、UI列と仮想sortの接続不整合を検出します。</summary>
     [TestMethod]
     public void VirtualSortRouteColumns_CreateOrdersForAllChartListViewKinds()
     {
@@ -3219,6 +3083,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>実重複一覧の非対応sortは表示とowner条件を解除し、タイトル昇順の仮想一覧へ戻して要求残留と空表示を検出します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort()
@@ -3267,6 +3132,7 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    /// <summary>欠損・導入済みでは健全性投影を使い、保留・解析失敗等では使わない判断で画面条件に合わない警告投影を検出します。</summary>
     [TestMethod]
     public void VirtualChartSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
@@ -3282,78 +3148,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.PendingInstallFolderSelected));
     }
 
-    [TestMethod]
-    public void NormalLibrarySortCacheKey_UsesSortKeyGenerationForOrderIdentity()
-    {
-        var current = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        var same = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        var changedSourceGeneration = new NormalLibrarySortCacheKey(8, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        var changedSortKeyGeneration = new NormalLibrarySortCacheKey(7, 12, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 3);
-        var changedColumn = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Artist), ListSortDirection.Ascending, 3);
-        var changedDirection = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Descending, 3);
-        var changedRowCount = new NormalLibrarySortCacheKey(7, 11, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 4);
-
-        Assert.AreEqual(current, same);
-        Assert.AreNotEqual(current, changedSourceGeneration);
-        Assert.AreNotEqual(current, changedSortKeyGeneration);
-        Assert.AreNotEqual(current, changedColumn);
-        Assert.AreNotEqual(current, changedDirection);
-        Assert.AreNotEqual(current, changedRowCount);
-
-        var scoreAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        var scoreAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        var changedScoreGeneration = new NormalLibrarySortCacheKey(7, 11, 2, 2, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        var changedChartInfoGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 3, 3, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        var changedMaintenanceGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 4, nameof(LibraryChartRow.rateDouble), ListSortDirection.Ascending, 3);
-        var dependencyAware = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
-        var dependencyAwareSame = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
-        var changedWarningGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 7, 5, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
-        var changedInstallDestinationGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 8, 6, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
-        var changedReferenceTablesGeneration = new NormalLibrarySortCacheKey(7, 11, 1, 2, 3, 4, 5, 9, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, 3);
-
-        Assert.AreEqual(scoreAware, scoreAwareSame);
-        Assert.AreNotEqual(scoreAware, changedScoreGeneration);
-        Assert.AreNotEqual(scoreAware, changedChartInfoGeneration);
-        Assert.AreNotEqual(scoreAware, changedMaintenanceGeneration);
-        Assert.AreEqual(dependencyAware, dependencyAwareSame);
-        Assert.AreNotEqual(dependencyAware, changedWarningGeneration);
-        Assert.AreNotEqual(dependencyAware, changedInstallDestinationGeneration);
-        Assert.AreNotEqual(dependencyAware, changedReferenceTablesGeneration);
-    }
-
-    [TestMethod]
-    public void MainSummaryCacheKey_UsesGenerationsForIdentity()
-    {
-        var current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
-        var same = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");
-        var changedSortKeyGeneration = new MainViewSummaryCacheKey(7, 12, 3, includeBmsonRows: true, "normal_default");
-
-        Assert.AreEqual(current, same);
-        Assert.AreNotEqual(current, changedSortKeyGeneration);
-    }
-
-    [TestMethod]
-    public void LibraryChartSortMetrics_CarriesVirtualOrderTimingBreakdown()
-    {
-        var metrics = new LibraryChartSortMetrics(
-            3,
-            nameof(LibraryChartRow.path),
-            ListSortDirection.Descending,
-            nameof(String),
-            "virtual_path_order",
-            "ordinal_ignore_case",
-            42,
-            sortReuse: true,
-            sortCacheKey: nameof(LibraryChartRow.path),
-            sortCacheGeneration: 5,
-            sortCacheHit: true,
-            orderCacheLookupMs: 1,
-            orderBuildMs: 0);
-
-        Assert.AreEqual(1, metrics.OrderCacheLookupMs);
-        Assert.AreEqual(0, metrics.OrderBuildMs);
-    }
-
+    /// <summary>現在譜面更新でも旧snapshotとtokenを保持し、新基本値・導入先・参照表を読むことで更新先混同と専門投影脱落を検出します。</summary>
     [TestMethod]
     public void SourceRow_AppliesCommonCurrentValuesAndReadsSpecialistProjections()
     {
@@ -3404,6 +3199,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Reference Table", sourceRows[0].RefTablesNames);
     }
 
+    /// <summary>SHA-256登録のbmson参照表symbol・名称をsourceと表示行へ反映し、MD5専用解決へ戻る誤りを検出します。</summary>
     [TestMethod]
     public void SourceRow_AndLibraryRowUsePlaylistReferenceProjectionForBmson()
     {
@@ -3432,6 +3228,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Bmson Table", chartRow.RefTablesNames);
     }
 
+    /// <summary>BMS・bmsonのスコア・解析・健全性・警告・導入先・参照表を持つ全sortキーを実体行と比較し、経路間の表示・整列差を検出します。</summary>
     [TestMethod]
     public void SourceRow_SortKeysMatchLibraryChartRowForBmsAndBmson()
     {
@@ -3508,6 +3305,7 @@ public sealed class ChartListVirtualViewTests
         AssertSourceRowMatchesLibraryChartRow(sourceRows.Single(row => row.Kind == ChartFileKind.Bmson), bmsonRow);
     }
 
+    /// <summary>解析provider更新後の依存表示更新でlevelキーを最新値へ替え、生成済みcacheの旧解析値残留を検出します。</summary>
     [TestMethod]
     public void LibraryChartRow_DisplayRefreshInvalidatesProviderBackedChartCache()
     {
@@ -3529,6 +3327,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(9.0, row.ChartLevelSortKey);
     }
 
+    /// <summary>健全性警告を最新投影へ替えても重複警告を保持し、sourceと実体行のdigestを一致させて経路別警告欠けを検出します。</summary>
     [TestMethod]
     public void SourceRow_WarningDigestMatchesLibraryChartRowWithResourceProjection()
     {
@@ -3554,6 +3353,7 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(sourceRows[0].WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
     }
 
+    /// <summary>各基本属性変更をキーへ反映し、健全性だけの更新は基本キーを変えずtokenを保持することで、再整列対象の過不足を検出します。</summary>
     [TestMethod]
     public void CommonCurrentApplication_ChangesBasicSortColumnsAndPreservesToken()
     {
@@ -3596,12 +3396,6 @@ public sealed class ChartListVirtualViewTests
     private static LibraryChartRow MaterializeSourceRow(ChartListSourceRow row)
     {
         ChartFile? chart = row?.Chart;
-        if (chart?.Token != null)
-        {
-            var chartRow = LibraryChartRow.FromChartFile(chart);
-            chartRow.SetChartInfoProjectionProvider(CreateChartInfoProvider(chart.ChartInfo));
-            return chartRow;
-        }
         if (chart?.Token != null)
         {
             var chartRow = LibraryChartRow.FromChartFile(chart);
@@ -3823,133 +3617,11 @@ public sealed class ChartListVirtualViewTests
         return file;
     }
 
-    private static VirtualNormalLibrarySortDescriptor[] CreateExpectedDefaultPrewarmDescriptors()
-    {
-        return [.. CreateExpectedDefaultPrewarmColumnNames()
-            .SelectMany(column => new[]
-            {
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Ascending, GetPrewarmPriority(column)),
-                new VirtualNormalLibrarySortDescriptor(column, ListSortDirection.Descending, GetPrewarmPriority(column))
-            })];
-    }
-
-    private static int GetPrewarmPriority(string columnName)
-    {
-        Assert.IsTrue(ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata));
-        return metadata.PrewarmPriority;
-    }
-
-    private static string[] CreateExpectedDefaultPrewarmColumnNames()
-    {
-        return
-        [
-            nameof(LibraryChartRow.Title),
-            nameof(LibraryChartRow.Folder),
-            nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.clear),
-            nameof(LibraryChartRow.rateDouble),
-            nameof(LibraryChartRow.minbp),
-            nameof(LibraryChartRow.ChartJudgeSortKey),
-            nameof(LibraryChartRow.ChartNotes),
-            nameof(LibraryChartRow.ChartLongNotes),
-            nameof(LibraryChartRow.ChartScratchNotes),
-            nameof(LibraryChartRow.ChartMainBpmSortKey),
-            nameof(LibraryChartRow.ChartMinBpmSortKey),
-            nameof(LibraryChartRow.ChartMaxBpmSortKey),
-            nameof(LibraryChartRow.ChartSoflanCount),
-            nameof(LibraryChartRow.ChartTotalSortKey),
-            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
-            nameof(LibraryChartRow.ChartDurationSortKey),
-            nameof(LibraryChartRow.ChartDensitySortKey),
-            nameof(LibraryChartRow.ChartPeakDensitySortKey),
-            nameof(LibraryChartRow.ChartEndDensitySortKey),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.tag),
-            nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256),
-            nameof(LibraryChartRow.instl_dst),
-            nameof(LibraryChartRow.InstallDestinationTitle),
-            nameof(LibraryChartRow.InstallDestinationArtist),
-            nameof(LibraryChartRow.RefTablesSymbols),
-            nameof(LibraryChartRow.score),
-            nameof(LibraryChartRow.maxcombo),
-            nameof(LibraryChartRow.rankingString),
-            nameof(LibraryChartRow.rankingLastupdate),
-            nameof(LibraryChartRow.stddevVal),
-            nameof(LibraryChartRow.scoreDifficulty),
-            nameof(LibraryChartRow.ChartLevelSortKey),
-            nameof(LibraryChartRow.ChartDifficultySortKey),
-            nameof(LibraryChartRow.ChartFeatureSortKey)
-        ];
-    }
-
-    private static string[] CreateExpectedVirtualSortColumnNames()
-    {
-        return
-        [
-            nameof(LibraryChartRow.Title),
-            nameof(LibraryChartRow.path),
-            nameof(LibraryChartRow.Folder),
-            nameof(LibraryChartRow.Artist),
-            nameof(LibraryChartRow.genre),
-            nameof(LibraryChartRow.mode),
-            nameof(LibraryChartRow.WarningDigestText),
-            nameof(LibraryChartRow.tag),
-            nameof(LibraryChartRow.hash),
-            nameof(LibraryChartRow.sha256),
-            nameof(LibraryChartRow.instl_dst),
-            nameof(LibraryChartRow.InstallDestinationTitle),
-            nameof(LibraryChartRow.InstallDestinationArtist),
-            nameof(LibraryChartRow.RefTablesSymbols),
-            nameof(LibraryChartRow.WAVHealth),
-            nameof(LibraryChartRow.BGAHealth),
-            nameof(LibraryChartRow.MovieHealth),
-            nameof(LibraryChartRow.encoding),
-            nameof(LibraryChartRow.level),
-            nameof(LibraryChartRow.clear),
-            nameof(LibraryChartRow.rateDouble),
-            nameof(LibraryChartRow.score),
-            nameof(LibraryChartRow.maxcombo),
-            nameof(LibraryChartRow.minbp),
-            nameof(LibraryChartRow.rankingString),
-            nameof(LibraryChartRow.rankingLastupdate),
-            nameof(LibraryChartRow.stddevVal),
-            nameof(LibraryChartRow.scoreDifficulty),
-            nameof(LibraryChartRow.ChartLevelSortKey),
-            nameof(LibraryChartRow.ChartDifficultySortKey),
-            nameof(LibraryChartRow.ChartMainBpmSortKey),
-            nameof(LibraryChartRow.ChartMaxBpmSortKey),
-            nameof(LibraryChartRow.ChartMinBpmSortKey),
-            nameof(LibraryChartRow.ChartDurationSortKey),
-            nameof(LibraryChartRow.ChartJudgeSortKey),
-            nameof(LibraryChartRow.ChartFeatureSortKey),
-            nameof(LibraryChartRow.ChartNotes),
-            nameof(LibraryChartRow.ChartLongNotes),
-            nameof(LibraryChartRow.ChartScratchNotes),
-            nameof(LibraryChartRow.ChartTotalSortKey),
-            nameof(LibraryChartRow.ChartTotalPerNoteSortKey),
-            nameof(LibraryChartRow.ChartDensitySortKey),
-            nameof(LibraryChartRow.ChartPeakDensitySortKey),
-            nameof(LibraryChartRow.ChartEndDensitySortKey),
-            nameof(LibraryChartRow.ChartSoflanCount)
-        ];
-    }
-
     private static void AssertRegistryDependency(IEnumerable<ChartListOrderColumnMetadata> metadata, MainViewDataDependency dependency, string columnName)
     {
         Assert.AreEqual(
             dependency,
             metadata.Single(column => column.NormalizedColumnName == columnName).Dependency,
-            columnName);
-    }
-
-    private static void AssertRegistryPrewarmPriority(IEnumerable<ChartListOrderColumnMetadata> metadata, int priority, string columnName)
-    {
-        Assert.AreEqual(
-            priority,
-            metadata.Single(column => column.NormalizedColumnName == columnName).PrewarmPriority,
             columnName);
     }
 

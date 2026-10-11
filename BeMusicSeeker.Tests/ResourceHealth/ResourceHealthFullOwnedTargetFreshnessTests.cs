@@ -8,6 +8,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public class ResourceHealthFullOwnedTargetFreshnessTests
 {
+    /// <summary>
+    /// 保証：全所持対象の捕捉世代と現在の所持・リソース入力世代が一致して安定している場合だけ検査結果を最新として受理する。
+    /// </summary>
     [TestMethod]
     public void IsCurrent_ReturnsTrueForMatchingFullOwnedVersions()
     {
@@ -23,6 +26,9 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
         Assert.IsTrue(isCurrent);
     }
 
+    /// <summary>
+    /// 保証：所持世代が進んだ全所持対象を最新とせず、古い対象集合の検査結果を現行へ適用しない。
+    /// </summary>
     [TestMethod]
     public void IsCurrent_ReturnsFalseForStaleOwnedCollectionVersion()
     {
@@ -38,6 +44,9 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
         Assert.IsFalse(isCurrent);
     }
 
+    /// <summary>
+    /// 保証：リソース入力世代が進んだ全所持対象を最新とせず、変更前のリソース検査結果を適用しない。
+    /// </summary>
     [TestMethod]
     public void IsCurrent_ReturnsFalseForStaleResourceHealthInputVersion()
     {
@@ -53,6 +62,9 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
         Assert.IsFalse(isCurrent);
     }
 
+    /// <summary>
+    /// 保証：世代番号が一致しても現在のリソース入力が不安定なら受理せず、更新途中の結果を最新扱いしない。
+    /// </summary>
     [TestMethod]
     public void IsCurrent_ReturnsFalseForUnstableCurrentResourceHealthInputVersion()
     {
@@ -68,6 +80,9 @@ public class ResourceHealthFullOwnedTargetFreshnessTests
         Assert.IsFalse(isCurrent);
     }
 
+    /// <summary>
+    /// 保証：部分対象には全所持の最新性判定を適用せず、未検査の所持譜面まで検査済みとして扱わない。
+    /// </summary>
     [TestMethod]
     public void IsCurrent_ReturnsFalseForSubsetTarget()
     {

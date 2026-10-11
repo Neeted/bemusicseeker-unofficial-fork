@@ -10,11 +10,12 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>共有 Settings と Resources.Culture を変更する経路を含むため非並列です。失敗分類の実 provider 接続は専用 XML、判断順は注入 store で分担します。</remarks>
 [TestClass]
 [DoNotParallelize]
 public sealed class ApplicationSettingsLifecycleTests
 {
-    // PORTABLE-SETTINGS-FAILURE-20260905 P03/P06: failed initial reads are fatal before materialization.
+    /// <summary>最初の正規化が失敗した場合、元例外を返して設定の読取り・保存へ進む誤りを検出します。</summary>
     [TestMethod]
     public void InitializeReadFailureDoesNotReadStoreOrContinue()
     {
@@ -31,6 +32,7 @@ public sealed class ApplicationSettingsLifecycleTests
         Assert.AreEqual(0, store.Events.Count);
     }
 
+    /// <summary>旧設定移行の一回呼出し後に不正な言語とテーマを正規化し、既存バージョンを初回起動として扱う誤りを検出します。</summary>
     [TestMethod]
     public void InitializeMigratesAndNormalizesLanguageAndThemeWithoutChangingVersionTiming()
     {
@@ -75,6 +77,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
+    /// <summary>バージョン取得が失敗しても初回扱いせず、読込み済み設定の言語とテーマを適用することを確認します。</summary>
     [TestMethod]
     public void InitializeVersionFactoryFailureStillNormalizesCultureAndTheme()
     {
@@ -111,6 +114,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
+    /// <summary>保存済みバージョンなしの場合、初回通知を upgrade と保存より前に一回行い、新バージョンを保持することを確認します。</summary>
     [TestMethod]
     public void InitializeReportsFirstStartupBeforeUpgradeAndSave()
     {
@@ -135,7 +139,7 @@ public sealed class ApplicationSettingsLifecycleTests
 
             Assert.IsTrue(result.FirstStartup);
             CollectionAssert.AreEqual(new[] { "firstStartup=True", "upgrade", "save" }, events);
-            Assert.AreEqual(1, Settings.Default.AssemblyVersion?.Major);
+            Assert.AreEqual(new SerializableVersion(1, 2, 3, 4), Settings.Default.AssemblyVersion);
         }
         finally
         {
@@ -146,6 +150,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
+    /// <summary>注入した設定へ初回 upgrade・保存・バージョン更新と不正な言語・テーマの正規化が届き、別の共有設定を使う誤りを検出します。</summary>
     [TestMethod]
     public void InitializeUsesInjectedSettingsStoreForVersionLanguageAndThemeLifecycle()
     {
@@ -172,6 +177,7 @@ public sealed class ApplicationSettingsLifecycleTests
         Assert.AreEqual(AppThemeService.Light, lifecycle.GetCurrentAppearanceTheme());
     }
 
+    /// <summary>正規化を記録してから store を読み、旧値の先行 materialize で正規化を取り逃す誤りを検出します。</summary>
     [TestMethod]
     public void InitializeNormalizesSettingsBeforeReadingTheInjectedStore()
     {
@@ -195,7 +201,7 @@ public sealed class ApplicationSettingsLifecycleTests
         Assert.IsTrue(firstReadIndex > normalizeIndex);
     }
 
-    // P06: read and save failures use the real provider and generated materialization.
+    /// <summary>実設定の旧ビット正規化を読取り専用で阻止しても一回警告と正規化済み値を利用し、排他読取り失敗では設定処理を開始しないことを確認します。</summary>
     [TestMethod]
     public void ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal()
     {
@@ -240,7 +246,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
-    // P06: external sharing changes after materialization still distinguish READ from publication failure.
+    /// <summary>最初の読込み後にファイル共有条件を変え、再読込み失敗は致命的、公開だけの失敗は一回警告で続行し、双方で元 bytes を保持することを確認します。</summary>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -294,6 +300,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
+    /// <summary>バージョン保存の例外を注入し、元例外を警告先へ渡して読込み済み文化の適用を続けることを確認します。</summary>
     [TestMethod]
     public void VersionSaveFailureWarnsAndContinuesWithLoadedSettings()
     {
@@ -314,6 +321,7 @@ public sealed class ApplicationSettingsLifecycleTests
         finally { Resources.Culture = previousCulture; }
     }
 
+    /// <summary>実 PowerShell が生成した旧設定を新 wrapper で読み、型付きバージョンと XML 特殊文字を含む値の互換読込みと既存起動判定を確認します。</summary>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
     public void LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues()
@@ -357,7 +365,7 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
-    // P04b rev2: a new lifecycle after failed creation must use the preserved file, not process memory, to suppress import.
+    /// <summary>適格な旧設定を実際に移行できる条件で、破損退避後の新規作成失敗を起こし、新 owner による次回起動で再輸入せず退避内容と現設定を保つことを確認します。</summary>
     [TestMethod]
     public void RestartAfterQuarantineAndCreateFailureDoesNotImportEligibleLegacySettings()
     {

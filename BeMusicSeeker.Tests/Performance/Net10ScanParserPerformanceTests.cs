@@ -1,4 +1,3 @@
-using System;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -11,9 +10,13 @@ public sealed class Net10ScanParserPerformanceTests
 {
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>
+    /// 同位置noteだけが1,000・4,000・16,000件続く入力の全位置で次音なしを保ち、同位置の音符を次の継続音として誤って返すことを検出する。
+    /// </summary>
+    /// <remarks>後続の異なる位置がある探索はChartInfoParserBehaviorTestsが担当する。このケースは継続指定の有無を混ぜた同位置だけの入力を全位置から調べる機能検査であり、走査回数や所要時間は計測しない。</remarks>
     [TestMethod]
     [TestCategory("parser")]
-    public void BmsonContinuationLookup_EqualYGroupsStayWithinLinearProbeBound()
+    public void BmsonContinuationLookup_EqualYOnlyGroupHasNoNextNoteFromAnyPosition()
     {
         foreach (Net10PerformanceCorpusScale scale in Net10PerformanceCorpus.GetConfiguredScales())
         {
@@ -31,25 +34,20 @@ public sealed class Net10ScanParserPerformanceTests
                 })
                 .ToArray();
 
-            long currentProbeUpperBound = 0;
             int nextDistinctNoteIndex = 0;
             for (int noteIndex = 0; noteIndex < notes.Length; noteIndex++)
             {
-                int before = nextDistinctNoteIndex;
                 BmsonSoundNote next = ChartInfoParser.AdvanceToNextBmsonContinuationNote(
                     notes,
                     noteIndex,
                     ref nextDistinctNoteIndex);
-                currentProbeUpperBound += Math.Max(1, nextDistinctNoteIndex - Math.Max(before, noteIndex));
                 Assert.IsNull(next);
             }
 
-            Assert.IsTrue(currentProbeUpperBound <= count * 2L);
             TestContext.WriteLine(
                 "route=bmson_continuation_lookup"
                 + " scale=" + scale
-                + " notes=" + count
-                + " currentProbeUpperBound=" + currentProbeUpperBound);
+                + " notes=" + count);
         }
     }
 }

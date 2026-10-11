@@ -12,6 +12,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2CompatibilityGoldenTests
 {
+    /// <summary>
+    /// LR2のROOT親識別子を独立した互換値と照合し、ルート行を別階層へ接続する変更を検出する。
+    /// </summary>
     [TestMethod]
     public void RootParentHashMatchesLr2RootSentinel()
     {
@@ -19,6 +22,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual("e2977170", Lr2SongFolderParentNormalizer.ComputeRootHash());
     }
 
+    /// <summary>
+    /// CP932のROOT文字列に対する既知CRCを照合し、LR2と異なるCRC計算への退行を検出する。
+    /// </summary>
     [TestMethod]
     public void Lr2Crc32MatchesRootTextGoldenValue()
     {
@@ -27,6 +33,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual("206114ef", LR2CRC32.Compute(bytes).ToString("x"));
     }
 
+    /// <summary>
+    /// 通常階層・ドライブ直下・UNC・日本語パスのフォルダと親CRCを独立値で照合し、パス別の互換誤りを検出する。
+    /// </summary>
     [DataTestMethod]
     [DataRow(@"D:\BMS\Pack\Song\chart.bms", "f002e300", "a777506c")]
     [DataRow(@"D:\root.bms", "876fd4dd", "57d700a7")]
@@ -41,6 +50,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual(expectedParent, parent);
     }
 
+    /// <summary>
+    /// CP932へ表現できない譜面パスからCRCを作らず、誤ったフォルダ・親識別子を返すことを防ぐ。
+    /// </summary>
     [TestMethod]
     public void FolderParentHashRejectsCp932UnsupportedPath()
     {
@@ -54,6 +66,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsNull(parent);
     }
 
+    /// <summary>
+    /// 未対応パスへ残った旧フォルダ・親CRCを消し、互換警告も成立して無効な階層参照の温存を検出する。
+    /// </summary>
     [TestMethod]
     public void UnsupportedPathClearsFolderParentAndMarksWarning()
     {
@@ -73,6 +88,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(Lr2CompatibilityEvaluator.EvaluateChartPath(file.Path).WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.PathEncodingUnsupported));
     }
 
+    /// <summary>
+    /// 通常パスを警告なしと判定し既知フォルダ・親CRCを返して、評価窓口での互換値の取り違えを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorMatchesExistingFolderParentHashes()
     {
@@ -86,6 +104,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual("a777506c", evaluation.ParentHash);
     }
 
+    /// <summary>
+    /// 絵文字を含むパスを未対応と通知し、計算可能なCRCがあると誤報することを防ぐ。
+    /// </summary>
     [TestMethod]
     public void EvaluatorFlagsCp932UnsupportedPath()
     {
@@ -97,6 +118,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsNull(evaluation.ParentHash);
     }
 
+    /// <summary>
+    /// 譜面パスの259バイトを許容し260バイトを警告して、LR2の長さ境界のずれを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorFlagsChartPathByteBoundary()
     {
@@ -107,12 +131,18 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(tooLong.WarningFlags.HasFlag(Lr2CompatibilityWarningFlags.PathTooLong));
     }
 
+    /// <summary>
+    /// CP932で表現できる短い登録ルートを許容し、互換ルートを不必要に拒否する退行を検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorAcceptsLegacyCompatibleRootPath()
     {
         Assert.IsTrue(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(@"D:\BMS"));
     }
 
+    /// <summary>
+    /// 長すぎるルート・未対応文字・GLOBALROOT指定を拒否し、LR2が扱えないルートを互換と誤判定することを防ぐ。
+    /// </summary>
     [TestMethod]
     public void EvaluatorRejectsLegacyIncompatibleRootPath()
     {
@@ -123,6 +153,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsFalse(Lr2CompatibilityEvaluator.IsLegacyRootPathCompatible(@"\\?\GLOBALROOT\Device\HarddiskVolume1\BMS"));
     }
 
+    /// <summary>
+    /// 音声参照の元拡張子を含むCP932長さを記録し、検索用キーの長さへ置き換える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorUsesRawResourcePathWithExtensionForByteFacts()
     {
@@ -138,6 +171,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsFalse(evaluation.HasParentTraversal);
     }
 
+    /// <summary>
+    /// 通常参照と親参照を混ぜても親参照の長さと有無を記録し、親参照を落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorIncludesParentTraversalResourcePathInByteFacts()
     {
@@ -154,6 +190,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(evaluation.HasParentTraversal);
     }
 
+    /// <summary>
+    /// BMSの参照一覧から親参照と長さを捕捉し、一覧から共通入力へ渡す経路での情報欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorDetectsParentTraversalFromRawBmsResourceLists()
     {
@@ -171,6 +210,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(evaluation.HasParentTraversal);
     }
 
+    /// <summary>
+    /// 親参照を解決したパスが長すぎる場合に長さ警告を出し、相対文字列だけで安全と判定する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorFlagsParentTraversalResolvedPathLength()
     {
@@ -186,6 +228,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(evaluation.HasParentTraversal);
     }
 
+    /// <summary>
+    /// 未対応文字を含む音声参照を警告し、表現不能な参照へバイト長を付ける誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorFlagsCp932UnsupportedResourcePath()
     {
@@ -200,6 +245,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsNull(evaluation.MaxRelativeCp932Bytes);
     }
 
+    /// <summary>
+    /// 復号不能参照を個別・集約入力で保持し、他の長い参照の評価も続けて最初の不正参照で診断を打ち切る誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorFlagsCp932DecodeUnsupportedResourceAndContinuesLengthEvaluation()
     {
@@ -229,6 +277,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual(StrictShiftJisByteCount(longRawPath), evaluation.MaxRelativeCp932Bytes);
     }
 
+    /// <summary>
+    /// 同じ検索キーへ正規化される参照を保持し、正規化後の短いパスに長さ判定を揃えて冗長な相対指定による誤警告を検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorUsesAllRawResourceReferencesEvenWhenLookupKeyIsDuplicate()
     {
@@ -252,6 +303,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual(StrictShiftJisByteCount("sound.wav"), evaluation.MaxRelativeCp932Bytes);
     }
 
+    /// <summary>
+    /// リソース未取得の移動後でも既存の親参照・長さ・符号化警告を保持し、再取得前に保存診断を失うことを防ぐ。
+    /// </summary>
     [TestMethod]
     public void RelocatedParentTraversalFactsArePreservedWithoutAcquiredResources()
     {
@@ -274,6 +328,9 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.IsTrue(info.Lr2ResourceHasParentTraversal.GetValueOrDefault());
     }
 
+    /// <summary>
+    /// 音声flacと画像jpegの元拡張子を259・260バイト境界に含め、検索用拡張子への置換で警告境界が変わる誤りを検出する。
+    /// </summary>
     [TestMethod]
     [DataRow(".flac", 259, false)]
     [DataRow(".flac", 260, true)]
@@ -293,12 +350,15 @@ public sealed class Lr2CompatibilityGoldenTests
         Assert.AreEqual(extension == ".flac" ? "resource.wav" : "resource.png", reference.NormalizedPath);
     }
 
+    /// <summary>
+    /// BMS・bmsonの空参照は長い親フォルダでも無警告とし、検索キーが空でも非空の.wav参照は長さ評価して両者の混同を防ぐ。
+    /// </summary>
     [TestMethod]
     public void EvaluatorIgnoresTrulyEmptyPathsAtCp932DirectoryBoundary()
     {
         string path = BuildAsciiChartPathWithDirectorySegment(256);
-        string? directory = System.IO.Path.GetDirectoryName(path);
-        Assert.IsNotNull(directory);
+        string directory = System.IO.Path.GetDirectoryName(path)
+            ?? throw new AssertFailedException("長さ境界の入力には親フォルダが必要です。");
         Assert.AreEqual(259, StrictShiftJisByteCount(directory));
         ChartFileSnapshot bmsSnapshot = ChartFileContentReader.CreateSnapshot(path,
             Encoding.UTF8.GetBytes("#WAV01 \r\n#WAV02 \t \r\n#WAV03 \r\n#BMP01 \t\r\n#STAGEFILE \r\n#BACKBMP \t\r\n#BANNER \t \r\n"), DateTime.UnixEpoch);
@@ -331,6 +391,9 @@ public sealed class Lr2CompatibilityGoldenTests
         }
     }
 
+    /// <summary>
+    /// パスなし復号診断の後も空キーの非空参照と未知拡張子を評価し、診断と長さ警告の取り落としを検出する。
+    /// </summary>
     [TestMethod]
     public void EvaluatorIncludesUnknownEmptyKeyAndContinuesAfterPathlessCp932Diagnostic()
     {

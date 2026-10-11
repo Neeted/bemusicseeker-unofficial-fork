@@ -14,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class Lr2FolderRowGeneratorTests
 {
+    /// <summary>
+    /// 譜面階層からルート・祖先・直近フォルダの行を作り、親CRC・保存種別・入力時刻が揃うことで階層欠落や時刻混同を検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_CreatesRootAncestorAndChartDirectoryRows()
     {
@@ -33,22 +36,29 @@ public sealed class Lr2FolderRowGeneratorTests
             GeneratedAtUtc = timestamp.AddDays(1)
         });
 
+        LR2SongDB.folder root = result.Rows.Single(row => row.path == FolderPath(@"D:\BMS"));
+        LR2SongDB.folder pack = result.Rows.Single(row => row.path == FolderPath(@"D:\BMS\Pack"));
+        LR2SongDB.folder song = result.Rows.Single(row => row.path == FolderPath(@"D:\BMS\Pack\Song"));
+
         Assert.AreEqual(3, result.Rows.Count);
-        Assert.AreEqual(FolderPath(@"D:\BMS"), result.Rows[0].path);
-        Assert.AreEqual(FolderPath(@"D:\BMS\Pack"), result.Rows[1].path);
-        Assert.AreEqual(FolderPath(@"D:\BMS\Pack\Song"), result.Rows[2].path);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, result.Rows[0].parent);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS"), result.Rows[1].parent);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS\Pack"), result.Rows[2].parent);
-        Assert.AreEqual(1, result.Rows[0].type);
-        Assert.AreEqual(timestamp.ToUnixtime(), result.Rows[0].date);
-        Assert.AreEqual(timestamp.AddSeconds(2).ToUnixtime(), result.Rows[2].date);
-        Assert.AreEqual(timestamp.AddDays(1).ToUnixtime(), result.Rows[0].adddate);
+        Assert.AreEqual(FolderPath(@"D:\BMS"), root.path);
+        Assert.AreEqual(FolderPath(@"D:\BMS\Pack"), pack.path);
+        Assert.AreEqual(FolderPath(@"D:\BMS\Pack\Song"), song.path);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, root.parent);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS"), pack.parent);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\BMS\Pack"), song.parent);
+        Assert.AreEqual(1, root.type);
+        Assert.AreEqual(timestamp.ToUnixtime(), root.date);
+        Assert.AreEqual(timestamp.AddSeconds(2).ToUnixtime(), song.date);
+        Assert.AreEqual(timestamp.AddDays(1).ToUnixtime(), root.adddate);
         Assert.IsTrue(result.ScopePaths.Contains(FolderPath(@"D:\BMS\Pack\Song")));
         Assert.AreEqual(0, result.SkippedUnsupportedPathCount);
         Assert.AreEqual(0, result.SkippedMissingMetadataCount);
     }
 
+    /// <summary>
+    /// folderinfoのタイトルを採用しても既存追加時刻を保持し、更新時の履歴消失と出所誤認を検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_UsesFolderInfoTitleAndPreservesExistingAddDate()
     {
@@ -80,6 +90,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(Lr2FolderRowSourceKind.FolderInfoDirectory, result.SourceKinds[folderPath]);
     }
 
+    /// <summary>
+    /// 登録ルート外を除外し未対応文字の同一フォルダを一度だけ集計して、範囲拡張や重複診断を検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_SkipsOutsideRootAndCp932UnsupportedDirectory()
     {
@@ -102,6 +115,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.IsFalse(result.ScopePaths.Contains(FolderPath(@"E:\Other")));
     }
 
+    /// <summary>
+    /// 重複ルートと同じフォルダの複数譜面を合流し、各フォルダのメタデータを一度だけ取得して重複処理を検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_DeduplicatesDirectoriesBeforeMetadataLookup()
     {
@@ -130,6 +146,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(1, metadataCalls[Normalize(@"D:\BMS\Pack\Song")]);
     }
 
+    /// <summary>
+    /// 明示したディレクトリ集合を採用し譜面由来の別フォルダを生成しないことで、指定対象の無断拡張を検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_UsesProvidedDirectoryTargetsWhenPresent()
     {
@@ -148,7 +167,7 @@ public sealed class Lr2FolderRowGeneratorTests
             DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp)
         });
 
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 FolderPath(@"D:\BMS"),
@@ -159,6 +178,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.IsFalse(result.Rows.Any(row => string.Equals(row.path, FolderPath(@"D:\BMS\Ignored"), StringComparison.Ordinal)));
     }
 
+    /// <summary>
+    /// ドライブ直下の区切りと子の親CRCを維持し、ルートを通常パスと同じに処理して壊す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_PreservesDriveRootFolderPath()
     {
@@ -169,13 +191,19 @@ public sealed class Lr2FolderRowGeneratorTests
             DirectoryMetadataResolver = ConstantMetadataResolver()
         });
 
-        Assert.AreEqual(FolderPath(@"D:\"), result.Rows[0].path);
-        Assert.AreEqual(FolderPath(@"D:\Pack"), result.Rows[1].path);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, result.Rows[0].parent);
-        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\"), result.Rows[1].parent);
-        Assert.AreNotEqual(@"D:\\", result.Rows[0].path);
+        LR2SongDB.folder root = result.Rows.Single(row => row.path == FolderPath(@"D:\"));
+        LR2SongDB.folder pack = result.Rows.Single(row => row.path == FolderPath(@"D:\Pack"));
+        Assert.AreEqual(2, result.Rows.Count);
+        Assert.AreEqual(FolderPath(@"D:\"), root.path);
+        Assert.AreEqual(FolderPath(@"D:\Pack"), pack.path);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, root.parent);
+        Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(@"D:\"), pack.parent);
+        Assert.AreNotEqual(@"D:\\", root.path);
     }
 
+    /// <summary>
+    /// メタデータがない子フォルダを行・反映範囲へ入れず欠落数を報告して、推測時刻での反映を防ぐ。
+    /// </summary>
     [TestMethod]
     public void GenerateNormalDirectoryRows_SkipsRowsWithoutDirectoryMetadata()
     {
@@ -194,6 +222,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.IsFalse(result.ScopePaths.Contains(FolderPath(@"D:\BMS\Pack")));
     }
 
+    /// <summary>
+    /// 空白付きTITLEの最初の値を採用しSUBTITLEと後続TITLEを区別して、別指示や後続値による上書きを検出する。
+    /// </summary>
     [TestMethod]
     public void ParseFolderInfoTitle_ReturnsFirstTitleValue()
     {
@@ -207,6 +238,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual("Custom Folder", title);
     }
 
+    /// <summary>
+    /// 同一のルート行を更新せずタイトルが異なる子行だけを更新対象にして、無変更行の不要更新を検出する。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_UpsertsOnlyNewOrChangedRows()
     {
@@ -232,6 +266,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(0, plan.DeletePaths.Count);
     }
 
+    /// <summary>
+    /// 反映範囲内の古い通常行だけを削除し、カスタム行・他ルート・接頭辞だけ共通の隣接ルートを保持する。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_PrunesOnlyStaleNormalRowsInsideScope()
     {
@@ -273,6 +310,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(0, plan.UpsertRows.Count);
     }
 
+    /// <summary>
+    /// 明示した削除範囲内だけで古い行を消し、同じ登録ルート内の別範囲を削除する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_PrunesOnlyRequestedPruneScope()
     {
@@ -305,6 +345,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(0, plan.UpsertRows.Count);
     }
 
+    /// <summary>
+    /// 通常生成行と同じパスのカスタム行を更新・削除対象にせず、別種別の保存行を奪う誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_DoesNotOverwriteNonNormalRowsWithSamePath()
     {
@@ -330,6 +373,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.IsFalse(plan.DeletePaths.Contains(existingCustomRoot.path));
     }
 
+    /// <summary>
+    /// 末尾区切りが欠けた保存キーを削除して正規キーを更新し、正規化一致だけで不正な実キーが残る誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_RepairsNormalRowExactKeyDriftWithDeleteAndUpsert()
     {
@@ -354,6 +400,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(pack.path, plan.UpsertRows[0].path);
     }
 
+    /// <summary>
+    /// 生成入力が欠ける場合は古い行削除と大文字小文字の実キー修復を抑止し、不完全入力から破壊的に反映する誤りを防ぐ。
+    /// </summary>
     [TestMethod]
     public void PlanNormalDirectorySync_SuppressesPruneAndExactKeyRepairWhenGenerationHasMissingMetadata()
     {
@@ -383,6 +432,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(0, plan.DeletePaths.Count);
     }
 
+    /// <summary>
+    /// 重複ディレクトリを合流しfolderinfoだけを読んで元ディレクトリ時刻とタイトルを保持し、一般ファイル誤読や重複取得を検出する。
+    /// </summary>
     [TestMethod]
     public void DirectoryMetadataBuilder_DeduplicatesDirectoriesAndAppliesFolderInfoTitle()
     {
@@ -423,6 +475,9 @@ public sealed class Lr2FolderRowGeneratorTests
         CollectionAssert.AreEqual(new[] { Path.GetFullPath(@"D:\BMS\Pack\folderinfo.txt") }, readPaths.ToArray());
     }
 
+    /// <summary>
+    /// 列挙済みfolderinfoエントリからタイトルを取得し、ファイル時刻とディレクトリ時刻を混同せず保持する。
+    /// </summary>
     [TestMethod]
     public void DirectoryMetadataBuilder_AppliesFolderInfoEntryMap()
     {
@@ -455,6 +510,9 @@ public sealed class Lr2FolderRowGeneratorTests
         CollectionAssert.AreEqual(new[] { folderInfoPath }, readPaths.ToArray());
     }
 
+    /// <summary>
+    /// IO・権限エラーのディレクトリとfolderinfo読取り失敗を区別して数え、成功したディレクトリ情報だけを保持する。
+    /// </summary>
     [TestMethod]
     public void DirectoryMetadataBuilder_TracksMissingDirectoryAndFolderInfoReadFailure()
     {
@@ -489,6 +547,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.IsFalse(snapshot.TryGetMetadata(@"D:\BMS\Security", out _));
     }
 
+    /// <summary>
+    /// 時刻取得窓口がない場合は実在する一時ディレクトリも未取得と扱い、無断のファイルシステム読取りへの切替えを検出する。
+    /// </summary>
     [TestMethod]
     public void DirectoryMetadataBuilder_DoesNotReadDirectoryTimestampWithoutResolver()
     {
@@ -502,6 +563,9 @@ public sealed class Lr2FolderRowGeneratorTests
         Assert.AreEqual(1, snapshot.MissingDirectoryCount);
     }
 
+    /// <summary>
+    /// 1601年とエポック付近の時刻を有効入力として保持し、古い時刻を未取得に読み替える誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void DirectoryMetadataBuilder_PreservesUnixEpochOrOlderTimestampAsValid()
     {

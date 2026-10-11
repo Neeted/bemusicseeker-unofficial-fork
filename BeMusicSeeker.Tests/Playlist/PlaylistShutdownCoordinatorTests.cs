@@ -9,6 +9,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistShutdownCoordinatorTests
 {
+    /// <summary>終了markを先に公開し、複数callback失敗でも全後続を実行して最初の元例外とstackを返し、再要求は再実行しないことを確認します。</summary>
     [TestMethod]
     public void RequestRunsAllCallbacksAndRethrowsFirstFailureWithOriginalStack()
     {
@@ -58,6 +59,7 @@ public sealed class PlaylistShutdownCoordinatorTests
         CollectionAssert.AreEqual(callbackSnapshot, callbacks);
     }
 
+    /// <summary>正常終了要求はcallback前にmarkを公開して全callbackを一回だけ実行し、次要求を拒否して終了作業の重複を検出します。</summary>
     [TestMethod]
     public void RequestRunsOnlyOnceAfterShutdownSignalIsPublished()
     {

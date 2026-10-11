@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Runtime.ExceptionServices;
-using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -14,10 +12,11 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class CustomTableTextLayoutCacheTests
 {
+    /// <summary>同じ描画条件で文字配置を再取得すると同じ配置を再利用することを確認し、反復描画ごとに文字配置を作る性能上の誤りを検出します。</summary>
     [TestMethod]
     public void GetOrCreate_ReusesSameKey()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             var cache = new CustomTableTextLayoutCache();
 
@@ -31,10 +30,11 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
+    /// <summary>文字・領域・整列・書体・部分色・DPI・文化の各条件だけを変えると配置を再利用しないことを確認し、描画条件をキャッシュキーから落とす誤りを検出します。</summary>
     [TestMethod]
     public void GetOrCreate_KeyIncludesLayoutAndStyleInputs()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             AssertKeyChangeMisses(cache => Create(cache, out _, text: "AAA"), cache => { Create(cache, out bool hit, text: "AA"); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, maxTextWidth: 80d), cache => { Create(cache, out bool hit, maxTextWidth: 81d); return hit; });
@@ -52,10 +52,11 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
+    /// <summary>部分色区間を含む同一描画条件でも文字配置を一件だけ再利用することを確認し、強調付き文字の反復描画でキャッシュを使わない誤りを検出します。</summary>
     [TestMethod]
     public void GetOrCreate_ReusesSameTextRunKey()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             var cache = new CustomTableTextLayoutCache();
             IReadOnlyList<CustomTableTextRunStyle> textRuns = [new CustomTableTextRunStyle(0, 1, Brushes.Red)];
@@ -70,10 +71,11 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
+    /// <summary>旧値と新値を模した二つの色区間が実際の文字描画へ現れることを確認し、配置生成で部分色を無視する誤りを検出します。</summary>
     [TestMethod]
     public void GetOrCreate_AppliesTextRunForegrounds()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             var cache = new CustomTableTextLayoutCache();
             FormattedText text = Create(
@@ -97,10 +99,11 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
+    /// <summary>容量二件の配置キャッシュへ三種類を入れると再参照済みでも最古の挿入を退役して二件を保つことを確認し、容量超過や保持順の誤りを検出します。</summary>
     [TestMethod]
     public void GetOrCreate_EvictsOldestEntryWhenCapacityIsExceeded()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             var cache = new CustomTableTextLayoutCache(maxEntryCount: 2);
             Create(cache, out _, text: "A");
@@ -115,6 +118,7 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
+    /// <summary>描画要求なしは未知率、ヒットと失敗が一件ずつなら半分とすることを確認し、未測定を成功率として記録する誤りを検出します。</summary>
     [TestMethod]
     public void CalculateHitRate_ReturnsMinusOneWhenNoTextWasDrawn()
     {
@@ -122,10 +126,11 @@ public sealed class CustomTableTextLayoutCacheTests
         Assert.AreEqual(0.5d, CustomTableTextLayoutCache.CalculateHitRate(1, 1));
     }
 
+    /// <summary>十分な幅の短文は省略不要、狭い幅の長文は省略必要と判定することを確認し、全文tooltipを出すための実書体計測の誤りを検出します。</summary>
     [TestMethod]
     public void WouldTrim_DetectsTextThatExceedsAvailableWidth()
     {
-        RunOnSta(delegate
+        TestUiDispatcherHost.Invoke(delegate
         {
             Assert.IsFalse(CustomTableTextLayoutCache.WouldTrim(
                 "Short",
@@ -218,26 +223,4 @@ public sealed class CustomTableTextLayoutCacheTests
         }
     }
 
-    private static void RunOnSta(Action action)
-    {
-        Exception exception = null!;
-        var thread = new Thread((ThreadStart)delegate
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exception = ex;
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (exception != null)
-        {
-            ExceptionDispatchInfo.Capture(exception).Throw();
-        }
-    }
 }

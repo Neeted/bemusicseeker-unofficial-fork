@@ -9,6 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FractionTests
 {
+    /// <summary>
+    /// 保証：零・負の分母・約分値を同じ正規形とハッシュで扱い、零除算を拒否して比較や集合の同値性を壊さない。
+    /// </summary>
     [TestMethod]
     public void DefaultZeroSignsAndHashesUseNormalizedValues()
     {
@@ -24,6 +27,9 @@ public sealed class FractionTests
         Assert.ThrowsException<DivideByZeroException>(() => new Fraction(1) / zero);
     }
 
+    /// <summary>
+    /// 保証：Int64最小値と負数を任意精度で保持し、整数変換は商だけを範囲判定して途中計算の桁あふれや丸め方向の誤りを防ぐ。
+    /// </summary>
     [TestMethod]
     public void LongMinimumAndTruncationPreserveValuesAndCheckOnlyTheQuotient()
     {
@@ -35,6 +41,9 @@ public sealed class FractionTests
         Assert.ThrowsException<OverflowException>(() => new Fraction((BigInteger)long.MaxValue + 1, 1).ToInt64());
     }
 
+    /// <summary>
+    /// 保証：128ビットを超える有理数の四則演算と比較が独立した代数上の値に一致し、固定幅の途中計算による桁あふれを検出する。
+    /// </summary>
     [TestMethod]
     public void ArithmeticBeyond128BitsMatchesIndependentAlgebra()
     {
@@ -49,6 +58,9 @@ public sealed class FractionTests
         Assert.IsFalse(x == y);
     }
 
+    /// <summary>
+    /// 保証：decimalの小数桁を正確に保持し、巨大な分子・分母の比を有限doubleへ変換して途中の無限大化を防ぐ。
+    /// </summary>
     [TestMethod]
     public void DecimalScaleIsExactAndHugeRatiosRemainFiniteAsDouble()
     {

@@ -15,6 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
     /// <summary>全所持folderと単体の元を実owner・storeで削除し、混在・未所持の保留元とinstall行、所持コピー、単体の無関係な兄弟ファイルを保ちます。</summary>
+    /// <remarks>実解析結果から対象を分類し、本番storeを介した物理変更・SQLite・公開集合への反映を観測する。衝突先や対象外のbytesは実FSで保全を確認する。</remarks>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources()
     {
@@ -75,6 +76,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
     }
 
     /// <summary>実0note BMS/PMSだけをowner・store経由で無効化し、異内容ファイル・directoryとの衝突先を保ちます。非0note・BMSON・既無効のbytesと保留・install行は維持します。</summary>
+    /// <remarks>実解析結果から対象を分類し、本番storeを介した物理変更・SQLite・公開集合への反映を観測する。衝突先や対象外のbytesは実FSで保全を確認する。</remarks>
     [TestMethod]
     public async Task RenamePendingZeroNoteChartsAsync_RealStoreInvalidatesOnlyZeroNoteBmsAndPms()
     {

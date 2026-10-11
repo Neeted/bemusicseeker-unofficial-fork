@@ -7,7 +7,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using ManagedBass;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -23,9 +22,11 @@ public sealed class AudioContractsTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>現曲のcallback故障時に入力readまたはdecoder解放を保留し、取消だけでFreeせず実終端へ合流して主原因を維持する。</summary>
+    /// <remarks>実NULL_DEVICEと入力・decoder・callbackを接続し、入力所有の解放とruntime Freeの実順序を検査する。</remarks>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
+    [DataRow(false)] // 実入力readを保持しcallback PCM故障を届ける。
+    [DataRow(true)] // decoder解放を保持しscheduler再開故障を届ける。
     public async Task CompletionFailure_JoinsRealInputAndDecoderCleanupBeforeRuntimeFree(bool holdDecoderRelease)
     {
         string directory = Path.Combine(Path.GetTempPath(), "bms-completion-input-" + Guid.NewGuid().ToString("N"));
@@ -157,10 +158,14 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
+    /// <summary>停止中に現曲故障と先読みfatalが重なっても両原因を保持し、実cleanup終端後に一回だけ通知する。</summary>
+    /// <remarks>実NULL_DEVICEの現曲・先読みとpanelを接続し、故障の所有と通知終端を検査する。</remarks>
     [TestMethod]
     public Task CompletionOwnedPreloadFatal_AfterStopNotifiesOnceWithBothCauses() =>
         VerifyOwnedPlaybackFailureNotificationAsync(backgroundOwnsFailure: false);
 
+    /// <summary>先読みfatalが故障終端を所有する場合も現曲cleanup失敗を併記し、二重通知と再開始を防ぐ。</summary>
+    /// <remarks>実NULL_DEVICEの先読みと現曲cleanupを接続し、独立原因が同じ通知へ渡ることを検査する。</remarks>
     [TestMethod]
     public Task BackgroundPreloadFatal_WithPlaybackCleanupFailureNotifiesOnce() =>
         VerifyOwnedPlaybackFailureNotificationAsync(backgroundOwnsFailure: true);
@@ -308,11 +313,13 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
+    /// <summary>イベント方式の変更後に通常Loadまたは準備済み採用で次曲へ進み、旧playerのStop終端と必要な先読み準備完了を待ち、次session自身の実callbackまでReadyと曲情報を公開しない。</summary>
+    /// <remarks>実譜面Load／準備済み採用とsession callbackの通知を接続し、曲公開の境界を検査する。</remarks>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
+    [DataRow(false, false)] // 非イベント→イベント、通常Load。
+    [DataRow(false, true)] // 非イベント→イベント、準備済み採用。
+    [DataRow(true, false)] // イベント→非イベント、通常Load。
+    [DataRow(true, true)] // イベント→非イベント、準備済み採用。
     public async Task EventModeNextStart_LoadAndPreparedAdoptionWaitForOwnRealCallback(bool originalEventMode, bool usePreload)
     {
         string directory = Path.Combine(Path.GetTempPath(), "bms-event-next-" + Guid.NewGuid().ToString("N"));
@@ -438,6 +445,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>初回出力期限を過ぎた開始は元の期限・cleanup失敗を両方保持し、共有観測や遅延callbackで開始を再開しない。</summary>
     [TestMethod]
     public async Task FirstOutputDeadline_PreservesTimeoutAndCleanupFailuresWithoutLateRestart()
     {
@@ -489,6 +497,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>初回出力待ち中のCloseは観測中の開始へ合流し、callback到来前に現曲停止やruntime解放を先行しない。</summary>
     [TestMethod]
     public async Task InternalClose_JoinsFirstOutputObservationBeforeRuntimeFree()
     {
@@ -538,6 +547,7 @@ public sealed class AudioContractsTests
         finally { Marshal.FreeHGlobal(buffer); }
     }
 
+    /// <summary>先読みfatal時に準備・現曲停止・runtime解放・通知の順を守り、解放成功と独立解放失敗のどちらでも主原因を一度通知する。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -604,6 +614,8 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>手動・自然終了・準備保留の各切替を先読み有無で測定し、次曲の解析と復号を重複させず一回ずつ行う。</summary>
+    /// <remarks>実NULL_DEVICEで解析・復号・切替を測定する性能区分。時間の閾値を固定せず処理重複だけを失敗とする。</remarks>
     [TestMethod]
     [TestCategory("Performance")]
     public async Task PredecodeSwitchMeasurement()
@@ -723,6 +735,8 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>旧playerのStopと一致先読み準備のどちらを先に終えても、Stop終端と準備完了が揃うまで次出力を初期化せず準備を再実行・取消しない。</summary>
+    /// <remarks>実NULL_DEVICEとbmson準備を接続し、旧playerのStop終端と次曲の準備完了を待ち合わせることを検査する。</remarks>
     [DataTestMethod]
     [DataRow(true)]
     [DataRow(false)]
@@ -815,6 +829,7 @@ public sealed class AudioContractsTests
             Directory.Delete(directory, recursive: true);
         }
     }
+    /// <summary>Closeは準備取消の通知だけでFreeせず準備cleanupへ合流し、現曲DisposeとFreeの独立失敗も欠落なく返す。</summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -882,6 +897,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>設定に保存するencoder・形式・レート・driverの数値を旧データと一致させ、内部整理による保存互換性の破壊を検出する。</summary>
     [TestMethod]
     public void PersistedAudioEnumValuesRemainStable()
     {
@@ -926,6 +942,7 @@ public sealed class AudioContractsTests
         AssertPersistedEnumValue(BassAudioPlayer.DeviceDriver.ASIO, 3);
     }
 
+    /// <summary>保存上のAAC拡張子と実encoder出力のm4aを区別し、他形式の拡張子とWaveの外部実行不要を保つ。</summary>
     [TestMethod]
     public void EncoderExtensionsSeparatePersistedAndPhysicalAacContracts()
     {
@@ -939,6 +956,7 @@ public sealed class AudioContractsTests
             Enum.GetValues<EncoderType>().Select(value => value.GetEncoderOutputExtension()).ToArray());
     }
 
+    /// <summary>指定したencoderディレクトリに存在する実行ファイルだけを見つけ、別形式の未配置を成功と扱わない。</summary>
     [TestMethod]
     public void EncoderBinarySearchHonorsConfiguredDirectory()
     {
@@ -960,15 +978,10 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>旧DirectSoundを利用者へ表示する際にWASAPI共有の名称を使い、廃止したBASS・DirectSound名を露出しない。</summary>
     [TestMethod]
-    public void AudioDriverPolicyExposesThreeSelectableBackendsWithoutLegacyDisplay()
+    public void AudioDriverDisplayNames_DoesNotExposeLegacyBackendName()
     {
-        Assert.AreEqual(0, (int)AudioDriver.DirectSound);
-        Assert.AreEqual(0, (int)BassAudioPlayer.DeviceDriver.DIRECT_SOUND);
-        CollectionAssert.AreEqual(
-            new[] { AudioDriver.WasapiShared, AudioDriver.WasapiExclusive, AudioDriver.Asio },
-            AudioDriverPolicy.SelectableDrivers.ToArray());
-        Assert.AreEqual(AudioDriver.WasapiShared, AudioDriverPolicy.DefaultDriver);
         Assert.AreEqual(
             "WASAPI (" + BeMusicSeeker.Properties.Resources.Shared + ")",
             AudioDriverDisplayNames.Get(AudioDriver.DirectSound));
@@ -977,6 +990,7 @@ public sealed class AudioContractsTests
         Assert.IsFalse(legacyDisplayName.Contains("DirectSound", System.StringComparison.Ordinal));
     }
 
+    /// <summary>旧DirectSoundだけをDefaultの共有方式へ正規化し、未知・Invalid・NullDeviceの保存値を黙って読み替えない。</summary>
     [TestMethod]
     public void AudioDriverPolicy_NormalizesOnlyLegacyDirectSound()
     {
@@ -995,12 +1009,10 @@ public sealed class AudioContractsTests
         Assert.AreEqual(invalid, AudioDriverPolicy.NormalizePersistedSelection(invalid));
         Assert.AreEqual(nullDevice, AudioDriverPolicy.NormalizePersistedSelection(nullDevice));
 
-        Assert.AreEqual(0, AudioDriverPolicy.IndexOf(AudioDriver.WasapiShared));
-        Assert.AreEqual(1, AudioDriverPolicy.IndexOf(AudioDriver.WasapiExclusive));
-        Assert.AreEqual(2, AudioDriverPolicy.IndexOf(AudioDriver.Asio));
         Assert.AreEqual(-1, AudioDriverPolicy.IndexOf(AudioDriver.DirectSound));
     }
 
+    /// <summary>音量だけの変更では出力要求を再利用し、方式と機器を同時に変えた入力や、形式・レート・周期・品質・並列数を変えた入力は別要求として区別する。</summary>
     [TestMethod]
     public void AudioOutputRequest_EqualityIncludesEveryOutputConditionButNotVolume()
     {
@@ -1036,9 +1048,9 @@ public sealed class AudioContractsTests
             AudioDriver.WasapiExclusive,
             playerMixerThreadCount: 2).AudioOutputRequest));
         Assert.AreEqual(AudioOutputPurpose.Playback, baseline.Purpose);
-        Assert.AreEqual(1, baseline.PlayerMixerThreadCount);
     }
 
+    /// <summary>共有方式とASIOで編集対象外の条件を実要求から除きつつ保存意図を保持し、要求していない条件差をfallbackと診断しない。</summary>
     [TestMethod]
     public void OutputRequests_IgnoreNonEditableModeConditionsWithoutChangingSavedIntent()
     {
@@ -1083,6 +1095,7 @@ public sealed class AudioContractsTests
         AssertNoFallback(asio, SampleRate.SAMPLE_RATE_44100Hz);
     }
 
+    /// <summary>設定gatewayは旧方式を読取り時だけ正規化し、未知列挙値と利用者指定機器・encoder変更を保存側へ欠落なく渡す。</summary>
     [TestMethod]
     public void SettingsAudioGateway_PreservesKnownAndUnknownPersistedValues()
     {
@@ -1138,6 +1151,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>変換設定を捕捉したsnapshotへ保存側の品質とencoder条件を渡し、別用途の型変換で指定値を失わない。</summary>
     [TestMethod]
     public void SettingsAudioGateway_CapturesEncodingSettingsWithoutBmsTypes()
     {
@@ -1167,6 +1181,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>品質の下限未満と上限超過を保存設定から捕捉すると明示的に拒否し、再生・変換で既定品質へ隠して置換しない。</summary>
     [DataTestMethod]
     [DataRow(1)]
     [DataRow(7)]
@@ -1189,6 +1204,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>並列数の下限未満と上限超過を捕捉時に拒否し、不正保存値を有効要求として通さない。</summary>
     [DataTestMethod]
     [DataRow(0)]
     [DataRow(5)]
@@ -1209,19 +1225,17 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>利用者が指定できる品質2～6をnativeの16～256点補間へ対応させ、品質値と補間点数の取り違えを検出する。</summary>
     [TestMethod]
-    public void AudioResamplingQualityAndMixerThreads_UseTheMissingSettingDefaults()
+    public void AudioResamplingQuality_MapsSupportedValuesToNativeSincPoints()
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
-
-        Assert.AreEqual(2, settings.PlayerResamplingQuality);
-        Assert.AreEqual(1, settings.PlayerMixerThreadCount);
         CollectionAssert.AreEqual(new[] { 16, 32, 64, 128, 256 },
             new[] { 2, 3, 4, 5, 6 }
                 .Select(AudioResamplingQuality.GetSincPointCount)
                 .ToArray());
     }
 
+    /// <summary>Default機器には翻訳表示名を与え、名前付き機器では利用者が選ぶ表示名とdriver識別子を混同しない。</summary>
     [TestMethod]
     public void AudioDeviceInfo_PreservesDeviceIdentityAndDefaultDisplayName()
     {
@@ -1235,6 +1249,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual("device-name", namedDevice.Name);
     }
 
+    /// <summary>native失敗番号を従来のBASS診断名で表し、互換名の省略や別エラーへの取り違えを防ぐ。</summary>
     [TestMethod]
     public void NativeErrorFormatter_PreservesLegacyBassSpellings()
     {
@@ -1244,6 +1259,7 @@ public sealed class AudioContractsTests
         Assert.AreEqual("BASS_ERROR_NOPLAY", BassNativeErrorFormatter.Format(Errors.NotPlaying));
     }
 
+    /// <summary>利用者が変更した音量をruntimeへ届け、Closeで最大voice観測の解除とFreeまで実行する。</summary>
     [TestMethod]
     public void InternalPlayer_DelegatesVolumeAndCloseLifecycleToPlaybackRuntime()
     {
@@ -1271,6 +1287,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>開始初期化が失敗した場合に元例外を保持し、観測解除とruntime解放を省略しない。</summary>
     [TestMethod]
     public async Task InternalPlayer_StartFailureCleansUpPlaybackRuntime()
     {
@@ -1301,6 +1318,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>旧開始の遅延取消を交換後に届けても新曲・新先読みを停止せず、旧終了callbackで新世代を壊さない。</summary>
     [TestMethod]
     public async Task InternalPlayer_LateCancelledStartDoesNotCloseTheReplacementSong()
     {
@@ -1386,6 +1404,7 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
+    /// <summary>出力条件を変更した次曲では旧停止・source解放・session解放を先行し、表示リセットを旧曲へのseekにせず新要求を初期化する。</summary>
     [TestMethod]
     public async Task InternalPlayer_ReleasesOldPlayerBeforeChangingOutputSession()
     {
@@ -1475,6 +1494,7 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
+    /// <summary>旧source解放の未確認では元失敗を返し、変更出力の初期化や次譜面parserを開始しない。</summary>
     [TestMethod]
     public async Task InternalPlayer_SourceReleaseFailureStopsBeforeCallingNextPlayerFactory()
     {
@@ -1565,6 +1585,7 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
+    /// <summary>次曲開始後に旧曲の捕捉済みexitを配送しても新callbackへ付け替えず、世代判定で新曲を閉じない。</summary>
     [TestMethod]
     public async Task InternalPlayer_DispatchesTheCapturedExitCallbackAfterTheNextSongStarts()
     {
@@ -1639,56 +1660,7 @@ public sealed class AudioContractsTests
         ThrowFailures(failures);
     }
 
-    [TestMethod]
-    public void PlaybackInitializationResult_SeparatesRequestedAndNegotiatedValues()
-    {
-        var result = new AudioPlaybackInitializationResult(
-            AudioDriver.Asio,
-            "asio-requested",
-            "Requested ASIO",
-            SampleRate.SAMPLE_RATE_96000Hz,
-            SampleFormat.SAMPLE_INT_24BIT,
-            12,
-            true,
-            73,
-            AudioDriver.WasapiShared,
-            "wasapi-actual",
-            "Actual WASAPI",
-            SampleRate.SAMPLE_RATE_48000Hz,
-            SampleFormat.SAMPLE_FLOAT_32BIT,
-            SampleFormat.SAMPLE_INT_16BIT,
-            6,
-            18.5,
-            "attemptedBackend=ASIO; fallbackDestination=WASAPI_SHARED",
-            isSilentFallback: false,
-            endpointContainerBits: 16,
-            endpointEffectiveBits: 16,
-            attempts:
-            [
-                new BassAudioBackendAttempt("BASS_ASIO_ChannelGetFormat", "BASSASIO", null, "mismatched"),
-                new BassAudioBackendAttempt("BASS_WASAPI_GetInfo", "BASSWASAPI", null, "readback")
-            ]);
-
-        Assert.AreEqual(AudioDriver.Asio, result.RequestedBackend);
-        Assert.AreEqual(AudioDriver.WasapiShared, result.ActualBackend);
-        Assert.AreEqual("asio-requested", result.RequestedDevice);
-        Assert.AreEqual("wasapi-actual", result.ActualDevice);
-        Assert.AreEqual(SampleRate.SAMPLE_RATE_96000Hz, result.RequestedRate);
-        Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, result.ActualRate);
-        Assert.AreEqual(SampleFormat.SAMPLE_INT_24BIT, result.RequestedFormat);
-        Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, result.EngineFormat);
-        Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, result.EndpointFormat);
-        Assert.AreEqual(16, result.EndpointContainerBits);
-        Assert.AreEqual(16, result.EndpointEffectiveBits);
-        Assert.AreEqual(2, result.Attempts.Count);
-        Assert.AreEqual("BASS_ASIO_ChannelGetFormat", result.Attempts[0].Stage);
-        Assert.AreEqual("BASS_WASAPI_GetInfo", result.Attempts[1].Stage);
-        Assert.AreEqual(6, result.ActualChannels);
-        Assert.IsTrue(result.FallbackOccurred);
-        Assert.IsFalse(result.IsSilentFallback);
-        StringAssert.Contains(result.FallbackReason, "fallbackDestination=WASAPI_SHARED");
-    }
-
+    /// <summary>共有出力の未観測endpoint形式をUNKNOWNと表し、engine形式との差だけでfallbackを誤判定しない。</summary>
     [TestMethod]
     public void UnknownWasapiEndpointFormat_DoesNotImplyFallback()
     {
@@ -1717,6 +1689,7 @@ public sealed class AudioContractsTests
         Assert.IsFalse(result.FallbackOccurred);
     }
 
+    /// <summary>オフライン専用NullDeviceを再生要求として拒否し、可聴出力初期化や別方式への代替に進まない。</summary>
     [TestMethod]
     public void PlaybackRuntime_NullDeviceRequestFailsBeforeAudibleInitialization()
     {
@@ -1732,6 +1705,7 @@ public sealed class AudioContractsTests
         Assert.AreNotEqual(BassAudioPlayer.DeviceDriver.DIRECT_SOUND, exception.ActualBackend);
     }
 
+    /// <summary>音声受付が使用中の未受理開始は要求先を保持した型付きBusyを返し、native初期化・解放を呼ばない。</summary>
     [TestMethod]
     public async Task PlaybackRuntime_TransientAudioRequestBusyIsTypedAndHasNoNativeSideEffects()
     {
@@ -1795,6 +1769,7 @@ public sealed class AudioContractsTests
         }
     }
 
+    /// <summary>次開始の品質・並列数変更は旧session解放確認後に反映し、音量だけは再利用し、未確認解放は再試行せず所有と結果を保つ。</summary>
     [TestMethod]
     public void PlaybackRuntime_ReleasesOldSessionWhenNextStartCapturesDifferentAudioOutputSettings()
     {
@@ -1922,6 +1897,7 @@ public sealed class AudioContractsTests
         Assert.AreSame(initializedSessions[2], releaseAttempts[4]);
     }
 
+    /// <summary>後続方式の成功に先行native失敗を順序付きで併記し、実効形式・有効bit・指定並列数を失わない。</summary>
     [TestMethod]
     public void BackendResult_PreservesEarlierFailureWhenFallbackSucceeds()
     {

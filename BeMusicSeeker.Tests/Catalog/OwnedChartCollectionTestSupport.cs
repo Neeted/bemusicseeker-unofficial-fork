@@ -175,38 +175,22 @@ internal static class OwnedChartCollectionTestSupport
         return library.TryGetCurrentResourceHealthIndexSnapshotForView() == ResourceHealthIndexSnapshot.Empty;
     }
 
-    internal static string ResolveExistingDataFixtureDirectory()
-    {
-        foreach (string startPath in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
-        {
-            DirectoryInfo? current = new(startPath);
-            for (int depth = 0; current != null && depth < 10; depth++, current = current.Parent)
-            {
-                string fixtureDirectory = Path.Combine(current.FullName, "devdocs", "acceptance", "net10-existing-data");
-                if (File.Exists(Path.Combine(fixtureDirectory, "fixture.bms")))
-                {
-                    return fixtureDirectory;
-                }
-            }
-        }
-
-        throw new InvalidOperationException("The tracked net10-existing-data fixture directory could not be located.");
-    }
-
     internal static void WithTemporarySongDb(Action<string> testAction)
     {
         string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_OwnedChartCollection_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
-        File.WriteAllBytes(songDbPath, []);
         try
         {
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                });
             }
             testAction(songDbPath);
         }
@@ -229,10 +213,13 @@ internal static class OwnedChartCollectionTestSupport
         {
             using (var songDb = new LR2SongDBExtended(songDbPath))
             {
-                songDb.CreateTable<LR2SongDB.song>();
-                songDb.CreateTable<LR2SongDB.folder>();
-                songDb.CreateTable<LR2SongDBExtended.maintenance>();
-                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                });
             }
             await testAction(songDbPath).ConfigureAwait(false);
         }
@@ -267,11 +254,11 @@ internal static class OwnedChartCollectionTestSupport
     internal sealed class TestFileMutationService : IFileMutationService
     {
         internal Action<string>? BeforeDirectoryDelete { get; set; }
-        /// <summary>Injects a local file-delete failure before modifying the test file.</summary>
+        /// <summary>検査対象のファイルを変更する前に局所的な削除失敗を注入する。</summary>
         internal Action<string>? BeforeFileDelete { get; set; }
-        /// <summary>Attempted directory operations, including calls that subsequently fail.</summary>
+        /// <summary>失敗した呼出しを含め、要求されたディレクトリ削除を記録する。</summary>
         internal List<string> DirectoryDeletePaths { get; } = [];
-        /// <summary>Requested recycle policies, without accessing the machine's recycle bin.</summary>
+        /// <summary>実際のごみ箱へ接続せず要求された削除方針を記録する。</summary>
         internal List<RecycleOption> DirectoryRecycleOptions { get; } = [];
         /// <summary>実行されたファイル移転要求の件数です。</summary>
         internal int FileMoveCalls { get; private set; }

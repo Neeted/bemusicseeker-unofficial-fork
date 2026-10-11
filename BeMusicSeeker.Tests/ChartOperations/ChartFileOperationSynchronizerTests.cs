@@ -9,6 +9,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartFileOperationSynchronizerTests
 {
+    /// <summary>
+    /// 保証：活動中の新規受付を待たずに拒否し、旧権限の重複解放では後から受理した現行権限を解放しない。
+    /// </summary>
     [TestMethod]
     public void TryEnter_IsFailFastNonReentrantAndLeaseIsIdempotent()
     {
@@ -23,7 +26,7 @@ public sealed class ChartFileOperationSynchronizerTests
         Assert.IsTrue(synchronizer.TryEnter(out IDisposable second));
         try
         {
-            // A stale, repeated release must not clear the current lease.
+            // 古い権限の重複解放で現行の受付を解除しません。
             first.Dispose();
             Assert.IsFalse(synchronizer.TryEnter(out _));
         }
@@ -36,6 +39,9 @@ public sealed class ChartFileOperationSynchronizerTests
         finalLease.Dispose();
     }
 
+    /// <summary>
+    /// Taskで取得した権限を解放でき、保持中は拒否して解放後は次のファイル操作を受理する。
+    /// </summary>
     [TestMethod]
     public async Task TryEnter_LeaseCanBeDisposedByAnotherThread()
     {
@@ -52,6 +58,9 @@ public sealed class ChartFileOperationSynchronizerTests
         Assert.IsTrue(synchronizer.TryEnter(out IDisposable nextLease));
         nextLease.Dispose();
     }
+    /// <summary>
+    /// 保証：null・別所有者・解放済み権限の借用を拒否し、有効な内側借用を解放しても元の受付を保持する。
+    /// </summary>
     [TestMethod]
     public void MutationCapability_RejectsNullForeignAndReleasedAuthorityAndBorrowDoesNotReleaseOwner()
     {
@@ -74,6 +83,9 @@ public sealed class ChartFileOperationSynchronizerTests
         finally { next.Dispose(); }
     }
 
+    /// <summary>
+    /// 保証：idle・活動中の両方で閉鎖後の新規要求を拒否し、受理済み継続だけを順番に通して終端後も受付を再開しない。
+    /// </summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]

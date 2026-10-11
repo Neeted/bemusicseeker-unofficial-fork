@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +24,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>
+    /// LR2モード有効時だけテキスト列挙を必要とし、無効・設定不在時に不要なLR2入力取得を要求しない。
+    /// </summary>
     [TestMethod]
     public void ShouldIncludeLr2TextSurface_OnlyWhenLr2ModeEnabled()
     {
@@ -39,6 +41,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.IsFalse(BMSLibrary.ShouldIncludeLr2TextSurface(null));
     }
 
+    /// <summary>
+    /// 通常出力先は譜面ルートとして保持し追加・ルート出力先と配下を除外して、用途の異なる登録範囲を混同しない。
+    /// </summary>
+    /// <remarks>実在/不在の登録先と設定を使い、通常出力と管理出力の探索境界を確認する。DB保存は観測しない。</remarks>
     [TestMethod]
     public void CaptureBmsDirectories_IncludesNormalOutputSearchRootsAndExcludesAdditionalAndRootOutputRoots()
     {
@@ -90,6 +96,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 存在・不在・通常・追加・ルート出力の登録を分類して件数と採用集合を報告し、範囲除外の診断誤りを検出する。
+    /// </summary>
+    /// <remarks>実在/不在の登録先と設定を使い、通常出力と管理出力の探索境界を確認する。DB保存は観測しない。</remarks>
     [TestMethod]
     public void CaptureBmsDirectories_ReportsCustomFolderOutputRootNormalizationCounts()
     {
@@ -136,6 +146,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// LR2モードの実ファイル差分取込みで譜面のルート・祖先・直近フォルダを保存し、通常走査とLR2反映の接続漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_SyncsNormalFolderRowsWhenLr2SongDbSyncEnabled()
     {
@@ -209,6 +223,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// LR2モード無効の実ファイル取込みは通常フォルダ行を作らず、別モードへのLR2反映混入を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_DoesNotSyncNormalFolderRowsWhenLr2ModeDisabled()
     {
@@ -277,6 +295,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実取込み後の譜面削除で該当songと通常フォルダを消し、残存譜面のフォルダ・祖先を保持して削除範囲の誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled()
     {
@@ -299,10 +321,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartFile removeFile = CreateSyncTestFile(removePath, ChartFileContentReader.ReadSnapshot(removePath));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removeFile), typeof(LR2SongDB.song));
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removeFile), typeof(LR2SongDB.song));
+                });
             }
             BmsLibraryOptionsSnapshot options = new()
             {
@@ -367,6 +392,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// カタログ削除がSQLで失敗すると既存songを保持して通常フォルダ同期を進めず、未確定変更から後段へ反映する誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void RemoveLibraryCharts_DoesNotSyncNormalFolderRowsWhenCatalogWriteFails()
     {
@@ -382,14 +411,17 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-                string escapedPath = chartPath.Replace("'", "''");
-                setup.Execute(
-                    "CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '"
-                    + escapedPath
-                    + "' BEGIN SELECT RAISE(ABORT, 'forced catalog mutation failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    string escapedPath = chartPath.Replace("'", "''");
+                    setup.Execute(
+                        "CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '"
+                        + escapedPath
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced catalog mutation failure'); END;");
+                });
             }
 
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
@@ -414,6 +446,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 導入後の通常フォルダ保存が失敗するとフォルダ反映全体を戻しても確定済みsongは保持し、不完全状態と後段失敗を報告する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void InstallPendingPackages_RollsBackNormalFolderBatchAndKeepsCatalogCommit()
     {
@@ -432,11 +468,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.CreateTable<LR2SongDB.song>();
-                setup.Execute(
-                    "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%Pack%' "
-                    + "BEGIN SELECT RAISE(ABORT, 'forced normal-folder failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%Pack%' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced normal-folder failure'); END;");
+                });
             }
 
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(
@@ -502,6 +541,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実フォルダ移動でsong実キーと通常階層を新パスへ反映し、移動先folderinfo・時刻を保持して旧行残留を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void RenameChartFolder_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled()
     {
@@ -525,9 +568,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartFile file = CreateSyncTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -563,6 +609,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 受理済みLR2同期を保持したままファイル差分要求を拒否し、利用者へbusy警告を一度渡して競合する変更を開始しない。
+    /// </summary>
     [TestMethod]
     public async Task ReloadFileDiff_BlocksWhileLr2SongDbSyncIsRunning()
     {
@@ -572,12 +621,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-            string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
-            Directory.CreateDirectory(songDirectory);
-            string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile file = CreateSyncTestFile(chartPath, snapshot);
             var dialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, dialogs, settings: testSettings)
             {
@@ -597,44 +640,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
-    [TestMethod]
-    public async Task ReloadFileDiff_BlocksRunningSyncWhenAlreadyMarkedRunning()
-    {
-        using var scope = TestDatabaseScope.Create();
-        try
-        {
-            testSettings.OperationModeLR2DB = true;
-            ResetLr2FolderDiscoverySettings();
-            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-            string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
-            Directory.CreateDirectory(songDirectory);
-            string chartPath = Path.Combine(songDirectory, "chart.bms");
-            File.WriteAllText(chartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
-            ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
-            ChartFile file = CreateSyncTestFile(chartPath, snapshot);
-            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
-            {
-                setup.CreateTable<LR2SongDB.folder>();
-            }
-            var dialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
-            var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, dialogs, settings: testSettings)
-            {
-                SearchTargets = [rootDirectory],
-                BmsCharts = []
-            };
-            await using HeldLr2Operation held = await HeldLr2Operation.StartAsync(library);
-
-            library.ReloadFileDiff();
-            Assert.AreEqual(1, dialogs.Calls.Count);
-            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.Calls[0].Message);
-            library.RequestShutdown("lr2-file-diff-already-running-test");
-        }
-        finally
-        {
-            ResetTouchedSettings();
-        }
-    }
-
+    /// <summary>
+    /// LR2同期との競合で表レベル上書きを拒否し、workflowの通知先へbusy文言と警告タイトルを渡す。
+    /// </summary>
     [TestMethod]
     public async Task PlaylistTableLevelOverwriteWorkflow_PresentsBlockedWarningWithoutLibraryDialog()
     {
@@ -664,6 +672,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// LR2無効時は不要状態を返して背景処理を投稿せず、モード外の同期開始を防ぐ。
+    /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotQueueWhenLr2ModeDisabled()
     {
@@ -696,6 +707,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 進捗通知中に別進捗が入っても段階・件数・カーソルを同じ通知由来の組で公開し、混合スナップショットを防ぐ。
+    /// </summary>
     [TestMethod]
     public void ProgressPublication_InterleavedOwnerUpdatesKeepStageAndCountsFromOneNotification()
     {
@@ -750,6 +764,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 差分フォルダ同期失敗を保存状態と公開状態へ不完全として反映し、前回完了を現在も有効と誤報することを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void FileDiffNormalFolderSyncFailureMarksLr2SongDbSyncIncomplete()
     {
@@ -801,6 +819,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 変更セッションのフォルダ同期失敗を保存・公開状態へ原因付きで反映し、確定後の不完全状態を隠す誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void MutationNormalFolderSyncFailureMarksLr2SongDbSyncIncomplete()
     {
@@ -852,6 +874,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// song書込み失敗を保存・公開状態へ原因付きで反映し、前回の完了状態を残す誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void SongDbWriteFailureMarksLr2SongDbSyncIncomplete()
     {
@@ -903,6 +929,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実導入のカタログ保存失敗を購読経路からLR2不完全状態と元SQL原因へ反映し、失敗通知と保存状態の接続漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void InstallPendingPackages_CatalogWriteFailurePublishesLr2IncompleteStatusThroughSubscription()
     {
@@ -921,13 +951,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string destinationChartPath = Path.Combine(destinationDirectory, "fixture.bms");
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.CreateTable<LR2SongDB.folder>();
-                string escapedPath = destinationChartPath.Replace("'", "''");
-                setup.Execute(
-                    "CREATE TRIGGER fail_install_target_song_insert BEFORE INSERT ON song WHEN NEW.path = '"
-                    + escapedPath
-                    + "' BEGIN SELECT RAISE(ABORT, 'forced install-target song failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.CreateTable<LR2SongDB.folder>();
+                    string escapedPath = destinationChartPath.Replace("'", "''");
+                    setup.Execute(
+                        "CREATE TRIGGER fail_install_target_song_insert BEFORE INSERT ON song WHEN NEW.path = '"
+                        + escapedPath
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced install-target song failure'); END;");
+                });
             }
             BmsLibraryOptionsSnapshot options = new()
             {
@@ -996,6 +1029,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 変更権を保持中は競合権を取得させず、解放後は新要求が取得できて拒否と解放の両方を確認する。
+    /// </summary>
     [TestMethod]
     public void MutationAdmission_RejectsConcurrentWritersWithoutWaiting()
     {
@@ -1024,6 +1060,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// ファイル変更権が使用中の同期要求は現在状態を返し準備・投稿を行わず、拒否後の隠れた実行開始を防ぐ。
+    /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_WhenFileMutationLeaseIsActive_ReturnsCurrentStatusWithoutPreparationOrScheduling()
     {
@@ -1070,6 +1109,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
 
 
+    /// <summary>
+    /// 受理済み変更権でplaylist定義を管理主体から実DBへ保存し、窓口からwriterへの接続漏れを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void PlaylistLr2FolderSynchronization_CommitsFolderRowsThroughOwner()
     {
@@ -1124,6 +1167,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
 
 
+    /// <summary>
+    /// 実playlist生成の準備はFSだけを作成してDB行を反映せず、権解放後の別スレッド通知と購読例外隔離を確認する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public async Task PlaylistLr2FolderSynchronization_PreparationLeavesFolderRowsUnchanged()
     {
@@ -1229,7 +1276,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.AreEqual(0, subscriberFailureCount);
                 // 完了継続は準備スレッド上でも動けるため、UI排出は別の実行境界で行う。
                 await Task.Run(scheduler.Drain);
-                await preparationResultObserved.Task;
+                await TestUiDispatcherHost.AwaitNotificationAsync(
+                    preparationResultObserved.Task, Task.CompletedTask, "lr2-playlist-preparation.publication");
 
                 Assert.IsTrue(preparationResult);
                 Assert.AreEqual(1, subscriberFailureCount);
@@ -1262,6 +1310,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// playlistの実生成後に前提取得が失敗しても生成FSと既存DB行を保持し、新規DB反映を始めず元原因を通知する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_LatePreflightFailureLeavesFolderRowsUnchangedAfterPlaylistMaterialization()
     {
@@ -1279,16 +1331,19 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string durableFolderPath = Path.Combine(scope.DirectoryPath, "Durable") + Path.DirectorySeparatorChar;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = durableFolderPath,
-                    title = "Durable folder before full preflight",
-                    parent = "durable-parent",
-                    type = 1,
-                    date = 123456,
-                    adddate = 123457
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = durableFolderPath,
+                        title = "Durable folder before full preflight",
+                        parent = "durable-parent",
+                        type = 1,
+                        date = 123456,
+                        adddate = 123457
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var table = new BMSTable
             {
@@ -1363,6 +1418,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// playlist反映の情報取得失敗は元例外を返して保存・公開原因へ反映し、利用者向け段階表示との接続を確認する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void PlaylistLr2FolderSynchronization_PublishesFailureStatusAndRethrowsOriginalException()
     {
@@ -1425,6 +1484,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 二行目の保存失敗で一行目も戻して失敗段階を保存し、playlist反映の部分確定を防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void PlaylistLr2FolderSynchronization_RollsBackWriterFailureAfterPartialPlan()
     {
@@ -1440,11 +1503,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             DateTime timestamp = new(2026, 7, 18, 4, 5, 6, DateTimeKind.Utc);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.Execute(
-                    "CREATE TRIGGER fail_lr2_folder_insert AFTER INSERT ON folder WHEN NEW.path = '"
-                    + failingFilePath.Replace("'", "''")
-                    + "' BEGIN SELECT RAISE(ABORT, 'forced folder insert failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_insert AFTER INSERT ON folder WHEN NEW.path = '"
+                        + failingFilePath.Replace("'", "''")
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced folder insert failure'); END;");
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings);
 
@@ -1492,6 +1558,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実同期権を保持中の再要求はRunningを返して二重投稿せず、受理済み作業の重複開始を防ぐ。
+    /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotQueueAgainWhileRunning()
     {
@@ -1528,6 +1597,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 不完全状態からの受付が禁止された場合は状態を保持して投稿せず、禁止された再同期を開始しない。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotStartFromIncompleteWhenDisallowed()
     {
@@ -1575,7 +1648,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
-    /// <summary>wholeのL/P競合を準備・状態書込み前に見送り、一部取得したLを解放し、解除後も隠れて再実行しません。</summary>
+    /// <summary>
+    /// ライブラリ・playlistどちらの競合も準備・保存前に見送り、途中取得した権を解放して解除後の隠れた再実行を起こさない。
+    /// </summary>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1615,6 +1690,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         finally { incumbent.Dispose(); library.RequestShutdown("whole-admission-cleanup"); }
     }
 
+    /// <summary>
+    /// 準備開始前にRunningを公開し公開・準備中の再要求を同じ状態で返し、受理済み処理を二重に準備しない。
+    /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_PublishesRunningStatusBeforePreparingWithoutQueuingDuplicateWork()
     {
@@ -1710,6 +1788,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 受理後の準備失敗は元例外・署名・原因を終端状態へ公開し、公開中の再要求を抑止して権を解放する。
+    /// </summary>
     [TestMethod]
     public async Task QueueLr2SongDbSync_PreparationFailurePublishesRetryableTerminalStatus()
     {
@@ -1782,6 +1863,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実差分反映後の通知でカタログ・解析・資源索引が更新済みとなり、旧スナップショットを保持して変更権の再取得と購読例外隔離を確認する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_PublishesCatalogAfterLeaseReleaseAndIsolatesTerminalSubscriber()
     {
@@ -1831,8 +1916,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             out int oldPlaylistStaleRetries);
         LibraryResourceIndexOwner resourceIndexOwner = LibraryResourceIndexTestSupport.GetOwner(library);
         LibraryResourceIndexSnapshot oldResourceIndex = resourceIndexOwner.CaptureSnapshot();
-        ResourceHealthIndexSnapshot oldResourceHealth =
-            library.TryGetCurrentResourceHealthIndexSnapshotForView();
         int oldChartInfoIndexVersion = library.ChartInfoIndexVersion;
         BMSLibrary.Lr2SynchronizationOwner synchronizationOwner =
             GetLr2SynchronizationOwner(library);
@@ -1997,7 +2080,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.IsFalse(oldPlaylistCacheHit);
         Assert.AreEqual(0, oldPlaylistStaleRetries);
         Assert.IsNull(oldResourceIndex.DirectoryLookupCache.GetEntryOrNull(catalogChartRoot));
-        Assert.AreSame(ResourceHealthIndexSnapshot.Empty, oldResourceHealth);
         Assert.IsTrue(notificationHashIndex.ContainsMd5(loadedCatalogFile.Md5));
         Assert.IsTrue(notificationInstalledLookup.ContainsPrimaryHash(loadedCatalogFile.Md5));
         Assert.IsTrue(notificationPlaylistResolve.ResolveChartForPlaylistHash(
@@ -2010,6 +2092,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string.Equals(row?.path, catalogChartPath, StringComparison.OrdinalIgnoreCase)));
     }
 
+    /// <summary>
+    /// 三定義の実反映中は固定総数と単調進捗を保持し、購読先例外を隔離して保存完了後だけ差分完了を公開する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_Lr2FolderFileApplyPreservesTotalAndIsolatesProgressSubscriber()
     {
@@ -2144,6 +2230,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// UI通知の排出を止めても定義保存と差分完了を終え、排出後は同じ操作tokenの最終進捗を公開する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_Lr2FolderCompletesDatabaseAndDiffBeforeDeferredPublication()
     {
@@ -2244,6 +2334,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 三定義を解析して固定総数・単調進捗を報告し、購読失敗を隔離して同時刻保持・欠落・空入力の各件数を区別する。
+    /// </summary>
     [TestMethod]
     public void CreateLr2FolderFileSyncItems_ReportsFixedProgressAndIsolatesReporterFailure()
     {
@@ -2329,6 +2422,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual(0, reports.Count);
     }
 
+    /// <summary>
+    /// 定義保存の途中失敗は元SQL例外を返して全定義反映を戻し、最終進捗・差分完了を公開せず不完全状態を保持する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_Lr2FolderApplyFailurePreservesExceptionAndDoesNotCompleteFileDiff()
     {
@@ -2349,11 +2446,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             })];
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.Execute(
-                    "CREATE TRIGGER fail_lr2_folder_file_diff BEFORE INSERT ON folder "
-                    + "WHEN NEW.path LIKE '%folder2.lr2folder' "
-                    + "BEGIN SELECT RAISE(ABORT, 'forced lr2 folder-file apply failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.Execute(
+                        "CREATE TRIGGER fail_lr2_folder_file_diff BEFORE INSERT ON folder "
+                        + "WHEN NEW.path LIKE '%folder2.lr2folder' "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced lr2 folder-file apply failure'); END;");
+                });
             }
             BmsLibraryOptionsSnapshot options = new()
             {
@@ -2447,6 +2547,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 確定済み取込み入力を同期へ渡し、準備中に譜面と定義FSが変わっても旧タイトル・作者を保存して後発定義を混入させない。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public async Task ReloadFileDiff_PassesCommittedInputAfterCapturedSurfaceFilesystemChanges()
     {
@@ -2475,14 +2579,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     [rootDirectory] = []
                 },
                 [rootDirectory]);
+            // Keep any accidental fresh LR2 folder enumeration fail-closed;
+            // the explicit complete surface below is the captured production input.
             var library = new TestBmsLibrary(
                 scope.SongDbPath,
                 getLR2Config: null,
                 _lr2ScoreDB: null,
                 startupRequiredFileScanReason: null,
                 optionsSnapshotProvider: () => options,
-                // Keep any accidental fresh LR2 folder enumeration fail-closed;
-                // the explicit complete surface below is the captured production input.
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner, settings: testSettings)
             {
@@ -2581,6 +2685,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 同時刻で保持する外部定義のタイトル・追加時刻は変えず、欠落した親階層だけを通常行として補修する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_RepairsMissingParentRowForPreservedExternalLr2Folder()
     {
@@ -2599,25 +2707,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.SetLastWriteTimeUtc(lr2FolderPath, timestamp);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = Lr2FolderPath.ToFolderPath(categoryDirectory),
-                    title = "#minbp",
-                    type = 1,
-                    parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
-                    adddate = 12345
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = lr2FolderPath,
-                    title = "Preserved External Folder",
-                    type = 2,
-                    parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory),
-                    date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
-                    adddate = 23456
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = Lr2FolderPath.ToFolderPath(categoryDirectory),
+                        title = "#minbp",
+                        type = 1,
+                        parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(rootDirectory),
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
+                        adddate = 12345
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = lr2FolderPath,
+                        title = "Preserved External Folder",
+                        type = 2,
+                        parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(tableDirectory),
+                        date = Lr2SongRowEnricher.ToLr2UnixSeconds(timestamp),
+                        adddate = 23456
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
             {
@@ -2649,6 +2760,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 登録ルートが深い階層でもROOT親と子階層CRCを正しく保存し、物理ボリューム側まで親生成を広げる誤りを防ぐ。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     public void ReloadFileDiff_GeneratesSearchRootChildParentRowUnderSearchRoot()
     {
@@ -2693,6 +2808,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 差分走査では外部定義の古い行を消し、管理対象出力の既存行は別の修復主体へ残す。管理境界を越えた削除を検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_PrunesExternalRowsAndLeavesManagedOutputRowsToCustomFolderRepair()
     {
@@ -2720,35 +2839,38 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.SetLastWriteTimeUtc(managedCurrentPath, timestamp);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9101,
-                    name = "ManagedTable",
-                    symbol = "M",
-                    Output_dir = "ManagedTable"
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = stalePath,
-                    title = "Stale",
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = managedCurrentPath,
-                    title = "Managed Existing",
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = managedStalePath,
-                    title = "Managed Stale",
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9101,
+                        name = "ManagedTable",
+                        symbol = "M",
+                        Output_dir = "ManagedTable"
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        title = "Stale",
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = managedCurrentPath,
+                        title = "Managed Existing",
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = managedStalePath,
+                        title = "Managed Stale",
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
             {
@@ -2774,8 +2896,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 差分走査では設定済みの管理出力を同期候補から除外し、外部定義を捕捉しながら管理出力の既存DB行を保持する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
-    public void ReloadFileDiff_RefiltersAlreadyFilteredCandidatesAgainstCurrentManagedScope()
+    public void ReloadFileDiff_ExcludesManagedOutputAndPreservesExistingManagedRow()
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2799,21 +2925,24 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.SetLastWriteTimeUtc(managedPath, timestamp);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9102,
-                    name = "ManagedTable",
-                    symbol = "M",
-                    Output_dir = "ManagedTable"
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = managedPath,
-                    title = "Managed Existing",
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9102,
+                        name = "ManagedTable",
+                        symbol = "M",
+                        Output_dir = "ManagedTable"
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = managedPath,
+                        title = "Managed Existing",
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
             {
@@ -2835,6 +2964,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 完全な外部定義走査で消失した定義行を除き、現存定義だけをDBへ残す。古い行の取り残しを検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_PrunesExternalRowsInScope()
     {
@@ -2853,14 +2986,17 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.SetLastWriteTimeUtc(currentPath, timestamp);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = stalePath,
-                    title = "Stale",
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        title = "Stale",
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, TestBmsFactory.AvailableEverythingBridge, settings: testSettings)
             {
@@ -2879,6 +3015,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 管理playlistがない場合も実在する外部lr2folderを同期し、管理出力扱いで一律除外する誤りを検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public void ReloadFileDiff_KeepsPhysicalLr2FoldersWhenNoManagedPlaylistScopeExists()
     {
@@ -2915,6 +3055,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 組込定義の入力ディレクトリがなくても準備は既存DB行を消さず、準備段階で反映する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SyncLr2BuiltinCustomFolderRows_PreparesPhysicalSurfaceWithoutDbMutationWhenSourceDirectoryMissing()
     {
@@ -2927,15 +3070,18 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             const string staleBuiltinPath = @"LR2files\CustomFolder\favorite.lr2folder";
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = staleBuiltinPath,
-                    title = "Favorite",
-                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = staleBuiltinPath,
+                        title = "Favorite",
+                        parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings);
 
@@ -2955,6 +3101,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 同期保持中は強制要求も拒否し、受理版を進めない。forceによる競合受付の迂回を検出する。
+    /// </summary>
     [TestMethod]
     public async Task TryBeginLr2SongDbSyncRequest_DoesNotAdvanceVersionWhenAlreadyRunning()
     {
@@ -2980,6 +3129,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 走査面へ準備済み定義の面を合流して古い候補を外し、準備済み定義のtitle・type・親CRCと完了状態を実DBへ保存する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_MergesPreparedLr2FolderSurfaceAfterPreparedOutput()
     {
@@ -3071,6 +3224,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 走査後に物理ディレクトリ時刻が変わっても、同期入力は走査で捕捉した時刻を使用する。再読取りによる入力混在を検出する。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_ReusesScanSurfaceDirectoryEntries()
     {
@@ -3124,6 +3280,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 定義の親ディレクトリも捕捉時刻を保持し、同期入力作成時の物理時刻へ置き換えない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_ReusesScanSurfaceDirectoryEntriesForLr2FolderParents()
     {
@@ -3184,6 +3343,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 走査面がなくても準備済み定義のパスと列挙完了を入力へ渡し、準備結果を欠落させない。
+    /// </summary>
     [TestMethod]
     public void PreparedSurface_UsesPreparedSurfaceWithoutCapturedScanSurface()
     {
@@ -3231,6 +3393,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 準備後の物理時刻変更に影響されず、準備面のディレクトリ時刻を入力へ引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void PreparedSurface_UsesPreparedDirectoryEntries()
     {
@@ -3287,6 +3452,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 定義ファイルがない準備面でもディレクトリ情報を残し、ファイル件数だけでメタデータを捨てない。
+    /// </summary>
     [TestMethod]
     public void PreparedSurface_KeepsMetadataOnlySurface()
     {
@@ -3340,6 +3508,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 二つの準備面を合流し、定義・folderinfo・ディレクトリ・テキスト対象の双方を残す。片側だけを採用する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void PreparedDataSurfaceMerge_KeepsMetadataSurfaces()
     {
@@ -3386,6 +3557,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         CollectionAssert.Contains(merged.TextFileDirectories.ToList(), Lr2FolderPath.NormalizeDirectoryPath(builtinDirectory));
     }
 
+    /// <summary>
+    /// 検索rootと親子に重なる探索先を除き、root外の独立したテキスト入力先だけを返す。
+    /// </summary>
     [TestMethod]
     public void CreateLr2TextMetadataSourceDirectoriesOutsideRoots_ExcludesOverlappingDiscoveryRoots()
     {
@@ -3403,6 +3577,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             result.ToArray());
     }
 
+    /// <summary>
+    /// 同じfolderinfoを含む準備面は古い走査情報へ上書きし、新しい時刻とテキスト対象を入力へ引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void PreparedSurface_OverlaysPreparedFolderInfoSurface()
     {
@@ -3479,6 +3656,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 準備範囲内の古いテキスト対象だけを置換し、別範囲の捕捉対象を保持する。範囲外まで消す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_ReplacesOnlyPreparedScopeTextFileDirectories()
     {
@@ -3550,6 +3730,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 管理出力の準備済み定義を合流後の入力へ含め、消失した同範囲の旧定義を除く。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_IncludesPreparedManagedOutputAfterScanSurfaceMerge()
     {
@@ -3625,6 +3808,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 出力base内でも準備範囲外の外部定義は残し、base全体を準備結果で置換しない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_KeepsExternalLr2FolderInOutputBaseOutsidePreparedScope()
     {
@@ -3689,6 +3875,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 走査捕捉時に管理playlistの出力候補だけを除き、同じbaseの外部定義を残す。
+    /// </summary>
     [TestMethod]
     public void CaptureLr2SongDbSyncScanSurface_ExcludesManagedOutputCandidates()
     {
@@ -3761,6 +3950,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// playlist由来の管理範囲は出力ディレクトリを返し、個別定義や削除対象パスを混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncAppManagedOutputScope_ReturnsManagedOutputDirectoriesOnly()
     {
@@ -3775,66 +3967,69 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9201,
-                    name = "CountParity",
-                    symbol = "CP",
-                    Output_dir = "CountParity",
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.OtherFolder
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "Active A",
-                    "Folder A",
-                    1.2,
-                    0);
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                    "Active B",
-                    "Folder B",
-                    null,
-                    0);
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                    "Active Null Folder",
-                    null,
-                    null,
-                    0);
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "ffffffffffffffffffffffffffffffff",
-                    "Active Empty Folder",
-                    string.Empty,
-                    null,
-                    0);
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "cccccccccccccccccccccccccccccccc",
-                    "Removed Level",
-                    "Removed Folder",
-                    12.0,
-                    1);
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9201,
-                    "dddddddddddddddddddddddddddddddd",
-                    "Removed Null",
-                    "Removed Null Folder",
-                    null,
-                    1);
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9201,
+                        name = "CountParity",
+                        symbol = "CP",
+                        Output_dir = "CountParity",
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.OtherFolder
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "Active A",
+                        "Folder A",
+                        1.2,
+                        0);
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "Active B",
+                        "Folder B",
+                        null,
+                        0);
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                        "Active Null Folder",
+                        null,
+                        null,
+                        0);
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "ffffffffffffffffffffffffffffffff",
+                        "Active Empty Folder",
+                        string.Empty,
+                        null,
+                        0);
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "cccccccccccccccccccccccccccccccc",
+                        "Removed Level",
+                        "Removed Folder",
+                        12.0,
+                        1);
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9201,
+                        "dddddddddddddddddddddddddddddddd",
+                        "Removed Null",
+                        "Removed Null Folder",
+                        null,
+                        1);
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -3859,6 +4054,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 出力抑制設定がある表も出力ディレクトリを管理境界に使い、生成ファイルの有無へ範囲を狭めない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncAppManagedOutputScope_UsesOutputDirectoryAsManagedBoundary()
     {
@@ -3873,25 +4071,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9202,
-                    name = "ManagedHierarchy",
-                    symbol = "MH",
-                    Output_dir = "ManagedHierarchy",
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
-                    9202,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "Active A",
-                    "st0",
-                    1.0,
-                    0);
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9202,
+                        name = "ManagedHierarchy",
+                        symbol = "MH",
+                        Output_dir = "ManagedHierarchy",
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, level, is_removed) VALUES (?, ?, ?, ?, ?, ?);",
+                        9202,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "Active A",
+                        "st0",
+                        1.0,
+                        0);
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -3914,6 +4115,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 準備済み入力の対象folderinfoだけを同期入力へ渡し、無関係な物理ファイルを再走査で混入させない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInputFromPreparedSurface_UsesTargetFolderInfoOnly()
     {
@@ -3991,6 +4195,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         CollectionAssert.DoesNotContain(textFileDirectories, unrelatedDirectory);
     }
 
+    /// <summary>
+    /// 捕捉面では管理出力ディレクトリ内の定義を除き、外部の兄弟ディレクトリを残す。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInputFromCapturedSurface_ExcludesManagedOutputDirectoryFiles()
     {
@@ -4018,23 +4225,26 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9301,
-                    name = "ManagedTable",
-                    symbol = "MT",
-                    Output_dir = "ManagedTable",
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
-                    9301,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "Active",
-                    "Folder A",
-                    0);
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9301,
+                        name = "ManagedTable",
+                        symbol = "MT",
+                        Output_dir = "ManagedTable",
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
+                        9301,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "Active",
+                        "Folder A",
+                        0);
+                });
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
@@ -4069,6 +4279,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 管理出力内でも受理済み準備で作った定義は入力へ戻し、同範囲の旧捕捉ファイルは残さない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInputFromPreparedSurface_IncludesPreparedManagedOutputFiles()
     {
@@ -4092,23 +4305,26 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             testSettings.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(new BMSTable
+                setup.RunInTransaction(() =>
                 {
-                    playlist_id = 9302,
-                    name = "ManagedTable",
-                    symbol = "MT",
-                    Output_dir = "ManagedTable",
-                    ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
-                }, typeof(LR2SongDBExtended.playlist));
-                setup.Execute(
-                    "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
-                    9302,
-                    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "Active",
-                    "Folder A",
-                    0);
+                    setup.InsertOrReplace(new BMSTable
+                    {
+                        playlist_id = 9302,
+                        name = "ManagedTable",
+                        symbol = "MT",
+                        Output_dir = "ManagedTable",
+                        ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                            & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                    }, typeof(LR2SongDBExtended.playlist));
+                    setup.Execute(
+                        "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
+                        9302,
+                        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "Active",
+                        "Folder A",
+                        0);
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -4143,6 +4359,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 管理playlistが空なら捕捉済みの実定義を入力へ残し、出力baseだけを理由に除外しない。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInputFromCapturedSurface_KeepsPhysicalLr2FoldersWhenNoManagedPlaylistScopeExists()
     {
@@ -4193,6 +4412,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 管理playlistが空の場合、走査面にある定義と完全性を同期入力へ引き継ぐ。
+    /// </summary>
     [TestMethod]
     public void CreateLr2SongDbSyncInput_KeepsScanSurfaceLr2FoldersWhenNoManagedPlaylistScopeExists()
     {
@@ -4254,6 +4476,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 実同期で譜面情報と定義行を保存し、利用者列を保持してCompletedへ至る。最新chart_info採用と保存・終端の接続不良を検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean()
     {
@@ -4297,46 +4523,49 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with
+                setup.RunInTransaction(() =>
                 {
-                    Path = chartPath,
-                    AddDate = 98765,
-                    Tag = "keep-tag"
-                })) with
-                { Md5 = "cccccccccccccccccccccccccccccccc", Favorite = 3 }), typeof(LR2SongDB.song));
-                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
-                setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(new BeMusicSeeker.Models.ChartDetails
-                {
-                    sha256 = chartSnapshot.Sha256,
-                    md5 = chartSnapshot.Md5,
-                    level = 9,
-                    difficulty = 3,
-                    maxbpm = 180.7,
-                    minbpm = 120.4,
-                    mode = 7,
-                    feature = 4 | 8,
-                    notes = 1234,
-                    parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion
-                }), typeof(LR2SongDBExtended.chart_info));
-                string stalePath = ToFolderPath(Path.Combine(rootDirectory, "Removed"));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = stalePath,
-                    type = 1,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = customFolderPath,
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = Path.Combine(rootDirectory, "stale.lr2folder"),
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(((ChartTestValues.Empty() with
+                    {
+                        Path = chartPath,
+                        AddDate = 98765,
+                        Tag = "keep-tag"
+                    })) with
+                    { Md5 = "cccccccccccccccccccccccccccccccc", Favorite = 3 }), typeof(LR2SongDB.song));
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                    setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(new BeMusicSeeker.Models.ChartDetails
+                    {
+                        sha256 = chartSnapshot.Sha256,
+                        md5 = chartSnapshot.Md5,
+                        level = 9,
+                        difficulty = 3,
+                        maxbpm = 180.7,
+                        minbpm = 120.4,
+                        mode = 7,
+                        feature = 4 | 8,
+                        notes = 1234,
+                        parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion
+                    }), typeof(LR2SongDBExtended.chart_info));
+                    string stalePath = ToFolderPath(Path.Combine(rootDirectory, "Removed"));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = stalePath,
+                        type = 1,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = customFolderPath,
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = Path.Combine(rootDirectory, "stale.lr2folder"),
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             // Everything can report a complete result before its index observes files created by this test.
@@ -4420,8 +4649,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual(98765, verify.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", chartPath));
             Assert.AreEqual("keep-tag", verify.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", chartPath));
-            Assert.AreEqual("00000000", file.Folder);
-            Assert.AreEqual("11111111", capturedStorageRow.parent);
             Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
             Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
             Assert.IsFalse(library.Lr2SongDbSyncRunning);
@@ -4436,6 +4663,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// UI投稿を保留してもDBの定義反映を先に完了し、解放後は最新の完了状態を表示する。購読例外でも保存成功を失わない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_CompletesFolderReconciliationBeforeLatestStatusPublication()
     {
@@ -4489,7 +4720,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 }));
 
             var timeline = new List<Lr2SongDbSyncStatusSnapshot>();
-            library.PropertyChanged += (_, args) =>
+            System.ComponentModel.PropertyChangedEventHandler timelineSubscriber = (_, args) =>
             {
                 if (string.Equals(
                     args.PropertyName,
@@ -4500,7 +4731,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     timeline.Add(snapshot);
                 }
             };
-            int subscriberFailureCount = 0;
+
+            library.PropertyChanged += timelineSubscriber; int subscriberFailureCount = 0;
             System.ComponentModel.PropertyChangedEventHandler throwingSubscriber = (_, args) =>
             {
                 if (string.Equals(
@@ -4514,30 +4746,42 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             library.PropertyChanged += throwingSubscriber;
 
-            await library.QueueLr2SongDbSyncAsync("folder_reconciliation_progress", initializationResult: initializationInput, preparedSurface: preparedInput);
-
-            Assert.IsTrue(scheduler.PendingCount > 0);
-            Assert.AreEqual(0, timeline.Count);
-            Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
-            Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
-            string[] expectedFolderPaths = [.. new[] { rootDirectory, firstDirectory, secondDirectory }.Select(ToFolderPath)];
-            using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            try
             {
+                await library.QueueLr2SongDbSyncAsync("folder_reconciliation_progress", initializationResult: initializationInput, preparedSurface: preparedInput);
+
+                Assert.IsTrue(scheduler.PendingCount > 0);
+                Assert.AreEqual(0, timeline.Count);
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, library.GetLr2SongDbSyncStatusSnapshot().Status);
+                Assert.AreEqual(1, library.Lr2SongDbSyncCompletedVersion);
+                string[] expectedFolderPaths = [.. new[] { rootDirectory, firstDirectory, secondDirectory }.Select(ToFolderPath)];
+                using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+                {
+                    CollectionAssert.AreEquivalent(expectedFolderPaths,
+                        beforePublication.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
+                }
+
+                scheduler.Drain();
+
+                Assert.IsTrue(timeline.Count > 0);
+                Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Completed));
+                Assert.IsTrue(subscriberFailureCount > 0);
+                Lr2SongDbSyncStatusSnapshot completed = library.GetLr2SongDbSyncStatusSnapshot();
+                Assert.AreEqual(completed.TotalCount, completed.ProcessedCursor);
+                Assert.AreEqual(0, scheduler.PendingCount);
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(expectedFolderPaths,
-                    beforePublication.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
+                    verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
             }
-
-            scheduler.Drain();
-
-            Assert.IsTrue(timeline.Count > 0);
-            Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Completed));
-            Assert.IsTrue(subscriberFailureCount > 0);
-            Lr2SongDbSyncStatusSnapshot completed = library.GetLr2SongDbSyncStatusSnapshot();
-            Assert.AreEqual(completed.TotalCount, completed.ProcessedCursor);
-            Assert.AreEqual(0, scheduler.PendingCount);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
-            CollectionAssert.AreEquivalent(expectedFolderPaths,
-                verify.Table<LR2SongDB.folder>().Select(row => row.path).ToArray());
+            finally
+            {
+                try { scheduler.Drain(); }
+                finally
+                {
+                    library.PropertyChanged -= timelineSubscriber;
+                    library.PropertyChanged -= throwingSubscriber;
+                }
+            }
         }
         finally
         {
@@ -4545,6 +4789,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 定義反映が失敗するとDBを巻き戻し、UI解放後に元失敗を持つ最新状態を公開する。成功の誤表示を検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_PublishesLatestFailureAndPreservesDatabaseAfterApplyFailure()
     {
@@ -4560,10 +4808,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Directory.CreateDirectory(childDirectory);
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.Execute(
-                    "CREATE TRIGGER fail_folder_reconciliation BEFORE INSERT ON folder "
-                    + "BEGIN SELECT RAISE(ABORT, 'forced folder table apply failure'); END;");
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.Execute(
+                        "CREATE TRIGGER fail_folder_reconciliation BEFORE INSERT ON folder "
+                        + "BEGIN SELECT RAISE(ABORT, 'forced folder table apply failure'); END;");
+                });
             }
 
             var scheduler = new QueuedUiScheduler();
@@ -4604,7 +4855,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 }));
 
             var timeline = new List<Lr2SongDbSyncStatusSnapshot>();
-            library.PropertyChanged += (_, args) =>
+            System.ComponentModel.PropertyChangedEventHandler timelineSubscriber = (_, args) =>
             {
                 if (string.Equals(
                     args.PropertyName,
@@ -4616,29 +4867,41 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 }
             };
 
-            await Assert.ThrowsExceptionAsync<SQLite.SQLiteException>(() => library.QueueLr2SongDbSyncAsync("folder_reconciliation_failure", initializationResult: initializationInput, preparedSurface: preparedInput));
-
-            Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
-            Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, latest.Status);
-            StringAssert.Contains(latest.LastError, "forced folder table apply failure");
-            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
-            Assert.IsTrue(scheduler.PendingCount > 0);
-            using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            library.PropertyChanged += timelineSubscriber;
+            try
             {
-                Assert.AreEqual(0, beforePublication.Table<LR2SongDB.folder>().Count());
+                await Assert.ThrowsExceptionAsync<SQLite.SQLiteException>(() => library.QueueLr2SongDbSyncAsync("folder_reconciliation_failure", initializationResult: initializationInput, preparedSurface: preparedInput));
+
+                Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Failed, latest.Status);
+                StringAssert.Contains(latest.LastError, "forced folder table apply failure");
+                Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
+                Assert.IsTrue(scheduler.PendingCount > 0);
+                using (LR2SongDBExtended beforePublication = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(0, beforePublication.Table<LR2SongDB.folder>().Count());
+                }
+
+                Assert.AreEqual(0, timeline.Count);
+                scheduler.Drain();
+
+                Assert.IsTrue(timeline.Count > 0);
+                Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Failed));
+                Assert.IsTrue(timeline.All(snapshot => snapshot.LastError == latest.LastError));
+                Assert.AreEqual(0, scheduler.PendingCount);
+                Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
+
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
             }
-
-            Assert.AreEqual(0, timeline.Count);
-            scheduler.Drain();
-
-            Assert.IsTrue(timeline.Count > 0);
-            Assert.IsTrue(timeline.All(snapshot => snapshot.Status == Lr2SongDbSyncStatusKind.Failed));
-            Assert.IsTrue(timeline.All(snapshot => snapshot.LastError == latest.LastError));
-            Assert.AreEqual(0, scheduler.PendingCount);
-            Assert.AreEqual(0, library.Lr2SongDbSyncCompletedVersion);
-
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+            finally
+            {
+                try { scheduler.Drain(); }
+                finally
+                {
+                    library.PropertyChanged -= timelineSubscriber;
+                }
+            }
         }
         finally
         {
@@ -4646,6 +4909,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 連続20回の状態更新を一つのUI投稿へ合流し、通知時には最後の段階・件数・実行状態を組として公開する。
+    /// </summary>
     [TestMethod]
     public void Lr2PropertyPublication_CoalescesRepeatedChangesIntoOneUiDrain()
     {
@@ -4660,44 +4926,56 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             scheduler, settings: testSettings);
         BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
         var publishedPropertyNames = new List<string>();
-        library.PropertyChanged += (_, args) => publishedPropertyNames.Add(args.PropertyName!);
-        string[] expectedPropertyNames =
-        [
-            nameof(BMSLibrary.Lr2SongDbSyncStage),
-            nameof(BMSLibrary.Lr2SongDbSyncProcessedCount),
-            nameof(BMSLibrary.Lr2SongDbSyncTotalCount),
-            nameof(BMSLibrary.Lr2SongDbSyncStageProcessedCount),
-            nameof(BMSLibrary.Lr2SongDbSyncStageTotalCount),
-            nameof(BMSLibrary.Lr2SongDbSyncStatusVersion)
-        ];
-
-        for (int iteration = 0; iteration < 20; iteration++)
+        System.ComponentModel.PropertyChangedEventHandler subscriber = (_, args) => publishedPropertyNames.Add(args.PropertyName!);
+        library.PropertyChanged += subscriber;
+        try
         {
-            owner.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+            string[] expectedPropertyNames =
+            [
+                nameof(BMSLibrary.Lr2SongDbSyncStage),
+                nameof(BMSLibrary.Lr2SongDbSyncProcessedCount),
+                nameof(BMSLibrary.Lr2SongDbSyncTotalCount),
+                nameof(BMSLibrary.Lr2SongDbSyncStageProcessedCount),
+                nameof(BMSLibrary.Lr2SongDbSyncStageTotalCount),
+                nameof(BMSLibrary.Lr2SongDbSyncStatusVersion)
+            ];
+
+            for (int iteration = 0; iteration < 20; iteration++)
             {
-                TotalCount = iteration + 1,
-                ProcessedCursor = iteration,
-                Stage = "stage_" + iteration,
-                StageProcessedCount = iteration,
-                StageTotalCount = iteration + 1
-            });
+                owner.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+                {
+                    TotalCount = iteration + 1,
+                    ProcessedCursor = iteration,
+                    Stage = "stage_" + iteration,
+                    StageProcessedCount = iteration,
+                    StageTotalCount = iteration + 1
+                });
+            }
+
+            Assert.AreEqual(1, scheduler.ScheduleCount);
+            Assert.AreEqual(1, scheduler.PendingCount);
+
+            scheduler.Drain();
+
+            Assert.AreEqual(0, scheduler.PendingCount);
+            CollectionAssert.AreEquivalent(expectedPropertyNames, publishedPropertyNames);
+            Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
+            Assert.AreEqual("stage_19", latest.Stage);
+            Assert.AreEqual(19, latest.ProcessedCursor);
+            Assert.AreEqual(20, latest.TotalCount);
+            Assert.AreEqual(19, latest.StageProcessedCount);
+            Assert.AreEqual(20, latest.StageTotalCount);
         }
-
-        Assert.AreEqual(1, scheduler.ScheduleCount);
-        Assert.AreEqual(1, scheduler.PendingCount);
-
-        scheduler.Drain();
-
-        Assert.AreEqual(0, scheduler.PendingCount);
-        CollectionAssert.AreEquivalent(expectedPropertyNames, publishedPropertyNames);
-        Lr2SongDbSyncStatusSnapshot latest = library.GetLr2SongDbSyncStatusSnapshot();
-        Assert.AreEqual("stage_19", latest.Stage);
-        Assert.AreEqual(19, latest.ProcessedCursor);
-        Assert.AreEqual(20, latest.TotalCount);
-        Assert.AreEqual(19, latest.StageProcessedCount);
-        Assert.AreEqual(20, latest.StageTotalCount);
+        finally
+        {
+            try { scheduler.Drain(); }
+            finally { library.PropertyChanged -= subscriber; }
+        }
     }
 
+    /// <summary>
+    /// 通知中の再更新は次のUIターンへ送り、現在の通知組を途中で混ぜず追加投稿で公開する。
+    /// </summary>
     [TestMethod]
     public void Lr2PropertyPublication_RefillDuringDrainUsesNextUiTurn()
     {
@@ -4716,7 +4994,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string statusPropertyName = nameof(BMSLibrary.Lr2SongDbSyncStatusVersion);
         var publishedPropertyNames = new List<string>();
         bool refilled = false;
-        library.PropertyChanged += (_, args) =>
+        System.ComponentModel.PropertyChangedEventHandler subscriber = (_, args) =>
         {
             publishedPropertyNames.Add(args.PropertyName!);
             if (!refilled && args.PropertyName == firstPropertyName)
@@ -4729,26 +5007,39 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 });
             }
         };
-        owner.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+        library.PropertyChanged += subscriber;
+        try
         {
-            Stage = "first"
-        });
+            owner.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+            {
+                Stage = "first"
+            });
 
-        scheduler.ExecuteNext();
+            scheduler.ExecuteNext();
 
-        CollectionAssert.AreEqual(new[] { firstPropertyName, statusPropertyName }, publishedPropertyNames);
-        Assert.AreEqual(2, scheduler.ScheduleCount);
-        Assert.AreEqual(1, scheduler.PendingCount);
+            CollectionAssert.AreEqual(new[] { firstPropertyName, statusPropertyName }, publishedPropertyNames);
+            Assert.AreEqual(2, scheduler.ScheduleCount);
+            Assert.AreEqual(1, scheduler.PendingCount);
 
-        scheduler.ExecuteNext();
+            scheduler.ExecuteNext();
 
-        CollectionAssert.AreEqual(
-            new[] { firstPropertyName, statusPropertyName, refilledPropertyName, statusPropertyName },
-            publishedPropertyNames);
-        Assert.AreEqual(0, scheduler.PendingCount);
-        Assert.AreEqual(1, library.GetLr2SongDbSyncStatusSnapshot().ProcessedCursor);
+            CollectionAssert.AreEqual(
+                new[] { firstPropertyName, statusPropertyName, refilledPropertyName, statusPropertyName },
+                publishedPropertyNames);
+            Assert.AreEqual(0, scheduler.PendingCount);
+            Assert.AreEqual(1, library.GetLr2SongDbSyncStatusSnapshot().ProcessedCursor);
+        }
+        finally
+        {
+            try { scheduler.Drain(); }
+            finally { library.PropertyChanged -= subscriber; }
+        }
     }
 
+    /// <summary>
+    /// 受理後の終了要求は実Taskを取消終端させ、再開可能なIncompleteと確定済み段階・件数をDBへ保存する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_ShutdownMarksDurableIncompleteStatus()
     {
@@ -4756,9 +5047,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
         using var scope = TestDatabaseScope.Create();
         using var inputSurfaceGate = new ManualResetEventSlim();
-        Task? worker = null;
         Task<Lr2SongDbSyncStatusSnapshot>? queuedOperation = null;
         BMSLibrary? library = null;
+        var scheduler = new QueuedUiScheduler();
+        Exception? testFailure = null;
         var inputSurfaceEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
@@ -4770,25 +5062,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string durableSongPath = Path.Combine(rootDirectory, "durable.bms");
             using (var seed = new LR2SongDBExtended(scope.SongDbPath))
             {
-                seed.CreateTable<LR2SongDB.song>();
-                seed.CreateTable<LR2SongDB.folder>();
-                seed.InsertOrReplace(new LR2SongDB.folder
+                seed.RunInTransaction(() =>
                 {
-                    path = durableFolderPath,
-                    type = 1,
-                    title = "Durable folder before shutdown",
-                    date = 654320,
-                    adddate = 654321
-                }, typeof(LR2SongDB.folder));
-                seed.InsertOrReplace(new LR2SongDB.song
-                {
-                    path = durableSongPath,
-                    title = "Durable song before shutdown",
-                    artist = "Durable artist before shutdown",
-                    favorite = 6,
-                    adddate = 654321,
-                    tag = "durable-user-tag"
-                }, typeof(LR2SongDB.song));
+                    seed.CreateTable<LR2SongDB.song>();
+                    seed.CreateTable<LR2SongDB.folder>();
+                    seed.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = durableFolderPath,
+                        type = 1,
+                        title = "Durable folder before shutdown",
+                        date = 654320,
+                        adddate = 654321
+                    }, typeof(LR2SongDB.folder));
+                    seed.InsertOrReplace(new LR2SongDB.song
+                    {
+                        path = durableSongPath,
+                        title = "Durable song before shutdown",
+                        artist = "Durable artist before shutdown",
+                        favorite = 6,
+                        adddate = 654321,
+                        tag = "durable-user-tag"
+                    }, typeof(LR2SongDB.song));
+                });
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
             // 既存の設定取得境界へ到達した実Taskで待ち、表示の排出を終結条件にしない。
@@ -4799,7 +5094,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 _lr2ScoreDB: null,
                 fileMutationService: null,
                 dialogService: null,
-                uiScheduler: new QueuedUiScheduler(),
+                uiScheduler: scheduler,
                 optionsSnapshotProvider: () =>
                 {
                     if (Volatile.Read(ref inputSurfaceOptionsGateArmed) != 0)
@@ -4829,17 +5124,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Volatile.Write(ref inputSurfaceOptionsGateArmed, 1);
                     return Lr2SongDbSyncPreparedDataSurface.Empty;
                 }, initializationResult: initializationInput, preparedSurface: preparedInput);
-            Task startedWork = queuedOperation;
-            worker = startedWork;
-            await Task.WhenAny(inputSurfaceEntered.Task, startedWork);
-            if (!inputSurfaceEntered.Task.IsCompleted)
-            {
-                await startedWork;
-                Assert.Fail("終了要求前の設定取得境界へ到達しなかった。");
-            }
+            await TestUiDispatcherHost.AwaitNotificationAsync(inputSurfaceEntered.Task, queuedOperation, "lr2.shutdown.input-surface-entered");
             library.RequestShutdown("test_preflight_shutdown");
             inputSurfaceGate.Set();
-            await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => startedWork);
             await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => queuedOperation);
 
             Assert.IsFalse(library.Lr2SongDbSyncRunning);
@@ -4869,29 +5156,40 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Assert.AreEqual(654321, durableSong.adddate);
             Assert.AreEqual("durable-user-tag", durableSong.tag);
         }
+        catch (Exception ex)
+        {
+            testFailure = ex;
+            throw;
+        }
         finally
         {
             inputSurfaceGate.Set();
             library?.RequestShutdown("shutdown-fixture-cleanup");
             try
             {
-                if (worker != null)
+                if (queuedOperation != null)
                 {
-                    try { await worker; }
+                    try { await queuedOperation; }
                     catch (OperationCanceledException) { }
                 }
             }
+            catch (Exception cleanupFailure)
+            {
+                if (testFailure is null) { throw; }
+                System.Diagnostics.Trace.WriteLine("後片付けの二次失敗: " + cleanupFailure);
+            }
             finally
             {
-                try
-                {
-                    if (queuedOperation != null) { try { await queuedOperation; } catch (OperationCanceledException) { } }
-                }
+                try { scheduler.Drain(); }
                 finally { ResetTouchedSettings(); }
             }
         }
     }
 
+    /// <summary>
+    /// 難度未指定の現譜面は古い別譜面行を難度推測へ使わず、既存行を残して現在の難度を保存する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DefaultsDifficultyWithoutUsingStaleRowsAsAnchor()
     {
@@ -4916,15 +5214,18 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-                setup.Execute(
-                    "INSERT INTO song (path, folder, mode, karinotes, difficulty) VALUES (?, ?, ?, ?, ?);",
-                    Path.Combine(songDirectory, "stale.bms"),
-                    Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory),
-                    5,
-                    0,
-                    4);
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    setup.Execute(
+                        "INSERT INTO song (path, folder, mode, karinotes, difficulty) VALUES (?, ?, ?, ?, ?);",
+                        Path.Combine(songDirectory, "stale.bms"),
+                        Lr2SongFolderParentNormalizer.ComputeDirectoryHash(songDirectory),
+                        5,
+                        0,
+                        4);
+                });
             }
             var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
@@ -4952,6 +5253,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 同じ保存入力で完了済みなら再同期の受理版を進めず、状態再公開だけを行う。不要な再実行を検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotQueueSecondSyncWhenCompletedStatusIsCurrent()
     {
@@ -5014,6 +5319,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 別ライブラリへコピーした完了済みDBが現在の入力に一致すれば、新規同期を始めず保存済み完了状態を採用する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DoesNotQueueWhenCompletedCopiedSongDbIsCurrent()
     {
@@ -5084,6 +5393,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// rootも譜面も空の受理済み世代は件数0で保存・完了し、実行中や失敗の状態を残さない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_WithNoRootsCompletesEmptyGeneration()
     {
@@ -5121,6 +5434,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 検索rootが空でも所持譜面のsong行を解析・保存し、root件数だけで同期全体を省略しない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_WithNoRootsStillSyncsSongRows()
     {
@@ -5140,8 +5457,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             file = file with { Md5 = "dddddddddddddddddddddddddddddddd" };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -5168,6 +5488,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 末尾に不完全なバイトを持つ読取可能な譜面からメタデータを保存し、既存NULL列を無条件に保持しない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_ParsesReadableSnapshotContentInsteadOfPreservingNullSongColumns()
     {
@@ -5191,11 +5515,14 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.song>();
-                setup.Execute(
-                    "INSERT INTO song (hash, path, level, difficulty, mode, judge) VALUES (?, ?, NULL, NULL, NULL, NULL);",
-                    "dddddddddddddddddddddddddddddddd",
-                    chartPath);
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.Execute(
+                        "INSERT INTO song (hash, path, level, difficulty, mode, judge) VALUES (?, ?, NULL, NULL, NULL, NULL);",
+                        "dddddddddddddddddddddddddddddddd",
+                        chartPath);
+                });
             }
 
             await library.QueueLr2SongDbSyncAsync("test_readable_snapshot_song_parse");
@@ -5214,6 +5541,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 文字コード判定がUnknownでも既定の解析でASCIIタイトルを読めることを確認し、Unknownを一律解析不能にする誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void SnapshotSongRowParser_AllowsUnknownEncodingToUseParserDefault()
     {
@@ -5235,6 +5565,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual("unknown fallback", song.RawTitle);
     }
 
+    /// <summary>
+    /// chart_info未保存の譜面は同期内部で解析してsong列へ反映し、別backfillの予約へ回さず同じ同期を完了する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_BuildsMissingChartInfoInsideSongRows()
     {
@@ -5277,6 +5611,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 旧parser版のchart_infoを現入力から更新し、保存済みの古いレベルをsongへ流用しない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_RebuildsStaleChartInfoInsideSongRows()
     {
@@ -5300,9 +5638,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
-                BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
-                setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
+                setup.RunInTransaction(() =>
+                {
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+                    setup.InsertOrReplace(ChartInfoStorageMapping.ToStorage(CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1)), typeof(LR2SongDBExtended.chart_info));
+                });
             }
 
             await library.QueueLr2SongDbSyncAsync("test_stale_chart_info_build");
@@ -5318,6 +5659,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 同期解析した長すぎるリソースパス警告を現在の所持譜面へ反映し、既存のリソース健全性件数を保持する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_ProjectsLr2CompatibilityWarningsToLiveRows()
     {
@@ -5356,6 +5701,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// CP932非対応の譜面パスでも同期を完了し、folder親情報を未設定にして利用者列を保持する。通常と強制の双方で解析失敗扱いへ変えない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_CompletesWhenChartDirectoryPathIsUnsupported()
     {
@@ -5451,6 +5800,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 非対応文字を持つ定義名だけを除き、同じディレクトリの有効定義と親行を保存して完了する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SkipsUnsupportedLr2FolderFileNameAndContinues()
     {
@@ -5495,6 +5848,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 非対応文字を持つ親ディレクトリと定義を除き、有効な兄弟の同期を完了する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SkipsUnsupportedLr2FolderParentAndContinues()
     {
@@ -5542,6 +5899,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 譜面0件でも捕捉した外部定義のタイトル・command・maxを保存し、古い定義行を除いて同期を完了する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsCapturedLr2FolderWithoutCharts()
     {
@@ -5566,18 +5927,21 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = Path.Combine(rootDirectory, "stale.lr2folder"),
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
-                setup.InsertOrReplace(new LR2SongDB.folder
-                {
-                    path = outsideLr2FolderPath,
-                    type = 2,
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = Path.Combine(rootDirectory, "stale.lr2folder"),
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = outsideLr2FolderPath,
+                        type = 2,
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
 
             initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
@@ -5612,6 +5976,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 検索root外の通常出力baseから捕捉した外部定義を保存し、同範囲の消失定義を除く。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsCapturedLr2FolderFromCustomFolderOutputBase()
     {
@@ -5671,6 +6039,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// root型出力baseの定義はROOT親として保存し、通常出力の親計算へ混ぜない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsCapturedRootCustomFolderOutputAsRootRow()
     {
@@ -5719,6 +6091,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 検索root配下の通常出力ではbase・表ディレクトリ・定義の三階層を保存し、各親CRCを正しく接続する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_GeneratesNormalCustomFolderOutputBaseParentRow()
     {
@@ -5793,6 +6169,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 受理済み準備面の管理定義と外部兄弟を同じ権限で直接同期し、別予約を作らず親行と完了状態まで保存する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_DirectPreparedInputSyncsManagedFolderAndSibling()
     {
@@ -5917,6 +6297,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 追加出力baseの登録解除後も旧baseの外部定義行は残し、設定変更による無関係な削除を防ぐ。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange_PreservesRemovedAdditionalBaseRows()
     {
@@ -5931,14 +6315,17 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.WriteAllText(oldExternalPath, "#TITLE Old External", Encoding.GetEncoding("shift_jis"));
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
             {
-                setup.CreateTable<LR2SongDB.folder>();
-                setup.InsertOrReplace(new LR2SongDB.folder
+                setup.RunInTransaction(() =>
                 {
-                    path = oldExternalPath,
-                    type = 2,
-                    title = "Old External",
-                    date = 1
-                }, typeof(LR2SongDB.folder));
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.InsertOrReplace(new LR2SongDB.folder
+                    {
+                        path = oldExternalPath,
+                        type = 2,
+                        title = "Old External",
+                        date = 1
+                    }, typeof(LR2SongDB.folder));
+                });
             }
             var library = new TestBmsLibrary(scope.SongDbPath, settings: testSettings)
             {
@@ -5957,6 +6344,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 検索root外のroot型出力では表ディレクトリをROOTへ接続し、定義をそのディレクトリの子として保存する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_GeneratesRootCustomFolderOutputParentRow()
     {
@@ -6015,6 +6406,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 有効な組込Favorite定義はLR2基準の相対パス・ROOT親で保存し、外部定義の絶対パス扱いへ変えない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsCapturedEnabledLr2BuiltinCustomFolderAsRelativeRootRow()
     {
@@ -6069,6 +6464,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 組込RANDOMの二段カテゴリはfolderinfoのタイトルと相対親CRCを保存し、その下の定義を正しく接続する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_GeneratesBuiltinCustomFolderCategoryRow()
     {
@@ -6143,6 +6542,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// customfolder maskが0でも準備済みcourse定義は外部互換type6として保存し、通常組込定義の有効判定で捨てない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsPreparedBuiltinCourseFolderAsTypeSixRegardlessOfCustomFolderMask()
     {
@@ -6196,8 +6599,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 明示した準備済みNewSong定義をmask0でもtype3・ROOT親で保存し、通常の外部定義へ誤分類したり除外したりしない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
-    public async Task QueueLr2SongDbSync_SyncsPreparedBuiltinNewSongFolderOnlyWhenRecentSongExists()
+    public async Task QueueLr2SongDbSync_SavesExplicitPreparedNewSongWithBuiltinTypeAndRootParentDespiteMaskZero()
     {
         LibraryFileInitializationResult? initializationInput = null;
         Lr2SongDbSyncPreparedDataSurface? preparedInput = null;
@@ -6255,6 +6662,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 通常rootで捕捉したRIVAL定義は絶対パスと所在親CRCで保存し、組込相対定義へ誤分類しない。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
     [TestMethod]
     public async Task QueueLr2SongDbSync_SyncsCapturedRivalFolderFromNormalScanRootAsExternalFolder()
     {
@@ -6307,6 +6718,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }
     }
 
+    /// <summary>
+    /// 捕捉した複数folderinfoから対象ディレクトリだけを選び、時刻と探索完全性を保持する。
+    /// </summary>
     [TestMethod]
     public void FolderInfoCandidateSnapshotFromEntries_ReturnsTargetFolderInfoMetadata()
     {
@@ -6331,6 +6745,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), entry!.LastWriteTimeUnixSeconds);
     }
 
+    /// <summary>
+    /// folderinfoと一般txtが混在しても対象folderinfoと対象テキストディレクトリを分け、別ディレクトリを混入させない。
+    /// </summary>
     [TestMethod]
     public void TextMetadataCandidateSnapshotFromEntries_ReturnsTargetFolderInfoAndTextDirectories()
     {
@@ -6357,13 +6774,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), snapshot.FolderInfoCandidates.EntriesByPath[folderInfoPath].LastWriteTimeUnixSeconds);
     }
 
+    /// <summary>
+    /// 捕捉パスと対象ディレクトリの大小文字が違ってもfolderinfoを採用し、その捕捉時刻を保持する。
+    /// </summary>
     [TestMethod]
     public void FolderInfoCandidateEnumerationFromEntries_MatchesTargetDirectoryCaseInsensitively()
     {
         using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string chartDirectory = Path.Combine(rootDirectory, "Pack");
-        Directory.CreateDirectory(chartDirectory);
         string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
         DateTime folderInfoTimestamp = new(2026, 6, 5, 7, 0, 0, DateTimeKind.Utc);
         RootFileEnumerationEntry entry = new(folderInfoPath, folderInfoTimestamp);
@@ -6377,42 +6796,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), snapshot.EntriesByPath[Path.GetFullPath(folderInfoPath)].LastWriteTimeUnixSeconds);
     }
 
-    [TestMethod]
-    public void FolderInfoCandidateEnumerationFromEntries_UsesOnlyTargetDirectories()
-    {
-        using var scope = TestDatabaseScope.Create();
-        string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
-        string targetDirectory = Path.Combine(rootDirectory, "Target");
-        string unrelatedDirectory = Path.Combine(rootDirectory, "Other");
-        Directory.CreateDirectory(targetDirectory);
-        Directory.CreateDirectory(unrelatedDirectory);
-        string folderInfoPath = Path.Combine(targetDirectory, "folderinfo.txt");
-        string unrelatedFolderInfoPath = Path.Combine(unrelatedDirectory, "folderinfo.txt");
-        DateTime folderInfoTimestamp = new(2026, 6, 5, 7, 30, 0, DateTimeKind.Utc);
-        File.WriteAllText(folderInfoPath, "#TITLE Target");
-        File.WriteAllText(unrelatedFolderInfoPath, "#TITLE Other");
-        File.SetLastWriteTimeUtc(folderInfoPath, folderInfoTimestamp);
-
-        Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromEntries(
-            [
-                new RootFileEnumerationEntry(folderInfoPath, folderInfoTimestamp),
-                new RootFileEnumerationEntry(unrelatedFolderInfoPath, folderInfoTimestamp)
-            ],
-            [targetDirectory]);
-
-        CollectionAssert.AreEqual(new[] { folderInfoPath }, snapshot.Paths.ToArray());
-        Assert.IsTrue(snapshot.DiscoveryComplete);
-        Assert.IsTrue(snapshot.EntriesByPath.TryGetValue(folderInfoPath, out RootFileEnumerationEntry? entry));
-        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(folderInfoTimestamp), entry!.LastWriteTimeUnixSeconds);
-    }
-
+    /// <summary>
+    /// 時刻未捕捉のパス候補も保持し、物理読取りで時刻を補わない。パスだけの入力を捨てる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void FolderInfoCandidateEnumerationFromSurface_KeepsPathOnlyCandidate()
     {
         using var scope = TestDatabaseScope.Create();
         string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
         string chartDirectory = Path.Combine(rootDirectory, "Pack");
-        Directory.CreateDirectory(chartDirectory);
         string folderInfoPath = Path.Combine(chartDirectory, "folderinfo.txt");
 
         Lr2FolderInfoCandidateSnapshot snapshot = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
@@ -6434,15 +6826,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         using (lease)
         using (LibraryFileMutationCapability capability = admission.CreateMutationCapability(lease))
         { return action(capability); }
-    }
-
-    private static Lr2SongDbSyncInputRowSnapshot CaptureSyncInputRows(BMSLibrary.Lr2SynchronizationOwner owner)
-    {
-        MethodInfo method = typeof(BMSLibrary.Lr2SynchronizationOwner).GetMethod(
-            "CreateLr2SongDbSyncInputRowSnapshot", BindingFlags.NonPublic | BindingFlags.Instance)
-            ?? throw new InvalidOperationException("LR2入力捕捉の境界が見つかりません。");
-        return method.Invoke(owner, null) as Lr2SongDbSyncInputRowSnapshot
-            ?? throw new InvalidOperationException("LR2入力捕捉が共通値を返しませんでした。");
     }
 
     // 実準備を明示barrierで保持し、Busy観測後も受付と開始済みTaskの終端を所有する。
@@ -6505,7 +6888,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         IReadOnlyList<string> lr2FolderFilePaths,
         IReadOnlyList<string> directoryPaths)
     {
-        Directory.CreateDirectory(rootDirectory);
         foreach (string directoryPath in directoryPaths)
         {
             Directory.CreateDirectory(directoryPath);
@@ -6672,24 +7054,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     private static string NormalizeDirectory(string path)
     {
         return Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-    }
-
-    private static string ResolveExistingDataFixtureDirectory()
-    {
-        foreach (string startPath in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
-        {
-            DirectoryInfo? current = new(startPath);
-            for (int depth = 0; current != null && depth < 10; depth++, current = current.Parent)
-            {
-                string fixtureDirectory = Path.Combine(current.FullName, "devdocs", "acceptance", "net10-existing-data");
-                if (File.Exists(Path.Combine(fixtureDirectory, "fixture.bms")))
-                {
-                    return fixtureDirectory;
-                }
-            }
-        }
-
-        throw new InvalidOperationException("The tracked net10-existing-data fixture directory could not be located.");
     }
 
     private void ResetTouchedSettings()

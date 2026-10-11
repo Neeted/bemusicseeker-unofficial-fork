@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -15,6 +14,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ManagedDependencyOutputPolicyTests
 {
+    /// <summary>
+    /// 実アプリの構築設定と出力を照合し、ホスト管理の依存関係を旧framework資産や競合する隣接managed DLLへ戻す誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void ApplicationProjectUsesHostManagedDependencyLayout()
     {
@@ -56,15 +58,24 @@ public sealed class ManagedDependencyOutputPolicyTests
         Assert.IsTrue(
             File.Exists(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.runtimeconfig.json")),
             "The host runtime configuration must be emitted beside the application.");
-        string dependencyGraph = File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json"));
-        StringAssert.Contains(dependencyGraph, "\"Newtonsoft.Json/13.0.4\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Mix/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Fx/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Enc/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Asio/4.0.2\"");
-        StringAssert.Contains(dependencyGraph, "\"ManagedBass.Wasapi/4.0.2\"");
-        Assert.IsFalse(dependencyGraph.Contains("Un4seen.Bass/", StringComparison.Ordinal));
+        using var appLockDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "packages.lock.json")));
+        JsonElement appLockTarget = appLockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
+        using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(releaseOutputDirectory, "BeMusicSeeker.deps.json")));
+        string runtimeTargetName = depsDocument.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString()
+            ?? throw new AssertFailedException("The application deps runtime target has no name.");
+        JsonElement depsTarget = depsDocument.RootElement.GetProperty("targets").GetProperty(runtimeTargetName);
+        foreach (string packageId in new[]
+        {
+            "Newtonsoft.Json", "ManagedBass", "ManagedBass.Mix", "ManagedBass.Fx",
+            "ManagedBass.Enc", "ManagedBass.Asio", "ManagedBass.Wasapi"
+        })
+        {
+            string resolved = appLockTarget.GetProperty(packageId).GetProperty("resolved").GetString()
+                ?? throw new AssertFailedException($"The locked package has no resolved version: {packageId}");
+            Assert.IsTrue(depsTarget.TryGetProperty(packageId + "/" + resolved, out _), packageId);
+        }
+        Assert.IsFalse(depsTarget.EnumerateObject().Any(package =>
+            package.Name.StartsWith("Un4seen.Bass/", StringComparison.Ordinal)));
 
         foreach (string dependencyName in new[]
         {
@@ -88,6 +99,10 @@ public sealed class ManagedDependencyOutputPolicyTests
             Assert.IsTrue(
                 File.Exists(Path.Combine(releaseOutputDirectory, dependencyName)),
                 $"The host layout must place {dependencyName} beside the application.");
+            Assert.IsTrue(depsTarget.EnumerateObject().Any(package =>
+                package.Value.TryGetProperty("runtime", out JsonElement runtime) &&
+                runtime.EnumerateObject().Any(asset => string.Equals(Path.GetFileName(asset.Name), dependencyName, StringComparison.Ordinal))),
+                $"The host graph must select a runtime asset for {dependencyName}.");
         }
         Assert.IsFalse(
             File.Exists(Path.Combine(releaseOutputDirectory, "Bass.Net.dll")),
@@ -163,6 +178,9 @@ public sealed class ManagedDependencyOutputPolicyTests
             "System.Resources.Extensions must not be supplied by a tracked HintPath binary; the .NET 10 WindowsDesktop runtime pack supplies the publish asset.");
     }
 
+    /// <summary>
+    /// テストプロジェクトが自分のlocked restoreとテストhost依存を持ち、アプリ出力への依存で検証環境を成立させる誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void TestProjectOwnsLockedTestHostDependencyGraph()
     {
@@ -186,10 +204,17 @@ public sealed class ManagedDependencyOutputPolicyTests
         JsonElement dependencies = lockDocument.RootElement.GetProperty("dependencies");
         JsonElement targetDependencies = dependencies.GetProperty("net10.0-windows7.0");
         JsonElement sdk = targetDependencies.GetProperty("Microsoft.NET.Test.Sdk");
-        Assert.AreEqual("18.8.1", sdk.GetProperty("resolved").GetString());
+        string sdkVersion = sdk.GetProperty("resolved").GetString()
+            ?? throw new AssertFailedException("The test SDK lock entry has no resolved version.");
+        using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "obj", "project.assets.json")));
+        Assert.IsTrue(assetsDocument.RootElement.GetProperty("targets").GetProperty("net10.0-windows/win-x64")
+            .TryGetProperty("Microsoft.NET.Test.Sdk/" + sdkVersion, out _));
         Assert.AreEqual("Direct", sdk.GetProperty("type").GetString());
     }
 
+    /// <summary>
+    /// lockを持つ各プロジェクトでwin-x64の復元入力とグラフを揃え、別RIDや旧依存グラフを消費する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void LockOwningProjectsDeclareCanonicalWinX64RestoreGraph()
     {
@@ -255,134 +280,113 @@ public sealed class ManagedDependencyOutputPolicyTests
                 $"The lock file must retain its win-x64 target graph: {lockOwner.LockPath}");
             JsonElement sqliteNativePackage = ridDependencies.GetProperty("SourceGear.sqlite3");
             Assert.AreEqual("Transitive", sqliteNativePackage.GetProperty("type").GetString());
-            Assert.AreEqual("3.53.3", sqliteNativePackage.GetProperty("resolved").GetString());
+            string targetFramework = (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single();
+            string assetsPath = Path.Combine(Path.GetDirectoryName(projectPath)
+                ?? throw new AssertFailedException("Project directory is missing."), "obj", "project.assets.json");
+            using var assetsDocument = JsonDocument.Parse(File.ReadAllText(assetsPath));
+            JsonElement assetsTargets = assetsDocument.RootElement.GetProperty("targets");
+            JsonElement baseSqlitePackage = dependencies.GetProperty(lockOwner.BaseTarget).GetProperty("SourceGear.sqlite3");
+            Assert.AreEqual("Transitive", baseSqlitePackage.GetProperty("type").GetString());
+            foreach ((string AssetsTarget, JsonElement LockedPackage) target in new[]
+            {
+                (targetFramework, baseSqlitePackage),
+                (targetFramework + "/win-x64", sqliteNativePackage)
+            })
+            {
+                string resolved = target.LockedPackage.GetProperty("resolved").GetString()
+                    ?? throw new AssertFailedException("SourceGear lock entry has no resolved version.");
+                JsonElement selected = assetsTargets.GetProperty(target.AssetsTarget).GetProperty("SourceGear.sqlite3/" + resolved);
+                Assert.AreEqual("package", selected.GetProperty("type").GetString());
+            }
         }
     }
 
+    /// <summary>
+    /// 中央指定からlock・正規assets・depsの依存集合を照合し、局所version指定、選択資産と実出力の不一致、退役済み音声資産の残留を検出する。
+    /// </summary>
     [TestMethod]
     public void PackageVersionsAreCentrallyOwnedAndRetiredAssembliesStayOutOfRuntimeOutput()
     {
         string repositoryRoot = FindRepositoryRoot();
-        Dictionary<string, string> expectedVersions = new[]
-        {
-            new { Id = "Microsoft.NET.Test.Sdk", Version = "18.8.1" },
-            new { Id = "MSTest.TestAdapter", Version = "3.6.4" },
-            new { Id = "MSTest.TestFramework", Version = "3.6.4" },
-            new { Id = "LivetCask.Core", Version = "4.0.2" },
-            new { Id = "LivetCask.EventListeners", Version = "4.0.2" },
-            new { Id = "LivetCask.Mvvm", Version = "4.0.2" },
-            new { Id = "Microsoft.Xml.SgmlReader", Version = "1.8.30" },
-            new { Id = "NLog", Version = "6.1.4" },
-            new { Id = "Newtonsoft.Json", Version = "13.0.4" },
-            new { Id = "ManagedBass", Version = "4.0.2" },
-            new { Id = "ManagedBass.Mix", Version = "4.0.2" },
-            new { Id = "ManagedBass.Fx", Version = "4.0.2" },
-            new { Id = "ManagedBass.Enc", Version = "4.0.2" },
-            new { Id = "ManagedBass.Asio", Version = "4.0.2" },
-            new { Id = "ManagedBass.Wasapi", Version = "4.0.2" },
-            new { Id = "sqlite-net-pcl", Version = "1.11.285" },
-            new { Id = "SQLitePCLRaw.bundle_e_sqlite3", Version = "3.0.4" },
-            new { Id = "SevenZipExtractor", Version = "1.0.19" },
-        }.ToDictionary(item => item.Id, item => item.Version, StringComparer.Ordinal);
-
         var centralPackages = XDocument.Load(Path.Combine(repositoryRoot, "Directory.Packages.props"));
         XElement centralRoot = centralPackages.Root ?? throw new AssertFailedException("Central package props has no root element.");
         Assert.AreEqual(
             "true",
-            (string)centralRoot.Elements("PropertyGroup").Elements("ManagePackageVersionsCentrally").Single(),
-            "Central package management must be enabled for the migration dependency graph.");
-        var centralVersions = centralRoot
-            .Elements("ItemGroup")
-            .Elements("PackageVersion")
+            (string)centralRoot.Elements("PropertyGroup").Elements("ManagePackageVersionsCentrally").Single());
+        var centralVersions = centralRoot.Elements("ItemGroup").Elements("PackageVersion")
             .ToDictionary(
-                package => (string)package.Attribute("Include")!,
-                package => (string)package.Attribute("Version")!,
+                package => (string?)package.Attribute("Include") ?? throw new AssertFailedException("Central package ID is missing."),
+                package => (string?)package.Attribute("Version") ?? throw new AssertFailedException("Central package version is missing."),
                 StringComparer.Ordinal);
-        CollectionAssert.AreEquivalent(expectedVersions.Keys.ToArray(), centralVersions.Keys.ToArray());
-        foreach (KeyValuePair<string, string> expected in expectedVersions)
+        // 音声ABI正本のpinは通常依存のversion期待と分け、必要六categoryを独立して固定する。
+        string[] managedBassPackages =
+        [
+            "ManagedBass", "ManagedBass.Mix", "ManagedBass.Fx",
+            "ManagedBass.Enc", "ManagedBass.Asio", "ManagedBass.Wasapi"
+        ];
+        foreach (string packageId in managedBassPackages)
         {
-            Assert.AreEqual(
-                expected.Key.StartsWith("ManagedBass", StringComparison.Ordinal)
-                    ? "[4.0.2]"
-                    : expected.Value,
-                centralVersions[expected.Key]);
+            Assert.AreEqual("[4.0.2]", centralVersions[packageId], packageId);
         }
-
-        var projectPackages = new[]
+        foreach (string projectDirectory in new[] { "BeMusicSeeker", "BeMusicSeeker.Tests" })
         {
-            new
-            {
-                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker", "BeMusicSeeker.csproj"),
-                LockPath = Path.Combine(repositoryRoot, "BeMusicSeeker", "packages.lock.json"),
-                PackageIds = new[]
-                {
-                    "LivetCask.Core",
-                    "LivetCask.EventListeners",
-                    "LivetCask.Mvvm",
-                    "Microsoft.Xml.SgmlReader",
-                    "Newtonsoft.Json",
-                    "NLog",
-                    "sqlite-net-pcl",
-                    "SQLitePCLRaw.bundle_e_sqlite3",
-                    "SevenZipExtractor",
-                    "ManagedBass",
-                    "ManagedBass.Mix",
-                    "ManagedBass.Fx",
-                    "ManagedBass.Enc",
-                    "ManagedBass.Asio",
-                    "ManagedBass.Wasapi"
-                }
-            },
-            new
-            {
-                ProjectPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "BeMusicSeeker.Tests.csproj"),
-                LockPath = Path.Combine(repositoryRoot, "BeMusicSeeker.Tests", "packages.lock.json"),
-                PackageIds = new[]
-                {
-                    "Microsoft.NET.Test.Sdk",
-                    "MSTest.TestAdapter",
-                    "MSTest.TestFramework",
-                    "sqlite-net-pcl",
-                    "SQLitePCLRaw.bundle_e_sqlite3",
-                    "SevenZipExtractor",
-                    "ManagedBass",
-                    "ManagedBass.Mix",
-                    "ManagedBass.Fx",
-                    "ManagedBass.Enc",
-                    "ManagedBass.Asio",
-                    "ManagedBass.Wasapi"
-                }
-            }
-        };
-
-        foreach (var projectPackage in projectPackages)
-        {
-            var project = XDocument.Load(projectPackage.ProjectPath);
-            XElement projectRoot = project.Root ?? throw new AssertFailedException("Package project has no root element.");
+            string projectPath = Path.Combine(repositoryRoot, projectDirectory, projectDirectory + ".csproj");
+            XElement projectRoot = XDocument.Load(projectPath).Root
+                ?? throw new AssertFailedException("Package project has no root element.");
+            string targetFramework = (string)projectRoot.Elements("PropertyGroup").Elements("TargetFramework").Single();
+            using var lockDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, projectDirectory, "packages.lock.json")));
+            JsonElement lockedTarget = lockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
+            using var assetsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(repositoryRoot, projectDirectory, "obj", "project.assets.json")));
+            JsonElement selectedTarget = assetsDocument.RootElement.GetProperty("targets").GetProperty(targetFramework + "/win-x64");
+            Assert.IsTrue(assetsDocument.RootElement.GetProperty("project").GetProperty("restore")
+                .GetProperty("centralPackageVersionsManagementEnabled").GetBoolean(), projectDirectory);
+            JsonElement evaluatedFramework = assetsDocument.RootElement.GetProperty("project").GetProperty("frameworks").GetProperty(targetFramework);
+            string outputDirectory = projectDirectory == "BeMusicSeeker" ? ResolveReleaseOutputDirectory() : AppContext.BaseDirectory;
+            using var depsDocument = JsonDocument.Parse(File.ReadAllText(Path.Combine(outputDirectory, projectDirectory + ".deps.json")));
+            string runtimeTargetName = depsDocument.RootElement.GetProperty("runtimeTarget").GetProperty("name").GetString()
+                ?? throw new AssertFailedException("The deps runtime target has no name.");
+            JsonElement depsTarget = depsDocument.RootElement.GetProperty("targets").GetProperty(runtimeTargetName);
             foreach (XElement packageReference in projectRoot.Elements("ItemGroup").Elements("PackageReference"))
             {
-                string packageId = (string)packageReference.Attribute("Include")!;
-                Assert.IsTrue(
-                    expectedVersions.ContainsKey(packageId),
-                    $"Package {packageId} must be declared by Directory.Packages.props.");
-                Assert.IsNull(
-                    packageReference.Attribute("Version"),
-                    $"Package {packageId} must not carry a project-local version.");
-            }
-
-            Assert.IsTrue(File.Exists(projectPackage.LockPath), $"Lock file is missing: {projectPackage.LockPath}");
-            using var lockDocument = JsonDocument.Parse(File.ReadAllText(projectPackage.LockPath));
-            JsonElement target = lockDocument.RootElement.GetProperty("dependencies").GetProperty("net10.0-windows7.0");
-            foreach (string packageId in projectPackage.PackageIds)
-            {
-                Assert.IsTrue(target.TryGetProperty(packageId, out JsonElement dependency), $"Lock entry is missing: {packageId}");
-                Assert.AreEqual("Direct", dependency.GetProperty("type").GetString());
-                Assert.AreEqual(expectedVersions[packageId], dependency.GetProperty("resolved").GetString());
-                if (packageId.StartsWith("ManagedBass", StringComparison.Ordinal))
+                string packageId = (string?)packageReference.Attribute("Include")
+                    ?? throw new AssertFailedException("Package reference ID is missing.");
+                Assert.IsTrue(centralVersions.TryGetValue(packageId, out string? declaration), packageId);
+                Assert.IsNull(packageReference.Attribute("Version"), packageId);
+                Assert.IsNull(packageReference.Attribute("VersionOverride"), packageId);
+                Assert.IsFalse(packageReference.Elements("Version").Any(), packageId);
+                Assert.IsFalse(packageReference.Elements("VersionOverride").Any(), packageId);
+                JsonElement dependency = lockedTarget.GetProperty(packageId);
+                Assert.AreEqual("Direct", dependency.GetProperty("type").GetString(), packageId);
+                string resolved = dependency.GetProperty("resolved").GetString()
+                    ?? throw new AssertFailedException($"The locked package has no resolved version: {packageId}");
+                AssertCentralDeclarationMatchesLock(declaration ?? throw new AssertFailedException("Central declaration is missing."), dependency, resolved, packageId);
+                JsonElement evaluatedDependency = evaluatedFramework.GetProperty("dependencies").GetProperty(packageId);
+                Assert.IsTrue(evaluatedDependency.GetProperty("versionCentrallyManaged").GetBoolean(), packageId);
+                Assert.AreEqual(declaration, evaluatedFramework.GetProperty("centralPackageVersions").GetProperty(packageId).GetString(), packageId);
+                Assert.AreEqual(dependency.GetProperty("requested").GetString(), evaluatedDependency.GetProperty("version").GetString(), packageId);
+                if (managedBassPackages.Contains(packageId, StringComparer.Ordinal))
                 {
-                    Assert.AreEqual("[4.0.2, 4.0.2]", dependency.GetProperty("requested").GetString());
+                    Assert.AreEqual("[4.0.2, 4.0.2]", dependency.GetProperty("requested").GetString(), packageId);
+                    Assert.AreEqual("4.0.2", resolved, packageId);
                 }
+                Assert.IsTrue(selectedTarget.TryGetProperty(packageId + "/" + resolved, out _), packageId);
+                Assert.IsTrue(depsTarget.TryGetProperty(packageId + "/" + resolved, out _), packageId);
             }
+            // 期待集合は消費結果の自己列挙ではなく、復元のlocked package graphから定める。
+            foreach (JsonProperty lockedPackage in lockedTarget.EnumerateObject())
+            {
+                if (lockedPackage.Value.GetProperty("type").GetString() == "Project")
+                {
+                    continue;
+                }
+                string resolved = lockedPackage.Value.GetProperty("resolved").GetString()
+                    ?? throw new AssertFailedException($"The locked package has no resolved version: {lockedPackage.Name}");
+                string packageKey = lockedPackage.Name + "/" + resolved;
+                Assert.IsTrue(selectedTarget.TryGetProperty(packageKey, out JsonElement selectedPackage), packageKey);
+                Assert.AreEqual("package", selectedPackage.GetProperty("type").GetString(), packageKey);
+                Assert.IsTrue(depsTarget.TryGetProperty(packageKey, out _), packageKey);
+            }
+            AssertRuntimeOutputsMatchSelectedAssets(assetsDocument.RootElement, selectedTarget, depsTarget, outputDirectory);
         }
 
         string releaseOutputDirectory = ResolveReleaseOutputDirectory();
@@ -397,6 +401,9 @@ public sealed class ManagedDependencyOutputPolicyTests
 
     }
 
+    /// <summary>
+    /// 配布するnative音声資産ごとの権利者・notice・実licenseの区別を両言語で確認し、異なる権利条件の混同や配布記載の欠落を検出する。
+    /// </summary>
     [TestMethod]
     public void NativeComplianceNoticeEntriesAreGreenAndSeparated()
     {
@@ -490,6 +497,9 @@ public sealed class ManagedDependencyOutputPolicyTests
         }
     }
 
+    /// <summary>
+    /// 正本で固定したnative BASS群とVorbis bridgeの実バイト・版・ABIを照合し、未検証の差替えや異なるCPU資産の混入を検出する。
+    /// </summary>
     [TestMethod]
     public void NativeBassVersionAndHashSetRemainsFixed()
     {
@@ -535,6 +545,9 @@ public sealed class ManagedDependencyOutputPolicyTests
         StringAssert.Contains(dependencySpec, "`bms_vorbis.dll` | C ABI 1");
     }
 
+    /// <summary>
+    /// ManagedBassの原文MIT licenseを固定内容で保持し、native BASSのnotice要約や退役したwrapperの権利表記と混同する誤りを検出する。
+    /// </summary>
     [TestMethod]
     public void FinalManagedBassLicenseAndNativeNoticeAreTrackedSeparately()
     {
@@ -566,6 +579,67 @@ public sealed class ManagedDependencyOutputPolicyTests
             StringAssert.Contains(notice, "ManagedBass");
             Assert.IsFalse(notice.Contains("Bass.Net.dll", StringComparison.Ordinal));
             Assert.IsFalse(notice.Contains("BASS.NET", StringComparison.Ordinal));
+        }
+    }
+
+    /// <summary>現在使う裸versionと単一exact指定だけをlockへ照合し、未対応の範囲を別の指定へ読み替えません。</summary>
+    private static void AssertCentralDeclarationMatchesLock(string declaration, JsonElement dependency, string resolved, string packageId)
+    {
+        bool exact = declaration.StartsWith("[", StringComparison.Ordinal) && declaration.EndsWith("]", StringComparison.Ordinal);
+        string version = exact ? declaration[1..^1] : declaration;
+        Assert.IsTrue(Version.TryParse(version, out Version? requestedVersion), $"Unsupported central version: {packageId}={declaration}");
+        Assert.IsTrue(Version.TryParse(resolved, out Version? resolvedVersion), $"Unsupported locked version: {packageId}={resolved}");
+        Assert.AreEqual(exact ? $"[{version}, {version}]" : $"[{version}, )", dependency.GetProperty("requested").GetString(), packageId);
+        if (exact)
+        {
+            Assert.AreEqual(version, resolved, packageId);
+        }
+        else
+        {
+            Assert.IsTrue((resolvedVersion ?? throw new AssertFailedException("Resolved version is missing."))
+                >= (requestedVersion ?? throw new AssertFailedException("Requested version is missing.")), packageId);
+        }
+    }
+
+    /// <summary>正規win-x64 graphの実managed runtime資産を一意に特定し、depsの選択と通常build出力のバイトを照合します。</summary>
+    private static void AssertRuntimeOutputsMatchSelectedAssets(
+        JsonElement assetsRoot,
+        JsonElement selectedTarget,
+        JsonElement depsTarget,
+        string outputDirectory)
+    {
+        foreach (JsonProperty package in selectedTarget.EnumerateObject())
+        {
+            if (package.Value.GetProperty("type").GetString() != "package")
+            {
+                continue;
+            }
+            Assert.IsTrue(depsTarget.TryGetProperty(package.Name, out JsonElement consumed), package.Name);
+            if (!consumed.TryGetProperty("runtime", out JsonElement runtime))
+            {
+                // meta packageと、競合解消後にこのpackageから選択されなかった候補に出力を要求しない。
+                continue;
+            }
+            foreach (JsonProperty asset in runtime.EnumerateObject())
+            {
+                if (Path.GetFileName(asset.Name) == "_._")
+                {
+                    continue;
+                }
+                Assert.AreEqual(".dll", Path.GetExtension(asset.Name), $"Unsupported managed runtime asset: {asset.Name}");
+                Assert.IsTrue(package.Value.TryGetProperty("runtime", out JsonElement selectedRuntime) &&
+                    selectedRuntime.TryGetProperty(asset.Name, out _), $"The selected deps asset is absent from the canonical assets graph: {package.Name}/{asset.Name}");
+                string libraryPath = assetsRoot.GetProperty("libraries").GetProperty(package.Name).GetProperty("path").GetString()
+                    ?? throw new AssertFailedException($"Package library path is missing: {package.Name}");
+                string[] sourcePaths = assetsRoot.GetProperty("packageFolders").EnumerateObject()
+                    .Select(folder => Path.Combine(folder.Name, libraryPath.Replace('/', Path.DirectorySeparatorChar), asset.Name.Replace('/', Path.DirectorySeparatorChar)))
+                    .Where(File.Exists)
+                    .ToArray();
+                Assert.AreEqual(1, sourcePaths.Length, $"The selected runtime asset must resolve uniquely: {package.Name}/{asset.Name}");
+                string outputPath = Path.Combine(outputDirectory, Path.GetFileName(asset.Name));
+                Assert.IsTrue(File.Exists(outputPath), outputPath);
+                Assert.AreEqual(GetFileHash(sourcePaths[0]), GetFileHash(outputPath), outputPath);
+            }
         }
     }
 

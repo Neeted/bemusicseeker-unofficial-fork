@@ -157,4 +157,4 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 
 [LR2出力](lr2-custom-folders.md)、[BMT出力](bmt-export.md)、[プロパティ画面](../ui/playlist-properties.md)、[データと索引](../core/data-and-indexes.md)を参照します。
 
-詳細セルの旧行拒否と再操作は [`MainWindowPlaylistWorkspaceWpfTests.ResyncedDetailEdit_RejectsOldRowThroughOwnedNotificationAndSavesCurrentRow`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が、実再同期、小DB、実MainWindowの通知購読と所有windowを接続して確認します。取消・URI検査・通常編集は既存 `PlaylistViewPipelineTests`、一般の永続化・表示参照更新は `BmsPlaylistPersistenceLifecycleTests` が分担します。
+詳細セルの旧行拒否と再操作は [`MainWindowPlaylistWorkspaceWpfTests.ResyncedDetailEdit_RejectsOldRowThroughOwnedNotificationAndSavesCurrentRow`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が、実再同期、小DB、実MainWindowの通知購読と所有windowを接続して確認します。無効URIの編集は [`PlaylistUrlCompletionTests.DetailEdit_InvalidUriPreservesSavedEntryAndReleasesEditing`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) が、実編集Taskの終端後の編集解放、行・正本・read-only DBの元URLと未編集属性の保持を確認します。取消・通常編集は既存 `PlaylistViewPipelineTests`、一般の永続化・表示参照更新は `BmsPlaylistPersistenceLifecycleTests` が分担します。

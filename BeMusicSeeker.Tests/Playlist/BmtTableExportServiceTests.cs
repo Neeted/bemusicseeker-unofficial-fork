@@ -17,11 +17,14 @@ using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>BMT の変換・実ファイルと台帳の所有・未変更判定・config URL 同期の保証を検証します。</summary>
+/// <remarks>gzip・台帳公開・OS 共有拒否・長 path は実ファイルで観測し、P の受付と通知・上位設定保存からの接続は既存 playlist owner／workspace ケースが分担します。</remarks>
 [TestClass]
 public sealed class BmtTableExportServiceTests
 {
-    // BMT-MANIFEST-FAILURE-1 / BMT-O: OS の delete 共有拒否で実際の cleanup 失敗を作る。
+    /// <summary>cleanup・単表削除・URL-only・全出力・改名の実削除失敗で、未削除 BMT の物理所有を残し URL 所有と分けて失敗対象・原因を返し、ロック解除後の明示 cleanup で回収できることを確認します。</summary>
     [TestMethod]
+    // 全量整理／単表削除／URL-only化／全出力／URL改名は、files と playlists の更新範囲が異なる。
     [DataRow("cleanup")]
     [DataRow("remove")]
     [DataRow("url-only")]
@@ -72,6 +75,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>旧 files-only 台帳の空の部分出力は全量削除に読み替えず、前の物理所有を台帳に保つことを確認します。</summary>
     [TestMethod]
     public void ExportWithoutCleanup_PreservesPreviousPhysicalOwnership()
     {
@@ -85,7 +89,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    // BMT-V: 正常項目との混在も部分 salvage せず、原本と BMT を出力前に保全する。
+    /// <summary>構文・構造・型・重複・版・path の不正台帳は個別／全出力の書込み前に拒み、台帳原本と既存 BMT を保って部分救出しないことを確認します。</summary>
     [TestMethod]
     [DataRow("{")]
     [DataRow("[]")]
@@ -121,6 +125,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>占有され読めない台帳では出力を止め、台帳原本を保って新しい BMT を作成しないことを確認して、不存在扱いの上書きを検出します。</summary>
     [TestMethod]
     public void UnreadableManifest_RejectsExportBeforeWriting()
     {
@@ -139,7 +144,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    // BMT-P: read/write は許し、同一 directory 置換に必要な delete 共有だけを拒否する。
+    /// <summary>delete 共有拒否による台帳置換失敗は IOException を返し、旧 byte を保って自分の一時ファイルを除去することを確認します。</summary>
     [TestMethod]
     public void ManifestPublishFailure_PreservesOriginalBytesAndRemovesOwnedTemp()
     {
@@ -160,8 +165,9 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    // BMT-C: 既知 schema / URL-only / 旧 cache metadata の受理範囲。
+    /// <summary>省略／0／1／2 の旧台帳は URL-only と未知追加項目を受理し、旧 metadata は再生成へ回し、大小文字の重複と playlist 参照をまとめて物理整理することを確認します。</summary>
     [TestMethod]
+    // -1 は schemaVersion 省略。0／1／2 は既知の明示版で、旧 cache と URL-only の受理条件を共有する。
     [DataRow(-1)]
     [DataRow(0)]
     [DataRow(1)]
@@ -191,6 +197,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>一つ目の進捗 callback 保留中に二つ目の publish が完了しても callback は同時実行せず、保留解除後に 1→2 を配送することを実 Task で確認します。</summary>
     [TestMethod]
     public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder()
     {
@@ -270,6 +277,7 @@ public sealed class BmtTableExportServiceTests
     private const string Md5A = "11111111111111111111111111111111";
     private const string Md5B = "22222222222222222222222222222222";
 
+    /// <summary>BMT sort順と一致するbeta・alphaと末尾の旧台帳URLを入力し、現表と旧台帳の三つの管理URLをこの順で結果に保持することを確認します。</summary>
     [TestMethod]
     public void BuildBeatorajaManagedTableUrlsForConfigSync_OrdersByPlaylistBmtSort()
     {
@@ -290,6 +298,7 @@ public sealed class BmtTableExportServiceTests
         CollectionAssert.AreEqual(new[] { "file:///beta.bmt", "file:///alpha.bmt", "file:///old.bmt" }, result);
     }
 
+    /// <summary>出力内容のない表も URL と名称の所有を台帳と結果へ残し、架空の BMT ファイルを登録しないことを確認します。</summary>
     [TestMethod]
     public void ExportTableDataSet_KeepsManagedUrlOwnershipWhenPlaylistCannotProduceBmt()
     {
@@ -319,6 +328,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>有効内容がなくなった全対象表は旧 BMT を削除し、表 ID と URL の所有を保って file 所有を外すことを確認します。</summary>
     [TestMethod]
     public void ExportTableDataSet_RemovesStaleBmtButKeepsManagedUrlOwnershipWhenPlaylistBecomesEmpty()
     {
@@ -370,6 +380,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>URL-only 更新は旧 BMT を整理し、同 ID の URL と新名称を台帳・結果へ残すことを確認して、内容なしを表削除扱いする誤りを検出します。</summary>
     [TestMethod]
     public void UpdateManagedPlaylistUrlOwnership_RemovesStaleBmtButKeepsManagedUrl()
     {
@@ -408,6 +419,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>同じ URL-only 入力の再更新は変更・削除をせず、台帳時刻と返す所有 URL を保つことを確認します。</summary>
     [TestMethod]
     public void UpdateManagedPlaylistUrlOwnership_NoopsWhenUrlOnlyEntryIsCurrent()
     {
@@ -428,6 +440,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>既に current な空表の全出力は生成を要求せず一件の省略へ数え、BMT を作らず URL-only 所有を保つことを確認します。</summary>
     [TestMethod]
     public void ExportTableDataSet_SkipsCurrentManagedUrlOnlyPlaylist()
     {
@@ -466,6 +479,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>URL-only 表に内容が得られた次の出力は同 ID／URL へ実 BMT を一件書き、台帳の物理所有へ追加することを確認します。</summary>
     [TestMethod]
     public void ExportTableDataSet_WritesBmtWhenManagedUrlOnlyPlaylistLaterHasData()
     {
@@ -504,6 +518,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>現在管理する空表 URL は既存 unmanaged 順から外して後ろへ一回置き、他の外部 URL 順を保つことを実 config で確認します。</summary>
     [TestMethod]
     public void BeatorajaConfigService_SyncTableUrlsMovesManagedEmptyPlaylistUrlOutOfUnmanagedPrefix()
     {
@@ -527,6 +542,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>同値 sort と欠損 sort の混在を名前・ID で解消して連番へ揃え、実変更件数と各表への結果を確認します。</summary>
     [TestMethod]
     public void NormalizeBeatorajaBmtSortOrder_AssignsStableSequentialOrder()
     {
@@ -543,6 +559,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual(3, bravo.bmt_sort);
     }
 
+    /// <summary>外部表の実 gzip を読み、URL に対応するファイル名、tag 付き folder、有効 hash 行、course 制約・hash と不正 trophy 除外を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTable_ExternalTableWritesBeatorajaBmtShape()
@@ -570,6 +587,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>ローカル表は保存 ID の pseudo URL と利用者の folder 名を出力し、外部表向け prefix 変換を重ねないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BuildTableData_LocalPlaylistUsesPseudoUrlAndFolderNameAsIs()
@@ -591,6 +609,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual("Alpha", json["folder"]![0]!.Value<string>("name"));
     }
 
+    /// <summary>譜面の不足 hash だけを resolver から補い、保存済みの両 hash を優先し、course hash は補完しないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BuildTableData_ResolverFillsMissingFolderSongHashesButNotCourses()
@@ -635,9 +654,10 @@ public sealed class BmtTableExportServiceTests
         Assert.IsNull(json["course"]![0]!["hash"]![0]!["sha256"]);
     }
 
+    /// <summary>Original 方式では resolver にある対の hash を補完せず、各譜面の保存済み hash だけを出力することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void BuildTableData_OriginalHashModeDoesNotUseResolver()
+    public void BuildTableData_OriginalHashModeKeepsOnlyStoredSongHashes()
     {
         var table = new BMSTable
         {
@@ -666,6 +686,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual(Sha256B, shaOnly.Value<string>("sha256"));
     }
 
+    /// <summary>SHA 優先方式は保存／解決 SHA がある行の MD5 を省き、解決できない MD5 行は落とさず残すことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BuildTableData_PreferSha256OnlyModeKeepsMd5WhenSha256Unavailable()
@@ -705,6 +726,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual(new string('c', 64), both.Value<string>("sha256"));
     }
 
+    /// <summary>未設定・未知の保存方式は Original として扱い、既知 FillMissing 名はその方式へ復元する旧設定の互換判断を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void NormalizeHashOutputMode_InvalidValueFallsBackToOriginal()
@@ -714,9 +736,10 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual(BeatorajaBmtHashOutputMode.FillMissingMd5Sha256, BmtTableExportService.NormalizeHashOutputMode("FillMissingMd5Sha256"));
     }
 
+    /// <summary>利用者の folder 順と各 folder 内の入力順で出力し、削除行・hash なし・有効曲のない folder を除外することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void BuildTableData_GroupsFolderSongsWithoutChangingFolderOrEntryOrder()
+    public void BuildTableData_UsesFolderOrderAndKeepsSongOrderWhileSkippingIneligibleRows()
     {
         var table = new BMSTable
         {
@@ -752,6 +775,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual("Alpha 2", alphaSongs[1]!.Value<string>("title"));
     }
 
+    /// <summary>実出力の cleanup は台帳所有の BMT と台帳を消し、同 directory の管理外 BMT を保つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void CleanupManagedFiles_RemovesOnlyManifestEntries()
@@ -780,6 +804,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>同じ表 ID の URL を変えた出力は新 BMT を作り、共有参照のない旧 URL の物理ファイルを整理することを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableData_WithSamePlaylistIdentityRemovesOldUrlFile()
@@ -812,6 +837,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>二表の全出力を一表へ減らすと対象外の管理 BMT だけを整理し、現対象の BMT を保つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_WithCleanupRemovesManagedFilesOutsideCurrentActiveSet()
@@ -841,6 +867,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>初回は生成・実書込みし、同 metadata の再出力は生成前に省略を判断して書込み／削除をせず、実ファイル時刻と結果の URL を保つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites()
@@ -861,6 +888,9 @@ public sealed class BmtTableExportServiceTests
             BmtTableExportService.ExportPlan secondPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
             BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), secondPlan, null);
 
+            Assert.IsTrue(firstPlan.RequiresProjection(metadata));
+            Assert.IsFalse(secondPlan.RequiresProjection(metadata));
+            Assert.AreEqual("bemusicseeker://playlist/1", secondResult.CurrentManagedTables.Single().Url);
             Assert.AreEqual(1, firstResult.WrittenCount);
             Assert.AreEqual(0, firstResult.SkippedWriteCount);
             Assert.AreEqual(0, firstResult.RemovedCount);
@@ -871,32 +901,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void ExportTableDataSet_SkipsUnchangedPlaylistFromManifestMetadataBeforeProjection()
-    {
-        WithTemporaryDirectory(delegate (string tempDirectory)
-        {
-            JObject tableData = CreateLocalTableData("bemusicseeker://playlist/1", "First");
-            BmtTableExportService.PlaylistExportMetadata metadata = CreateExportMetadata("1", tableData, "header-a", "data-a", 100L);
-            BmtTableExportService.ExportPlan firstPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
-            BmtTableExportService.ExportResult firstResult = BmtTableExportService.ExportTableDataSet(tempDirectory,
-            [
-                Tuple.Create("1", tableData)
-            ], firstPlan, null);
-
-            BmtTableExportService.ExportPlan secondPlan = BmtTableExportService.CreateExportPlan(tempDirectory, [metadata], cleanupStaleManagedFiles: true);
-            BmtTableExportService.ExportResult secondResult = BmtTableExportService.ExportTableDataSet(tempDirectory, Array.Empty<Tuple<string, JObject>>(), secondPlan, null);
-
-            Assert.AreEqual(1, firstResult.WrittenCount);
-            Assert.IsTrue(firstPlan.RequiresProjection(metadata));
-            Assert.IsFalse(secondPlan.RequiresProjection(metadata));
-            Assert.AreEqual(0, secondResult.WrittenCount);
-            Assert.AreEqual(1, secondResult.SkippedWriteCount);
-            Assert.AreEqual("bemusicseeker://playlist/1", secondResult.CurrentManagedTables.Single().Url);
-        });
-    }
-
+    /// <summary>実出力後の版2台帳に指定hash・更新ticks・projection署名と正値のファイル時刻・サイズ欄があり、旧contentHash欄がない形式互換を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_WritesManifestV2WithoutContentHash()
@@ -925,6 +930,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>旧 contentHash 台帳の対象外 BMT は整理でき、現行版の空 URL 所有へ移ることを確認して、旧所有情報の残留を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_LegacyManifestFilesRemainCleanupCandidates()
@@ -957,6 +963,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>metadata が同じでも実 BMT の外部時刻変更は再生成・書込みを要求し、古い current 判定で省略しないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_RewritesWhenManagedPlaylistFileTimestampChanges()
@@ -1065,6 +1072,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>同 URL の表名を含む内容変更は再書込みし、新名称を結果の所有情報へ反映することを確認して、URL だけによる誤った省略を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_RewritesWhenManagedPlaylistContentChanges()
@@ -1089,6 +1097,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>header／data hash と ticks が同じでも projection 指紋変更は生成と書込みを要求し、出力に影響する入力の見逃しを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_RewritesWhenProjectionInputFingerprintChanges()
@@ -1117,6 +1126,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>二表とも current な出力は全件省略し、実生成がない架空の進捗 callback を配送しないことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_DoesNotReportProgressForFastSkippedManagedPlaylists()
@@ -1147,6 +1157,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>対象が最初から空の全出力は進捗 callback を出さず、整理だけを生成進捗として通知する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_DoesNotReportProgressForEmptyDataSet()
@@ -1164,6 +1175,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>現対象を空にした全出力は以前の管理 BMT を全て整理し、管理外ファイルを保つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_WithCleanupAndEmptyCurrentSetRemovesAllManagedFiles()
@@ -1182,6 +1194,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>長い directory に実 gzip と台帳を書き、gzip の内容を読み戻せることを確認して、通常 path API だけによる出力失敗を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableData_WritesManagedFilesUnderLongPath()
@@ -1201,6 +1214,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>全対象の置換出力は前回と現在の管理 URL を別々に結果へ返し、後段 config 同期が除去対象と現対象を取り違える誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void ExportTableDataSet_ReturnsManagedUrlsForConfigSync()
@@ -1227,6 +1241,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>未知の表 ID の削除要求は既存 URL 所有を前回・現在とも保ち、別表の管理情報を消す誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void RemoveManagedPlaylist_WhenPlaylistIsUnknownKeepsCurrentManagedUrls()
@@ -1276,6 +1291,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>実 config の管理外 URL 順を先頭に保ち、前回管理 URL を除去して指定順の現管理 URL を後ろへ置くことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged()
@@ -1302,6 +1318,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>config の tablepath／playerpath と指定 player ID から実 directory／score DB を解決し、複数 player を列挙できることを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaConfigService_ResolvesConfiguredTableAndPlayerPaths()
@@ -1323,6 +1340,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>config URL 配列の空値と非文字列を除き、重複 URL は勝手に消さず入力順で返す受理条件を確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaConfigService_ReadTableUrls_PreservesConfiguredOrder()
@@ -1342,6 +1360,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>実 gzip cache から譜面・course を復元し、旧 cache URL より config の raw URL を優先して再出力とファイル identity に使うことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl()
@@ -1417,6 +1436,7 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
+    /// <summary>大小文字・percent escape を含む保存済み page URL は正規化せず BMT 出力へ渡し、cache identity を変える誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BuildTableData_UsesPersistedRawPageUrl()
@@ -1439,6 +1459,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual(rawPageUrl, exported.Value<string>("url"));
     }
 
+    /// <summary>絶対 URI が等しい config URL は最初の raw 表記を残してまとめ、別 URI と入力順を保つことを確認します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void BuildBeatorajaTableUrlImportTargets_DeduplicatesByAbsoluteUriKeepingFirstRawUrl()
@@ -1453,6 +1474,7 @@ public sealed class BmtTableExportServiceTests
         Assert.AreEqual("https://example.com/other.html", GetPrivateProperty<string>(targetList[1], "RawUrl"));
     }
 
+    /// <summary>保存表と config の一致判断は raw URL の完全一致を要求し、URI 正規化上の同値だけで保存済みと扱う誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public void HasSamePersistedTableUrl_RequiresExactConfigRawUrl()

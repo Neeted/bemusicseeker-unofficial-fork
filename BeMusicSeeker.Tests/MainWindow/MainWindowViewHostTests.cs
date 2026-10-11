@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
-using System.Windows.Data;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -26,7 +28,9 @@ using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
+/// <remarks>実Close・描画後host接続・設定確認と終了の競合はWindowのイベント接続を通して検査します。通知判断と保存失敗後の終端はShellShutdownWorkflowOwnerTests、L/PのBusy条件はApplicationCompositionAdmissionTestsが分担します。</remarks>
 [TestClass]
+// 実WindowはApplication.Resourcesの画面VMを共有し、音声runtimeとログ構成も一時変更するため所有範囲を並列化しません。
 [DoNotParallelize]
 public sealed class MainWindowViewHostTests
 {
@@ -152,11 +156,11 @@ public sealed class MainWindowViewHostTests
         }
     }
 
+    /// <summary>実Closeは変更した画面幅を一回保存してからアプリ終了へ進み、終了受付前後の設定表示要求を抑止し、終了callback失敗はClose終端の元例外として返します。</summary>
     [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, false)]
-    [DataRow(false, true)]
-    [DoNotParallelize]
+    [DataRow(false, false)] // 終了受付後の即時設定表示を拒否します。
+    [DataRow(true, false)] // 終了前にqueueした遅延表示も実行時に拒否します。
+    [DataRow(false, true)] // 終了callback失敗をCloseCompletionへ伝え、保存を繰り返しません。
     public void MainWindowShutdownCapturePrecedesShellCompletion(bool deferSettingsPresentation, bool failShutdownNotification)
     {
         const double initialTreeViewWidth = 281d;
@@ -187,8 +191,7 @@ public sealed class MainWindowViewHostTests
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
                 viewModel = composition.CreateMainWindowViewModel();
 
-                // Constructor activation is intentionally suppressed; this test exercises only
-                // the unshown view-host construction and close terminal, never startup rendering.
+                // 未表示WindowのClose終端を対象とし、起動処理は既存の終了gateで抑止します。
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
                 int settingsPresentationCount = 0;
@@ -244,8 +247,7 @@ public sealed class MainWindowViewHostTests
                     events);
                 Assert.AreEqual(1, applicationLifetime.RequestShutdownCount);
 
-                // The test lifetime is deliberately non-terminating. Complete the actual Window
-                // close after the shell has requested application termination.
+                // fixtureの終了要求は実プロセスを止めないため、要求終端後に所有Windowを閉じます。
                 window.Close();
 
                 CollectionAssert.AreEqual(
@@ -264,8 +266,8 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>利用者が保存した行・見出し・文字サイズと初期選択を実画面へ反映し、操作後の画面幅を実Close時に同じ設定主体へ保存します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowViewSettingsBindAndCaptureThroughHostStore()
     {
         const double initialTreeViewWidth = 286d;
@@ -292,8 +294,7 @@ public sealed class MainWindowViewHostTests
             {
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
                 viewModel = composition.CreateMainWindowViewModel();
-                // A pending selection is a valid startup setting, but the constructor-only test
-                // keeps the corresponding selection handler behind the existing startup gate.
+                // 保存済み初期選択を実Controlへ配送し、起動前の選択handlerは既存gateで抑止します。
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
@@ -342,8 +343,8 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>初回設定要求でcompiled言語overlayに実候補・選択・継続commandを接続し、明示非表示とClose後の再表示抑止を確認します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowConstructorOnlyPresentsInitialSetupThroughCompiledOverlay()
     {
         Settings settings = CreateSettings(
@@ -382,19 +383,6 @@ public sealed class MainWindowViewHostTests
 
                 ComboBox languageSelector = FindLogicalDescendants<ComboBox>(overlay).Single();
                 Button continueButton = FindLogicalDescendants<Button>(overlay).Single();
-                Binding itemsSourceBinding = BindingOperations.GetBinding(
-                    languageSelector,
-                    ItemsControl.ItemsSourceProperty);
-                Binding selectedItemBinding = BindingOperations.GetBinding(
-                    languageSelector,
-                    Selector.SelectedItemProperty);
-                Binding commandBinding = BindingOperations.GetBinding(
-                    continueButton,
-                    Button.CommandProperty);
-                Assert.AreEqual(nameof(SettingsDialogViewModel.Languages), itemsSourceBinding.Path.Path);
-                Assert.AreEqual(nameof(SettingsDialogViewModel.Language), selectedItemBinding.Path.Path);
-                Assert.AreEqual(nameof(SettingsDialogViewModel.OpenCommand), commandBinding.Path.Path);
-
                 viewModel.SettingDialog.RequestInitialSetupLanguageDialog();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(Visibility.Visible, overlay.Visibility);
@@ -616,8 +604,8 @@ public sealed class MainWindowViewHostTests
         finally { window.Loaded -= position; }
     }
 
+    /// <summary>実描画に伴う必須UI終端は成功公開より前にplayerへ所有HWNDを接続し、実Close終端後にWindowとhostを解放します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowRenderedInitializationAttachesCreatedPlaybackHost()
     {
         using var directory = new TestTemporaryDirectory("main-window-playback-host");
@@ -699,8 +687,8 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>必須起動BMT入力のworker待機中に実Closeすると、起動取消とL/P終端を待ってWindowを閉じ、成功公開や遅延失敗画面を追加しません。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowCloseDuringRequiredStartupBmtCancellationJoinsAndDoesNotPresentLateFailure()
     {
         using var directory = new TestTemporaryDirectory("main-window-startup-bmt-close");
@@ -813,10 +801,11 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>通常行で実キャプションの最大化・復元・最小化を確認し、両行のキャプションCloseでplayer停止中もDispatcherとHWNDを維持して、導入終端・画面捕捉・player終了・UI保存・音声解放・終了の順序を守ります。</summary>
+    /// <remarks>実MainWindowのcompiledボタンからAutomation・Command・終了ownerを通し、表示状態とCloseの実終端を別々に観測します。判断・保存失敗・取消・再起動競合は既存owner系列へ分担し、OSポインターのhit-testやresizeは対象に含めません。</remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    [DoNotParallelize]
+    [DataRow(false)] // 通常行はキャプション状態操作を経て、導入workerとplayerの両方の排出を待ちます。
+    [DataRow(true)] // 更新準備済みの行もキャプションCloseからplayer排出と終端を待ちます。
     public void MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose(bool prepareForUpdate)
     {
         using var directory = new TestTemporaryDirectory("main-window-player-drain");
@@ -867,7 +856,53 @@ public sealed class MainWindowViewHostTests
             var mutationPreparation = new StartupLibraryMutationPreparation(settings);
             Task? observation = null;
             Task? marker = null;
+            Task? initialization = null;
+            Task? packageIdle = null;
+            Task? closeCompletion = null;
+            var captionProbes = new List<Task>();
+            var captionSubscriptions = new List<(Button Button, RoutedEventHandler Handler)>();
+            var stateSubscriptions = new List<(MainWindow Window, EventHandler Handler)>();
             var observedClose = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+            void InvokeCaption(MainWindow target, string role, string operationName)
+            {
+                StackPanel captionPanel = GetNamedElement<StackPanel>(target, "windowCaptionPanel");
+                // 表示役割から選び、Commandが誤配線でも正しいCommandを持つ別ボタンへ読み替えません。
+                Button button = captionPanel.Children.OfType<Button>().Single(candidate =>
+                    candidate.IsVisible && string.Equals(candidate.Content as string, role, StringComparison.Ordinal));
+                var clickedProbe = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                RoutedEventHandler clicked = (_, _) =>
+                {
+                    // ClickはOnClick内のCommand実行より先なので、後続UI operationまで回収します。
+                    // Binding・描画後のCommand確認にはLoadedを使い、無関係なWin32入力待ちでgate解放を止めません。
+                    Task probe = dispatcher.InvokeAsync(() => { }, DispatcherPriority.Loaded).Task;
+                    captionProbes.Add(probe);
+                    clickedProbe.TrySetResult(probe);
+                };
+                button.Click += clicked;
+                captionSubscriptions.Add((button, clicked));
+                AutomationPeer peer = UIElementAutomationPeer.CreatePeerForElement(button)
+                    ?? throw new AssertFailedException("キャプション操作のAutomation peerがありません。");
+                IInvokeProvider invoke = peer.GetPattern(PatternInterface.Invoke) as IInvokeProvider
+                    ?? throw new AssertFailedException("キャプション操作のInvokeがありません。");
+                invoke.Invoke();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(clickedProbe.Task, operationName + ".click");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(clickedProbe.Task.GetAwaiter().GetResult(), operationName + ".command-probe");
+                button.Click -= clicked;
+                captionSubscriptions.Remove((button, clicked));
+            }
+            void AssertCaptionState(MainWindow target, string role, WindowState expectedState, string operationName)
+            {
+                var changed = new TaskCompletionSource<WindowState>(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler stateChanged = (_, _) => changed.TrySetResult(target.WindowState);
+                target.StateChanged += stateChanged;
+                stateSubscriptions.Add((target, stateChanged));
+                InvokeCaption(target, role, operationName);
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(changed.Task, operationName + ".state-changed");
+                Assert.AreEqual(expectedState, changed.Task.GetAwaiter().GetResult());
+                Assert.AreEqual(expectedState, target.WindowState);
+                target.StateChanged -= stateChanged;
+                stateSubscriptions.Remove((target, stateChanged));
+            }
             try
             {
                 Ribbit.Media.Audio.BassAudioRuntime.Initialize();
@@ -896,7 +931,7 @@ public sealed class MainWindowViewHostTests
                     closed = true;
                     windowClosed.TrySetResult();
                 };
-                Task initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
+                initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
                     () => { }, action => action(), () => false);
                 ShowPlaybackHostMainWindow(scope, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -907,12 +942,22 @@ public sealed class MainWindowViewHostTests
                 PlaybackPanelView playbackView = GetNamedElement<PlaybackPanelView>(window, "playbackPanelView");
                 IntPtr hostHandle = playbackView.PlayerHostHandle;
                 ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
+                if (!prepareForUpdate)
+                {
+                    window.WindowState = WindowState.Normal;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    AssertCaptionState(window, "1", WindowState.Maximized, "caption-maximize");
+                    AssertCaptionState(window, "2", WindowState.Normal, "caption-restore");
+                    AssertCaptionState(window, "0", WindowState.Minimized, "caption-minimize");
+                    // 最小化後のNormalは後続の幅変更の準備であり、キャプション復元の保証ではありません。
+                    window.WindowState = WindowState.Normal;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
                 ColumnDefinition treeColumn = GetNamedElement<ColumnDefinition>(window, "gridColumn0");
                 treeColumn.Width = new GridLength(359d);
                 // 終了時の捕捉は実幅を優先するため、利用者が操作を終えた実レイアウトを先に確定します。
                 window.UpdateLayout();
                 Assert.AreEqual(359d, treeColumn.ActualWidth, "停止順の観測前に変更した画面幅を確定します。");
-                Task? packageIdle = null;
                 if (!prepareForUpdate)
                 {
                     Assert.IsTrue(viewModel.PackageInstallWorkflow.EnqueueSingle(Path.Combine(directory.Path, "pending.zip")), "受理済み起動保守の準備終端後に導入要求を受理します。");
@@ -932,7 +977,9 @@ public sealed class MainWindowViewHostTests
                 {
                     try
                     {
-                        await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, observedClose.Task.Unwrap(), "player-drain.close-player");
+                        // 初回Command後の実Close Taskを捕捉するまでplayer gateを解放させません。
+                        Task actualClose = await observedClose.Task;
+                        await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, actualClose, "player-drain.close-player");
                         marker = dispatcher.InvokeAsync(() =>
                         {
                             Assert.IsFalse(completed.Task.IsCompleted);
@@ -954,14 +1001,16 @@ public sealed class MainWindowViewHostTests
                     }
                     finally
                     {
-                        // UI が同期 close で停止する mutant でも外部 coordinator が必ず解放する。
+                        // observer 自身の終端で解放します。初回Closeの捕捉前にUIが同期停止すると、ここには到達しません。
                         release.Set();
                     }
                 });
-                window.Close();
-                observedClose.TrySetResult(window.CloseCompletion);
+                InvokeCaption(window, "r", "caption-close");
+                closeCompletion = window.CloseCompletion;
+                Assert.IsFalse(closeCompletion.IsCompleted, "実キャプションCloseもplayer排出前に終端しません。");
                 Assert.IsFalse(composition.OperationAdmission.TryEnter(out _), "Close開始時に新規L受付を閉じます。");
                 Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _), "Close開始時に新規P受付を閉じます。");
+                observedClose.TrySetResult(closeCompletion);
                 if (packageIdle != null)
                 {
                     Assert.IsFalse(entered.Task.IsCompleted, "追跡導入の実終端前にplayer終端へ進みません。");
@@ -974,6 +1023,8 @@ public sealed class MainWindowViewHostTests
                 }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "player-drain-marker");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "terminal-shutdown"), "terminal-shutdown");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(closeCompletion, "caption-close-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(lifetime.ShutdownRequested.Task, "application-shutdown-terminal");
                 Assert.IsTrue(capturedBeforePlayer, $"player停止入口の捕捉幅={treeWidthAtPlayerClose}、指定幅=359。");
                 Assert.IsTrue(playerCompletedBeforeSave);
                 Assert.IsTrue(saveOnUi);
@@ -985,7 +1036,8 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
                 Assert.IsFalse(composition.OperationAdmission.TryEnter(out _), "実終端後もL受付を再開しません。");
                 Assert.IsFalse(composition.PlaylistOperationAdmission.TryEnter(out _), "実終端後もP受付を再開しません。");
-                window.Close();
+                // RecordingLifetimeは実Appを終了しないため、認可後も同じキャプションからactual Closedへ進めます。
+                InvokeCaption(window, "r", "caption-authorized-close");
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(windowClosed.Task, "player-drain-window-closed");
                 Assert.IsTrue(closed);
                 Assert.IsFalse(ExternalPlayerHostObservation.IsWindow(hostHandle));
@@ -999,41 +1051,48 @@ public sealed class MainWindowViewHostTests
             }
             finally
             {
-                observedClose.TrySetResult(window?.CloseCompletion ?? Task.CompletedTask);
                 packageRelease.Set();
                 release.Set();
-                try
+                observedClose.TrySetResult(window?.CloseCompletion ?? Task.CompletedTask);
+                Exception? cleanupFailure = null;
+                void Recover(Action cleanup, string diagnosticName)
                 {
-                    if (observation != null)
+                    try { cleanup(); }
+                    catch (Exception failure)
                     {
-                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "marker-cleanup"); }
-                        catch { /* 本体の失敗を保持し、下で所有資源を回収する。 */ }
-                        if (marker != null)
+                        Exception? primaryFailure = bodyFailure ?? cleanupFailure;
+                        if (primaryFailure != null)
                         {
-                            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(marker, "queued-marker-cleanup"); }
-                            catch { /* coordinator に伝播済みの assertion。 */ }
+                            primaryFailure.Data[diagnosticName] = failure.ToString();
                         }
+                        else { cleanupFailure = failure; }
                     }
-                    if (viewModel != null)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "close-package-cleanup");
-                    }
-
                 }
-                finally
+                if (observation != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(observation, "marker-cleanup"), "CaptionObservationCleanupFailure"); }
+                if (marker != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(marker, "queued-marker-cleanup"), "CaptionMarkerCleanupFailure"); }
+                if (initialization != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "initialization-cleanup"), "CaptionInitializationCleanupFailure"); }
+                if (packageIdle != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(packageIdle, "close-package-task-cleanup"), "CaptionPackageTaskCleanupFailure"); }
+                if (viewModel != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.PackageInstallWorkflow.WaitForIdleAsync(), "close-package-cleanup"), "CaptionPackageCleanupFailure"); }
+                if (closeCompletion != null) { Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(closeCompletion, "close-completion-cleanup"), "CaptionCloseCleanupFailure"); }
+                // 他Taskの合流中に到達したClickのprobeも含め、購読解除より前に回収します。
+                for (int index = 0; index < captionProbes.Count; index++)
                 {
-                    try { ownership?.DisposeAfterBodyFailure(bodyFailure); }
-                    finally { Ribbit.Media.Audio.BassAudioRuntime.Shutdown(); }
+                    Task probe = captionProbes[index];
+                    Recover(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(probe, "caption-probe-cleanup"), "CaptionProbeCleanupFailure" + index);
                 }
+                foreach ((Button button, RoutedEventHandler handler) in captionSubscriptions) { button.Click -= handler; }
+                foreach ((MainWindow target, EventHandler handler) in stateSubscriptions) { target.StateChanged -= handler; }
+                Recover(() => ownership?.DisposeAfterBodyFailure(bodyFailure ?? cleanupFailure), "CaptionWindowCleanupFailure");
+                Recover(Ribbit.Media.Audio.BassAudioRuntime.Shutdown, "CaptionAudioCleanupFailure");
+                if (bodyFailure == null && cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }
             }
         });
     }
 
     /// <summary>実導入中のmode保存はBusy通知で終端し、編集済みdraftとXMLを保ち、元worker終端後の明示保存だけを実行します。</summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    [DoNotParallelize]
+    [DataRow(false)] // 書込み可能なXMLでも実導入の受付中は保存しません。
+    [DataRow(true)] // XMLをlockしてもBusy拒否が先行し保存失敗へ進みません。
     public void MainWindowOperationModeSaveWhilePackageRunsReportsBusyAndRetainsDraft(bool saveBlocked)
     {
         using var directory = new TestTemporaryDirectory("mode-save-busy");
@@ -1043,7 +1102,7 @@ public sealed class MainWindowViewHostTests
         string settingsPath = Path.Combine(directory.Path, "user.config");
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new ManualResetEventSlim();
-        TestUiDispatcherHost.RunWindowTest(_ =>
+        TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel? viewModel = null;
             FileStream? blocker = null;
@@ -1137,70 +1196,31 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>実設定のモード切替はplayer終了をUI停止せず待ち、モードと履歴を保存して新プロセス開始後に旧Windowを終端します。</summary>
     [TestMethod]
-    [DoNotParallelize]
     public void MainWindowOperationModeRestartDrainsPlayerBeforeStartAndShutdown()
     {
-        RunMainWindowOperationModeRestartScenario(restartFailure: null);
+        RunMainWindowOperationModeRestartScenario();
     }
 
+    /// <summary>モード確認中に実Closeが先着するとモード保存と再起動を追加実行せず、先行Closeの保存と終端だけを完了します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void MainWindowOperationModeRestartFailureAwaitsNotificationBeforeShutdown()
-    {
-        RunMainWindowOperationModeRestartScenario(
-            new InvalidOperationException("replacement process could not start"));
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
-    public void MainWindowOperationModeRestartNotificationFailureStillShutsDown()
-    {
-        RunMainWindowOperationModeRestartScenario(
-            new InvalidOperationException("replacement process could not start"),
-            UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable));
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void MainWindowCloseDuringModeConfirmationPreservesEarlierCloseWithoutModeSave()
     {
-        RunMainWindowOperationModeRestartScenario(restartFailure: null, closeDuringConfirmation: true);
+        RunMainWindowOperationModeRestartScenario(closeDuringConfirmation: true);
     }
 
+    /// <summary>モードの実XML保存が失敗した時点では停止準備・再起動を始めず、元XMLと編集値を維持して専用保存例外を一回報告します。</summary>
     [TestMethod]
-    [DoNotParallelize]
-    public void MainWindowOperationModeRestartNotificationExceptionStillShutsDown()
-    {
-        RunMainWindowOperationModeRestartScenario(
-            new InvalidOperationException("restart failed"),
-            notificationFailure: new InvalidOperationException("notification failed"));
-    }
-
-    [TestMethod]
-    [DoNotParallelize]
     public void MainWindowOperationModeRestartSaveFailureRetainsSettingsWithoutShutdown()
     {
         RunMainWindowOperationModeRestartScenario(
-            restartFailure: null,
             operationModeSaveFailure: true);
     }
 
-    /// <summary>稼働profileのmode選択もL/P Busyではdraftを保ち、保存・確認・再起動を始めず、次の明示保存だけが成功します。</summary>
-    [DataTestMethod]
-    [DataRow("library")]
-    [DataRow("playlist")]
-    [DoNotParallelize]
-    public void MainWindowOperationModeSelectionBusyRetainsDraftWithoutSavingOrRestarting(string admission)
-        => RunMainWindowOperationModeRestartScenario(restartFailure: null, busyAdmission: admission);
-
     private static void RunMainWindowOperationModeRestartScenario(
-        Exception? restartFailure,
-        UiDialogResult? notificationResult = null,
-        Exception? notificationFailure = null,
         bool closeDuringConfirmation = false,
-        bool operationModeSaveFailure = false,
-        string? busyAdmission = null)
+        bool operationModeSaveFailure = false)
     {
         using var directory = new TestTemporaryDirectory("main-window-mode-restart");
         string settingsPath = Path.Combine(directory.Path, "user.config");
@@ -1235,10 +1255,7 @@ public sealed class MainWindowViewHostTests
         using var playerRelease = new ManualResetEventSlim(false);
         var playerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var restartEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var notificationEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var notificationRelease = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var settingsSaveFailureReported = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Exception? reportedRestartFailure = null;
         var reportedSettingsFailures = new List<Exception>();
         var events = new List<string>();
         object eventsLock = new();
@@ -1250,19 +1267,14 @@ public sealed class MainWindowViewHostTests
             }
         }
 
-        var dialogs = new AcceptedModeDialogService(
-            restartFailure == null ? null : notificationEntered,
-            notificationRelease,
-            notificationResult);
+        var dialogs = new AcceptedModeDialogService();
         var lifetime = new RecordingApplicationLifetime(
             onShutdown: () => AddEvent("shutdown"),
             restartApplication: () =>
             {
                 AddEvent("restart");
                 restartEntered.TrySetResult(true);
-                return restartFailure == null
-                    ? Task.CompletedTask
-                    : Task.FromException(restartFailure);
+                return Task.CompletedTask;
             });
         var settingsSession = new PersistentSettingsEditSession(
             settings,
@@ -1298,8 +1310,7 @@ public sealed class MainWindowViewHostTests
                     {
                         reportedSettingsFailures.Add(exception);
                         settingsSaveFailureReported.TrySetResult(exception);
-                    },
-                    reportRestartFailure: exception => reportedRestartFailure = exception);
+                    });
                 library = new TestBmsLibrary(
                     songDbPath,
                     getLR2Config: null,
@@ -1331,40 +1342,6 @@ public sealed class MainWindowViewHostTests
                 window = ownership.CreateWindow(() => new MainWindow(viewModel));
                 window.Closed += (_, _) => windowClosed = true;
                 if (closeDuringConfirmation) { settingsDialogs.OnConfirmation = window.Close; }
-                if (busyAdmission != null)
-                {
-                    byte[] before = File.ReadAllBytes(settingsPath);
-                    bool appliedMode = composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB;
-                    ChartFileOperationSynchronizer blocker = busyAdmission == "library"
-                        ? composition.OperationAdmission : composition.PlaylistOperationAdmission;
-                    Assert.IsTrue(blocker.TryEnter(out IDisposable lease));
-                    using (lease)
-                    {
-                        viewModel.SettingDialog.OperationModeLR2DB = true;
-                        Assert.IsTrue(viewModel.SettingDialog.OperationModeLR2DB);
-                        Assert.IsFalse(settings.OperationModeLR2DB);
-                        Assert.AreEqual(appliedMode, composition.CustomFolderOutputSettingsProvider().OperationModeLR2DB);
-                        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, settingsDialogs.Messages.Single().MessageBoxText);
-                        Assert.AreEqual(0, settingsDialogs.ConfirmationCount);
-                        Assert.AreEqual(0, settingsSession.ModeSaveCount);
-                        Assert.AreEqual(0, settingsSession.SaveCount);
-                        Assert.AreEqual(0, lifetime.RestartCount);
-                        Assert.AreEqual(0, lifetime.CoordinatedShutdownStartCount);
-                        Assert.IsFalse(viewModel.ShellShutdownWorkflow.IsShutdownPreparationStarted);
-                        CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
-                        if (busyAdmission == "playlist") { Assert.IsFalse(composition.OperationAdmission.IsActive); }
-                    }
-                    Assert.AreEqual(0, settingsSession.ModeSaveCount, "拒否要求を終端後に再実行しません。");
-                    viewModel.SettingDialog.SaveOperationModeForRestart(viewModel.SettingDialog.OperationModeLR2DB);
-                    Assert.AreEqual(1, settingsSession.ModeSaveCount);
-                    Assert.AreEqual(0, settingsSession.SaveCount);
-                    Assert.IsTrue(PortableSettingsPersistenceTests.OpenSettings(settingsPath).OperationModeLR2DB);
-                    window.Close();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "mode-selection-busy-normal-cleanup"), "mode-selection-busy-normal-cleanup");
-                    window.Close();
-                    Assert.IsTrue(windowClosed);
-                    return;
-                }
                 Assert.IsFalse(composition.OperationAdmission.IsActive, "mode保存は先行操作がない条件で要求します。");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     viewModel.PlaybackPanel.ReplacePlayerAsync(new FakeBmsPlayer(() =>
@@ -1454,34 +1431,12 @@ public sealed class MainWindowViewHostTests
                         TestUiDispatcherHost.AwaitNotificationAsync(restartEntered.Task, window.CloseCompletion, "mode-restart.restart-start"),
                         "MainWindowViewHostTests.mode-restart-start");
                 }
-                if (restartFailure != null)
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, window.CloseCompletion, "mode-restart.failure-notification"),
-                        "MainWindowViewHostTests.mode-restart-failure-notification");
-                    // 通知到達gateを保持した区間に終了が進まないことを観測します。
-                    Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
-                    Assert.AreEqual(1, settingsSession.SaveCount);
-                    if (notificationFailure != null)
-                    {
-                        notificationRelease.TrySetException(notificationFailure);
-                    }
-                    else
-                    {
-                        notificationRelease.TrySetResult(
-                            notificationResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-                    }
-                }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "MainWindowViewHostTests.mode-restart-shutdown"), "MainWindowViewHostTests.mode-restart-shutdown");
 
                 Assert.IsTrue(dispatcherMarkerObserved);
                 Assert.AreEqual(1, settingsSession.SaveCount);
                 Assert.AreEqual(closeDuringConfirmation || operationModeSaveFailure ? 0 : 1, lifetime.RestartCount);
                 Assert.AreEqual(1, lifetime.RequestShutdownCount);
-                if (notificationResult != null || notificationFailure != null)
-                {
-                    Assert.IsNotNull(reportedRestartFailure);
-                }
                 if (!closeDuringConfirmation && !operationModeSaveFailure)
                 {
                     Assert.IsTrue(IndexOfEvent(events, "restart") < IndexOfEvent(events, "shutdown"));
@@ -1490,7 +1445,6 @@ public sealed class MainWindowViewHostTests
                 Assert.AreEqual(!closeDuringConfirmation && !operationModeSaveFailure, persisted.OperationModeLR2DB);
                 Assert.AreEqual("history-initial", persisted.PlayHistorySelectedDisplayTargetIdentity);
                 Assert.AreEqual(operationModeSaveFailure || closeDuringConfirmation, persisted.ShowScoreViewerRegisterConfirmMsg);
-                Assert.AreEqual(restartFailure != null && !operationModeSaveFailure, dialogs.MessageShown);
 
                 if (!windowClosed)
                 {
@@ -1507,8 +1461,6 @@ public sealed class MainWindowViewHostTests
             {
                 observedClose.TrySetResult(window?.CloseCompletion ?? Task.CompletedTask);
                 playerRelease.Set();
-                notificationRelease?.TrySetResult(
-                    UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
                 settingsBlocker?.Dispose();
                 if (observation != null)
                 {
@@ -1520,14 +1472,8 @@ public sealed class MainWindowViewHostTests
                     {
                     }
                 }
-                try
-                {
-                    // 失敗時の未開始保守はshutdownが破棄し、開始済みworkは同じshutdown終端で回収します。
-                }
-                finally
-                {
-                    ownership?.DisposeAfterBodyFailure(bodyFailure);
-                }
+                // 失敗時の未開始保守を破棄し、開始済みworkを同じshutdown終端で回収します。
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
             }
         });
     }
@@ -1619,25 +1565,9 @@ public sealed class MainWindowViewHostTests
 
     private sealed class AcceptedModeDialogService : IUiDialogService
     {
-        private readonly TaskCompletionSource<bool>? messageEntered;
-        private readonly TaskCompletionSource<UiDialogResult>? messageCompletion;
-        private readonly UiDialogResult? messageResult;
-
-        internal AcceptedModeDialogService(
-            TaskCompletionSource<bool>? messageEntered = null,
-            TaskCompletionSource<UiDialogResult>? messageCompletion = null,
-            UiDialogResult? messageResult = null)
-        {
-            this.messageEntered = messageEntered;
-            this.messageCompletion = messageCompletion;
-            this.messageResult = messageResult;
-        }
-
         internal int ConfirmationCount { get; private set; }
 
         internal Action? OnConfirmation { get; set; }
-
-        internal bool MessageShown { get; private set; }
 
         /// <summary>実際に表示した通知を記録し、Busyと再起動失敗の接続を区別します。</summary>
         internal List<UiMessageRequest> Messages { get; } = [];
@@ -1655,15 +1585,8 @@ public sealed class MainWindowViewHostTests
             UiMessageRequest request,
             CancellationToken cancellationToken = default)
         {
-            MessageShown = true;
             Messages.Add(request);
-            messageEntered?.TrySetResult(true);
-            if (messageCompletion != null)
-            {
-                return messageCompletion.Task;
-            }
-            return Task.FromResult(
-                messageResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(

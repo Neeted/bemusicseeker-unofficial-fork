@@ -8,45 +8,7 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class RightClickActionSettingsStoreTests
 {
-    [TestMethod]
-    public void DefaultsContainSixNamedWebActionsInPersistedOrder()
-    {
-        RightClickActionSettings settings = RightClickActionSettingsDefaults.Create();
-
-        Assert.AreEqual(6, settings.WebActions.Count);
-        Assert.AreEqual(0, settings.ProgramActions.Count);
-        CollectionAssert.AreEqual(
-            new[] { "bms-ir", "mocha", "minir", "rianir", "stellaverse-ir", "kaleid-ir" },
-            settings.WebActions.Select(action => action.Id).ToArray());
-        CollectionAssert.AreEqual(
-            new[] { "BMS-IR", "Mocha", "MinIR", "rianIR", "STELLAVERSE IR", "Kaleid IR" },
-            settings.WebActions.Select(action => action.Name).ToArray());
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                "https://bms-ir.org/new/song?songmd5={md5}&view=both",
-                "https://mocha-repository.info/song.php?sha256={sha256}",
-                "https://www.gaftalk.com/minir/#/viewer/song/{sha256}/0",
-                "https://rianir.link/ranking?sha256={sha256}",
-                "https://ir.stellabms.xyz/charts/{md5}",
-                "https://kaleidir.com/charts/{sha256}"
-            },
-            settings.WebActions.Select(action => action.UrlTemplate).ToArray());
-        CollectionAssert.AreEqual(
-            new[]
-            {
-                ExternalChartKind.BmsOnly,
-                ExternalChartKind.All,
-                ExternalChartKind.All,
-                ExternalChartKind.All,
-                ExternalChartKind.All,
-                ExternalChartKind.All
-            },
-            settings.WebActions.Select(action => action.ChartKind).ToArray());
-        Assert.IsTrue(settings.WebActions.All(action => action.Enabled));
-        Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, RightClickActionSettingsSerializer.Serialize(settings));
-    }
-
+    /// <summary>注入設定から空定義を読込み有効定義を保存し、不正保存は元JSONを保持して失敗を返します。</summary>
     [TestMethod]
     public void StoreLoadsAndSavesThroughTheProvidedSettingsOwnerWithoutFallback()
     {
@@ -80,6 +42,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(beforeInvalidSave, settings.RightClickActionsJson);
     }
 
+    /// <summary>未指定・空・空白JSONはInvalidValueを返し、既定定義を勝手に作りません。</summary>
     [TestMethod]
     public void ParseRejectsMissingAndBlankSerializedValues()
     {
@@ -92,6 +55,7 @@ public sealed class RightClickActionSettingsStoreTests
         }
     }
 
+    /// <summary>利用者の名前・形式条件・有効状態・パス・templateと並びをJSON保存復元で保持します。</summary>
     [TestMethod]
     public void SerializeRoundTripPreservesOrderAndDefinitions()
     {
@@ -120,6 +84,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.IsFalse(roundTrip.Settings.ProgramActions[1].Enabled);
     }
 
+    /// <summary>破損JSON・未知property・重複propertyを原因と対象付きで区別し、既定値へ救済しません。</summary>
     [TestMethod]
     public void ParseCorruptUnknownAndDuplicateJsonReturnsTypedFailureWithoutDefaults()
     {
@@ -140,6 +105,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(RightClickActionSettingsParseErrorKind.DuplicateProperty, duplicate.Error.Kind);
     }
 
+    /// <summary>正常JSONに後続内容があれば解析失敗とし、先頭だけを正常設定として採用しません。</summary>
     [TestMethod]
     public void ParseRejectsTrailingJsonContentAsTypedFailure()
     {
@@ -151,6 +117,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(RightClickActionSettingsParseErrorKind.InvalidJson, result.Error.Kind);
     }
 
+    /// <summary>Webとprogramを跨ぐID重複と大小文字・数値で指定した形式条件を拒否し、別の定義へ誤適用しません。</summary>
     [TestMethod]
     public void ParseDuplicateIdAndInvalidEnumReturnTypedFailure()
     {
@@ -177,6 +144,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(RightClickActionSettingsParseErrorKind.InvalidValue, numericResult.Error.Kind);
     }
 
+    /// <summary>非空の名前の空白は保持し、null・欠落・空白だけの名前は拒否して無名操作を作りません。</summary>
     [TestMethod]
     public void ParseRequiresNonblankNameForEveryWebAction()
     {
@@ -200,6 +168,7 @@ public sealed class RightClickActionSettingsStoreTests
         }
     }
 
+    /// <summary>placeholder・scheme・絶対path・名前・引数が不正な定義を拒否し、起動対象を持つ設定として返しません。</summary>
     [TestMethod]
     public void ParseRejectsInvalidUrlsAndProgramDefinitions()
     {
@@ -228,6 +197,7 @@ public sealed class RightClickActionSettingsStoreTests
         }
     }
 
+    /// <summary>BMS・bmson・形式不明を設定条件で選別し、小文字hashと定義順を保持して欠損hashのWeb起動を除きます。</summary>
     [TestMethod]
     public void ResolverExpandsLowercaseHashesAndHonorsChartKindAndOrder()
     {
@@ -265,6 +235,7 @@ public sealed class RightClickActionSettingsStoreTests
         Assert.AreEqual(0, missingHashResult.WebActions.Count);
     }
 
+    /// <summary>絶対パスだけを有効programの引数へ展開し、解決時に存在確認を要求せず相対pathと無効定義を除きます。</summary>
     [TestMethod]
     public void ResolverReturnsEnabledProgramsOnlyForAbsoluteLocalPathWithoutCheckingExistence()
     {

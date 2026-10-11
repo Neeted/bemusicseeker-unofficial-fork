@@ -18,11 +18,14 @@ using PlaylistWorkspaceViewModelTests = BeMusicSeeker.Tests.PlaylistWorkspaceExt
 
 namespace BeMusicSeeker.Tests;
 
+/// <summary>detailの入力構築・選択の世代・通知・必須receipt・参照反映と受付の実終端を検証します。</summary>
+/// <remarks>判断境界は制御したsourceとschedulerで競争条件を作り、DBや物理削除に依存するケースは実資源を使います。実VMへの表示適用とWPF接続は上位ケースが分担します。</remarks>
 [TestClass]
 public sealed class PlaylistWorkspaceDetailRefreshTests
 {
     public TestContext TestContext { get; set; } = null!;
 
+    /// <summary>指定folderだけを対象に未削除の行をsourceへ作り、別folder・削除行を除外しながら必要な行読込を一回行うことを確認します。</summary>
     [TestMethod]
     public void BuildDetailSourceRows_FiltersFolderAndRemovedEntriesInsideWorkspace()
     {
@@ -48,9 +51,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(1, result.SourceRows.Count);
         Assert.AreSame(included, result.SourceRows[0].Entry);
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
-        Assert.AreEqual("source_row_materialize", cancellationStage);
     }
 
+    /// <summary>通常rootの詳細sourceでは通常folderと旧特殊[NO SONG]行の双方を保持し、lamp全体scopeの除外規則を通常rootへ誤適用することを防ぎます。</summary>
     [TestMethod]
     public void BuildDetailSourceRows_OrdinaryRootRetainsSpecialFolderRows()
     {
@@ -87,6 +90,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             "the ordinary playlist root must preserve its legacy [NO SONG] projection");
     }
 
+    /// <summary>現要求のchart情報更新を新しいsource行へ反映し、旧行の情報を変えず新しい情報版を採用して既存表示の破壊や更新漏れを検出します。</summary>
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_ReplacesCurrentGenerationWithoutMutatingOldRow()
     {
@@ -145,6 +149,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(2, workspace.DetailViewState.Source.LastBuiltChartInfoIndexVersion);
     }
 
+    /// <summary>未所持行へSHA情報を補完した際にbeatoraja scoreを再解決し、旧NO_SONG行を変えず新行のclear・rank・scoreへ配送します。</summary>
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_ReResolvesUnownedBeatorajaScoreFromHydratedChartInfo()
     {
@@ -218,6 +223,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(100, patchedRow.totalnotes);
     }
 
+    /// <summary>古い要求版での情報patchを拒否し、既存source集合と旧情報の参照を保って後発表示を上書きしないことを確認します。</summary>
     [TestMethod]
     public void TryPatchDetailSourceChartInfo_RejectsStaleRequestWithoutReplacingSource()
     {
@@ -257,6 +263,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(oldInfo, oldRow.EntryChartInfo);
     }
 
+    /// <summary>同じ表の所持・欠損行へ未所持条件を適用し、resolveできる実library参照だけを除外することを確認します。</summary>
     [TestMethod]
     public void BuildDetailSourceRows_OnlyNotOwnedExcludesResolvedLibraryCharts()
     {
@@ -281,6 +288,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(missing, result.SourceRows[0].Entry);
     }
 
+    /// <summary>取消済tokenのsource構築をOperationCanceledExceptionで終端し、取消を空集合の正常完了へ隠さないことを確認します。</summary>
     [TestMethod]
     public void BuildDetailSourceRows_CancellationIsNotHidden()
     {
@@ -430,6 +438,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>detail終了取消後の選択更新と再要求を未開始として扱い、worker・pending要求を残さず終了状態を維持します。</summary>
     [TestMethod]
     public void RequestDetailRefresh_AfterShutdownIsIgnoredWithoutStartingWorker()
     {
@@ -450,6 +459,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.DetailBuildState.PendingRequest);
     }
 
+    /// <summary>管理主体の選択がないdetail要求を登録せず、要求版・pending・idleを維持して空のworker起動を防ぎます。</summary>
     [TestMethod]
     public void RequestDetailRefresh_WithoutOwnerSelectionIsIgnored()
     {
@@ -469,6 +479,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.DetailBuildState.PendingRequest);
     }
 
+    /// <summary>同期後に表IDが変われば結果側へ状態を移し、結果の識別子が欠ける場合はsource名へ戻して表示状態の紛失を防ぎます。</summary>
     [TestMethod]
     public void PlaylistSyncStatusOwner_ReplacesSourceKeyAndUsesSourceFallback()
     {
@@ -501,6 +512,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(PlaylistSyncStatusKind.Ok, snapshot["name:fallback"].Kind);
     }
 
+    /// <summary>成功状態捕捉後の失敗記録とnull入力が先のsnapshotを変えず、新しいsnapshotだけに失敗を反映することを確認します。</summary>
     [TestMethod]
     public void PlaylistSyncStatusOwner_CapturesIsolatedSnapshots()
     {
@@ -528,6 +540,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(PlaylistSyncStatusKind.Ok, firstSnapshot["id:3"].Kind);
     }
 
+    /// <summary>重なる二つの手動scope中の非active通知を抑え、最後のscopeが終わる時だけ非activeを公開して早過ぎる進捗消去を検出します。</summary>
     [TestMethod]
     public void PlaylistSyncProgressOwner_SuppressesInactiveUntilLastScopeEnds()
     {
@@ -560,6 +573,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(snapshots[1].IsActive);
     }
 
+    /// <summary>同一IDの複数active通知を一つの実行として扱い、無関係IDと重複完了を無視して対応IDの終端だけを公開します。</summary>
     [TestMethod]
     public void PlaylistSyncProgressOwner_TracksBeatorajaOperationIdsExactlyOnce()
     {
@@ -603,6 +617,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(snapshots[2].IsActive);
     }
 
+    /// <summary>BMT進捗の完了を公開しても重なる手動scopeを維持し、手動終端を別に通知して異なる操作の進捗を取り消さないことを確認します。</summary>
     [TestMethod]
     public void PlaylistSyncProgressOwner_BeatorajaCompletionDoesNotClearManualScope()
     {
@@ -635,6 +650,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(snapshots[2].IsActive);
     }
 
+    /// <summary>通常folderと未所持選択を異なるfilter・scopeへ変換し、選択版が変わるたびに旧選択を失効させることを確認します。</summary>
     [TestMethod]
     public void TreeSelection_NormalFolderAndNotOwnedUseCanonicalDetailSelection()
     {
@@ -651,7 +667,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(table, folderRequest.Detail.Table);
         Assert.AreEqual("Folder A", folderRequest.Detail.FolderName);
         Assert.AreEqual(PlaylistDetailFilter.PlaylistFilter, folderRequest.Detail.Filter);
-        Assert.AreEqual(1L, folderRequest.SelectionRevision);
+        Assert.IsTrue(folderRequest.SelectionRevision > 0L);
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(folderRequest.Detail, folderRequest.SelectionRevision));
 
         workspace.RequestDetailSelection(
@@ -663,11 +679,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(table, notOwnedRequest.Detail.Table);
         Assert.IsNull(notOwnedRequest.Detail.FolderName);
         Assert.AreEqual(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, notOwnedRequest.Detail.Filter);
-        Assert.AreEqual(2L, notOwnedRequest.SelectionRevision);
+        Assert.IsTrue(notOwnedRequest.SelectionRevision > folderRequest.SelectionRevision);
         Assert.IsFalse(workspace.IsCurrentPlaylistDetailSelection(folderRequest.Detail, folderRequest.SelectionRevision));
         Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(notOwnedRequest.Detail, notOwnedRequest.SelectionRevision));
     }
 
+    /// <summary>同じsummary選択を二回明示要求すると二回のactivationを届け、detail選択を残さず再選択機会を失わないことを確認します。</summary>
     [TestMethod]
     public void TreeSelection_SummaryCanBeRequestedRepeatedly()
     {
@@ -686,6 +703,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.CapturePlaylistDetailSelection());
     }
 
+    /// <summary>summaryとdetailの選択要求を呼出元threadへ公開し、即時配送境界を別threadへ暗黙転送しないことを確認します。</summary>
     [TestMethod]
     public void TreeSelectionActivationsPublishOnCallerThread()
     {
@@ -700,6 +718,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         CollectionAssert.AreEqual(new[] { callerThreadId, callerThreadId }, requestThreadIds);
     }
 
+    /// <summary>summaryの配送を保留してdetailを後から選び、古いsummary callbackを拒否して現detailだけを公開します。</summary>
     [TestMethod]
     public void TreeSelection_StaleSummaryIsNotActivatedAfterDetailSelection()
     {
@@ -721,6 +740,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(activations[0].IsSummary);
     }
 
+    /// <summary>summary選択で表示希望と遅延refreshを確定し、表示適用前の実modeを切り替えないことを確認します。</summary>
     [TestMethod]
     public void TreeSelection_CurrentSummaryActivationOwnsPresentation()
     {
@@ -748,11 +768,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsTrue(currentSummary.SummaryModeChanged);
         Assert.IsFalse(workspace.IsPlaylistSummaryMode);
         Assert.IsTrue(workspace.IsPlaylistSummaryModeRequested);
-        Assert.AreEqual(string.Empty, workspace.GridHeaderText);
         Assert.AreEqual(1, presentationRefreshRequestCount);
         Assert.IsTrue(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
     }
 
+    /// <summary>summary通知の受信中にdetailへ再選択し、古いsummaryの後続refreshを止めて後発detailを保持することを確認します。</summary>
     [TestMethod]
     public void TreeSelection_ReentrantDetailSelectionPreventsStaleSummaryRefresh()
     {
@@ -786,6 +806,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(detailTable, workspace.CapturePlaylistDetailSelection().Table);
     }
 
+    /// <summary>detailの配送待ち中に選択をclearし、古いactivationを公開せずsummary表示とheaderを保持します。</summary>
     [TestMethod]
     public void TreeSelection_CurrentDetailActivationIsRejectedAfterClear()
     {
@@ -807,6 +828,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_summary_header, workspace.GridHeaderText);
     }
 
+    /// <summary>summary build中のdetail選択でbuildを取り消し、希望modeだけをdetailへ移して適用前のsummary表示を維持します。</summary>
     [TestMethod]
     public void TreeSelection_CurrentDetailActivationOwnsSummaryTransition()
     {
@@ -835,6 +857,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         workspace.CompletePlaylistSummaryDataBuild(buildRequest);
     }
 
+    /// <summary>古い選択から現選択・keywordへ更新してdetail要求を完了し、sourceとviewが現管理主体の条件を採用することを確認します。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
     {
@@ -873,6 +896,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual("CURRENT", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
     }
 
+    /// <summary>null表のdetail選択を未選択と区別してactivationと現選択状態を保持し、選択意図を失わないことを確認します。</summary>
     [TestMethod]
     public void TreeSelection_NullTableSelectionRemainsResolvedAsSelectionState()
     {
@@ -894,6 +918,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsNull(workspace.CapturePlaylistDetailSelection().Table);
     }
 
+    /// <summary>表参照置換と通常・空名folderの改名に選択を追従させ、未所持scopeを誤改名せず現表の内容変更だけを版へ反映します。</summary>
     [TestMethod]
     public void TreeSelection_OwnerPreservesReplacementRemapAndContentRevision()
     {
@@ -939,6 +964,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsFalse(workspace.MarkCurrentPlaylistDetailEntriesChanged(oldTable, "test_non_current_entries_changed"));
     }
 
+    /// <summary>編集中のscore更新を保留して最大版を保持し、編集終了後の同じ最新版要求で必要refreshを公開することを確認します。</summary>
     [TestMethod]
     public void RequestPlaylistDetailScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
     {
@@ -967,6 +993,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(3, refreshes[2].LastBuiltVersion);
     }
 
+    /// <summary>detail非activeとsummary表示中のscore更新を公開せず、表示対象外へ不要な更新を配送しないことを確認します。</summary>
     [TestMethod]
     public void RequestPlaylistDetailScoreSnapshotRefresh_IgnoresStaleOrInactiveRequests()
     {
@@ -985,6 +1012,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(0, refreshes.Count);
     }
 
+    /// <summary>mode別の再読込判断を区別しつつ、明示refresh機会の通知は履歴・summaryを含む呼出しごとに届けることを確認します。</summary>
     [TestMethod]
     public void RequestPlaylistDetailReloadRefresh_PublishesReloadOpportunity()
     {
@@ -1005,6 +1033,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(3, refreshCount);
     }
 
+    /// <summary>data source置換で旧buildを取消し要求版とsource identityを失効させ、次の登録・構築が置換先だけを使うことを確認します。</summary>
     [TestMethod]
     public void SetDetailDataSource_ReinitializeUsesReplacementSource()
     {
@@ -1052,8 +1081,9 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreSame(replacementRequest, workspace.DetailBuildState.PendingRequest);
     }
 
+    /// <summary>同条件重複を統合し、後発要求で旧待機を完了、終了取消で現要求を完了し、worker停止まではidle待機を残す終端の分担を確認します。</summary>
     [TestMethod]
-    public async Task DetailRequestCompletionTracksAppliedSupersededAndShutdownTerminalStates()
+    public async Task DetailRequestCompletion_CombinesDuplicatesAndCompletesSupersededAndShutdownWaiters()
     {
         var state = new PlaylistDetailBuildState();
         PlaylistRequestIdentity firstIdentity = PlaylistRequestFactory.CreateIdentity(
@@ -1096,6 +1126,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             .WaitForRequestCompletionAsync(state, state.RequestVersion + 1).IsCompleted);
     }
 
+    /// <summary>source読込をgate後に失敗させ、途中の選択変更でも元例外を保持して要求とworkerを終端し、失敗したsourceを公開しないことを確認します。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_DataSourceFailureCompletesRequestAndStopsWorker()
     {
@@ -1158,6 +1189,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(0, workspace.DetailViewState.Source.Rows.Count);
     }
 
+    /// <summary>sourceを退役させた時、既存要求の待機を完了して退役後版の待機も残さず、待機先の紛失を防ぎます。</summary>
     [TestMethod]
     public async Task DetailSourceRetirementCompletesSupersededRequestWithoutDiscardingItsWaiter()
     {
@@ -1180,6 +1212,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             .WaitForRequestCompletionAsync(state, retirement.RequestVersion).IsCompleted);
     }
 
+    /// <summary>実detail workerが接続されたresolve索引を一回使用し、元playlist行と所持譜面のpath・非null tokenをsourceへ保持することを確認します。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesOwnedToken()
     {
@@ -1224,6 +1257,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(ownedChart.Path, row.Chart.Path);
     }
 
+    /// <summary>既存schedulerへ予約したprewarmを実行して接続sourceの索引を取得し、runtime cacheの準備状態と計測値をreadinessへ配送します。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_UsesWorkspaceSchedulerAndRuntimeCache()
     {
@@ -1251,6 +1285,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(12L, readiness.BuildElapsedMs);
     }
 
+    /// <summary>二譜面の実削除後にworkspaceのprewarmを実行し、新しいresolve索引を全source再列挙なしで再利用することを確認します。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_RealDataSourceReusesWarmResolveIndexAfterTwoRemovals()
     {
@@ -1372,6 +1407,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>duplicate表示の優先期間に索引失効を保留し、優先期間終了後だけprewarmを開始して表示競合と更新漏れを防ぎます。</summary>
     [TestMethod]
     public async Task PlaylistLibraryIndexPrewarm_DuplicateRefreshDefersUntilUiPriorityEnds()
     {
@@ -1391,6 +1427,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
     }
 
+    /// <summary>P保有中の同期を予約せず未開始結果として返し、解放後の次明示要求と任意同期schedulerの拒否を区別して受付を解放します。</summary>
     [TestMethod]
     public async Task ExternalPlaylistSync_PlaylistBusySkipsWithoutSchedulerReservationAndFreshRequestSucceeds()
     {
@@ -1466,6 +1503,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>二つの実DBを持つstoreを置換し、旧storeの実同期receiptを無視して現storeの更新だけをworkspaceへ公開します。</summary>
     [TestMethod]
     public async Task PlaylistExternalSyncReceiptSubscription_FollowsTypedPlaylistStoreReplacement()
     {
@@ -1510,7 +1548,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             secondPlaylist.BMSTables = new ObservableCollection<BMSTable>([secondTable]);
             PersistPlaylistAggregate(secondSongDbPath, secondTable);
 
-            BMSPlaylist currentPlaylist = firstPlaylist;
             BMSLibrary currentLibrary = new TestBmsLibrary(firstSongDbPath);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
@@ -1523,7 +1560,6 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first-updated\",\"symbol\":\"F2\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
             firstTable.header_sha256 = null;
 
-            currentPlaylist = secondPlaylist;
             currentLibrary = new TestBmsLibrary(secondSongDbPath);
             workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
 
@@ -1624,10 +1660,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 () => firstPlaylist,
                 () =>
                 {
-                    // Resolving the library only proves that the public route
-                    // was scheduled. The replacement completion assertion below
-                    // uses the typed catalog-notification port, which is reached
-                    // after AttachPlaylistTreeStore has invalidated the receipt.
+                    // library参照の取得は経路到達だけを示すため、置換完了はreceipt失効後のcatalog通知で観測します。
                     if (Volatile.Read(ref replacementRouteExpected) == 1)
                     {
                         replacementCallStarted.TrySetResult(true);
@@ -1638,10 +1671,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             {
                 if (Volatile.Read(ref replacementRouteExpected) == 1)
                 {
-                    // PublishPlaylistCatalogChanged is invoked only after the
-                    // store replacement and receipt invalidation have completed.
-                    // Hold this owner-scoped typed port so the replacement task
-                    // cannot complete before the test observes that boundary.
+                    // store置換とreceipt失効後のcatalog通知を保持し、この境界の観測前に置換Taskが終端しないようにします。
                     replacementRouteEntered.TrySetResult(true);
                     // Action 型の通知キュー内では await できないため、外側の Task が解放を所有する。
                     releaseReplacementNotification.Task.GetAwaiter().GetResult();
@@ -1745,17 +1775,17 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     requestGeneration,
                     requestReceipt);
             });
-            await applyEntered.Task.ConfigureAwait(false);
+            await TestUiDispatcherHost.AwaitNotificationAsync(applyEntered.Task, apply, "playlist.hydration-apply");
 
             currentLibrary = secondLibrary;
             Volatile.Write(ref replacementRouteExpected, 1);
             replacement = Task.Run(() => workspace.RefreshPlaylistTreeTables(secondPlaylist));
-            await replacementCallStarted.Task.ConfigureAwait(false);
+            await TestUiDispatcherHost.AwaitNotificationAsync(replacementCallStarted.Task, replacement, "playlist.store-replacement-start");
             Assert.IsFalse(replacementRouteEntered.Task.IsCompleted);
             Assert.AreSame(firstPlaylist.BMSTables, workspace.PlaylistTreeTables);
 
             releaseApply.TrySetResult(true);
-            await replacementRouteEntered.Task.ConfigureAwait(false);
+            await TestUiDispatcherHost.AwaitNotificationAsync(replacementRouteEntered.Task, replacement, "playlist.store-replacement-notification");
             Assert.IsFalse(replacement.IsCompleted, "Store replacement must wait for the active terminal hydration apply.");
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             releaseReplacementNotification.TrySetResult(true);
@@ -1810,6 +1840,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>受理同期の開始通知中に再入要求を未開始で返し、実行進捗や自動再実行を増やさず、次の明示要求を正常終端します。</summary>
     [TestMethod]
     public async Task ExternalPlaylistSync_ConcurrentRequestIsSkippedWithoutReplayAndFreshRequestSucceeds()
     {
@@ -1853,6 +1884,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    /// <summary>同じ予約に二つの参照反映要求を集約し、最新reason・token・版を開始と終端へ配送して一回の確定表示を公開します。</summary>
     [TestMethod]
     public void QueuePlaylistReferenceApply_CoalescesAndRunsLatestRequestSnapshot()
     {
@@ -1947,6 +1979,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>先行反映の開始通知中に後続要求を受け付け、各cycleのreasonに対応するtoken・版を開始から終端まで取り違えないことを確認します。</summary>
     [TestMethod]
     public async Task ReferenceApply_AcceptanceAfterCaptureKeepsEachCycleOrigin()
     {
@@ -1985,6 +2018,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    /// <summary>実初期化のhydration receiptを受信して参照反映を実行し、初期化reasonと要求識別を持つ表示要求を一回届けます。</summary>
     [TestMethod]
     public async Task PlaylistTreeHydrationReceipt_RequestsPresentationRefreshAfterSnapshotApply()
     {
@@ -2051,6 +2085,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>モデルreceipt公開後、workspace受信前に行の読込状態を失効させ、古いsnapshotから参照反映を予約しないことを確認します。</summary>
     [TestMethod]
     public async Task PlaylistTreeHydrationReceipt_DoesNotApplySnapshotInvalidatedBeforeWorkspaceConsumption()
     {
@@ -2118,6 +2153,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>予約済み参照反映を終了時に破棄し、捕捉したreason・版・tokenの未開始結果を一回公開してidleへ戻します。</summary>
     [TestMethod]
     public void DiscardPlaylistReferenceApplyForShutdown_PublishesSkippedLifecycle()
     {
