@@ -43,7 +43,11 @@
       },
       {
         "contractId": "START-ADMIT",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_AdmitsImportBeforeReadinessAndRunsItAfterward"
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupRequiredInitializationTests.RequiredInitialization_HoldsBothAdmissionsUntilLr2TerminalAndWritesSavedOutputs"
+      },
+      {
+        "contractId": "START-ADMIT-UI",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.MainWindowViewModelStartupProgressTests.StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts"
       },
       {
         "contractId": "START-DEFER",
@@ -51,7 +55,11 @@
       },
       {
         "contractId": "START-SHUTDOWN",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_ShutdownTerminalizesWaiterAndImportQueue"
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.StartupReadiness_ShutdownTerminalizesWaitersDespiteCallbackFailure"
+      },
+      {
+        "contractId": "START-SHUTDOWN-DRAIN",
+        "fullyQualifiedName": "BeMusicSeeker.Tests.MainWindowViewHostTests.MainWindowCloseDuringRequiredStartupBmtCancellationJoinsAndDoesNotPresentLateFailure"
       },
       {
         "contractId": "DB-RETRY",
@@ -75,7 +83,7 @@
       },
       {
         "contractId": "FAIL-STARTUP",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.InitializationService_RunInitialize_PropagatesContinuationFailure"
+        "fullyQualifiedName": "BeMusicSeeker.Tests.StartupLibraryInitializationWorkflowOwnerTests.InitializationService_RunInitialization_PropagatesContinuationFailure"
       },
       {
         "contractId": "FAIL-DETAIL",

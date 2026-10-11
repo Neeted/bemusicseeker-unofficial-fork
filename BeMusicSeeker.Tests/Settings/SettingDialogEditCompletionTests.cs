@@ -32,7 +32,7 @@ namespace BeMusicSeeker.Tests;
 
 [TestClass]
 [DoNotParallelize]
-public sealed class SettingDialogEditCompletionTests
+public sealed partial class SettingDialogEditCompletionTests
 {
     public TestContext TestContext { get; set; } = null!;
 
@@ -6070,12 +6070,12 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    private static Settings CreateValidCustomFolderSettings(string root, IEnumerable<string> registeredRoots)
+    private static Settings CreateValidCustomFolderSettings(string root, IEnumerable<string> registeredRoots, Settings? ownedValues = null)
     {
         string songs = Path.Combine(root, "Songs");
         Directory.CreateDirectory(songs);
         (string songDb, string configPath) = CreateValidLr2Layout(root);
-        Settings values = CreateValidStandaloneSettings(songs);
+        Settings values = CreateValidStandaloneSettings(songs, ownedValues);
         values.OperationModeLR2DB = true;
         values.LR2RootPath = root;
         values.LR2SongDBPath = songDb;
@@ -6120,7 +6120,7 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     private static MainWindowViewModel CreateViewModel(
-        CountingSettingsEditSession settingsSession,
+        ISettingsEditSession settingsSession,
         bool firstStartup,
         Func<MainWindowViewModel, Task<bool>>? initializeOwner = null,
         Func<MainWindowViewModel, Task>? reloadScoresOnly = null,
@@ -6379,27 +6379,29 @@ public sealed class SettingDialogEditCompletionTests
             => Current.Scan(roots, extensions, verboseLog, includeTextSurface, includeDirectorySurface);
     }
 
-    private static Settings CreateValidStandaloneSettings(string root)
+    private static Settings CreateValidStandaloneSettings(string root, Settings? ownedValues = null)
     {
-        Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
-            {
-                values.OperationModeLR2DB = false;
-                values.BMSRootPath = root;
-                values.StandaloneBmsRootPaths = root;
-                values.BMSInstallDir = root;
-                values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
-                values.EnablePlaylistUrlCompletion = false;
-                values.ScanBmsFilesOnStartup = false;
-                values.SkipInitPlaylistLoad = true;
-                values.UseBeatorajaScoreDb = false;
-                values.EnableBeatorajaBmtOutput = false;
-                values.UseExternalPanelImage = false;
-                values.UsePlayeruBMplay = false;
-                values.UsePlayerLR2body = false;
-                values.UsePlayerBMIIDXView = false;
-                values.IsLR2BackupEnabled = false;
-                values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
-            });
+        Settings settings = ownedValues ?? MainWindowViewModelTestFactory.CreateIsolatedSettings();
+        void Configure(Settings values)
+        {
+            values.OperationModeLR2DB = false;
+            values.BMSRootPath = root;
+            values.StandaloneBmsRootPaths = root;
+            values.BMSInstallDir = root;
+            values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+            values.EnablePlaylistUrlCompletion = false;
+            values.ScanBmsFilesOnStartup = false;
+            values.SkipInitPlaylistLoad = true;
+            values.UseBeatorajaScoreDb = false;
+            values.EnableBeatorajaBmtOutput = false;
+            values.UseExternalPanelImage = false;
+            values.UsePlayeruBMplay = false;
+            values.UsePlayerLR2body = false;
+            values.UsePlayerBMIIDXView = false;
+            values.IsLR2BackupEnabled = false;
+            values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
+        }
+        Configure(settings);
         return settings;
     }
 

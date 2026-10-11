@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -12,6 +16,93 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>既存の音源不足7z・RAR・LZHを借用入力として実native展開から共通導入へ渡し、三譜面の実bytes、install DBと保留正本、借用元と対象外ファイルの保全を確認します。入れ子構造はZIPの共有経路代表へ分担します。</summary>
+    [DataTestMethod]
+    [DataRow("fixture.7z")]
+    [DataRow("fixture.rar")]
+    [DataRow("fixture.lzh")]
+    [DoNotParallelize]
+    public async Task AutoInstall_NativeArchiveFormatsReachRealPendingStoreWithoutConsumingBorrowedSource(string fileName)
+    {
+        using var fixture = new ManagedArchiveInstallFixture();
+        string input = Path.Combine(fixture.Root, fileName);
+        byte[] source = File.ReadAllBytes(GetArchiveFixturePath(fileName));
+        File.WriteAllBytes(input, source);
+        string unrelated = Path.Combine(fixture.InstallRoot, "unrelated.txt");
+        File.WriteAllBytes(unrelated, [8, 4, 2]);
+        var expected = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        using (ZipArchive reference = ZipFile.OpenRead(GetArchiveFixturePath("fixture.zip")))
+        {
+            foreach (ZipArchiveEntry entry in reference.Entries)
+            {
+                using Stream content = entry.Open();
+                using var bytes = new MemoryStream();
+                content.CopyTo(bytes);
+                expected.Add(entry.FullName, bytes.ToArray());
+            }
+        }
+        CollectionAssert.AreEquivalent(new[] { "maybe_D.bms", "maybe_E.bms", "maybe_H.bms" }, expected.Keys.ToArray());
+        PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
+            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
+        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, result.RegisteredPackages.Count);
+        Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+        Assert.AreEqual(0, fixture.Library.BmsCharts.Count);
+        ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
+        CollectionAssert.AreEquivalent(expected.Keys.ToArray(), pending.ChartEntries.Select(entry => Path.GetFileName(entry.Chart.Path)).ToArray());
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
+        Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+        foreach (PackageChartEntry entry in pending.ChartEntries)
+        {
+            CollectionAssert.AreEqual(expected[Path.GetFileName(entry.Chart.Path)], File.ReadAllBytes(entry.Chart.Path));
+        }
+        CollectionAssert.AreEqual(source, File.ReadAllBytes(input));
+        CollectionAssert.AreEqual(new byte[] { 8, 4, 2 }, File.ReadAllBytes(unrelated));
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+    }
+
+    /// <summary>入れ子ZIPを実native展開と導入へ通し、展開entry名と譜面からの音源相対構造・bytes、実DBと所持正本、借用元を確認します。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public async Task AutoInstall_NestedZipPreservesChartRelativeResourceStructureThroughRealInstall()
+    {
+        using var fixture = new ManagedArchiveInstallFixture();
+        string source = Path.Combine(fixture.Root, "nested-source");
+        string chartRoot = Path.Combine(source, "wrapper", "work");
+        string resource = Path.Combine(chartRoot, "sound", "sub", "tone.wav");
+        Directory.CreateDirectory(Path.GetDirectoryName(resource) ?? throw new AssertFailedException());
+        byte[] chartBytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#TITLE Nested\r\n#BPM 120\r\n#WAV01 sound/sub/tone.wav\r\n#00111:01\r\n");
+        File.WriteAllBytes(Path.Combine(chartRoot, "chart.bms"), chartBytes);
+        byte[] resourceBytes = [1, 9, 7, 3];
+        File.WriteAllBytes(resource, resourceBytes);
+        string archive = Path.Combine(fixture.Root, "nested.zip");
+        ZipFile.CreateFromDirectory(source, archive);
+        byte[] archiveBytes = File.ReadAllBytes(archive);
+        var extracted = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        fixture.Files.BeforeTimestamp = path => extracted.Add(path, File.ReadAllBytes(path));
+        PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
+            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
+        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+        Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
+        string destination = result.RegisteredPackages.Single().ChartEntries.Single().Chart.Path;
+        CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(destination));
+        CollectionAssert.AreEqual(resourceBytes, File.ReadAllBytes(Path.Combine(Path.GetDirectoryName(destination) ?? throw new AssertFailedException(), "sound", "sub", "tone.wav")));
+        Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "chart.bms"), StringComparison.OrdinalIgnoreCase)));
+        Assert.IsTrue(extracted.Keys.Any(path => path.EndsWith(Path.Combine("wrapper", "work", "sound", "sub", "tone.wav"), StringComparison.OrdinalIgnoreCase)));
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.IsNotNull(db.Find<LR2SongDB.song>(destination));
+        Assert.AreEqual(0, db.Table<LR2SongDBExtended.install>().Count());
+        Assert.AreEqual(destination, fixture.Library.BmsCharts.Single().Path);
+        CollectionAssert.AreEqual(archiveBytes, File.ReadAllBytes(archive));
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+    }
+
     /// <summary>
     /// 同じ譜面・リソースの管理ZIP、借用ZIP、フォルダを実非同期入口へ渡します。
     /// 充足時のFS・DB・所持への導入と、不足時の保留行・入力保持・実候補への推定を確認し、全形態の等価な失敗を成功と扱いません。

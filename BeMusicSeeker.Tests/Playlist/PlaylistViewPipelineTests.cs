@@ -3951,6 +3951,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(13d, row.EntryLevelSortKey);
     }
 
+    /// <summary>保証：欠損情報の行を数値順から除去せず、同値notesの集合と数値検索の最終2件を保つ。</summary>
     [TestMethod]
     public void PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort()
     {
@@ -3959,8 +3960,35 @@ public sealed class PlaylistViewPipelineTests
         PlaylistDetailSourceRow highNotesRow = CreateMissingSourceRow("HighNotes", highNotesInfo);
         PlaylistDetailSourceRow lowNotesRow = CreateMissingSourceRow("LowNotes", lowNotesInfo);
 
+        PlaylistDetailSourceRow tiedNotesRow = CreateMissingSourceRow("TiedNotes", CreateChartInfo(new string('a', 64), new string('a', 32), notes: 2500));
+        var missingEntry = new TestablePlaylistEntry();
+        missingEntry.SetTitle("Missing");
+        missingEntry.SetMd5(new string('b', 32));
+        var missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null);
+        PlaylistDetailSourceRow[] source = [highNotesRow, missingRow, lowNotesRow, tiedNotesRow];
+        foreach (ListSortDirection direction in new[] { ListSortDirection.Ascending, ListSortDirection.Descending })
+        {
+            List<PlaylistDetailRow> sorted = PlaylistDetailPresentationService.ApplyViewFromSource(source,
+                keywordFilter: string.Empty, modeFilter: ChartModeFilter.All,
+                sortParameters: new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = direction },
+                out _, out _, out _, out _, out _, out _, out _);
+            CollectionAssert.AreEquivalent(new[] { "HighNotes", "LowNotes", "TiedNotes", "Missing" }, sorted.Select(row => row.Title).ToArray());
+            PlaylistDetailRow[] defined = [.. sorted.Where(row => row.ChartNotes.HasValue)];
+            CollectionAssert.AreEqual(direction == ListSortDirection.Ascending ? new[] { 500, 2500, 2500 } : new[] { 2500, 2500, 500 },
+                defined.Select(row => row.ChartNotes is int notes ? notes
+                    : throw new AssertFailedException("定義値の部分列にはnotesが必要です。")).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "HighNotes", "TiedNotes" }, defined.Where(row => row.ChartNotes == 2500).Select(row => row.Title).ToArray());
+            Assert.IsNull(sorted.Single(row => row.Title == "Missing").ChartNotes);
+        }
+
+        List<PlaylistDetailRow> numericFiltered = PlaylistDetailPresentationService.ApplyViewFromSource(source,
+            keywordFilter: "notes:>=2000", modeFilter: ChartModeFilter.All,
+            sortParameters: new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Ascending },
+            out _, out _, out _, out _, out _, out _, out _);
+        CollectionAssert.AreEquivalent(new[] { "HighNotes", "TiedNotes" }, numericFiltered.Select(row => row.Title).ToArray());
+
         List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
-            [highNotesRow, lowNotesRow],
+            source,
             keywordFilter: "notes:>=2000 feature:random level:12",
             modeFilter: ChartModeFilter.All,
             sortParameters: new ChartListSortParameters { ColumnsName = nameof(PlaylistDetailRow.ChartNotes), Direction = ListSortDirection.Descending },
@@ -3972,12 +4000,11 @@ public sealed class PlaylistViewPipelineTests
             out long _,
             out long _);
 
-        Assert.AreEqual(1, result.Count);
-        Assert.AreEqual("HighNotes", result[0].Title);
-        Assert.AreEqual(2500, result[0].ChartNotes);
-        Assert.AreEqual(1, keywordCount);
-        Assert.AreEqual(1, modeCount);
-        Assert.IsFalse(result[0].IsOwned);
+        Assert.AreEqual(2, result.Count);
+        CollectionAssert.AreEquivalent(new[] { "HighNotes", "TiedNotes" }, result.Select(row => row.Title).ToArray());
+        Assert.IsTrue(result.All(row => row.ChartNotes == 2500 && !row.IsOwned));
+        Assert.AreEqual(2, keywordCount);
+        Assert.AreEqual(2, modeCount);
     }
 
     [TestMethod]

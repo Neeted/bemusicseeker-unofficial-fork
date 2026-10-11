@@ -14,20 +14,23 @@ internal sealed class BmsLibraryDuplicateService
 
     /// <summary>
     /// lookup hash が一致する chart を重複として検出し、接続されたディレクトリ単位の group へまとめます。
+    /// 重複所属は捕捉したbucketのlookup hashで照合し、別列挙の行インスタンスの同一性を要求しません。
     /// </summary>
     /// <param name="snapshot">重複判定用 snapshot。</param>
     /// <param name="duplicateWarningMessage">duplicate group の chart projection に重ねる warning 本文。</param>
-    /// <returns>重複解析結果。</returns>
+    /// <returns>接続フォルダの兄弟譜面を含むグループと、重複hashへ所属する譜面だけに警告を付けた解析結果。</returns>
     public DuplicateAnalysisResult Analyze(OwnedDuplicateChartRowSnapshot snapshot, string duplicateWarningMessage)
     {
         var result = new DuplicateAnalysisResult();
-        HashSet<DuplicateChartRow> duplicateRows = [];
+        var duplicateHashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         var dirToId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         List<string> idToDir = [];
         List<int> parent = [];
         foreach (DuplicateHashBucket bucket in snapshot?.DuplicateHashBuckets ?? [])
         {
+            // 増分snapshotのRowsは列挙ごとに行を作るため、同じ捕捉値のhashで重複所属を保持する。
+            duplicateHashes.Add(bucket.LookupHash);
             int firstDirectoryId = -1;
             foreach (DuplicateChartRow row in bucket.Rows)
             {
@@ -87,7 +90,7 @@ internal sealed class BmsLibraryDuplicateService
                         continue;
                     }
                     result.MaterializedChartCount++;
-                    if (duplicateRows.Contains(row))
+                    if (duplicateHashes.Contains(row.LookupHash))
                     {
                         chart = ApplyDuplicateWarning(chart, duplicateWarningMessage);
                         result.DuplicateCharts.Add(chart);
@@ -105,7 +108,6 @@ internal sealed class BmsLibraryDuplicateService
 
         void AddDuplicateHashRow(DuplicateChartRow row, ref int firstDirectoryId)
         {
-            duplicateRows.Add(row);
             string dir = row.DirectoryPath;
             if (string.IsNullOrWhiteSpace(dir))
             {

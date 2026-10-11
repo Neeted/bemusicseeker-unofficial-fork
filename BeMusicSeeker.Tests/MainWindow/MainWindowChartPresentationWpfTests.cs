@@ -77,6 +77,7 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
+    /// <summary>保証：実列factoryの導入先とplaylist MemoをF2/Enterで確定し、MainChartList端末と詳細編集の開始・終了へ接続する。</summary>
     [TestMethod]
     public void MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute()
     {
@@ -146,6 +147,38 @@ public sealed class MainWindowChartPresentationWpfTests
                     Assert.AreEqual(expectedText, completed[0].Text);
                     Assert.IsTrue(completed[0].Commit);
                     Assert.AreSame(file.Token, row.Chart.Token);
+
+                    var detailEntry = new BMSTableEntry(file) { memo = "before memo" };
+                    var detailTable = new BMSTable { name = "Local detail", entries = [detailEntry] };
+                    Assert.AreSame(detailTable, detailEntry.parent);
+                    PlaylistDetailRow detailRow = new PlaylistDetailSourceRow(detailEntry, resolvedChart: null).CreateViewRow();
+                    table.ItemsSource = new List<object> { detailRow };
+                    columnSettings.Memo.Visibility = Visibility.Visible;
+                    table.Columns = [.. CustomTableColumnFactory.CreateMainColumns(columnSettings)
+                        .Where(candidate => candidate.EditPropertyName == nameof(PlaylistDetailRow.memo))];
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistFilterSelected);
+                    MaterializeTable(table, table.Width, table.Height);
+                    CustomTableColumn memoColumn = table.Columns.Single();
+                    Assert.IsTrue(table.IsCurrentCell(0, memoColumn));
+                    RaiseKey(table, Key.F2);
+                    Assert.AreEqual(2, beginning.Count);
+                    Assert.AreEqual(2, started.Count);
+                    Assert.IsTrue(viewModel.PlaylistWorkspace.DetailViewState.Source.IsPlaylistCellEditing);
+                    TextBox memoEditor = GetInstalledEditor(table) ?? throw new AssertFailedException("Memo編集controlへ到達しませんでした。");
+                    memoEditor.Text = "edited memo";
+                    RaiseKey(table, Key.Return);
+                    Assert.AreEqual(2, completed.Count);
+                    Assert.AreSame(detailRow, beginning[1].Row);
+                    Assert.AreSame(detailRow, started[1].Row);
+                    Assert.AreSame(detailRow, completed[1].Context.Row);
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), beginning[1].PropertyName);
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), started[1].PropertyName);
+                    Assert.AreEqual(nameof(PlaylistDetailRow.memo), completed[1].Context.PropertyName);
+                    Assert.AreEqual("edited memo", completed[1].Text);
+                    Assert.IsTrue(completed[1].Commit);
+                    // このconstructorは保存providerを持たず同期終端となる。DB保存は下位の5属性Taskへ分担する。
+                    Assert.IsFalse(viewModel.PlaylistWorkspace.DetailViewState.Source.IsPlaylistCellEditing);
                 });
         });
     }

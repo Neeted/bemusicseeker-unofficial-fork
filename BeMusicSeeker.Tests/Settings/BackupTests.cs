@@ -6,12 +6,93 @@ using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class BackupTests
 {
+    /// <summary>実song・score SQLiteのVACUUMとREINDEX後に表・索引定義と値、対象外ファイルを保持し、本番DB窓口からの次保存を新readonly接続で確認します。DBの物理bytesや容量は固定しません。</summary>
+    [TestMethod]
+    public void RebuildDatabase_PreservesRealSongAndScoreSchemaValuesAndAllowsNextSave()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BackupTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songPath = Path.Combine(root, "song.db");
+        string scorePath = Path.Combine(root, "score.db");
+        string unrelated = Path.Combine(root, "unrelated.bin");
+        const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        try
+        {
+            File.WriteAllBytes(unrelated, [2, 4, 9]);
+            using (var song = new LR2SongDBExtended(songPath))
+            {
+                song.RunInTransaction(() =>
+                {
+                    song.CreateTable<LR2SongDB.song>();
+                    song.CreateTable<LR2SongDB.folder>();
+                    song.Execute("CREATE INDEX normal_song_title ON song(title);");
+                    song.Execute("CREATE TABLE user_data(key TEXT PRIMARY KEY, value TEXT);");
+                    song.Execute("INSERT INTO user_data VALUES ('custom', 'kept');");
+                    song.Execute("INSERT INTO song(path, hash, title, artist) VALUES (?, ?, 'before', 'artist');", Path.Combine(root, "chart.bms"), hash);
+                });
+            }
+            using (var score = new LR2ScoreDBExtended(scorePath))
+            {
+                score.RunInTransaction(() =>
+                {
+                    score.CreateTable<LR2ScoreDB.score>();
+                    score.Execute("CREATE UNIQUE INDEX normal_score_hash ON score(hash);");
+                    score.Execute("CREATE TABLE user_data(key TEXT PRIMARY KEY, value TEXT);");
+                    score.Execute("INSERT INTO user_data VALUES ('custom', 'score-kept');");
+                    score.Execute("INSERT INTO score(hash, perfect, great, totalnotes, playcount) VALUES (?, 10, 3, 20, 7);", hash);
+                });
+            }
+            string ReadSchema(SQLiteConnection db) => db.ExecuteScalar<string>(
+                "SELECT group_concat(type || ':' || name || ':' || coalesce(sql, ''), char(10)) FROM (SELECT type, name, sql FROM sqlite_schema WHERE type IN ('table', 'index') ORDER BY type, name);");
+            string songSchema;
+            string scoreSchema;
+            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false)) { songSchema = ReadSchema(song); }
+            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false)) { scoreSchema = ReadSchema(score); }
+
+            Assert.IsTrue(Backup.RebuildDatabase(songPath, [scorePath]));
+
+            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(songSchema, ReadSchema(song));
+                Assert.AreEqual("before", song.ExecuteScalar<string>("SELECT title FROM song WHERE hash = ?;", hash));
+                Assert.AreEqual("artist", song.ExecuteScalar<string>("SELECT artist FROM song WHERE hash = ?;", hash));
+                Assert.AreEqual("kept", song.ExecuteScalar<string>("SELECT value FROM user_data WHERE key = 'custom';"));
+            }
+            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(scoreSchema, ReadSchema(score));
+                LR2ScoreDB.score row = score.Table<LR2ScoreDB.score>().Single();
+                Assert.AreEqual(hash, row.hash);
+                Assert.AreEqual(10, row.perfect);
+                Assert.AreEqual(3, row.great);
+                Assert.AreEqual(20, row.totalnotes);
+                Assert.AreEqual(7, row.playcount);
+                Assert.AreEqual("score-kept", score.ExecuteScalar<string>("SELECT value FROM user_data WHERE key = 'custom';"));
+            }
+            using (var song = new LR2SongDBExtended(songPath)) { song.Execute("UPDATE song SET title = 'after' WHERE hash = ?;", hash); }
+            using (var score = new LR2ScoreDBExtended(scorePath)) { score.Execute("UPDATE score SET playcount = 8 WHERE hash = ?;", hash); }
+            using (var song = new LR2SongDBExtended(songPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual("after", song.ExecuteScalar<string>("SELECT title FROM song WHERE hash = ?;", hash));
+                Assert.AreEqual(songSchema, ReadSchema(song));
+            }
+            using (var score = new LR2ScoreDBExtended(scorePath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(8, score.Table<LR2ScoreDB.score>().Single().playcount);
+                Assert.AreEqual(scoreSchema, ReadSchema(score));
+            }
+            CollectionAssert.AreEqual(new byte[] { 2, 4, 9 }, File.ReadAllBytes(unrelated));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [TestMethod]
     public void SaveBackups_CopiesLongPathFileAndDirectory()
     {

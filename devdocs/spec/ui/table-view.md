@@ -159,6 +159,10 @@ flowchart TB
 
 ## 実装とテストの対応
 
+`ChartListVirtualViewTests.AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort` は欠損notesを残した全識別子と定義値の数値順・同値タイトル昇順を独立期待で確認する。NULL位置は固定しない。`PlaylistViewPipelineTests.PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort` は欠損を含む4行の数値順・同値集合と数値検索の2件を確認する。通常cacheと保守更新の保証は既存の再利用・metadata変更系列へ分担する。
+
+`PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply` はproducer gateと要求終端を保ち、同条件再利用と情報更新後の最終検索集合を確認する。`PlaylistWorkspacePresentationStateTests.PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState` は名称と未完備所持率を併用し、件数順・cache再利用・件数更新後の集合を確認する。`MainWindowChartPresentationWpfTests.MainWindowPendingCellEditUsesDefaultTerminalAndMainChartOwnerRoute` は実列factoryの導入先とplaylist MemoをF2/Enterから共通端末へ接続し、詳細編集の開始・終了を確認する。詳細のDB保存は[保存仕様](../playlist/storage-and-export.md)の5属性Taskへ分担する。
+
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 導入先候補の未選択開始、明示選択と入力変更、空入力・離脱・取消・Tab | [`CustomTableView`](../../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs) の `HandleKeyDown`、`HandleEditSuggestionClick`、`HandleEditFocusDeparture` | [`CustomTableEditingTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableEditingTests.cs): 候補1・2件の空Enter、非先頭選択・上下キー、選択後の入力・削除、候補クリック、空・無変更離脱、Escape2回とTabの `CellEditEnded` を明示入力で確認する。 |

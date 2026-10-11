@@ -143,6 +143,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.IsPlaylistDetailViewActive));
     }
 
+    /// <summary>保証：summaryのsort要求を同じownerで適用し、名称と所持率の併用検索を冷・再利用・更新後まで保つ。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState()
     {
@@ -197,8 +198,9 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
             new[]
             {
-                new PlaylistSummaryRow { TotalCharts = 1 },
-                new PlaylistSummaryRow { TotalCharts = 3 }
+                new PlaylistSummaryRow { PlaylistId = 1, Name = "Group S1", TotalCharts = 4, OwnedCharts = 1 },
+                new PlaylistSummaryRow { PlaylistId = 2, Name = "Group S2", TotalCharts = 2, OwnedCharts = 2 },
+                new PlaylistSummaryRow { PlaylistId = 3, Name = "Group S3", TotalCharts = 2, OwnedCharts = 0 }
             },
             dataGeneration));
         long presentationGenerationBefore = workspace.CurrentPlaylistSummaryPresentationGeneration;
@@ -223,8 +225,27 @@ public sealed class PlaylistWorkspacePresentationStateTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), workspace.PlaylistSummarySortParameters.ColumnsName);
         Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistSummarySortParameters.Direction);
         Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);
-        Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
-        Assert.AreEqual(3, workspace.PlaylistSummaryView[0].TotalCharts);
+        Assert.AreEqual(3, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView[0].PlaylistId);
+        CollectionAssert.AreEquivalent(new[] { 2, 3 }, workspace.PlaylistSummaryView.Skip(1).Select(row => row.PlaylistId).ToArray());
+        Assert.IsNull(workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3).TableRef);
+        workspace.PlaylistSummaryKeywordFilter = "Group";
+        workspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedIncomplete;
+        workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.TotalCharts), System.ComponentModel.ListSortDirection.Ascending);
+        CollectionAssert.AreEqual(new[] { 3, 1 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+        workspace.RequestPlaylistSummaryPresentationRefresh();
+        CollectionAssert.AreEqual(new[] { 3, 1 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+            new[]
+            {
+                new PlaylistSummaryRow { PlaylistId = 1, Name = "Group S1", TotalCharts = 4, OwnedCharts = 4 },
+                new PlaylistSummaryRow { PlaylistId = 2, Name = "Group S2", TotalCharts = 2, OwnedCharts = 2 },
+                new PlaylistSummaryRow { PlaylistId = 3, Name = "Group S3", TotalCharts = 5, OwnedCharts = 0 }
+            }, workspace.BeginPlaylistSummaryDataRebuildGeneration()));
+        workspace.RequestPlaylistSummaryPresentationRefresh();
+        CollectionAssert.AreEqual(new[] { 3 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+        Assert.AreEqual(5, workspace.PlaylistSummaryView[0].TotalCharts);
+        Assert.AreEqual(0, workspace.PlaylistSummaryView[0].OwnedCharts);
     }
 
     [TestMethod]

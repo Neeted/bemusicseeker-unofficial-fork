@@ -38,6 +38,7 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| DB整理の実VACUUM・REINDEX、schema・値と次保存の保全 | [`Backup.RebuildDatabase`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests.RebuildDatabase_PreservesRealSongAndScoreSchemaValuesAndAllowsNextSave`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) は小さい実song・score DBの表・索引・値と対象外ファイルを保持し、整理後の次書込み・新readonly読戻しを確認する。DBの物理bytes・容量は固定しない。 |
 | 選択済み対象の欠落・未選択対象・対象なし | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
 | 長いパス・コピー失敗・最終パス衝突・既存内容の保持 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
 | 世代数・同日省略・削除警告・作業領域の残留 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |

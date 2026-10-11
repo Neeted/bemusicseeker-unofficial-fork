@@ -38,6 +38,202 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 {
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
+    /// <summary>実property画面のUp・Down・自然順を独立順と比較し、DB由来の自然順からの新編集、LR2の完全一致タイトルとfolder行まで接続します。保存前の正本と出力bytes、別表の出力・DBを保ちます。</summary>
+    /// <remarks>実controlの選択とイベント接続、所有モーダル・保存Task・native閉鎖をこの代表で確認し、LR2全出力種別の条件はcustom-folder系列へ分担します。</remarks>
+    [TestMethod]
+    public void PlaylistPropertyFolderControls_SaveDraftOrderToDatabaseAndRealLr2Output()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, configureSettings: values =>
+            {
+                string root = values.BMSRootPath;
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = root;
+                values.LR2SongDBPath = Path.Combine(root, "data", "song.db");
+                values.LR2ConfigXmlPath = Path.Combine(root, "LR2files", "Config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(values.LR2ConfigXmlPath) ?? throw new AssertFailedException());
+                File.WriteAllText(values.LR2ConfigXmlPath, "<config><system /><jukebox /></config>");
+                string songs = Path.Combine(root, "Songs");
+                Directory.CreateDirectory(songs);
+                values.BMSRootPath = songs;
+                values.BMSInstallDir = songs;
+                var config = new LR2Config(values.LR2ConfigXmlPath);
+                config.AddBMSSearchDirectories([songs]);
+                config.Save();
+                File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
+                values.LR2CustomFolderOutputBaseDir = Path.Combine(root, "custom");
+                values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root-custom");
+                values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
+                Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
+            });
+            Task? operation = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string dbPath = Path.Combine(fixture.Root, "data", "song.db");
+                BMSTable table = fixture.Table;
+                table.name = "Order A";
+                table.Output_dir = "OrderA";
+                string symbol = table.symbol;
+                table.Folder_order = ["F10", "F2", "F1"];
+                table.is_external_sync = false;
+                table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
+                table.entries = new[] { "F10", "F2", "F1" }.Select((folder, index) => new BMSTableEntry
+                {
+                    playlist_id = table.playlist_id,
+                    md5 = new string((char)('a' + index), 32),
+                    title = "Song " + folder,
+                    folder = folder
+                }).ToList();
+                var other = new BMSTable
+                {
+                    playlist_id = 2,
+                    name = "Order B",
+                    symbol = "B",
+                    Output_dir = "OrderB",
+                    Folder_order = ["F2"],
+                    ignore_folder_output = table.ignore_folder_output,
+                    entries = [new BMSTableEntry { playlist_id = 2, md5 = new string('d', 32), title = "Other song", folder = "F2" }]
+                };
+                fixture.Playlist.BMSTables.Add(other);
+                fixture.Playlist.ReOutputCustomFolderAndCommitToDB(table);
+                fixture.Playlist.ReOutputCustomFolderAndCommitToDB(other);
+                string otherOutput = Path.Combine(fixture.Root, "custom", "OrderB", "0001.lr2folder");
+                byte[] otherBytes = File.ReadAllBytes(otherOutput);
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                PlaylistSummaryRow row = CreatePlaylistSummaryRow(table);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { row };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                string[] saved = ["F10", "F2", "F1"];
+                string[] savedEffective = saved;
+                BMSTable? naturalRead = null;
+                foreach ((string action, string selected, string[] expected) in new[]
+                {
+                    ("Up", "F1", new[] { "F10", "F1", "F2" }),
+                    ("Down", "F10", new[] { "F1", "F10", "F2" }),
+                    ("Natural", string.Empty, new[] { "F1", "F2", "F10" })
+                })
+                {
+                    string outputRoot = Path.Combine(fixture.Root, "custom", "OrderA");
+                    Dictionary<string, byte[]> savedOutputBytes = Directory.GetFiles(outputRoot, "*.lr2folder", SearchOption.AllDirectories)
+                        .ToDictionary(path => path, File.ReadAllBytes);
+                    for (int index = 0; index < savedEffective.Length; index++)
+                    {
+                        string path = Path.Combine(outputRoot, (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
+                        Assert.AreEqual("#TITLE " + savedEffective[index], File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
+                            .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal)));
+                    }
+                    OpenPropertyDialog(fixture.Window, summary, row, "property-folder-order-" + action, (dialog, _) =>
+                    {
+                        var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
+                        var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
+                        var content = (FrameworkElement)dialog.FindName("propertyContent");
+                        ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        var list = (ListBox)dialog.FindName("foldersListBox");
+                        if (action == "Natural")
+                        {
+                            ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked = true;
+                        }
+                        else
+                        {
+                            list.SelectedItems.Clear();
+                            list.SelectedItems.Add(selected);
+                            Button button = FindAutomationButton(dialog, "PlaylistPropertyFolderMove" + action);
+                            Assert.IsTrue(button.IsEnabled);
+                            RaiseButtonClick(button);
+                        }
+                        CollectionAssert.AreEqual(expected, draft.folder_order.ToArray());
+                        CollectionAssert.AreEqual(saved, table.Folder_order.ToArray());
+                        CollectionAssert.AreEqual(savedEffective, table.folder_list.ToArray());
+                        using (LR2SongDBExtended before = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                        { CollectionAssert.AreEqual(saved, before.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id).Folder_order.ToArray()); }
+                        CollectionAssert.AreEquivalent(savedOutputBytes.Keys.ToArray(), Directory.GetFiles(outputRoot, "*.lr2folder", SearchOption.AllDirectories));
+                        foreach ((string path, byte[] bytes) in savedOutputBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        CollectionAssert.AreEqual(otherBytes, File.ReadAllBytes(otherOutput));
+                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
+                        operation = dialog.WaitForOperationCompletionAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "property-folder-save");
+                    });
+                    using LR2SongDBExtended verify = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                    BMSTable read = verify.Table<BMSTable>().Single(item => item.playlist_id == table.playlist_id);
+                    Assert.AreEqual("Order A", read.name);
+                    Assert.AreEqual(symbol, read.symbol);
+                    Assert.AreEqual("OrderA", read.Output_dir);
+                    Assert.AreEqual(table.ignore_folder_output, read.ignore_folder_output);
+                    Assert.IsFalse(read.is_external_sync);
+                    if (action == "Natural")
+                    {
+                        read.entries = verify.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id).ToList();
+                        CollectionAssert.AreEqual(expected, read.folder_list.ToArray());
+                        naturalRead = read;
+                    }
+                    else
+                    {
+                        CollectionAssert.AreEqual(expected, read.Folder_order.ToArray());
+                    }
+                    for (int index = 0; index < expected.Length; index++)
+                    {
+                        string path = Path.Combine(fixture.Root, "custom", "OrderA", (index + 1).ToString("D4", CultureInfo.InvariantCulture) + ".lr2folder");
+                        string titleLine = File.ReadAllLines(path, Encoding.GetEncoding("shift_jis"))
+                            .Single(line => line.StartsWith("#TITLE ", StringComparison.Ordinal));
+                        Assert.AreEqual("#TITLE " + expected[index], titleLine);
+                        LR2SongDB.folder folder = verify.Table<LR2SongDB.folder>().Single(item => item.path == path);
+                        Assert.AreEqual(expected[index], folder.title);
+                        Assert.AreEqual("Order A", folder.category);
+                    }
+                    BMSTable otherRead = verify.Table<BMSTable>().Single(item => item.playlist_id == 2);
+                    Assert.AreEqual("B", otherRead.symbol);
+                    CollectionAssert.AreEqual(new[] { "F2" }, otherRead.Folder_order.ToArray());
+                    CollectionAssert.AreEqual(otherBytes, File.ReadAllBytes(otherOutput));
+                    Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+                    saved = read.Folder_order.ToArray();
+                    savedEffective = expected;
+                }
+                Assert.IsNotNull(naturalRead);
+                Assert.AreNotSame(table, naturalRead);
+                Assert.AreSame(table, fixture.Playlist.BMSTables[0]);
+                fixture.Playlist.BMSTables[0] = naturalRead;
+                PlaylistSummaryRow freshRow = CreatePlaylistSummaryRow(naturalRead);
+                summary.ItemsSource = new List<PlaylistSummaryRow> { freshRow };
+                summary.SelectRowsByPredicate(_ => true);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OpenPropertyDialog(fixture.Window, summary, freshRow, "property-natural-order-reopen", (dialog, _) =>
+                {
+                    var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
+                    var content = (FrameworkElement)dialog.FindName("propertyContent");
+                    ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(true, ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked);
+                    CollectionAssert.AreEqual(new[] { "F1", "F2", "F10" }, ((PlaylistPropertyDialogViewModel)dialog.DataContext).folder_order.ToArray());
+                    Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveUp").IsEnabled);
+                    Assert.IsFalse(FindAutomationButton(dialog, "PlaylistPropertyFolderMoveDown").IsEnabled);
+                    RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyCancel"));
+                });
+                Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
+            }
+            catch (Exception failure)
+            {
+                primaryFailure = failure;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "property folder operation cleanup"); }
+                }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { Console.WriteLine(cleanupFailure); }
+                finally { fixture.Close(); }
+            }
+        });
+    }
+
     [TestMethod]
     public void ResyncedDetailEdit_RejectsOldRowThroughOwnedNotificationAndSavesCurrentRow()
     {
@@ -2754,9 +2950,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             applicationLifetime: lifetime,
             applicationPathSnapshot: applicationPath,
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+        LR2Config? lr2Config = settings.OperationModeLR2DB ? new LR2Config(settings.LR2ConfigXmlPath) : null;
         var library = new TestBmsLibrary(
             songDbPath,
-            getLR2Config: null,
+            getLR2Config: () => lr2Config,
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
@@ -2764,6 +2961,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             playlistOperationAdmission: composition.PlaylistOperationAdmission);
         var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
             () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
+            getLr2Config: () => lr2Config,
             beatorajaBmtOptionsProvider: bmtOptionsProvider,
             recommendationScoreReader: recommendationScoreReader, settings: settings);
         var table = new BMSTable

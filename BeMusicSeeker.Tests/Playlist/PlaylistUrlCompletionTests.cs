@@ -707,6 +707,139 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>
+    /// 保証：通常ローカル表の5編集属性を実保存Taskの終端まで待ち、entry・編集/同期/再作成row・新DB・新playlistへ反映する。
+    /// Aの未編集属性と識別子、B全属性を保持する。実効URLの確定と必要LR2出力は既存ケースへ分担する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(nameof(PlaylistDetailRow.Level), "12.5")]
+    [DataRow(nameof(PlaylistDetailRow.Url), "https://example.com/edited-main")]
+    [DataRow(nameof(PlaylistDetailRow.Url_diff), "https://example.com/edited-diff")]
+    [DataRow(nameof(PlaylistDetailRow.comment), "edited comment")]
+    [DataRow(nameof(PlaylistDetailRow.memo), "edited memo")]
+    public async Task DetailEdit_LocalAttributesPersistThroughFreshPlaylistAndPresentation(string propertyName, string text)
+    {
+        string songDbPath = CreateEmptySongDbPath();
+        TestBmsPlaylist? playlist = null;
+        TestBmsPlaylist? reloaded = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = CreateTable(4101, "LocalAttributes");
+            BMSTableEntry entryA = CreateEntry(new string('a', 32), "A");
+            BMSTableEntry entryB = CreateEntry(new string('b', 32), "B");
+            entryA.level = 2;
+            entryA.Url = new Uri("https://example.com/a-main");
+            entryA.Url_diff = new Uri("https://example.com/a-diff");
+            entryA.comment = "a comment";
+            entryA.memo = "a memo";
+            entryB.level = 3;
+            entryB.Url = new Uri("https://example.com/b-main");
+            entryB.Url_diff = new Uri("https://example.com/b-diff");
+            entryB.comment = "b comment";
+            entryB.memo = "b memo";
+            table.entries = [entryA, entryB];
+            BMSTableEntry expectedA = entryA.CreatePlaylistReloadSnapshot();
+            BMSTableEntry expectedB = entryB.CreatePlaylistReloadSnapshot();
+            switch (propertyName)
+            {
+                case nameof(PlaylistDetailRow.Level): expectedA.level = 12.5; break;
+                case nameof(PlaylistDetailRow.Url): expectedA.Url = new Uri("https://example.com/edited-main"); break;
+                case nameof(PlaylistDetailRow.Url_diff): expectedA.Url_diff = new Uri("https://example.com/edited-diff"); break;
+                case nameof(PlaylistDetailRow.comment): expectedA.comment = "edited comment"; break;
+                case nameof(PlaylistDetailRow.memo): expectedA.memo = "edited memo"; break;
+                default: throw new AssertFailedException("未承認の編集属性です。");
+            }
+            workspace = CreateSavedDetailWorkspace(songDbPath, table, out playlist, out library);
+            var sourceA = new PlaylistDetailSourceRow(entryA, resolvedChart: null);
+            var sourceB = new PlaylistDetailSourceRow(entryB, resolvedChart: null);
+            PlaylistDetailRow editedRow = sourceA.CreateViewRow();
+            workspace.DetailViewState.Source.Rows = [sourceA, sourceB];
+            var context = new MainChartListCellEditContext(editedRow, propertyName,
+                ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            workspace.BeginDetailEdit(context);
+            Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+            await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, text, commit: true));
+            Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+
+            void AssertEntry(BMSTableEntry actual, bool isA)
+            {
+                Assert.AreEqual(table.playlist_id, actual.playlist_id);
+                Assert.AreEqual(new string(isA ? 'a' : 'b', 32), actual.md5);
+                Assert.AreEqual(isA ? "A" : "B", actual.title);
+                Assert.AreEqual("TestArtist", actual.artist);
+                Assert.AreEqual(string.Empty, actual.folder);
+                Assert.AreEqual(isA && propertyName == nameof(PlaylistDetailRow.Level) ? 12.5 : isA ? 2d : 3d, actual.level);
+                Assert.AreEqual(new Uri(isA && propertyName == nameof(PlaylistDetailRow.Url) ? "https://example.com/edited-main"
+                    : isA ? "https://example.com/a-main" : "https://example.com/b-main"), actual.Url);
+                Assert.AreEqual(new Uri(isA && propertyName == nameof(PlaylistDetailRow.Url_diff) ? "https://example.com/edited-diff"
+                    : isA ? "https://example.com/a-diff" : "https://example.com/b-diff"), actual.Url_diff);
+                Assert.AreEqual(isA && propertyName == nameof(PlaylistDetailRow.comment) ? "edited comment" : isA ? "a comment" : "b comment", actual.comment);
+                Assert.AreEqual(isA && propertyName == nameof(PlaylistDetailRow.memo) ? "edited memo" : isA ? "a memo" : "b memo", actual.memo);
+                Assert.IsTrue(JToken.DeepEquals((isA ? expectedA : expectedB).ToJsonObject(), actual.ToJsonObject()),
+                    "固定入力の未編集属性と識別子を保持します。");
+            }
+            void AssertRow(PlaylistDetailRow row, bool isA)
+            {
+                AssertEntry(row.Entry, isA);
+                Assert.AreEqual(isA && propertyName == nameof(PlaylistDetailRow.Level) ? "12.5" : isA ? "2" : "3", row.Level);
+                Assert.AreEqual(row.Entry.Url, row.Url);
+                Assert.AreEqual(row.Entry.Url_diff, row.Url_diff);
+                Assert.AreEqual(row.Entry.comment, row.comment);
+                Assert.AreEqual(row.Entry.memo, row.memo);
+            }
+            AssertEntry(entryA, isA: true);
+            AssertEntry(entryB, isA: false);
+            AssertRow(editedRow, isA: true);
+            Assert.AreEqual(2, workspace.DetailViewState.Source.Rows.Count);
+            CollectionAssert.AreEquivalent(new[] { new string('a', 32), new string('b', 32) },
+                workspace.DetailViewState.Source.Rows.Select(source => source.Entry.md5).ToArray());
+            foreach (PlaylistDetailSourceRow source in workspace.DetailViewState.Source.Rows)
+            {
+                AssertRow(source.CreateViewRow(), source.Entry.md5 == entryA.md5);
+            }
+            AssertRow(sourceA.CreateViewRow(), isA: true);
+            AssertRow(sourceB.CreateViewRow(), isA: false);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                BMSTableEntry[] stored = [.. db.Table<BMSTableEntry>().Where(entry => entry.playlist_id == table.playlist_id)];
+                Assert.AreEqual(2, stored.Length);
+                CollectionAssert.AreEquivalent(new[] { new string('a', 32), new string('b', 32) }, stored.Select(entry => entry.md5).ToArray());
+                foreach (BMSTableEntry entry in stored) { AssertEntry(entry, entry.md5 == entryA.md5); }
+            }
+            reloaded = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
+            // 保存読戻しの保証に不要な起動時の出力・全表同期を通さず、実repositoryと新playlistのhydration ownerで読む。
+            // 期待値はreaderへ渡さず、同期読込の終端後に新しいentry・表示rowを照合する。
+            reloaded.BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(songDbPath).LoadPlaylistHeaders());
+            BMSTable freshTable = reloaded.BMSTables.Single(item => item.playlist_id == table.playlist_id);
+            Assert.AreNotSame(table, freshTable);
+            Assert.IsFalse(freshTable.ArePlaylistEntriesLoaded);
+            reloaded.EnsurePlaylistEntriesLoaded(freshTable, "detail_attribute_readback");
+            Assert.IsTrue(freshTable.ArePlaylistEntriesLoaded);
+            Assert.AreEqual(2, freshTable.entries.Count);
+            CollectionAssert.AreEquivalent(new[] { new string('a', 32), new string('b', 32) }, freshTable.entries.Select(entry => entry.md5).ToArray());
+            foreach (BMSTableEntry entry in freshTable.entries)
+            {
+                AssertEntry(entry, entry.md5 == entryA.md5);
+                AssertRow(new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow(), entry.md5 == entryA.md5);
+            }
+        }
+        finally
+        {
+            if (workspace != null)
+            {
+                workspace.CancelDetailBuilds();
+                await workspace.WaitForDetailBuildIdleAsync();
+            }
+            reloaded?.RequestShutdown("detail-attribute-fixture");
+            playlist?.RequestShutdown("detail-attribute-fixture");
+            library?.RequestShutdown("detail-attribute-fixture");
+            DeleteTempSongDbDirectory(songDbPath);
+        }
+    }
+
     private static async Task ScheduleUrlCompletionRefreshAsync(BMSPlaylist playlist, string reason)
     {
         Task scheduledWork = Task.CompletedTask;
@@ -758,15 +891,22 @@ public sealed class PlaylistUrlCompletionTests
     }
 
     private PlaylistWorkspaceViewModel CreateSavedDetailWorkspace(string songDbPath, BMSTable table)
+        => CreateSavedDetailWorkspace(songDbPath, table, out _, out _);
+
+    /// <summary>既存の保存fixtureを組み立て、実Task合流後に解放するplaylistとlibraryの所有者を返す。</summary>
+    private PlaylistWorkspaceViewModel CreateSavedDetailWorkspace(string songDbPath, BMSTable table,
+        out TestBmsPlaylist playlist, out TestBmsLibrary library)
     {
         testSettings.OperationModeLR2DB = false;
-        var library = new TestBmsLibrary(songDbPath, null, null, null,
+        library = new TestBmsLibrary(songDbPath, null, null, null,
             () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
-        TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
+        playlist = MainWindowViewModelTestFactory.CreatePlaylist(songDbPath, testSettings, library: library);
         playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
         playlist.CommitBMSTableWithEntriesToDB(table);
+        TestBmsPlaylist acceptedPlaylist = playlist;
+        TestBmsLibrary acceptedLibrary = library;
         PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
-            playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+            playlistStoreProvider: () => acceptedPlaylist, playlistLibraryProvider: () => acceptedLibrary);
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         return workspace;
     }

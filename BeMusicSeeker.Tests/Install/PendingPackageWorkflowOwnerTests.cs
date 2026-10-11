@@ -17,7 +17,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-public sealed class PendingPackageWorkflowOwnerTests
+public sealed partial class PendingPackageWorkflowOwnerTests
 {
     [TestMethod]
     public async Task FixInstalledLocationsAsync_ReportsSingleRepairSessionAfterRelease()

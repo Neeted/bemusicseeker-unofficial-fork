@@ -1807,6 +1807,7 @@ public sealed class BmsLibraryDuplicateServiceTests
     /// 所持 hash / installed / playlist resolve lookup を次回利用へ押し出さない。
     /// 背景16件は対象差分のprimary hash更新（最大8件）を上回り、全件列挙なしの実observerを
     /// 検出できます。背景件数による時間・仕事量比較はこの契約に含めません。
+    /// 実重複検索のフォルダ・譜面・警告集合とDB/所持の22→21→20件、既存実体bytesも保ちます。
     /// </summary>
     [DataTestMethod]
     [DataRow(16)]
@@ -1908,6 +1909,41 @@ public sealed class BmsLibraryDuplicateServiceTests
                     ownedCollectionPublicationCount++;
                 }
             };
+            byte[][] destinationDuplicateBytes = [.. operations.Select(operation => File.ReadAllBytes(operation.DestinationDuplicate.Path))];
+            void AssertRemainingDuplicateState(int completedOperations)
+            {
+                string[] expectedFolders = [.. operations.SelectMany((operation, index) =>
+                    index < completedOperations ? new[] { operation.Destination } : new[] { operation.Source, operation.Destination })];
+                string[] expectedPaths = [.. files.Take(backgroundCount).Select(file => file.Path),
+                    .. operations.SelectMany((operation, index) => index < completedOperations
+                        ? new[] { operation.DestinationDuplicate.Path, Path.Combine(operation.Destination, "unique.bms") }
+                        : new[] { operation.Duplicate.Path, operation.Unique.Path, operation.DestinationDuplicate.Path })];
+                // 操作後も残る1グループを実検索と再利用で確認する。空になったことへ読み替えない。
+                for (int read = 0; read < 2; read++)
+                {
+                    library.SearchDuplicateChartGroups();
+                    Assert.AreEqual(1, library.DuplicateChartGroups.Count);
+                    CollectionAssert.AreEquivalent(expectedFolders, library.DuplicateChartGroups[0].Folders.ToArray());
+                    Assert.AreEqual(6 - completedOperations, library.DuplicateChartGroups[0].ChartFiles.Count);
+                    Assert.AreEqual(4 - completedOperations, library.DuplicateChartGroups[0].ChartFiles.Count(chart => chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)));
+                    CollectionAssert.AreEquivalent(expectedPaths, library.BmsCharts.Select(file => file.Path).ToArray());
+                }
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                List<LR2SongDB.song> rows = [.. db.Table<LR2SongDB.song>()];
+                Assert.AreEqual(backgroundCount + 6 - completedOperations, rows.Count);
+                CollectionAssert.AreEquivalent(expectedPaths, rows.Select(row => row.path).ToArray());
+                foreach (ChartFile background in files.Take(backgroundCount))
+                {
+                    Assert.AreEqual(background.Md5, rows.Single(row => row.path == background.Path).hash);
+                }
+                for (int index = 0; index < operations.Count; index++)
+                {
+                    CollectionAssert.AreEqual(destinationDuplicateBytes[index], File.ReadAllBytes(operations[index].DestinationDuplicate.Path));
+                }
+            }
+            AssertRemainingDuplicateState(0);
+            Assert.AreEqual(4, initialDuplicateCandidates.Length);
+            string expectedDuplicateHash = duplicateHash ?? throw new AssertFailedException("固定入力に重複hashが必要です。");
             for (int operationIndex = 0; operationIndex < operations.Count; operationIndex++)
             {
                 (string source, string destination, ChartFile duplicate, ChartFile unique, ChartFile destinationDuplicate) = operations[operationIndex];
@@ -1928,6 +1964,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsFalse(Directory.Exists(source));
                 Assert.IsTrue(File.Exists(destinationDuplicate.Path));
                 Assert.IsTrue(File.Exists(destinationUniquePath));
+                AssertRemainingDuplicateState(operationIndex + 1);
 
                 // ここはSELECT専用の観測なので、writer接続を保持せずread-only入口を使う。
                 using (LR2SongDBExtended verifyDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
@@ -1978,6 +2015,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(cachedPlaylistCacheHit);
                 Assert.AreEqual(0, cachedPlaylistStaleRetries);
                 Assert.AreSame(updatedPlaylist, cachedPlaylist);
+                Assert.AreEqual(3 - operationIndex, updatedPlaylist.GetMd5Candidates(expectedDuplicateHash).Count);
                 Assert.IsFalse(updatedPlaylist.ContainsCandidate(ChartFileKind.Bms, sourceDuplicatePath));
                 Assert.IsTrue(updatedPlaylist.ContainsCandidate(
                     ChartFileKind.Bms,

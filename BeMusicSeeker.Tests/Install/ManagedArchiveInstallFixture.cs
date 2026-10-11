@@ -59,6 +59,12 @@ internal sealed class ManagedArchiveInstallFixture : IDisposable
             string? extractedRoot = Path.GetDirectoryName(path);
             if (extractedRoot != null && TempDirectoryPublisher.IsManagedPath(extractedRoot))
             {
+                // 当該展開のrootまで上がり、共有sessionそのものは回収しません。
+                while (Path.GetDirectoryName(extractedRoot) is string parent
+                    && Path.GetDirectoryName(parent) is string sessionParent && TempDirectoryPublisher.IsManagedPath(sessionParent))
+                {
+                    extractedRoot = parent;
+                }
                 ExtractedRoots.Add(extractedRoot);
             }
         });

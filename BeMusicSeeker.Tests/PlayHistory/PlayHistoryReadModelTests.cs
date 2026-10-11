@@ -985,6 +985,7 @@ public sealed class PlayHistoryReadModelTests
         });
     }
 
+    /// <summary>保証：実DBの履歴を時刻・同時刻ID降順で表示し、期間のcache再利用と失効後の追加・再読込みを保つ。</summary>
     [TestMethod]
     public void BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle()
     {
@@ -995,6 +996,8 @@ public sealed class PlayHistoryReadModelTests
             using (var db = new SQLiteConnection(scoreDbPath))
             {
                 InsertHistory(db, historyId: 1, hash: HashA, playedAt: playedAt, finalized: true, newExscore: 200);
+                InsertHistory(db, historyId: 2, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 250);
+                InsertHistory(db, historyId: 3, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 300);
             }
 
             string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
@@ -1029,15 +1032,16 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsTrue(first.Read.Completed);
             Assert.IsFalse(first.Read.CacheHit);
             Assert.AreEqual(PlayHistoryProvider.Lr2, first.Read.Provider);
-            Assert.AreEqual(1, first.Read.RowCount);
+            Assert.AreEqual(3, first.Read.RowCount);
             Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.Completed, first.PeriodIndex.Status);
-            Assert.AreEqual(1, first.PeriodIndex.DayCount);
+            Assert.AreEqual(2, first.PeriodIndex.DayCount);
             Assert.AreEqual(PlayHistoryProjectionStageStatus.Completed, first.Projection.Status,
                 string.Join("\n", first.Presentation.State.Diagnostics.Select(diagnostic => diagnostic.Message)));
-            Assert.AreEqual(1, first.Projection.RawCount);
-            Assert.AreEqual(1, first.Projection.ProjectedCount);
-            Assert.AreEqual(1, first.Presentation.SortedRows.Count);
-            Assert.AreEqual(1, first.Presentation.State.SourceCount);
+            Assert.AreEqual(3, first.Projection.RawCount);
+            Assert.AreEqual(3, first.Projection.ProjectedCount);
+            Assert.AreEqual(3, first.Presentation.SortedRows.Count);
+            Assert.AreEqual(3, first.Presentation.State.SourceCount);
+            CollectionAssert.AreEqual(new long[] { 3, 2, 1 }, first.Presentation.SortedRows.Select(row => row.HistoryId).ToArray());
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -1049,7 +1053,7 @@ public sealed class PlayHistoryReadModelTests
 
             File.Delete(scoreDbPath);
             PlayHistoryViewRequest secondRequest = owner.BeginRequest(
-                PlayHistoryPeriodRequest.All(),
+                PlayHistoryPeriodRequest.CreateDay(2026, 1, 3, TimeZoneInfo.Utc),
                 string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity,
                 owner.DisplayTargetRevision);
@@ -1066,7 +1070,41 @@ public sealed class PlayHistoryReadModelTests
             Assert.IsTrue(second.Built);
             Assert.IsTrue(second.Read.CacheHit);
             Assert.IsTrue(second.PeriodIndex.CacheHit);
-            Assert.AreEqual(1, second.Presentation.SortedRows.Count);
+            Assert.AreEqual(2, second.Presentation.SortedRows.Count);
+            CollectionAssert.AreEqual(new long[] { 3, 2 }, second.Presentation.SortedRows.Select(row => row.HistoryId).ToArray());
+
+            CreateInstalledScoreDb(scoreDbPath);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: playedAt, finalized: true, newExscore: 200);
+                InsertHistory(db, historyId: 2, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 250);
+                InsertHistory(db, historyId: 3, hash: HashA, playedAt: playedAt + 86400, finalized: true, newExscore: 300);
+                InsertHistory(db, historyId: 4, hash: HashA, playedAt: playedAt + 172800, finalized: true, newExscore: 350);
+            }
+            owner.InvalidateReadCache("accepted_history_update");
+            PlayHistoryViewRequest updatedRequest = owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
+                PlayHistoryDisplayTargetItem.All.Identity, owner.DisplayTargetRevision);
+            PlayHistoryReadWorkflowResult updated = owner.BuildReadView(new PlayHistoryReadWorkflowRequest(updatedRequest,
+                PlayHistoryReadSourceContext.Lr2(scoreDbPath, isLr2LinkedProfile: true), string.Empty,
+                PlayHistoryDisplayTargetItem.All, summaryFilterTexts: null), library, playlist);
+            Assert.IsTrue(updated.Built);
+            Assert.IsFalse(updated.Read.CacheHit);
+            CollectionAssert.AreEqual(new long[] { 4, 3, 2, 1 }, updated.Presentation.SortedRows.Select(row => row.HistoryId).ToArray());
+            owner.UpdateSortParameters(new ChartListSortParameters
+            {
+                ColumnsName = nameof(PlayHistoryRow.PlayedAt),
+                Direction = ListSortDirection.Ascending
+            });
+            PlayHistoryViewRequest ascendingRequest = owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty,
+                PlayHistoryDisplayTargetItem.All.Identity, owner.DisplayTargetRevision);
+            PlayHistoryReadWorkflowResult ascending = owner.BuildReadView(new PlayHistoryReadWorkflowRequest(ascendingRequest,
+                PlayHistoryReadSourceContext.Lr2(scoreDbPath, isLr2LinkedProfile: true), string.Empty,
+                PlayHistoryDisplayTargetItem.All, summaryFilterTexts: null), library, playlist);
+            Assert.IsTrue(ascending.Built);
+            Assert.IsTrue(ascending.Read.CacheHit);
+            CollectionAssert.AreEqual(new long[] { playedAt, playedAt + 86400, playedAt + 86400, playedAt + 172800 },
+                ascending.Presentation.SortedRows.Select(row => row.PlayedAtUnix).ToArray());
+            CollectionAssert.AreEquivalent(new long[] { 2, 3 }, ascending.Presentation.SortedRows.Skip(1).Take(2).Select(row => row.HistoryId).ToArray());
 
             PlayHistoryViewRequest thirdRequest = owner.BeginRequest(
                 PlayHistoryPeriodRequest.All(),

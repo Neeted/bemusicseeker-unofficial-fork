@@ -73,7 +73,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
-    /// <summary>実native変換と解放をLの同じ実終端へ接続し、未受理Busyでは停止・writerを始めません。</summary>
+    /// <summary>実BMSとBMSONを一要求でWAVEへ変換し、独立したframe数・ステレオPCM・設定、解放と次の明示変換を確認します。Busyでは停止・writerを始めず、encoderとsessionの解放中も受付を保持します。</summary>
     [TestMethod]
     public async Task RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup()
     {
@@ -87,9 +87,12 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         {
             BassAudioPlayer.Free();
             BassAudioRuntime.Shutdown();
+            string bmsPath = Path.Combine(root, "chart.bms");
             string path = Path.Combine(root, "chart.bmson");
-            File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave());
-            File.WriteAllText(path, "{\"info\":{\"init_bpm\":120,\"title\":\"Owned native export\"},\"sound_channels\":[{\"name\":\"tone.wav\",\"notes\":[{\"y\":0},{\"y\":0,\"x\":1}]}]}");
+            File.WriteAllBytes(Path.Combine(root, "bms-tone.wav"), CreateStereoFloatWave(0.25f, -0.125f));
+            File.WriteAllBytes(Path.Combine(root, "bmson-tone.wav"), CreateStereoFloatWave(-0.125f, 0.375f));
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE BMS native export\r\n#BPM 120\r\n#WAV01 bms-tone.wav\r\n#00111:01\r\n");
+            File.WriteAllText(path, "{\"version\":\"1.0.0\",\"info\":{\"init_bpm\":120,\"title\":\"BMSON native export\"},\"sound_channels\":[{\"name\":\"bmson-tone.wav\",\"notes\":[{\"y\":0,\"x\":1}]}]}");
             var events = new EventLog();
             var playback = new RecordingPlayback(events);
             var dialogs = new RecordingDialogService(events)
@@ -103,24 +106,48 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             var executor = new BassSelectedChartAudioConversionExecutor(
                 () => { Assert.IsTrue(gate.IsActive); encoderCleanup++; return BassAudioWriter.TryReleaseEncoder(); },
                 session => { Assert.IsTrue(gate.IsActive); sessionCleanup++; return BassAudioPlayer.Free(session); }, nativeLease);
+            string prefix = string.Empty;
             var owner = new SelectedChartAudioConversionWorkflowOwner(
                 () => new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
-                    SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float"),
+                    SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 2f, prefix + "%TITLE%", "WAVE", "48000Hz", "float"),
                 _ => Assert.Fail("WAVE is available."), playback, dialogs, executor, gate);
-            var request = new SelectedChartAudioConversionRequest([CreateTarget(path, ChartOperationCapabilities.ConvertToAudio)]);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(bmsPath, ChartOperationCapabilities.ConvertToAudio),
+                CreateTarget(path, ChartOperationCapabilities.ConvertToAudio)]);
             Assert.IsTrue(gate.TryEnter(out IDisposable busy));
             using (busy)
             {
                 Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
                 Assert.AreEqual(0, playback.StopCalls);
                 Assert.AreEqual(0, encoderCleanup);
-                Assert.IsFalse(File.Exists(Path.Combine(root, "Owned native export.wav")));
+                Assert.IsFalse(File.Exists(Path.Combine(root, "BMS native export.wav")));
+                Assert.IsFalse(File.Exists(Path.Combine(root, "BMSON native export.wav")));
             }
             SelectedChartAudioConversionResult result = await owner.RunAsync(request);
             Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
-            Assert.IsTrue(File.Exists(Path.Combine(root, "Owned native export.wav")));
+            Assert.AreEqual(2, result.CompletedCount);
+            Assert.AreEqual(2, result.SucceededCount);
+            Assert.AreEqual(0, result.FailedCount);
+            Assert.AreEqual(0, result.UnprocessedCount);
+            CollectionAssert.AreEqual(new[] { bmsPath, path }, result.FileResults.Select(file => file.FileName).ToArray());
+            AssertNativeStereoWave(Path.Combine(root, "BMS native export.wav"), 96000, 100800, 0.08f, -0.04f);
+            AssertNativeStereoWave(Path.Combine(root, "BMSON native export.wav"), 0, 4800, -0.04f, 0.12f);
             Assert.IsTrue(encoderCleanup > 0);
             Assert.IsTrue(sessionCleanup > 0);
+            Assert.IsNull(nativeLease.Session);
+            Assert.IsFalse(gate.IsActive);
+            int previousEncoderCleanup = encoderCleanup;
+            int previousSessionCleanup = sessionCleanup;
+            prefix = "next-";
+            SelectedChartAudioConversionResult next = await owner.RunAsync(request);
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, next.Status);
+            Assert.AreEqual(2, next.SucceededCount);
+            Assert.AreEqual(0, next.FailedCount);
+            Assert.AreEqual(0, next.UnprocessedCount);
+            AssertNativeStereoWave(Path.Combine(root, "next-BMS native export.wav"), 96000, 100800, 0.08f, -0.04f);
+            AssertNativeStereoWave(Path.Combine(root, "next-BMSON native export.wav"), 0, 4800, -0.04f, 0.12f);
+            Assert.IsTrue(encoderCleanup > previousEncoderCleanup);
+            Assert.IsTrue(sessionCleanup > previousSessionCleanup);
             Assert.IsNull(nativeLease.Session);
             Assert.IsFalse(gate.IsActive);
         }
@@ -1671,6 +1698,47 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             }
         }
         return stream.ToArray();
+    }
+
+    /// <summary>解析器に依存しない48kHz・4800frameの定値ステレオFloat32入力を作ります。</summary>
+    private static byte[] CreateStereoFloatWave(float left, float right)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true);
+        writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+        writer.Write(36 + 4800 * 8);
+        writer.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+        writer.Write(16);
+        writer.Write((ushort)3);
+        writer.Write((ushort)2);
+        writer.Write(48000);
+        writer.Write(48000 * 8);
+        writer.Write((ushort)8);
+        writer.Write((ushort)32);
+        writer.Write(Encoding.ASCII.GetBytes("data"));
+        writer.Write(4800 * 8);
+        for (int frame = 0; frame < 4800; frame++) { writer.Write(left); writer.Write(right); }
+        return stream.ToArray();
+    }
+
+    /// <summary>入力から独立して決めた無音区間と音源末尾まで、実encoder出力の全PCMを検査します。</summary>
+    private static void AssertNativeStereoWave(string path, int soundStart, int frameCount, float left, float right)
+    {
+        AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(path));
+        Assert.AreEqual((ushort)3, wave.Format);
+        Assert.AreEqual((ushort)2, wave.Channels);
+        Assert.AreEqual(48000, wave.SampleRate);
+        Assert.AreEqual((ushort)32, wave.BitsPerSample);
+        Assert.AreEqual(0, wave.DataLength % 8);
+        Assert.AreEqual(frameCount * 8, wave.DataLength);
+        for (int frame = 0; frame < frameCount; frame++)
+        {
+            float actualLeft = BitConverter.ToSingle(wave.Bytes, wave.DataOffset + frame * 8);
+            float actualRight = BitConverter.ToSingle(wave.Bytes, wave.DataOffset + frame * 8 + 4);
+            Assert.IsTrue(float.IsFinite(actualLeft) && float.IsFinite(actualRight));
+            Assert.AreEqual(frame < soundStart ? 0f : left, actualLeft, 0.000001f, "左PCM frame=" + frame);
+            Assert.AreEqual(frame < soundStart ? 0f : right, actualRight, 0.000001f, "右PCM frame=" + frame);
+        }
     }
 
     private static void DeleteRoot(string root)

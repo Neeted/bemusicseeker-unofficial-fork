@@ -1968,6 +1968,7 @@ public sealed class ChartListVirtualViewTests
         AssertVirtualOrderMatchesExistingSort(nameof(LibraryChartRow.Folder), ListSortDirection.Descending);
     }
 
+    /// <summary>保証：対応列の既存順を保ち、欠損notesを残した数値順は定義値と同値タイトル昇順に従う。</summary>
     [TestMethod]
     public void AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort()
     {
@@ -1994,6 +1995,26 @@ public sealed class ChartListVirtualViewTests
         {
             AssertVirtualOrderMatchesExistingSort(column, ListSortDirection.Ascending);
             AssertVirtualOrderMatchesExistingSort(column, ListSortDirection.Descending);
+        }
+
+        List<ChartFile> nullableFiles = [.. new[] { "Charlie", "Missing", "Bravo", "Alpha" }
+            .Select(title =>
+            {
+                ChartFile file = CreateFile(title + ".bms", title, "notes");
+                return title == "Missing" ? file : ChartFileProjection.WithChartInfo(file,
+                    new BeMusicSeeker.Models.ChartDetails { notes = title == "Charlie" ? 100 : 20 });
+            })];
+        List<ChartListSourceRow> nullableRows = BuildOwnerBackedSourceRows(nullableFiles);
+        foreach (ListSortDirection direction in new[] { ListSortDirection.Ascending, ListSortDirection.Descending })
+        {
+            Assert.IsTrue(ChartListOrder.TryCreate(nullableRows, nameof(LibraryChartRow.ChartNotes), direction, out ChartListOrder order));
+            ChartListSourceRow[] sorted = [.. order.Indexes.Select(index => nullableRows[index])];
+            CollectionAssert.AreEquivalent(new[] { "Alpha", "Bravo", "Charlie", "Missing" }, sorted.Select(row => row.Title).ToArray());
+            // NULLの位置は仕様で固定せず、定義値の部分列だけを独立期待と比較する。
+            CollectionAssert.AreEqual(direction == ListSortDirection.Ascending
+                ? new[] { "Alpha", "Bravo", "Charlie" } : new[] { "Charlie", "Alpha", "Bravo" },
+                sorted.Where(row => row.ChartNotes.HasValue).Select(row => row.Title).ToArray());
+            Assert.IsNull(sorted.Single(row => row.Title == "Missing").ChartNotes);
         }
     }
 

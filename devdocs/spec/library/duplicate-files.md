@@ -66,9 +66,13 @@ BMSの警告は同じ所持tokenの共通現在値へ反映し、BMSONは重複�
 
 分析は所持集合が持つ重複MD5の索引から開始し、全行のハッシュ辞書を毎回作りません。兄弟を含めるためのディレクトリ索引は接続対象だけを扱います。削除、パス変更、追加更新、MD5変更と同じ捕捉結果の置換に索引を同期します。検索結果のグループ自体は全置換であり、グループの差分更新まで行う仕様ではありません。
 
+警告対象は捕捉した重複bucketのlookup hashへ所属する譜面で判断します。増分snapshotから別々に列挙した行の参照同一性を要求せず、接続先の固有な兄弟譜面には重複警告を付けません。
+
 `SearchDuplicateChartGroups` の重複ハッシュ数・対象行数・接続フォルダ数、`duplicate_refresh_coalesce` の検索・合流、`ui_suppress`、`duplicate_refresh_priority`、`duplicate_group_autoselect` を診断に使います。確定結果と異常報告の回数は共通の変更仕様に従います。
 
 ## 実装とテストの対応
+
+`BmsLibraryDuplicateServiceTests.MergeChartDirectory_TwoWarmOperationsKeepIndexesCurrentWithoutFullRebuild` は実検索・再利用と2回の実統合で、フォルダ集合4→3→2、グループ譜面6→5→4、重複警告4→3→2、所持・DB総数22→21→20を確認する。統合後も残る1グループ、移動先の固有hash参照、移動元消失、既存重複実体のbytesと背景16行を保つ。旧snapshotと温めた索引を全再構築しない保証を同じケースで維持する。
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |

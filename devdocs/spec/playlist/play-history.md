@@ -95,6 +95,8 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 ## 実装とテストの対応
 
+`PlayHistoryReadModelTests.BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle` は実DBの3履歴を冷読込みし、既定の時刻降順・同時刻ID降順を独立期待で確認する。DB削除後の暖まった期間検索で再読取りしないこと、失効して新時刻の1履歴を追加した後の再読込み、昇順の異時刻関係を確認する。同時刻の昇順副キーは固定せず、失効・取消拒否の既存保証を維持する。
+
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadSourceSelectorTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadSourceSelectorTests.cs) |

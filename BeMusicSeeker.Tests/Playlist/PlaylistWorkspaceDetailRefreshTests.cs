@@ -303,6 +303,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             ref cancellationStage));
     }
 
+    /// <summary>保証：detail要求のproducerから適用終端までを待ち、同条件再利用と500→3000の情報更新後の検索集合を保つ。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply()
     {
@@ -347,16 +348,29 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         var buildRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var dataSource = new FakePlaylistDetailDataSource
         {
-            EnsureEntriesLoadedAction = () => { buildEntered.TrySetResult(); buildRelease.Task.GetAwaiter().GetResult(); }
+            EnsureEntriesLoadedAction = () => { buildEntered.TrySetResult(); buildRelease.Task.GetAwaiter().GetResult(); },
+            ChartInfo = new BeMusicSeeker.Models.ChartDetails { md5 = new string('a', 32), notes = 500 }
         };
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
-        var table = new BMSTable { entries = [entry] };
+        var highEntry = new TestablePlaylistEntry(new string('b', 32), "request-high");
+        var tiedEntry = new TestablePlaylistEntry(new string('c', 32), "request-tied");
+        // 参照だけの索引ではChartInfoを落とすため、固定入力の共通値を含む既存snapshot入口を使う。
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts(
+            new[] { highEntry, tiedEntry }.Select(item =>
+                ChartFileProjection.WithChartInfo(ChartTestValues.Empty() with
+                {
+                    Path = item.title + ".bms",
+                    Md5 = item.md5,
+                    RawTitle = item.title,
+                    Title = item.title
+                }, new BeMusicSeeker.Models.ChartDetails { md5 = item.md5, notes = 2500 })));
+        var table = new BMSTable { entries = [entry, highEntry, tiedEntry] };
         workspace.RequestDetailSelection(table);
-        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("request", ChartModeFilter.All));
+        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("request notes:>=2000", ChartModeFilter.All));
         workspace.InitializePlaylistDetailSort(new ChartListSortParameters
         {
-            ColumnsName = "TITLE",
+            ColumnsName = nameof(PlaylistDetailRow.ChartNotes),
             Direction = System.ComponentModel.ListSortDirection.Ascending
         });
 
@@ -380,14 +394,40 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             await Task.WhenAll(requestCompletion, workspace.WaitForDetailBuildIdleAsync()).ConfigureAwait(false);
         }
         Assert.AreSame(table, workspace.DetailViewState.Source.CurrentTable);
-        Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
+        Assert.AreEqual(3, workspace.DetailViewState.Source.Rows.Count);
         Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
         Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
-        Assert.AreEqual("REQUEST", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+        Assert.AreEqual("REQUEST NOTES:>=2000", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+        CollectionAssert.AreEquivalent(new[] { "request-high", "request-tied" },
+            workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
         Assert.IsTrue(mainChartList.LastCompletion.RequestId > 0L);
         Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, mainChartList.LastCompletion.Mode);
         Assert.IsTrue(logs.Exists(log => log.Contains("main_view_build mode=PlaylistFilterSelected")
             && log.Contains("isPlaylistDetailView=true")));
+        for (int phase = 0; phase < 2; phase++)
+        {
+            if (phase == 1)
+            {
+                dataSource.ChartInfo = new BeMusicSeeker.Models.ChartDetails { md5 = entry.md5, notes = 3000 };
+                // 固定入力の情報更新を受けた後、通常の内容更新受付でsourceを再構成する。
+                workspace.IncrementDetailContentRevision("accepted_notes_update");
+            }
+            requestCompletion = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+                useCoalescingWindow: false, openReadiness: default);
+            try
+            {
+                await requestCompletion.ConfigureAwait(false);
+            }
+            finally
+            {
+                await Task.WhenAll(requestCompletion, workspace.WaitForDetailBuildIdleAsync()).ConfigureAwait(false);
+            }
+            CollectionAssert.AreEquivalent(phase == 0 ? new[] { "request-high", "request-tied" }
+                : new[] { "request-entry", "request-high", "request-tied" },
+                workspace.DetailViewState.View.Rows.Cast<PlaylistDetailRow>().Select(row => row.Title).ToArray());
+            Assert.IsTrue(workspace.IsDetailBuildIdle);
+        }
     }
 
     [TestMethod]
@@ -1519,6 +1559,10 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         }
     }
 
+    /// <summary>
+    /// 保証：公開済みのhydration receiptを使う反映中は旧Storeを保ち、反映終端後にStoreを置換する。
+    /// 置換通知と必須hydrationの終端まで待ち、要求・完了versionの一致を保つ。
+    /// </summary>
     [TestMethod]
     public async Task PlaylistTreeStoreReplacement_WaitsForCurrentHydrationApplyThroughTypedReceipt()
     {
@@ -1531,9 +1575,12 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Task? apply = null;
         Task? replacement = null;
         Task? hydration = null;
+        TestBmsPlaylist? observedPlaylist = null;
+        EventHandler<PlaylistHydrationVersionEventArgs>? publicationObserver = null;
         Exception? primaryFailure = null;
         var releaseApply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseReplacementNotification = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseModelRequestNotification = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             string firstDirectory = Path.Combine(tempDirectory, "first");
@@ -1562,6 +1609,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             var applyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var replacementStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var requestCaptured = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var requestPublicationObserved = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             PlaylistHydrationCompletionReceipt? requestReceipt = null;
             ObservableCollection<BMSTable>? requestTables = null;
             long requestGeneration = 0L;
@@ -1631,14 +1679,34 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 }
             };
             workspace.RefreshPlaylistTreeTables(firstPlaylist);
+            observedPlaylist = firstPlaylist;
+            publicationObserver = (_, _) =>
+            {
+                // workspaceの後に同じモデル通知へ購読し、workspaceでの要求公開が戻った境界を観測する。
+                requestPublicationObserved.TrySetResult(true);
+                // 要求捕捉に届かなかった場合はモデルを進め、初期化Taskとの競争で失敗を判定する。
+                if (!requestCaptured.Task.IsCompleted)
+                {
+                    return;
+                }
+                // 後続hydrationによるreceipt無効化を反映・置換の観測後まで保持する。外側のテストが解放する。
+                releaseModelRequestNotification.Task.GetAwaiter().GetResult();
+            };
+            firstPlaylist.PlaylistEntriesHydrationRequested += publicationObserver;
             firstPlaylist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
             {
                 independentWork.Add(Task.Run(work));
                 return true;
             };
             hydration = Task.Run(() => firstPlaylist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false));
-            if (await Task.WhenAny(requestCaptured.Task, hydration).ConfigureAwait(false) == hydration) { await hydration.ConfigureAwait(false); }
-            await requestCaptured.Task.ConfigureAwait(false);
+            Task requestPublication = Task.WhenAll(requestCaptured.Task, requestPublicationObserved.Task);
+            // 公開前の初期化失敗も伝播させ、観測通知が来ないまま待機し続けない。
+            if (await Task.WhenAny(requestPublication, hydration).ConfigureAwait(false) == hydration)
+            {
+                await hydration.ConfigureAwait(false);
+                Assert.IsTrue(requestPublication.IsCompleted, "必須hydrationの終了前に要求公開を観測する。");
+            }
+            await requestPublication.ConfigureAwait(false);
             Assert.IsTrue(requestedVersion > 0);
             Assert.IsNotNull(requestReceipt);
             Assert.IsTrue(requestReceipt!.IsRequestPublished);
@@ -1691,6 +1759,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             Assert.IsFalse(replacement.IsCompleted, "Store replacement must wait for the active terminal hydration apply.");
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             releaseReplacementNotification.TrySetResult(true);
+            releaseModelRequestNotification.TrySetResult(true);
             await Task.WhenAll(apply, replacement, hydration).ConfigureAwait(false);
             Assert.AreSame(secondPlaylist.BMSTables, workspace.PlaylistTreeTables);
             Assert.AreEqual(
@@ -1706,25 +1775,37 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         {
             releaseApply.TrySetResult(true);
             releaseReplacementNotification.TrySetResult(true);
+            releaseModelRequestNotification.TrySetResult(true);
             Task[] pendingTasks = [
                 .. independentWork,
                 .. new[] { apply, replacement, hydration }
                     .Where(task => task != null)
                     .Cast<Task>()];
-            if (pendingTasks.Length > 0)
+            try
             {
-                try
+                if (pendingTasks.Length > 0)
                 {
-                    await Task.WhenAll(pendingTasks).ConfigureAwait(false);
-                }
-                catch (Exception cleanupFailure) when (primaryFailure != null)
-                {
-                    TestContext.WriteLine("playlist tree replacement cleanup: " + cleanupFailure);
+                    try
+                    {
+                        await Task.WhenAll(pendingTasks).ConfigureAwait(false);
+                    }
+                    catch (Exception cleanupFailure) when (primaryFailure != null)
+                    {
+                        TestContext.WriteLine("playlist tree replacement cleanup: " + cleanupFailure);
+                    }
                 }
             }
-            if (Directory.Exists(tempDirectory))
+            finally
             {
-                Directory.Delete(tempDirectory, recursive: true);
+                // 通知元のTaskが合流してから購読を解除し、fixtureを破棄する。
+                if (observedPlaylist != null && publicationObserver != null)
+                {
+                    observedPlaylist.PlaylistEntriesHydrationRequested -= publicationObserver;
+                }
+                if (Directory.Exists(tempDirectory))
+                {
+                    Directory.Delete(tempDirectory, recursive: true);
+                }
             }
         }
     }
