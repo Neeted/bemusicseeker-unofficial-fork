@@ -1,8 +1,10 @@
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Models;
 
@@ -58,6 +60,42 @@ internal sealed class PlaylistSyncAttemptResult
         };
     }
 
+    /// <summary>
+    /// 外部表の取得・解析だけを囲む境界で、対象単位に留められる失敗を判定します。
+    /// 保存・公開には使用せず、操作tokenの取消しは呼出元で先に除外します。
+    /// </summary>
+    internal static bool IsExpectedExternalLoadFailure(Exception exception)
+    {
+        if (exception is HttpRequestException or OperationCanceledException
+            or IOException or UnauthorizedAccessException
+            or PlaylistHeaderUriNotFoundException or UriFormatException)
+        {
+            return true;
+        }
+        if (exception is PlaylistHeaderParseException or PlaylistDataParseException)
+        {
+            // parserが広く包装している現行経路でも、内部不具合やOOMを入力不良にしません。
+            return exception.InnerException is JsonException or FormatException
+                or InvalidCastException or OverflowException;
+        }
+        return exception is InvalidOperationException invalidDataUrl
+            && invalidDataUrl.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal);
+    }
+
+    /// <summary>取得境界で診断済みの失敗を、STATUS用の分類へ変換します。STATUSの表示状態に元例外を保持しません。</summary>
+    internal static PlaylistSyncAttemptResult CreateReportedExternalFailure(BMSTable sourceTable, Uri pageUri, Exception exception)
+    {
+        return new PlaylistSyncAttemptResult
+        {
+            SourceTable = sourceTable,
+            ResultTable = sourceTable,
+            PageUri = pageUri,
+            Succeeded = false,
+            Updated = false,
+            FailureKind = ClassifyFailureKind(exception)
+        };
+    }
+
     private static PlaylistSyncStatusKind ClassifyFailureKind(Exception exception)
     {
         if (exception is PlaylistHeaderUriNotFoundException)
@@ -83,7 +121,8 @@ internal sealed class PlaylistSyncAttemptResult
                 return PlaylistSyncStatusKind.DataParseError;
             }
         }
-        if (exception is InvalidOperationException invalidOperationException && !string.IsNullOrWhiteSpace(invalidOperationException.Message) && invalidOperationException.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal))
+        if (exception is UriFormatException
+            || exception is InvalidOperationException invalidOperationException && !string.IsNullOrWhiteSpace(invalidOperationException.Message) && invalidOperationException.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal))
         {
             return PlaylistSyncStatusKind.InvalidDataUrl;
         }
@@ -96,11 +135,8 @@ internal sealed class PlaylistSyncAttemptResult
                 _ => PlaylistSyncStatusKind.HttpError,
             };
         }
-        if (exception is TaskCanceledException || exception?.InnerException is TaskCanceledException || exception?.InnerException is SocketException)
-        {
-            return PlaylistSyncStatusKind.NetworkError;
-        }
-        if (exception is HttpRequestException httpRequestException && httpRequestException.InnerException is SocketException)
+        if (exception is HttpRequestException or OperationCanceledException
+            || exception?.InnerException is TaskCanceledException or SocketException)
         {
             return PlaylistSyncStatusKind.NetworkError;
         }
@@ -110,6 +146,11 @@ internal sealed class PlaylistSyncAttemptResult
     private static bool TryGetHttpStatusCode(Exception exception, out int statusCode)
     {
         statusCode = 0;
+        if (exception is HttpRequestException { StatusCode: { } responseStatus })
+        {
+            statusCode = (int)responseStatus;
+            return true;
+        }
         string text = exception?.Message;
         if (string.IsNullOrWhiteSpace(text))
         {

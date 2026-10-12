@@ -23,6 +23,7 @@
 | 構成・責務の分担 | [アーキテクチャ](devdocs/spec/core/architecture.md) |
 | DB、索引、キャッシュ、パッケージ処理、並列度 | [性能とデータ規模](devdocs/spec/core/performance-and-scale.md) |
 | 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md)、[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md) |
+| 例外の停止範囲、操作結果、診断と通知 | [例外・操作結果・診断](devdocs/spec/core/exception-handling.md) |
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
 | 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
@@ -48,7 +49,7 @@
 
 利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残しません。辞書の整合と実際の通知・表示は[表示リソースの検査](devdocs/spec/development/test-authoring.md#表示リソースの検査)で分担します。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
 
-表示文言かどうかは文字列の所在ではなく利用者への通知経路で判断します。モデル内の独自例外も詳細が画面へ渡るなら対象とし、例外型・対象パス・引数名・内部例外・失敗分類を保ってリソースを使います。開発診断・性能記録・内部識別子・変換用中間値・解析規則を、文字種だけを理由に表示リソースへ移しません。
+表示文言かどうかは文字列の所在ではなく利用者への通知経路で判断します。画面へ渡す操作結果やSTATUSの文言はリソース化しますが、表示のために元例外・内部例外を保持・再送出することは要求しません。開発診断・性能記録・内部識別子・変換用中間値・解析規則を、文字種だけを理由に表示リソースへ移しません。
 
 ## 文書と検証
 

@@ -1674,7 +1674,11 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
-    /// <summary>実手動再取得で現在の表参照と選択を置換し、行変更・header変更の表示無効化と進捗終端を届けます。不正JSONでは現在参照を保って失敗を報告し、表示更新の欠落と失敗の隠蔽を検出します。</summary>
+    /// <summary>
+    /// 実手動再取得で行・ヘッダー変更の参照置換と進捗終端を確認します。不正JSONでは現在参照とDBを保ち、
+    /// STATUSに形式不正・日時・取得元を残して、Workspaceから元例外を再送出・重複記録しません。
+    /// 元例外の診断はPlaylistExternalFailureBoundaryTestsの取得境界テストで確認します。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle()
@@ -1682,6 +1686,7 @@ public sealed class BmsPlaylistExternalReloadTests
         testSettings.EnablePlaylistUrlCompletion = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
+        PlaylistWorkspaceViewModel? workspace = null;
         try
         {
             string headerJsonPath = Path.Combine(tempDirectory, "workspace-header.json");
@@ -1706,8 +1711,8 @@ public sealed class BmsPlaylistExternalReloadTests
             }
             var library = new TestBmsLibrary(songDbPath, settings: testSettings);
             var lifecycleLogs = new List<string>();
-            var failureLogs = new List<(Exception Exception, string Message)>();
-            var workspace = new PlaylistWorkspaceViewModel(
+            var workspaceFailureLogs = new List<(Exception Exception, string Message)>();
+            workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
                 new PlaylistDetailBuildState(),
@@ -1741,7 +1746,7 @@ public sealed class BmsPlaylistExternalReloadTests
                 () => false,
                 () => { },
                 message => lifecycleLogs.Add(message),
-                (exception, message) => failureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => workspaceFailureLogs.Add((exception, message)), (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
             workspace.ConfigureCatalogNotificationQueue(action => action());
             PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);
@@ -1801,22 +1806,49 @@ public sealed class BmsPlaylistExternalReloadTests
                     "playlist_reload_operation started operationKind=single reason=manual_resync tableCount=1",
                     StringComparison.Ordinal)));
 
+            BMSTable persistedBeforeFailure = new PlaylistPersistenceRepository(songDbPath)
+                .LoadPlaylistHeaders().Single();
             headerRefreshedTable.header_sha256 = null;
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{"));
             Uri failureUri = headerRefreshedTable.Page_url ?? headerRefreshedTable.Header_url;
             BMSTable failureSelectionTarget = await workspace.ResyncPlaylistTableAsync(headerRefreshedTable);
             AssertManualResyncProgress(progress, new Uri(headerJsonPath));
-            Assert.AreEqual(1, failureLogs.Count);
+            Assert.AreEqual(0, workspaceFailureLogs.Count,
+                "取得境界で診断した通常失敗をWorkspaceから再記録しません。");
             Assert.AreEqual(2, referenceSortInvalidationCount);
             Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
             Assert.AreSame(headerRefreshedTable, failureSelectionTarget);
-            Assert.IsNotNull(failureLogs[0].Exception);
-            Assert.AreEqual(
-                "playlist_manual_resync_failed table=WorkspaceTarget uri=" + failureUri,
-                failureLogs[0].Message);
+            Assert.AreSame(headerRefreshedTable, playlist.BMSTables.Single());
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+
+            PlaylistSyncRuntimeStatus failedStatus = workspace.CapturePlaylistSyncStatusSnapshot()["id:9011"];
+            Assert.AreEqual(PlaylistSyncStatusKind.HeaderParseError, failedStatus.Kind);
+            Assert.AreEqual(Resources.Playlist_sync_status_header, failedStatus.StatusText);
+            Assert.IsTrue(failedStatus.HasFailureStatus);
+            Assert.AreNotEqual(DateTime.MinValue, failedStatus.CheckedAt);
+            Assert.AreEqual(string.Join(Environment.NewLine,
+                failedStatus.StatusText,
+                failedStatus.CheckedAt.ToString("yyyy/MM/dd HH:mm:ss"),
+                failureUri.ToString()), failedStatus.Detail,
+                "STATUSには分類・日時・取得元だけを渡し、例外詳細はログへ分離します。");
+
+            BMSTable persistedAfterFailure = new PlaylistPersistenceRepository(songDbPath)
+                .LoadPlaylistHeaders().Single();
+            Assert.AreEqual(persistedBeforeFailure.header_sha256, persistedAfterFailure.header_sha256);
+            Assert.AreEqual(persistedBeforeFailure.data_sha256, persistedAfterFailure.data_sha256);
+            Assert.AreEqual(persistedBeforeFailure.last_update, persistedAfterFailure.last_update);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(2, verify.Table<LR2SongDBExtended.playlist_entry>()
+                .Count(entry => entry.playlist_id == 9011));
         }
         finally
         {
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

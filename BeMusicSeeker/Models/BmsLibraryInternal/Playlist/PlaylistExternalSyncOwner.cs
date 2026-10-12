@@ -123,7 +123,12 @@ internal sealed class PlaylistExternalSyncOwner
     {
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         this.recommendedTableOwner = recommendedTableOwner ?? throw new ArgumentNullException(nameof(recommendedTableOwner));
-        this.logWarning = logWarning;
+        // 診断先の失敗で元の取得・保存結果を置き換えない。
+        this.logWarning = (exception, message) =>
+        {
+            try { logWarning?.Invoke(exception, message); }
+            catch { /* 診断失敗の再通知は行わない。 */ }
+        };
         this.isPlaylistUrlCompletionEnabled = isPlaylistUrlCompletionEnabled;
         this.schedulePlaylistUrlCompletionRefresh = schedulePlaylistUrlCompletionRefresh;
         this.playlistAggregatePersistenceOwner = playlistAggregatePersistenceOwner;
@@ -998,6 +1003,7 @@ internal sealed class PlaylistExternalSyncOwner
         PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
         bool applySkipped = false;
+        bool expectedExternalLoadFailure = false;
         Uri sourceUri = null;
         Exception failure = null;
         string previousOrgName = null;
@@ -1016,7 +1022,19 @@ internal sealed class PlaylistExternalSyncOwner
                 throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload request no longer matches the active playlist source URI.");
             }
-            BMSTable reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture).ConfigureAwait(false);
+            BMSTable reloadedTable;
+            try
+            {
+                reloadedTable = await LoadExternalTableCoreAsync(uri, table, cancellationToken, scoreCapture).ConfigureAwait(false);
+            }
+            catch (Exception sourceFailure) when (uri.Scheme != "bmseeker"
+                && !(sourceFailure is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                && PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure(sourceFailure))
+            {
+                // 外部入力の失敗だけを対象単位に留める。DB読込み・保存・公開や内蔵推薦には適用しない。
+                expectedExternalLoadFailure = true;
+                throw;
+            }
             cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetWriterGuard())
             {
@@ -1146,6 +1164,7 @@ internal sealed class PlaylistExternalSyncOwner
             StatePersisted = persistenceDecision?.NeedsStatePersistence == true,
             NeedsBmtExport = persistenceDecision?.NeedsBmtExport == true,
             Exception = failure,
+            IsExpectedExternalLoadFailure = expectedExternalLoadFailure,
             UpdateReceipt = updateReceipt
         };
     }
@@ -1403,6 +1422,12 @@ internal sealed class PlaylistExternalSyncOwner
         internal bool NeedsBmtExport { get; init; }
 
         internal Exception Exception { get; init; }
+
+        /// <summary>
+        /// 外部取得境界で処理済みの対象失敗か。STATUSへ記録し、バッチから再送出しません。
+        /// 元例外は単表プロパティ保存の既存契約に残し、保存・公開の失敗と区別します。
+        /// </summary>
+        internal bool IsExpectedExternalLoadFailure { get; init; }
 
         internal PlaylistTableUpdateReceipt UpdateReceipt { get; init; }
 

@@ -57,13 +57,28 @@ URL指定の複数行取込みは、取得を既存の上限内で並列化し�
 
 取得操作で受け付けるURIと、保存済み表の外部同期元は別契約です。取得操作は各遷移でHTTP(S)だけを許可します。保存済み外部同期元では相対・ローカル・ドライブ・`file:`・UNCを維持し、HTTP専用検証を流用しません。
 
+#### 取得失敗とSTATUS
+
+全体同期・手動再取得では、外部表の通信・ローカル同期元の読取り・形式不正を取得境界の対象失敗として扱います。詳細はログに記録し、失敗した表の既存データを保持して、取得できた他表の確定を妨げません。これらの処理済み例外をバッチから再送出しません。全対象に失敗した場合も完了通知を全件成功にはしません。
+
+STATUSには404、403、その他HTTPエラー、通信失敗、ヘッダー未検出、ヘッダー形式不正、データ形式不正、URL不正の分類を保持します。ローカル読取り失敗は既存のその他エラーを使用します。STATUSの詳細欄は分類・確認日時・取得元を示し、元例外の全階層を保持しません。
+
+この扱いを、DB読込み・保存・必要な参照公開・出力・内蔵推薦の失敗へ流用しません。操作tokenによる取消しと通信の期限切れも区別します。単表のプロパティ保存は確定結果と未完了出力の既存契約を維持します。
+
+| 入力・保証 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 取得失敗の局所化、STATUS、正常表の確定、旧表の保持、明示再取得 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` | `PlaylistExternalFailureBoundaryTests.ExternalSync_SourceFailurePreservesStatusAndCommittedTables`。実HTTP 400/403/404、ヘッダー・データ・項目形式不正、URL欠落、ローカル読取り失敗、全対象失敗。 |
+| 手動再取得のSTATUS・現在参照・DB保持 | `PlaylistWorkspaceViewModel.ResyncPlaylistTableAsync` | `BmsPlaylistExternalReloadTests.PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle`。不正JSONの分類・日時・取得元を表示状態へ残し、Workspaceから詳細を再記録せず、直前の正常更新結果を保持する。 |
+| 取得境界での診断と元原因の保持 | `PlaylistExternalSyncOwner.LoadExternalTableAsync` | `PlaylistExternalFailureBoundaryTests.ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus`。実HTTP 403・不正ヘッダーと診断先の正常・失敗で、元例外と取得元が診断先へ渡り、STATUSに元例外を持ち越さない。 |
+| 包装された内部故障を通常取得失敗にしない | `PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure` | `PlaylistExternalFailureBoundaryTests.SourceFailureClassification_DoesNotConsumeInternalFailures`。内部故障・OOM・混合集約を分類対象から除外する。 |
+
 #### DB保存と画面反映の完了
 
 DB接続・短いモデルロックを解放してからUIスケジューラーによる実置換を待ちます。DB保存だけでは再読込み成功になりません。置換前の受付拒否・取消・中断・例外は現在の公開状態へ既存のDB再整合を試み、その失敗も結果へ残します。コレクション代入後の購読通知例外は、実際に採用された新参照を維持して失敗を返します。必要なLR2/BMT出力と参照公開は保存済み事実を用いて行い、公開失敗で実施済みDBや出力を消しません。
 
 外部再取得は対象ごとの確定参照・変更・失敗と、取消しや一括出力の操作全体の失敗を同じ結果で返します。呼出元は確定参照を採用してから失敗を通知し、二表の一方の失敗でも他方の確定結果を失いません。変更なしの対象は現行参照を返し、DB保存なしを参照採用の拒否に読み替えません。プロパティ保存内では保存サービスが必要出力を所有し、取得済み変更から一回実行します。
 
-呼出元は結果採用で受け取った元失敗を、後続の表示・通知処理より先に保持します。手動再同期と任意の外部同期で後段通知も失敗した場合、元の出力・取消原因と二次失敗を両方返し、確定済み参照やDBを戻しません。
+確定済み参照やDBは後段通知の失敗で戻しません。現行の手動再同期と任意の外部同期には、出力・取消原因と後段通知の例外を合成して返す経路が残っています。通知だけの例外を局所診断へ移す作業は[例外処理の修復計画](../../plan/exception-handling-simplification-plan.md)で扱い、必要な参照反映と通知を分けます。
 
 内蔵難度推定表・リコメンドの入力と計算は [専用仕様](local-recommendations.md)に従い、生成結果を同じ登録・再読込み統合へ渡します。
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -81,7 +82,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request),
                     cancellationToken: playlists.StartupReadiness.ShutdownToken,
                     publishReferenceReceipts: false, capability: authority).ConfigureAwait(false);
-                Exception reloadFailure = AdoptPlaylistReloadResults(result, propagateTargetFailures: true, applyReferences: publishReferenceReceipt);
+                Exception reloadFailure = AdoptPlaylistReloadResults(result, applyReferences: publishReferenceReceipt);
                 if (reloadFailure != null) { failures.Add(reloadFailure); }
                 if (publishReferenceReceipt)
                 {
@@ -90,7 +91,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 RequestPlaylistSummaryDataRefresh("external_playlist_sync");
                 RequestPlaylistDetailReloadRefresh();
-                succeeded = reloadFailure == null;
+                // 例外を再送出しなくても、対象失敗を全件成功として公開しません。
+                succeeded = reloadFailure == null && result.All(target => target.Succeeded);
             }
             catch (Exception failure) { failures.Add(failure); }
             finally

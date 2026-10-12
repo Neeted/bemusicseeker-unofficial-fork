@@ -885,7 +885,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             JArray val = ParseJson(_data_json) as JArray ?? throw new FormatException("playlist data must be an array.");
             base.data_sha256 = ComputeSha256Hex(_data_json);
             entries = [.. val
-                .Select(token => token as JObject ?? throw new InvalidOperationException("playlist entry must be an object"))
+                .Select(token => token as JObject ?? throw new FormatException("playlist entry must be an object"))
                 .Select(json => new BMSTableEntry(json, this))
                 .Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
             ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
