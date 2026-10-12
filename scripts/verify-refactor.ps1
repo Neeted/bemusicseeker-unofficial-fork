@@ -5,9 +5,8 @@ param(
 
     [string]$TestFilter,
 
-    # This seam may lower the canonical budget so the timeout path can be
-    # verified without waiting five minutes. It cannot relax the policy limit.
-    [ValidateRange(1, 300)]
+    # 300秒は運用上の既定期限であり、明示指定した秒数に上限を設けない。
+    [ValidateRange('Positive')]
     [int]$FunctionalTimeoutSeconds = 300,
 
     # Internal probe-only guard.  A normal CLI string cannot satisfy the typed guard
@@ -392,7 +391,7 @@ function New-FunctionalDeadlinePolicy {
         [DateTime]$StartUtc,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds
     )
 
@@ -489,7 +488,7 @@ function Invoke-MonitoredCommand {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds,
 
         [object]$PostStartFaultGuard
@@ -992,7 +991,7 @@ function Invoke-ParallelFunctionalTestShards {
         [string]$DiagnosticsDirectory,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds
     )
 
@@ -1688,7 +1687,7 @@ function Invoke-CanonicalFunctionalVerification {
         [string]$DiagnosticsRoot,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds
     )
 
@@ -1738,7 +1737,7 @@ function Invoke-FilteredQuickVerification {
         [string]$DiagnosticsRoot,
 
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds
     )
 

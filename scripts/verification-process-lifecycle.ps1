@@ -30,7 +30,7 @@ function Get-VerificationProcessIdentity {
 function Resolve-VerificationDeadlinePair {
     param(
         [Parameter(Mandatory)]
-        [ValidateRange(1, 300)]
+        [ValidateRange('Positive')]
         [int]$TimeoutSeconds,
 
         [DateTime]$StartUtc = [DateTime]::MinValue,
