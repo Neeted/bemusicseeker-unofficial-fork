@@ -632,7 +632,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     [DataRow("busy")] // 先行受付中なのでDBとdraftを変えない。
     [DataRow("database_failure")] // DB保存が失敗し、同じdraftで次の明示適用を通す。
     [DataRow("output_failure")] // DB確定後の出力が失敗して変更事実とdraftを保持。
-    [DataRow("notification_failure")] // 出力失敗通知も失敗し、元通知原因を実Taskへ返す。
+    [DataRow("notification_failure")] // 出力失敗通知も失敗しても、確定済み変更とdraftを保持して実Taskを終える。
+    [DataRow("confirmation_failure")] // 実確認中は適用Taskとclose guardを保持し、表示失敗では変更しない。
     public void MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup(string bulkOutcome)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -643,10 +644,25 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             var outputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var displayed = new List<(Window Owner, UiMessageRequest Request)>();
             var notificationFailure = new IOException("bulk output failure notification failed");
+            Task? confirmationApply = null;
+            bool confirmationApplyWasPending = false;
+            bool confirmationDialogWasDisabled = false;
+            bool confirmationCloseWasGuarded = false;
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest,
                 messagePresenter: (owner, request) =>
                 {
                     displayed.Add((owner, request));
+                    if (bulkOutcome == "confirmation_failure"
+                        && request is UiConfirmationRequest
+                        && request.Owner is PlaylistSummaryBulkEditDialog confirmationDialog)
+                    {
+                        confirmationApply = confirmationDialog.WaitForApplyCompletionAsync();
+                        confirmationApplyWasPending = !confirmationApply.IsCompleted;
+                        confirmationDialogWasDisabled = !confirmationDialog.IsEnabled;
+                        confirmationDialog.Close();
+                        confirmationCloseWasGuarded = confirmationDialog.IsVisible;
+                        throw new IOException("bulk confirmation presentation failed");
+                    }
                     if (bulkOutcome == "notification_failure" && request.Icon == MessageBoxImage.Hand && request.Owner is PlaylistSummaryBulkEditDialog) { throw notificationFailure; }
                     return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
                 },
@@ -743,8 +759,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     {
                         var draft = (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
                         draft.BmtOutputOption = draft.OnOption;
-                        RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryApplyBmtOutput"));
-                        apply = dialog.WaitForApplyCompletionAsync();
+                        if (bulkOutcome == "confirmation_failure") { draft.ExternalSyncOption = draft.OnOption; }
+                        RaiseButtonClick(FindAutomationButton(dialog, bulkOutcome == "confirmation_failure"
+                            ? "PlaylistSummaryApplyExternalSync"
+                            : "PlaylistSummaryApplyBmtOutput"));
+                        apply = confirmationApply ?? dialog.WaitForApplyCompletionAsync();
                         if (captureOutput)
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -756,14 +775,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.AreEqual(0, displayed.Count);
                         }
                         releaseOutput.Set();
-                        if (bulkOutcome == "notification_failure")
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-apply-terminal");
+                        if (bulkOutcome == "confirmation_failure")
                         {
-                            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
-                                TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-apply-terminal"));
-                            Assert.AreSame(notificationFailure, failure.InnerException);
-                            Assert.IsTrue(apply.IsFaulted);
+                            Assert.IsNotNull(confirmationApply);
+                            Assert.IsTrue(confirmationApplyWasPending);
+                            Assert.IsTrue(confirmationDialogWasDisabled);
+                            Assert.IsTrue(confirmationCloseWasGuarded);
+                            Assert.IsFalse(fixture.Table.is_external_sync);
+                            Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
                         }
-                        else { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-apply-terminal"); }
                         Assert.IsTrue(dialog.IsEnabled);
                         Assert.AreSame(bulkOutcome == "success" ? draft.NoChangeOption : draft.OnOption, draft.BmtOutputOption);
                         bool saved = bulkOutcome is "success" or "output_failure" or "notification_failure";
@@ -797,7 +818,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     bulk.DataContext,
                     typeof(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel));
                 Assert.IsTrue(bulk.VisibleAfterApply);
-                Assert.AreEqual(bulkOutcome != "busy", fixture.Table.is_bmt_output);
+                Assert.AreEqual(bulkOutcome is not ("busy" or "confirmation_failure"), fixture.Table.is_bmt_output);
                 var bulkFailures = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Hand).ToList();
                 Assert.AreEqual(bulkOutcome == "success" ? 0 : 1, bulkFailures.Count);
                 if (bulkFailures.Count != 0)
@@ -807,7 +828,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(MessageBoxImage.Hand, bulkFailures.Single().Request.Icon);
                     StringAssert.Contains(bulkFailures.Single().Request.MessageBoxText, Resources.Msg_error_unexpected);
                 }
-                var outputWarnings = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Exclamation).ToList();
+                var confirmations = displayed.Where(notification => notification.Request is UiConfirmationRequest).ToList();
+                Assert.AreEqual(bulkOutcome == "confirmation_failure" ? 1 : 0, confirmations.Count);
+                if (confirmations.Count != 0) { Assert.AreSame(bulk.Window, confirmations.Single().Request.Owner); }
+                var outputWarnings = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Exclamation
+                    && notification.Request is not UiConfirmationRequest).ToList();
                 Assert.AreEqual(bulkOutcome is "output_failure" or "notification_failure" ? 1 : 0, outputWarnings.Count);
                 if (outputWarnings.Count != 0)
                 {
@@ -823,8 +848,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 releaseOutput.Set();
                 if (apply != null)
                 {
-                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-finally"); }
-                    catch (InvalidOperationException failure) when (bulkOutcome == "notification_failure" && ReferenceEquals(failure.InnerException, notificationFailure)) { }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bulk-compiled-finally");
                 }
                 busyLease?.Dispose();
                 outputBlocker?.Dispose();
@@ -1367,11 +1391,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     if (terminalOutcome == "failure")
                     {
                         Assert.IsTrue(dialogs.MessageShown.Task.IsCompletedSuccessfully);
-                        StringAssert.Contains(dialogs.MessageRequests.Single().MessageBoxText, "playlist root reload failed");
+                        Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests.Single().MessageBoxText);
                     }
                     if (expectedNotifications != 0)
                     {
-                        StringAssert.StartsWith(dialogs.MessageRequests.Single().MessageBoxText, Resources.Msg_error_unexpected);
+                        Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests.Single().MessageBoxText);
                     }
                     if (!shutdown)
                     {
@@ -2036,7 +2060,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         RunPlaylistTableRemovalEmptyRootScenario();
     }
 
-    /// <summary>compiled表削除の実Task失敗を元原因を含む通知へ渡し、空rootの選択と詳細対象なしを維持します。</summary>
+    /// <summary>表削除の実メニューから元表を一度だけ渡し、Task失敗を一般通知で伝え、空rootの選択と詳細対象なしを維持します。</summary>
     [TestMethod]
     public void PlaylistTableRemovalFailure_NotifiesAndPreservesEmptyRootSelection()
     {
@@ -2152,12 +2176,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             MessageResult = messageResult
         };
         int callCount = 0;
+        BMSTable? capturedTable = null;
         PlaylistTreeSelectionActivatedEventArgs? emptyRootSelection = null;
         MainWindowPlaylistTableRemovalTerminal removal = new(
             (table, applySelectionBeforeMutation) =>
             {
                 callCount++;
-                Assert.AreSame(firstTable, table);
+                capturedTable = table;
                 applySelectionBeforeMutation();
                 return Task.FromException(failure);
             });
@@ -2183,27 +2208,26 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     playlistRoot.IsSelected = true;
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                    RoutedEventArgs args = RaiseMenuClick(removeTable);
-                    Assert.IsTrue(args.Handled);
-                    Assert.AreEqual(1, callCount);
-
-                    // この fixture では pre-completed の Task.FromException と同期完了する dialog fake を使うため、
-                    // RaiseEvent の復帰時点まで async void handler が通知と cleanup を実行する前提を signal で確認する。
-                    // callback の開始だけを完了とみなさず、旧 Logging の ContinueWith が fault を吸収する経路とも区別する。
+                    RoutedEventArgs? args = null;
+                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                        () => args = RaiseMenuClick(removeTable));
+                    // 通知開始だけでなく実イベント終端と空rootの選択通知まで待ちます。
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        Task.WhenAll(selectionCompletion.Task, dialogs.MessageShown.Task),
+                        Task.WhenAll(terminal, selectionCompletion.Task, dialogs.MessageShown.Task),
                         "playlist table removal failure notification and empty-root cleanup");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    Assert.AreSame(firstTable, capturedTable);
 
                     Assert.IsNotNull(emptyRootSelection);
                     Assert.IsFalse(emptyRootSelection!.IsSummary);
                     Assert.IsNotNull(emptyRootSelection!.Detail);
                     Assert.IsNull(emptyRootSelection!.Detail.Table);
                     Assert.AreEqual(1, dialogs.MessageRequests.Count);
-                    Assert.IsTrue(
-                        dialogs.MessageRequests[0].MessageBoxText.Contains(
-                            failure.Message,
-                            StringComparison.Ordinal));
+                    Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.MessageRequests[0].MessageBoxText);
+                    Assert.AreSame(window, dialogs.MessageRequests[0].Owner);
                     Assert.AreEqual(MessageBoxImage.Hand, dialogs.MessageRequests[0].Icon);
                     Assert.IsTrue(playlistRoot.IsSelected);
                     Assert.AreEqual(0, playlistRoot.Items.Count);

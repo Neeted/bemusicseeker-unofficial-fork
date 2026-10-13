@@ -15,6 +15,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -904,6 +905,142 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 }
             },
             selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    /// <summary>改名・文字コード修正の実メニューから同期例外・待機後の失敗・型付き失敗を受け、正確な選択パスと一回の一般通知・イベント終端を保ちます。</summary>
+    [DataTestMethod]
+    [DataRow(0)] // renameのTask取得前に同期throw。
+    [DataRow(1)] // renameの実Taskがgate後にfault。
+    [DataRow(2)] // 同期encodingの型付き失敗。
+    [DataRow(3)] // 所有要求がないOCEも失敗として一度通知。
+    public void CompiledSelectedMutationFailuresReachOneOwningNotice(int failureKind)
+    {
+        Exception failure = failureKind == 3
+            ? new OperationCanceledException("unowned cancellation marker")
+            : new IOException("selected mutation terminal marker");
+        TaskCompletionSource<SelectedChartMutationResult> releaseOperation = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<bool> noticeStarted = NewCompletion<bool>();
+        TaskCompletionSource<UiDialogResult> releaseNotice = NewCompletion<UiDialogResult>();
+        var paths = new List<string>();
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageHandler = _ =>
+            {
+                noticeStarted.TrySetResult(true);
+                return releaseNotice.Task;
+            }
+        };
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request =>
+            {
+                paths.AddRange(request.Targets.Select(target => target.Chart.Path));
+                if (failureKind == 0) { throw failure; }
+                return releaseOperation.Task;
+            },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request =>
+            {
+                paths.AddRange(request.Charts.Select(chart => chart.Path));
+                return SelectedChartMutationResult.Failed(failure);
+            });
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), @"C:\selected-terminal\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                MenuItem item = failureKind >= 2
+                    ? FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First()
+                    : FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt");
+                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                try
+                {
+                    CollectionAssert.AreEqual(new[] { row.Chart.Path }, paths);
+                    if (failureKind == 1)
+                    {
+                        Assert.IsFalse(terminal.IsCompleted);
+                        Assert.AreEqual(0, dialogs.Messages.Count);
+                        releaseOperation.TrySetException(failure);
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(noticeStarted.Task, terminal, "selected mutation notice"),
+                        "selected mutation notice-or-terminal");
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                    Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.Messages[0].MessageBoxText);
+                    Assert.AreEqual(MessageBoxImage.Hand, dialogs.Messages[0].Icon);
+                    Assert.AreSame(window, dialogs.Messages[0].Owner);
+                    Assert.IsFalse(terminal.IsCompleted);
+                    releaseNotice.TrySetException(new IOException("optional notice fault"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected mutation event terminal");
+                    CollectionAssert.AreEqual(new[] { row.Chart.Path }, paths);
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                }
+                finally
+                {
+                    releaseOperation.TrySetResult(SelectedChartMutationResult.Completed);
+                    releaseNotice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected mutation finally terminal");
+                }
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>物理・DB反映・確定後反映・後片付けの四種のreceiptを実reportへ一度渡し、compiled rename入口が汎用通知を重ねないことを確認します。確定factsと実解放は下位ownerテストが分担します。</summary>
+    [DataTestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public void CompiledSelectedRenameKeepsOneHandledReceiptNotice(int failureStage)
+    {
+        var failure = new IOException("receipt stage " + failureStage);
+        var receipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\receipt\chart.bms", @"C:\receipt\chart.bmx")],
+            durableCommit: failureStage >= 2,
+            physicalFailure: failureStage == 0 ? failure : null,
+            applyFailure: failureStage == 1 ? failure : null,
+            finalizationFailure: failureStage == 2 ? failure : null,
+            cleanupFailure: failureStage == 3 ? failure : null);
+        var result = SelectedChartMutationResult.FromReceipt(receipt);
+        var dialogs = new FileDbReportRecordingDialogs();
+        async Task<SelectedChartMutationResult> ReportReceiptAsync(SelectedInvalidExtensionRenameRequest request)
+        {
+            await FileDbMutationReport.ShowAsync(dialogs, Resources.Rename_invalid_ext, receipt, result.Failure);
+            return result;
+        }
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            ReportReceiptAsync,
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            _ => SelectedChartMutationResult.Completed);
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('b', 32), @"C:\receipt\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    () => RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt")));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected receipt event terminal");
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, failure.Message);
+                Assert.AreEqual(failureStage >= 2, result.HasDurableCommit);
+                Assert.AreEqual(failureStage == 3, result.CompletedWithCleanupFailure);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
     }
 
     private static MainWindowSelectedChartContextMenuTerminals CreateTerminals(

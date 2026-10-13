@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -98,7 +100,7 @@ internal sealed class PlaylistLampViewerDefaultBuildExecutor : IPlaylistLampView
 /// <summary>
 /// playlist lamp の最新 immutable result を所有し、source 通知ごとに generation を更新します。
 /// </summary>
-internal sealed class PlaylistLampViewerSession : IDisposable
+internal sealed class PlaylistLampViewerSession : IDisposable, IAsyncDisposable
 {
     private readonly object stateGate = new();
 
@@ -124,99 +126,75 @@ internal sealed class PlaylistLampViewerSession : IDisposable
 
     private int disposed;
 
+    private readonly HashSet<RefreshOperation> refreshes = [];
+
+    private Task stopTask;
+
+    private Exception cleanupFailure;
+
+    // 受付の時点で予約し、キュー待ち・supersede済みも実finallyまで所有します。
+    private sealed class RefreshOperation
+    {
+        internal readonly TaskCompletionSource Completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly RefreshCancellation Cancellation = new();
+        internal RefreshCancellation PreviousCancellation;
+        internal long Generation;
+        internal long InvalidationVersion;
+        internal PlaylistLampViewerQuery Query;
+        internal string FailureRoute;
+    }
+
     /// <summary>
-    /// 一つの refresh が所有する cancellation source です。
-    /// superseder は cancel だけを要求し、underlying CTS の dispose は所有 refresh の finally
-    /// に限定します。cancel callback と dispose の競合時にも callback の外で安全に dispose します。
+    /// refresh専有の取消源です。取消要求は捕捉・集計へ即時に反映し、登録済みcallbackは非同期に実行します。
+    /// refreshのfinallyがcallbackの終端を待ってから取消登録と専有CTSを解放します。
     /// </summary>
-    private sealed class RefreshCancellation : IDisposable
+    private sealed class RefreshCancellation
     {
         private readonly object gate = new();
-
         private readonly CancellationTokenSource source = new();
+        private Task cancellationTask = Task.CompletedTask;
+        private bool finished;
+        private CancellationTokenRegistration callerRegistration;
 
-        private bool cancellationRequested;
+        /// <summary>呼出元の取消しを専有取消元へ転送し、捕捉・集計に共通のトークンを返します。</summary>
+        /// <param name="callerToken">呼出元の取消要求。</param>
+        /// <returns>取消状態を即時に共有し、callbackの終端をこの管理主体が所有するトークン。</returns>
+        internal CancellationToken RegisterCallerCancellation(CancellationToken callerToken)
+        {
+            callerRegistration = callerToken.Register(RequestCancellation);
+            // 連結CTSを挟むと、CancelAsyncのcallbackが走るまで捕捉側へ取消状態が届きません。
+            return source.Token;
+        }
 
-        private bool cancellationRunning;
-
-        private bool disposed;
-
-        private bool disposeAfterCancellation;
-
-        private bool sourceDisposed;
-
-        internal CancellationTokenSource CreateLinkedTokenSource(CancellationToken callerCancellationToken)
+        /// <summary>取消状態を即時に成立させ、非同期callbackの実終端を一度だけ所有します。</summary>
+        internal void RequestCancellation()
         {
             lock (gate)
             {
-                if (disposed)
-                {
-                    throw new ObjectDisposedException(nameof(RefreshCancellation));
-                }
-                return CancellationTokenSource.CreateLinkedTokenSource(source.Token, callerCancellationToken);
+                if (finished || source.IsCancellationRequested) { return; }
+                // 取消状態と実callbackのTaskを一緒に公開します。CancelAsyncはcallbackを同期実行しません。
+                cancellationTask = source.CancelAsync();
             }
         }
 
-        internal void Cancel()
+        /// <summary>新たな取消しを止め、開始済みcallbackの終端後に取消登録と専有取消元を解放します。</summary>
+        /// <returns>必要な解放を全て試みた結果。</returns>
+        internal async Task FinishAsync()
         {
+            Task cancellation;
             lock (gate)
             {
-                if (disposed || sourceDisposed || cancellationRequested)
-                {
-                    return;
-                }
-                cancellationRequested = true;
-                cancellationRunning = true;
+                finished = true;
+                cancellation = cancellationTask;
             }
-
-            try
-            {
-                source.Cancel();
-            }
-            finally
-            {
-                bool disposeSource;
-                lock (gate)
-                {
-                    cancellationRunning = false;
-                    disposeSource = disposeAfterCancellation && !sourceDisposed;
-                    disposeAfterCancellation = false;
-                    if (disposeSource)
-                    {
-                        sourceDisposed = true;
-                    }
-                }
-                if (disposeSource)
-                {
-                    source.Dispose();
-                }
-            }
-        }
-
-        public void Dispose()
-        {
-            bool disposeSource;
-            lock (gate)
-            {
-                if (disposed)
-                {
-                    return;
-                }
-                disposed = true;
-                disposeSource = !cancellationRunning && !sourceDisposed;
-                if (disposeSource)
-                {
-                    sourceDisposed = true;
-                }
-                else if (cancellationRunning)
-                {
-                    disposeAfterCancellation = true;
-                }
-            }
-            if (disposeSource)
-            {
-                source.Dispose();
-            }
+            var failures = new List<Exception>();
+            try { await cancellation.ConfigureAwait(false); }
+            catch (Exception exception) { failures.Add(exception); }
+            try { callerRegistration.Dispose(); }
+            catch (Exception exception) { failures.Add(exception); }
+            try { source.Dispose(); }
+            catch (Exception exception) { failures.Add(exception); }
+            if (failures.Count > 0) { throw new AggregateException(failures); }
         }
     }
 
@@ -328,21 +306,29 @@ internal sealed class PlaylistLampViewerSession : IDisposable
         PlaylistLampViewerQuery nextQuery,
         CancellationToken cancellationToken = default)
     {
+        return UpdateQueryCore(nextQuery, cancellationToken, failureRoute: null);
+    }
+
+    private Task UpdateQueryCore(
+        PlaylistLampViewerQuery nextQuery,
+        CancellationToken cancellationToken,
+        string failureRoute)
+    {
         ArgumentNullException.ThrowIfNull(nextQuery);
         if (!string.Equals(nextQuery.PlaylistId, playlistId, StringComparison.Ordinal))
         {
             throw new ArgumentException("query playlistId does not match the session.", nameof(nextQuery));
         }
+        RefreshOperation operation;
         lock (stateGate)
         {
-            if (Volatile.Read(ref disposed) != 0)
-            {
-                return Task.CompletedTask;
-            }
+            if (disposed != 0) { return Task.CompletedTask; }
             query = nextQuery;
             ++sourceInvalidationVersion;
+            operation = ReserveRefresh(failureRoute);
         }
-        return RefreshAsync(cancellationToken);
+        _ = RunRefreshAsync(operation, cancellationToken);
+        return operation.Completion.Task;
     }
 
     /// <summary>
@@ -361,42 +347,68 @@ internal sealed class PlaylistLampViewerSession : IDisposable
     }
 
     /// <summary>
+    /// VMの日付変更を一方向で受理します。Taskを返さない画面入口の故障診断も、
+    /// sessionがrefreshの実終端より前に所有し、別の通知継続を残しません。
+    /// </summary>
+    /// <param name="selectedLocalDate">選択日、またはLatestを表すnull。</param>
+    internal void RequestSelectedAsOfDate(DateTime? selectedLocalDate)
+    {
+        _ = UpdateQueryCore(
+            new PlaylistLampViewerQuery(playlistId, selectedLocalDate),
+            default,
+            "PlaylistLampViewerViewModel.SelectedAsOfDate");
+    }
+
+    /// <summary>
     /// 現在 generation を supersede して snapshot を再構築します。
     /// </summary>
     /// <param name="cancellationToken">呼び出し側が待機を中断する token。</param>
     /// <returns>この refresh の完了 task。</returns>
-    public async Task RefreshAsync(CancellationToken cancellationToken = default)
+    public Task RefreshAsync(CancellationToken cancellationToken = default)
     {
-        RefreshCancellation previousCancellation;
-        RefreshCancellation buildCancellation;
-        long requestedGeneration;
-        long requestedInvalidationVersion;
-        PlaylistLampViewerQuery requestedQuery;
+        RefreshOperation operation;
         lock (stateGate)
         {
-            if (Volatile.Read(ref disposed) != 0)
-            {
-                return;
-            }
-            requestedGeneration = ++generation;
-            requestedInvalidationVersion = sourceInvalidationVersion;
-            requestedQuery = query;
-            previousCancellation = activeBuildCancellation;
-            buildCancellation = new RefreshCancellation();
-            activeBuildCancellation = buildCancellation;
+            if (disposed != 0) { return Task.CompletedTask; }
+            operation = ReserveRefresh();
         }
-        CancellationTokenSource linkedCancellation = null;
-        CancellationToken linkedCancellationToken = default;
+        _ = RunRefreshAsync(operation, cancellationToken);
+        return operation.Completion.Task;
+    }
+
+    // stateGate内からだけ呼びます。外部source・publish・取消を呼ぶ前に所有を成立させます。
+    private RefreshOperation ReserveRefresh(string failureRoute = null)
+    {
+        var operation = new RefreshOperation
+        {
+            Generation = ++generation,
+            InvalidationVersion = sourceInvalidationVersion,
+            Query = query,
+            FailureRoute = failureRoute,
+            PreviousCancellation = activeBuildCancellation
+        };
+        activeBuildCancellation = operation.Cancellation;
+        refreshes.Add(operation);
+        return operation;
+    }
+
+    private async Task RunRefreshAsync(RefreshOperation operation, CancellationToken cancellationToken)
+    {
+        long requestedGeneration = operation.Generation;
+        long requestedInvalidationVersion = operation.InvalidationVersion;
+        PlaylistLampViewerQuery requestedQuery = operation.Query;
+        RefreshCancellation buildCancellation = operation.Cancellation;
+        CancellationToken refreshCancellationToken = default;
+        Exception operationFailure = null;
         try
         {
-            previousCancellation?.Cancel();
+            operation.PreviousCancellation?.RequestCancellation();
             PublishLoading(requestedGeneration, requestedInvalidationVersion, requestedQuery);
-            linkedCancellation = buildCancellation.CreateLinkedTokenSource(cancellationToken);
-            linkedCancellationToken = linkedCancellation.Token;
+            refreshCancellationToken = buildCancellation.RegisterCallerCancellation(cancellationToken);
             PlaylistLampAggregationRequest request = await dataSource
-                .CaptureAsync(requestedQuery, linkedCancellationToken)
+                .CaptureAsync(requestedQuery, refreshCancellationToken)
                 .ConfigureAwait(false);
-            linkedCancellationToken.ThrowIfCancellationRequested();
+            refreshCancellationToken.ThrowIfCancellationRequested();
             if (request == null)
             {
                 request = PlaylistLampAggregationRequest.Failed(
@@ -419,93 +431,128 @@ internal sealed class PlaylistLampViewerSession : IDisposable
                     query: requestedQuery);
             }
             PlaylistLampAggregationResult result = await buildExecutor
-                .BuildAsync(request, aggregationService, linkedCancellationToken)
+                .BuildAsync(request, aggregationService, refreshCancellationToken)
                 .ConfigureAwait(false);
             TryPublish(requestedGeneration, requestedInvalidationVersion, result);
         }
-        catch (OperationCanceledException) when (linkedCancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (refreshCancellationToken.IsCancellationRequested)
         {
-            // A superseded or caller-cancelled build has no result to publish.
+            // supersedeまたは呼出元取消の結果は公開しません。
         }
         catch (Exception exception)
         {
-            var failedRequest = PlaylistLampAggregationRequest.Failed(
-                playlistId,
-                DescribeFailure(exception),
-                query: requestedQuery);
-            PlaylistLampAggregationResult failedResult = aggregationService.Aggregate(failedRequest);
-            TryPublish(requestedGeneration, requestedInvalidationVersion, failedResult);
+            // 表示用メッセージへ縮約する前に、取得・集計の元例外をこの境界で診断します。
+            TryLogFailure(exception, "playlist_lamp_refresh_failed playlistId=" + playlistId
+                + " generation=" + requestedGeneration);
+            try
+            {
+                var failedRequest = PlaylistLampAggregationRequest.Failed(
+                    playlistId,
+                    DescribeFailure(exception),
+                    query: requestedQuery);
+                PlaylistLampAggregationResult failedResult = aggregationService.Aggregate(failedRequest);
+                TryPublish(requestedGeneration, requestedInvalidationVersion, failedResult);
+            }
+            catch (Exception failure) { operationFailure = failure; }
         }
         finally
         {
-            linkedCancellation?.Dispose();
+            Exception failure = null;
+            try { await buildCancellation.FinishAsync().ConfigureAwait(false); }
+            catch (Exception exception) { failure = exception; }
+            Exception completionFailure = operationFailure == null ? failure
+                : failure == null ? operationFailure : new AggregateException(operationFailure, failure);
+            if (completionFailure != null && operation.FailureRoute != null)
+            {
+                TryLogFailure(completionFailure, operation.FailureRoute);
+            }
             lock (stateGate)
             {
-                if (requestedGeneration == generation
-                    && ReferenceEquals(activeBuildCancellation, buildCancellation))
+                if (ReferenceEquals(activeBuildCancellation, buildCancellation)) { activeBuildCancellation = null; }
+                if (failure != null)
                 {
-                    activeBuildCancellation = null;
+                    cleanupFailure = cleanupFailure == null ? failure : new AggregateException(cleanupFailure, failure);
                 }
+                if (completionFailure == null) { operation.Completion.TrySetResult(); }
+                else
+                {
+                    operation.Completion.TrySetException(completionFailure);
+                    if (operation.FailureRoute != null) { _ = operation.Completion.Task.Exception; }
+                }
+                refreshes.Remove(operation);
             }
-            buildCancellation.Dispose();
         }
     }
 
-    /// <summary>session が破棄済みかどうかです。</summary>
+    /// <summary>sessionが新しい要求の受付を停止済みかどうかです。</summary>
     public bool IsDisposed => Volatile.Read(ref disposed) != 0;
 
     /// <summary>
-    /// source subscription と進行中 build を一度だけ解除します。
+    /// 新規受付と公開を即時停止し、全受理refresh・購読解除・取消callbackの回収を一度要求します。
+    /// callbackの実行や進行中captureを同期的に待ちません。
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
-        {
-            return;
-        }
-        RefreshCancellation cancellation;
+        TaskCompletionSource completion;
+        RefreshOperation[] accepted;
         lock (stateGate)
         {
+            if (stopTask != null) { return; }
+            disposed = 1;
             ++generation;
             ++sourceInvalidationVersion;
-            cancellation = activeBuildCancellation;
             activeBuildCancellation = null;
+            accepted = refreshes.ToArray();
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            stopTask = completion.Task;
+            ResultChanged = null;
         }
-        dataSource.Changed -= DataSourceChanged;
-        cancellation?.Cancel();
-        ResultChanged = null;
+        foreach (RefreshOperation operation in accepted) { operation.Cancellation.RequestCancellation(); }
+        _ = Task.Run(() => StopCoreAsync(accepted, completion));
+    }
+
+    /// <summary>
+    /// 受付を停止し、queued/supersededを含む全refresh・取消callback・CTS解放と購読解除を待ちます。
+    /// 未確認の必須解放は、後続の待機でも同じ失敗として保持します。
+    /// </summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        lock (stateGate) { return new ValueTask(stopTask); }
+    }
+
+    private async Task StopCoreAsync(RefreshOperation[] accepted, TaskCompletionSource completion)
+    {
+        Exception unsubscribeFailure = null;
+        try { dataSource.Changed -= DataSourceChanged; }
+        catch (Exception exception) { unsubscribeFailure = exception; }
+        try { await Task.WhenAll(accepted.Select(operation => operation.Completion.Task)).ConfigureAwait(false); }
+        catch { /* 各refreshの必須回収故障はcleanupFailureが保持します。 */ }
+        lock (stateGate)
+        {
+            if (unsubscribeFailure != null)
+            {
+                cleanupFailure = cleanupFailure == null ? unsubscribeFailure : new AggregateException(cleanupFailure, unsubscribeFailure);
+            }
+            if (cleanupFailure == null) { completion.TrySetResult(); }
+            else { completion.TrySetException(new AggregateException(cleanupFailure)); }
+        }
     }
 
     private void DataSourceChanged(object sender, PlaylistLampViewerSourceChangedEventArgs e)
     {
-        if (Volatile.Read(ref disposed) != 0 || e == null)
-        {
-            return;
-        }
-        if (!string.IsNullOrWhiteSpace(e.PlaylistId)
-            && !string.Equals(e.PlaylistId, playlistId, StringComparison.Ordinal))
-        {
-            return;
-        }
+        if (e == null || (!string.IsNullOrWhiteSpace(e.PlaylistId)
+            && !string.Equals(e.PlaylistId, playlistId, StringComparison.Ordinal))) { return; }
+        RefreshOperation operation;
         lock (stateGate)
         {
-            if (e.Sequence > 0 && e.Sequence <= lastNotificationSequence)
-            {
-                return;
-            }
-            if (e.Sequence > lastNotificationSequence)
-            {
-                lastNotificationSequence = e.Sequence;
-            }
-            // Invalidate the current build before scheduling capture.  A source can publish
-            // while its owner still holds a write lock, so the actual refresh (and its
-            // cancellation of the previous build) is intentionally deferred below.
+            if (disposed != 0 || (e.Sequence > 0 && e.Sequence <= lastNotificationSequence)) { return; }
+            if (e.Sequence > lastNotificationSequence) { lastNotificationSequence = e.Sequence; }
             ++sourceInvalidationVersion;
+            operation = ReserveRefresh("PlaylistLampViewerSession.DataSourceChanged");
         }
-        // Source notifications can originate while a table/library writer owns its lock.
-        // Defer the refresh so snapshot capture and result subscribers never run inline on
-        // that publication stack.
-        Task.Run(() => RefreshAsync()).ObserveFault("PlaylistLampViewerSession.DataSourceChanged");
+        // 発火元がmodel writerを保持していても、capture・取消・通知先はそのstack上で動かしません。
+        _ = Task.Run(() => RunRefreshAsync(operation, default));
     }
 
     private void PublishLoading(
@@ -560,6 +607,12 @@ internal sealed class PlaylistLampViewerSession : IDisposable
             handler = ResultChanged;
         }
         handler?.Invoke(this, new PlaylistLampAggregationResultChangedEventArgs(requestedGeneration, result));
+    }
+
+    private static void TryLogFailure(Exception exception, string route)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, route); }
+        catch { /* 任意診断はrefreshの結果や必須解放の成否を変えません。 */ }
     }
 
     private static string DescribeFailure(Exception exception)

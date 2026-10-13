@@ -49,11 +49,15 @@ Web操作は固定ID、空白でない名前、URLテンプレート、有効設
 
 ### メニューとクリック時の起動
 
+関連文書のクリックは、解決済みの正確なパスを再確認して一回shellへ渡します。実起動の失敗は所有するメイン画面の入口で元原因を診断し、一回通知して止めます。クリップボード書込みも同じ局所終端を持ち、表示文字列やコピー対象を変えません。リリースノートと更新案内のリンクも起動失敗を一回案内し、更新案内は実起動に成功した場合だけ肯定結果で閉じます。通知自身の失敗は再起動や再通知を起こしません。
+
 メニューを開くときに現在の設定を解決します。子項目には捕捉した行やURLではなく固定IDと操作の種類を保持します。クリック時はメニューの正確な対象行と現在の譜面情報を取り直し、現在の設定で再解決してから起動境界へ渡します。複数選択中でも別の選択行で置き換えません。古い操作、設定変更、不正設定、譜面・実行ファイルの欠落は起動せず、多言語のエラーにします。
 
 Webは既存のブラウザ・シェル境界へ渡します。プログラムはクリック時に実行ファイルと譜面の絶対パスを確認し、`UseShellExecute=false`、作業ディレクトリは実行ファイルの親、引数は一つずつ `ArgumentList` に設定します。一回開始して待たず、プロセスを保持しません。標準入出力の転送、生の `Arguments`、関連付け起動への代替は使いません。
 
 ### 一覧再生の外部プレイヤー所有範囲
+
+再生後のメイン画面復元と表フォーカスは任意表示です。Dispatcher予約と実callbackの故障は局所診断で止め、再生結果を変更しません。既存の画面生存・終了guard、foreground条件、有限回数の確認だけを使い、故障後のretryや高頻度の同期診断を追加しません。
 
 一覧からの再生は「プログラムから開く」とは別の契約です。停止、次曲、終了通知、一時設定の復元に必要なため再生プレイヤーのプロセスを保持しますが、外部アプリのウィンドウ状態を継続的な正常性判定には使いません。プロセスを開始できない場合、起動直後に終了した場合、またはプレイヤー操作に必要なメインウィンドウを有限時間内に確立できない場合を起動失敗として扱います。
 
@@ -82,6 +86,7 @@ LR2の通常window styleは、従来どおり `GWL_STYLE` が試聴用の値へ�
 | 一覧再生のプロセス所有、開始失敗時の状態解除、補助window操作のbest-effort化 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)、[`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs) |
 | LR2試聴の五項目、通常/extended style、他のXML値、設定編集、開始・終了失敗 | [`LR2body`](../../../BeMusicSeeker/Models/LR2/LR2body.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ubmplayの一時INI生成、値の制限、設定読み戻し | [`uBMplay`](../../../BeMusicSeeker/Models/Playback/uBMplay.cs) | [`UbmplaySettingsTests`](../../../BeMusicSeeker.Tests/Playback/UbmplaySettingsTests.cs) |
+| 関連文書の正確な対象と起動失敗、更新リンクの通知終端 | `SelectedChartExternalActionWorkflowOwner`、`MainWindow`、`UpdateAvailableDialog` | [`SelectedChartExternalActionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartExternalActionWorkflowOwnerTests.cs) の `OpenRelatedDocument_RechecksPathAndPropagatesLauncherFailure` が元原因と正確なパス・一回起動を、[`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent` が実button、URL、失敗通知と窓の維持を確認する。clipboardは既存value生成試験、focusのclose guardは [`MainWindowPlaybackWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaybackWpfTests.cs)、全入口の局所終端は静的配線点検に分担する。 |
 
 ## 関連資料
 

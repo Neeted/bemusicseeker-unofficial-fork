@@ -326,9 +326,9 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
         if (!operationAdmission.TryEnter(out IDisposable accepted))
         {
-            UiDialogResult busy = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
-                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning));
-            UiDialogRoute.ThrowIfNotShown(busy, "Audio conversion Busy notification");
+            await ShowOptionalNotificationAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning),
+                "Audio conversion Busy notification");
             return SelectedChartAudioConversionResult.Create(SelectedChartAudioConversionStatus.Busy, request.Targets.Count, 0, 0);
         }
         using (accepted)
@@ -438,14 +438,27 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 Volatile.Read(ref completedCount),
                 Volatile.Read(ref failedCount),
                 fileResults.ToArray());
-            UiDialogResult completionResult = await dialogs.ShowMessageAsync(new UiMessageRequest(
+            await ShowOptionalNotificationAsync(new UiMessageRequest(
                 BuildCompletionMessage(result, settings, cancelled),
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxButton.OK,
                 cancelled ? MessageBoxImage.Exclamation : MessageBoxImage.Asterisk,
-                MessageBoxResult.OK));
-            UiDialogRoute.ThrowIfNotShown(completionResult, "Audio conversion completion notification");
+                MessageBoxResult.OK), "Audio conversion completion notification");
             return result;
+        }
+    }
+
+    private async Task ShowOptionalNotificationAsync(UiMessageRequest request, string routeName)
+    {
+        try
+        {
+            UiDialogResult result = await dialogs.ShowMessageAsync(request).ConfigureAwait(false);
+            UiDialogRoute.ThrowIfNotShown(result, routeName);
+        }
+        catch (Exception exception)
+        {
+            try { NLogWrapper.FileLogger?.Warn(exception, routeName); }
+            catch { /* 任意通知の診断失敗を変換結果へ合成しません。 */ }
         }
     }
 

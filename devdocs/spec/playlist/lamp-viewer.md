@@ -25,7 +25,17 @@
 | `Deleted` | 一回通知し、表示しない。 | 対象のビューアだけを通知なしで閉じる。 |
 | `Failed` | 一回通知し、表示しない。 | 一回通知し、対象のビューアだけを閉じる。 |
 
-購読は開始前に行います。通知の表示失敗は呼出元へ返します。終端通知の重複や手動で閉じる操作があっても、データ源、セッション、DataContextの破棄は一回です。メインウィンドウ終了時は、開く途中の処理を取り消して全ビューアを閉じ、後からウィンドウや通知を表示しません。位置・大きさ・選択を保存せず、ウィンドウ間キャッシュも設けません。
+購読は開始前に行います。初回Deleted/Failedと表示中Failedの通知は任意案内で、throwや `Failed` を局所診断しても対象の窓と資源を一度回収し、別の窓は維持します。実生成・準備・close・資源解放の故障は通知故障へ格下げせず、残りの回収も試みて所有入口で失敗終端として扱います。終端通知の重複や手動で閉じる操作があっても、データ源、セッション、DataContextの破棄は一回です。メインウィンドウ終了時は、開く途中の処理を取り消して全ビューアを閉じ、後からウィンドウや通知を表示しません。位置・大きさ・選択を保存せず、ウィンドウ間キャッシュも設けません。
+
+メイン画面の実終了経路は `DisposeAsync` を待ちます。同期 `Dispose` は新受付と閉画面への公開を即時停止し、native閉鎖を先に要求します。取消callback、model lock待ち、capture/build、購読解除、source解放をUIスレッドで同期的に待ちません。managerのshutdown tokenと各窓の初回open tokenから到達する取消も実Taskとして所有します。呼出元が明示的に自身のtokenを取り消す操作には、UI応答性の追加保証を設けません。
+
+sessionは初回、明示refresh、live更新、基準日変更、キュー待ちとsupersede済みを含む、停止前に受理した全refreshを実終端まで所有します。受付と停止は同じ短いgateで判定し、capture・結果通知・取消callbackより先に仕事を予約します。世代番号・依存情報のinvalidations・最新要求以外の公開拒否は維持します。停止後の新要求や既取得source handlerは新しいcaptureを起こしません。sessionの非同期回収は、全refreshと取消callback、linked/専有CTSの解放、購読解除自身の終端を待ちます。
+
+各窓のmanual Closed、初回失敗、表示中Deleted/Failed、owner shutdownは一つの回収Taskへ合流します。初回Deleted/Failed、caller取消、owner終了、表示準備失敗で表示に到達しなかった生成済みWindowも、一回の実Close/Closedにより `Application.Windows` と `Owner.OwnedWindows` の両方から除去します。不可視、DataContext解除、管理中の表示件数0だけでWindow回収済みとはしません。回収Taskはnative閉鎖・購読解除・停止要求より先に登録し、CloseによるClosed再入も同じTaskへ合流させ、初回openや終端通知自身を逆方向に待ちません。全session仕事が終端した後にsourceを一度だけ解放し、残余資源も回収します。sourceが `IAsyncDisposable` を持つ場合は `DisposeAsync` だけ、それ以外は同期 `Dispose` を一回呼びます。初回open tokenは、そのopenと実取消callbackが終端する前に解放しません。WindowLifetime作成前の部分初期化も、sessionを停止してdrainしてからsourceを解放します。他の窓の表示・操作・source寿命は独立しています。
+
+実sourceの非同期回収は、通知callbackがキュー前に行うscore identityのreader、キュー済みworkerのplaylist readerと購読整備、既取得Changed delegateを含む全受理済み通知活動、購読解除自身の実終端を待ちます。同期callbackからworkerへの所有は切れ目なく予約します。停止後のキュー未開始仕事はmodel読取りを省けますが、実workerの終端までを回収します。既にmodel lock待ちなら取得後の停止再確認と実解放まで待ち、通知やその任意診断もgate外かつ活動終端前に行います。captureはsessionが所有するため、利用側が全captureを先に待ってからsourceを破棄します。
+
+実回収の故障で解放を確認できないlifetimeは管理主体の所有下に残し、manual ClosedからDispatcherへ例外を漏らしません。購読解除などの一段が失敗しても残りの回収を試みます。managerの待機は、open・終端通知から後で生まれた回収Taskも含めて全実Taskの終端を確認します。重複・後続の `DisposeAsync` / `WaitForCompletionAsync` も同じ未確認結果を返し、解放を自動再試行しません。任意通知・診断の故障履歴は未解放結果として保存しません。通常のOpenが失敗しても回収が成功した場合は、shutdownの失敗へ混ぜません。
 
 ### 統計とカテゴリ
 
@@ -112,6 +122,12 @@
 | 表示モード、共通尺度、幅不変の即時ラベル、切替の副作用なし、更新 | `PlaylistLampViewerViewModel`、`PlaylistLampWeightedStackPanel`、`PlaylistLampSegmentLabelConverter` | `Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` は100/50/0件と特殊行、未実体化最大行、左右、参照・通知・捕捉／集計回数・一覧要求・選択・スクロール不変、最大100→200を確認する。 |
 | 複数窓の表示モードの独立、全0件・フォルダなし | `PlaylistLampViewerViewModel`、`PlaylistLampViewerWindow` | `Viewer_displayModeIsIndependentAcrossWindows`、`Viewer_countModeRetainsZeroRowsAndHandlesNoFoldersAfterRefresh`。 |
 | 両モードのラベル収容、基準日・最新・LR2・利用不可からの復帰 | `PlaylistLampSegmentLabelConverter`、`PlaylistLampViewerViewModel` | `Viewer_widthAwareLabelsShowSelectedModeOnlyWhenTheSegmentCanContainIt`、既存の基準日・LR2表示テストでモード保持を確認する。翻訳対応は `LocalizationResourceParityTests` の共通検査を使う。 |
+| 任意通知失敗、初回生成故障、終了取消と実Taskのdrain | `PlaylistLampViewerWindowManager`、`MainWindow` | [`PlaylistLampViewerWindowManagerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs) の既存初回・live終端・生成故障ケースは通知throw/Failed・別窓保持・元故障と回収結果の区別を維持する。`Manager_requiredCleanupFailureSurvivesCloseAndOverlappingShutdown` はliveのasync source解放故障、manual Closedの同期fallback、購読解除故障、残余回収と後続故障保持を確認する。`Manager_pendingOpenCancellationReclaimsUnshownWindowWithoutDialog` は同期/非同期owner終了とcaller取消の各capture取消遵守/無視条件で、実capture終端前にsourceを解放せず、終端後の実Closed・両所有集合からの除去・非表示・通知0・一回解放を確認する。 |
+| 未表示Windowの実終端と正常viewer独立性 | `PlaylistLampViewerWindowManager` | `Manager_initialDeletedShowsOneLocalizedDialogAndNoWindow` / `Manager_initialFailedShowsOneLocalizedDialogAndNoWindow` はprepare前に初期所属とClosed・DataContext解除・表示開始を受動記録し、fixtureの後片付け前に対象の実Closed一回と `Application.Windows` / `Owner.OwnedWindows` からの除去、source購読解除・Dispose試行一回を確認する。Failed代表は先行正常viewerの表示・segment操作・sourceを保持する。`Manager_initialTerminalNotificationFailureStillCleansSource` はDeleted/Failed × 通知throw/Failedの4条件で同じ実回収と後続drain成功を確認し、`Manager_creationFailurePreservesRequiredFailureAndAttemptsCleanup` はfactoryのWindow未生成、prepare失敗の実回収、元故障と必須回収故障の区別を確認する。 |
+| 全受理refreshと取消callbackの実終端 | `PlaylistLampViewerSession`、`PlaylistLampViewerViewModel` | `Session_disposeDrainsLiveAndSupersededDateRefreshes` は初回Ready後のlive/日付変更をcapture・buildの二条件でholdし、最新だけの終端ではdrainしないことと停止後受付・公開拒否を確認する。`Session_disposeOwnsCancellationCallbacksAndAllowsStopReentry` はcallbackからCurrent/停止/drain取得への再入、callback終端までの回収待ちを確認する。`Session_failedSubscriberFailureFaultsRefreshWithoutPoisoningCleanup` はFailed subscriberから漏れる通常故障を公開refresh Taskへ接続し、回収結果へ混ぜない。既存世代・日付世代ケースは継続する。 |
+| native閉鎖先行、UI応答、live仕事とsource解放順序 | `PlaylistLampViewerWindowManager` | `Manager_closeDrainsLiveAndSupersededDateCapturesBeforeSourceRelease` は実ChangedとVMの日付入口から受理した旧/最新capture、実Closed、manual/owner終了、別窓の表示/操作、遅いReady/Failedの非再表示とasync解放一回を確認する。`Manager_initialCancellationCallbackDoesNotBlockNativeCloseOrDispatcher` は初回token由来callbackのhold中に実Closedと実DispatcherOperationのpulseを観測し、callback内では表明せずUI外driverのfinallyで解放して全実Taskをjoinし、対象のClosed一回・DataContext解除・両所有集合からの除去・source解放試行一回を確認する。 |
+| sourceのキュー前/後model readerと既取得通知のdrain | `BmsLibraryPlaylistLampDataSource` | `Source_disposeAsyncDrainsQueuedPlaylistReaderBehindActualWriter` / `Source_disposeAsyncDrainsPreQueueScoreReaderBehindActualWriter` は専用threadで実writerを保持し、局所反射による実 `WaitingReadCount` でreader到達を確認してからsource drainを観測する。`Source_disposeAsyncDrainsRetainedChangedDelegateAndRejectsSessionRefresh` は先頭subscriberから停止へ再入し、残るdelegateと任意throwを含む実通知終端・停止後session受付拒否を確認する。全gateをfinallyで解放し、発火元・writer・source/sessionの実Taskを回収する。 |
+
 
 ## 関連資料
 

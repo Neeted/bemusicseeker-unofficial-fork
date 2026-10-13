@@ -20,7 +20,7 @@ public sealed class PlaylistLampViewerSessionTests
 
     /// <summary>Loading通知の中でセッションを破棄しても開始処理を正常に回収し、購読を一回解除する。取消源の早期破棄によるObjectDisposedExceptionと購読漏れを検出する。</summary>
     [TestMethod]
-    public async Task Session_disposeDuringLoadingDoesNotDisposeRefreshCancellationBeforeLinkedTokenCreation()
+    public async Task Session_disposeDuringLoadingKeepsCancellationAliveUntilRefreshCompletes()
     {
         var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
         var session = new PlaylistLampViewerSession("playlist", source);
@@ -38,6 +38,7 @@ public sealed class PlaylistLampViewerSessionTests
         {
             await session.StartAsync();
             await loadingPublished.Task;
+            await session.DisposeAsync();
 
             Assert.IsTrue(session.IsDisposed);
             Assert.AreEqual(1, source.AddCount);
@@ -46,7 +47,7 @@ public sealed class PlaylistLampViewerSessionTests
         }
         finally
         {
-            session.Dispose();
+            await session.DisposeAsync();
         }
     }
 
@@ -73,7 +74,7 @@ public sealed class PlaylistLampViewerSessionTests
             chartInfoIndexVersion: 10));
         var source = new FakeLampSource(first);
         var executor = new GatedBuildExecutor();
-        using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        await using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
 
         List<Task> startedRefreshes = [];
         try
@@ -119,6 +120,7 @@ public sealed class PlaylistLampViewerSessionTests
                 executor.Complete(index, executor.AggregateBuild(index));
             }
             await Task.WhenAll(startedRefreshes);
+            await session.DisposeAsync();
         }
     }
 
@@ -128,7 +130,7 @@ public sealed class PlaylistLampViewerSessionTests
     {
         var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
         var executor = new GatedBuildExecutor();
-        using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        await using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
 
         List<Task> startedRefreshes = [];
         try
@@ -160,6 +162,7 @@ public sealed class PlaylistLampViewerSessionTests
                 executor.Complete(index, executor.AggregateBuild(index));
             }
             await Task.WhenAll(startedRefreshes);
+            await session.DisposeAsync();
         }
     }
 
@@ -169,7 +172,7 @@ public sealed class PlaylistLampViewerSessionTests
     {
         var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
         var executor = new GatedBuildExecutor();
-        using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        await using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
         var acceptedReadyResults = new List<PlaylistLampAggregationResult>();
         TaskCompletionSource<PlaylistLampAggregationResult> acceptedSecond = NewCompletion<PlaylistLampAggregationResult>();
         session.ResultChanged += (_, args) =>
@@ -227,6 +230,7 @@ public sealed class PlaylistLampViewerSessionTests
                 executor.Complete(index, executor.AggregateBuild(index));
             }
             await Task.WhenAll(startedRefreshes);
+            await session.DisposeAsync();
         }
     }
 
@@ -235,7 +239,7 @@ public sealed class PlaylistLampViewerSessionTests
     public async Task Session_preservesDeletedFailedAndDegradedStates()
     {
         var source = new FakeLampSource(PlaylistLampAggregationRequest.Deleted("playlist"));
-        using var session = new PlaylistLampViewerSession("playlist", source);
+        await using var session = new PlaylistLampViewerSession("playlist", source);
 
         await session.StartAsync();
         Assert.AreEqual(PlaylistLampViewerState.Deleted, session.Current.State);
@@ -280,7 +284,7 @@ public sealed class PlaylistLampViewerSessionTests
         {
             CaptureFailure = new InvalidOperationException("entry snapshot unavailable")
         };
-        using var session = new PlaylistLampViewerSession("playlist", source);
+        await using var session = new PlaylistLampViewerSession("playlist", source);
 
         await session.StartAsync();
 
@@ -288,6 +292,37 @@ public sealed class PlaylistLampViewerSessionTests
         Assert.AreEqual(0, session.Current.Statistics.TotalCount);
         StringAssert.Contains(session.Current.FailureMessage, "entry snapshot unavailable");
         Assert.IsFalse(session.Current.IsSegmentInvocationEnabled);
+    }
+
+    /// <summary>
+    /// capture障害をFailedへ変換した後にFailed subscriberがthrowした場合、公開refresh Taskは
+    /// 元subscriber故障で終端します。通常公開故障を必須回収の未確認結果へ混ぜず、解除は一回です。
+    /// </summary>
+    [TestMethod]
+    public async Task Session_failedSubscriberFailureFaultsRefreshWithoutPoisoningCleanup()
+    {
+        var source = new FakeLampSource(ReadyRequest("playlist", 1, 1))
+        {
+            CaptureFailure = new InvalidOperationException("ordinary capture failure")
+        };
+        var subscriberFailure = new InvalidOperationException("failed result subscriber failure");
+        var session = new PlaylistLampViewerSession("playlist", source);
+        session.ResultChanged += (_, args) =>
+        {
+            if (args.Result.State == PlaylistLampViewerState.Failed) { throw subscriberFailure; }
+        };
+        try
+        {
+            Exception? observed = null;
+            try { await session.StartAsync(); }
+            catch (Exception exception) { observed = exception; }
+            Assert.AreSame(subscriberFailure, observed);
+            Assert.AreEqual(PlaylistLampViewerState.Failed, session.Current.State);
+            await session.DisposeAsync();
+            await session.DisposeAsync();
+            Assert.AreEqual(1, source.RemoveCount);
+        }
+        finally { await session.DisposeAsync(); }
     }
 
     /// <summary>同じ情報源の2セッションで片方を繰返し破棄しても他方は更新でき、両方の購読をそれぞれ一回解除する。共有状態の巻込みと解除の重複・漏れを検出する。</summary>
@@ -315,6 +350,7 @@ public sealed class PlaylistLampViewerSessionTests
 
             sessionA.Dispose();
             sessionA.Dispose();
+            await sessionA.DisposeAsync();
             Assert.AreEqual(2, source.AddCount);
             Assert.AreEqual(1, source.RemoveCount);
 
@@ -337,6 +373,7 @@ public sealed class PlaylistLampViewerSessionTests
             Assert.AreEqual(2, executorB.BuildCount);
             sessionB.Dispose();
             sessionB.Dispose();
+            await sessionB.DisposeAsync();
             Assert.AreEqual(2, source.RemoveCount);
         }
         finally
@@ -353,6 +390,7 @@ public sealed class PlaylistLampViewerSessionTests
                 executorB.Complete(index, executorB.AggregateBuild(index));
             }
             await Task.WhenAll(startedRefreshes);
+            await Task.WhenAll(sessionA.DisposeAsync().AsTask(), sessionB.DisposeAsync().AsTask());
         }
     }
 
@@ -361,7 +399,7 @@ public sealed class PlaylistLampViewerSessionTests
     public async Task Session_queryUpdateKeepsTheLatestImmutableQuery()
     {
         var source = new QueryAwareLampSource();
-        using var session = new PlaylistLampViewerSession("playlist", source);
+        await using var session = new PlaylistLampViewerSession("playlist", source);
 
         await session.StartAsync();
         DateTime firstDate = new(2026, 8, 27);
@@ -382,7 +420,7 @@ public sealed class PlaylistLampViewerSessionTests
     {
         var source = new QueryAwareLampSource();
         var executor = new GatedBuildExecutor();
-        using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        await using var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
         var acceptedReadyResults = new List<PlaylistLampAggregationResult>();
         TaskCompletionSource<PlaylistLampAggregationResult> secondAccepted = NewCompletion<PlaylistLampAggregationResult>();
         session.ResultChanged += (_, args) =>
@@ -444,6 +482,163 @@ public sealed class PlaylistLampViewerSessionTests
                 executor.Complete(index, executor.AggregateBuild(index));
             }
             await Task.WhenAll(startedRefreshes);
+            await session.DisposeAsync();
+        }
+    }
+
+    /// <summary>
+    /// 初回Ready後のlive更新と日付変更をcapture待ち/build待ちで競合させ、最新だけの終端では
+    /// 停止を完了せず、取消を無視する旧refreshも回収します。停止後の既取得handlerも新受付しません。
+    /// capture待ちでは取消状態の即時反映と後続buildの未開始を検証し、誤って開始したbuild自体は止めません。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)] // buildの実Taskをholdします。
+    [DataRow(true)] // captureの実Taskをholdします。
+    public async Task Session_disposeDrainsLiveAndSupersededDateRefreshes(bool holdCapture)
+    {
+        var source = new FakeLampSource(QueryAwareLampSource.CreateRequest(PlaylistLampViewerQuery.Latest("playlist")));
+        var executor = new GatedBuildExecutor(holdBuilds: !holdCapture);
+        var session = new PlaylistLampViewerSession("playlist", source, buildExecutor: executor);
+        var captures = new List<(TaskCompletionSource<PlaylistLampAggregationRequest> Completion, CancellationToken Token)>();
+        TaskCompletionSource<bool> captureChanged = NewCompletion<bool>();
+        Task? latest = null;
+        Task? drain = null;
+        int published = 0;
+        session.ResultChanged += (_, _) => Interlocked.Increment(ref published);
+        try
+        {
+            Task initial = session.StartAsync();
+            await executor.WaitForBuildCountAsync(1);
+            executor.Complete(0, executor.AggregateBuild(0));
+            await initial;
+            source.CaptureOverride = (query, token) =>
+            {
+                if (!holdCapture) { return ValueTask.FromResult(QueryAwareLampSource.CreateRequest(query)); }
+                TaskCompletionSource<PlaylistLampAggregationRequest> completion = NewCompletion<PlaylistLampAggregationRequest>();
+                lock (captures)
+                {
+                    captures.Add((completion, token));
+                    captureChanged.TrySetResult(true);
+                    captureChanged = NewCompletion<bool>();
+                }
+                return new ValueTask<PlaylistLampAggregationRequest>(completion.Task);
+            };
+            EventHandler<PlaylistLampViewerSourceChangedEventArgs>? retainedHandler = source.SnapshotChangedHandler();
+            source.Raise("playlist", 1);
+            if (holdCapture) { await waitForCaptures(1); }
+            else { await executor.WaitForBuildCountAsync(2); }
+            latest = session.UpdateSelectedAsOfDateAsync(new DateTime(2026, 8, 27));
+            if (holdCapture) { await waitForCaptures(2); }
+            else { await executor.WaitForBuildCountAsync(3); }
+            PlaylistLampAggregationResult stoppedResult = session.Current;
+            session.Dispose();
+            drain = session.DisposeAsync().AsTask();
+            if (holdCapture)
+            {
+                Assert.IsTrue(captures.All(capture => capture.Token.IsCancellationRequested),
+                    "停止は取消callbackの実行順によらず、受理済みcaptureのトークンへ直ちに反映します。");
+            }
+            int stoppedPublished = Volatile.Read(ref published);
+            int stoppedCaptures = source.CaptureCount;
+            await session.RefreshAsync();
+            await session.UpdateSelectedAsOfDateAsync(new DateTime(2026, 8, 28));
+            retainedHandler?.Invoke(source, new PlaylistLampViewerSourceChangedEventArgs("playlist", 2));
+            if (holdCapture)
+            {
+                captures[1].Completion.TrySetResult(QueryAwareLampSource.CreateRequest(new PlaylistLampViewerQuery("playlist", new DateTime(2026, 8, 27))));
+            }
+            else { executor.Complete(2, executor.AggregateBuild(2)); }
+            await latest;
+            Assert.IsFalse(drain.IsCompleted, "最新refreshだけの終端では旧capture/buildを解放済みにしません。");
+            if (holdCapture) { captures[0].Completion.TrySetResult(QueryAwareLampSource.CreateRequest(PlaylistLampViewerQuery.Latest("playlist"))); }
+            else { executor.Complete(1, executor.AggregateBuild(1)); }
+            await drain;
+            if (holdCapture)
+            {
+                Assert.AreEqual(1, executor.BuildCount, "取消を無視して戻ったcaptureから後続buildを開始しません。");
+            }
+            Assert.AreEqual(stoppedCaptures, source.CaptureCount);
+            Assert.AreEqual(stoppedPublished, Volatile.Read(ref published));
+            Assert.AreSame(stoppedResult, session.Current);
+            Assert.AreEqual(1, source.RemoveCount);
+        }
+        finally
+        {
+            session.Dispose();
+            lock (captures)
+            {
+                foreach (var capture in captures) { capture.Completion.TrySetResult(source.Request); }
+            }
+            for (int index = 0; index < executor.BuildCount; index++) { executor.Complete(index, executor.AggregateBuild(index)); }
+            if (latest != null) { await latest; }
+            await session.DisposeAsync();
+        }
+
+        async Task waitForCaptures(int count)
+        {
+            while (true)
+            {
+                Task changed;
+                lock (captures)
+                {
+                    if (captures.Count >= count) { return; }
+                    changed = captureChanged.Task;
+                }
+                await changed;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 停止取消callbackからCurrent・重複停止・drain取得へ再入しても詰まらず、captureを返した後も
+    /// callbackとCTS後片付けの実終端までdrainを完了しません。callback内の観測は外で表明します。
+    /// </summary>
+    [TestMethod]
+    public async Task Session_disposeOwnsCancellationCallbacksAndAllowsStopReentry()
+    {
+        var source = new FakeLampSource(ReadyRequest("playlist", 1, 1));
+        var session = new PlaylistLampViewerSession("playlist", source);
+        using var callbackRelease = new ManualResetEventSlim();
+        TaskCompletionSource<bool> callbackEntered = NewCompletion<bool>();
+        TaskCompletionSource<PlaylistLampAggregationRequest> captureRelease = NewCompletion<PlaylistLampAggregationRequest>();
+        Task? callbackDrain = null;
+        PlaylistLampAggregationResult? callbackCurrent = null;
+        Task? refresh = null;
+        try
+        {
+            await session.StartAsync();
+            source.CaptureOverride = (_, token) =>
+            {
+                token.Register(() =>
+                {
+                    callbackCurrent = session.Current;
+                    session.Dispose();
+                    callbackDrain = session.DisposeAsync().AsTask();
+                    callbackEntered.TrySetResult(true);
+                    callbackRelease.Wait();
+                });
+                return new ValueTask<PlaylistLampAggregationRequest>(captureRelease.Task);
+            };
+            refresh = session.RefreshAsync();
+            session.Dispose();
+            Task drain = session.DisposeAsync().AsTask();
+            await callbackEntered.Task;
+            captureRelease.TrySetResult(source.Request);
+            Assert.IsNotNull(callbackCurrent);
+            Assert.IsNotNull(callbackDrain);
+            Assert.IsFalse(drain.IsCompleted);
+            Assert.IsFalse(callbackDrain.IsCompleted);
+            callbackRelease.Set();
+            await Task.WhenAll(refresh, drain, callbackDrain);
+            Assert.AreEqual(1, source.RemoveCount);
+        }
+        finally
+        {
+            callbackRelease.Set();
+            captureRelease.TrySetResult(source.Request);
+            session.Dispose();
+            if (refresh != null) { await refresh; }
+            await session.DisposeAsync();
         }
     }
 
@@ -530,6 +725,15 @@ public sealed class PlaylistLampViewerSessionTests
 
         internal Exception? CaptureFailure { get; set; }
 
+        internal Func<PlaylistLampViewerQuery, CancellationToken, ValueTask<PlaylistLampAggregationRequest>>? CaptureOverride { get; set; }
+
+        internal PlaylistLampAggregationRequest Request { get { lock (stateGate) { return request; } } }
+
+        internal EventHandler<PlaylistLampViewerSourceChangedEventArgs>? SnapshotChangedHandler()
+        {
+            lock (stateGate) { return changed; }
+        }
+
         internal int AddCount { get; private set; }
 
         internal int RemoveCount { get; private set; }
@@ -559,6 +763,7 @@ public sealed class PlaylistLampViewerSessionTests
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(PlaylistLampViewerQuery query, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref captureCount);
+            if (CaptureOverride != null) { return CaptureOverride(query, cancellationToken); }
             cancellationToken.ThrowIfCancellationRequested();
             Exception? failure = CaptureFailure;
             if (failure != null)
@@ -610,7 +815,7 @@ public sealed class PlaylistLampViewerSessionTests
             return ValueTask.FromResult(CreateRequest(query));
         }
 
-        private static PlaylistLampAggregationRequest CreateRequest(PlaylistLampViewerQuery query)
+        internal static PlaylistLampAggregationRequest CreateRequest(PlaylistLampViewerQuery query)
         {
             string hash = "query-chart";
             PlaylistLampEntrySnapshot[] entries = new[]
@@ -647,7 +852,7 @@ public sealed class PlaylistLampViewerSessionTests
         }
     }
 
-    private sealed class GatedBuildExecutor : IPlaylistLampViewerBuildExecutor
+    private sealed class GatedBuildExecutor(bool holdBuilds = true) : IPlaylistLampViewerBuildExecutor
     {
         private readonly object stateGate = new();
         private readonly List<PlaylistLampAggregationRequest> requests = [];
@@ -670,7 +875,6 @@ public sealed class PlaylistLampViewerSessionTests
             PlaylistLampAggregationService aggregationService,
             CancellationToken cancellationToken)
         {
-            _ = aggregationService;
             _ = cancellationToken;
             TaskCompletionSource<PlaylistLampAggregationResult> completion = NewCompletion<PlaylistLampAggregationResult>();
             lock (stateGate)
@@ -680,6 +884,8 @@ public sealed class PlaylistLampViewerSessionTests
                 buildChanged.TrySetResult(true);
                 buildChanged = NewCompletion<bool>();
             }
+            // captureの終端待ちを検証するときは余計なbuildを件数で失敗にし、未解放gateへ変えません。
+            if (!holdBuilds) { completion.TrySetResult(aggregationService.Aggregate(request)); }
             return completion.Task;
         }
 

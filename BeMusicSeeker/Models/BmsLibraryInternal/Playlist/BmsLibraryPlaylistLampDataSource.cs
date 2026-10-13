@@ -6,13 +6,14 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// BMSPlaylist と BMSLibrary の current owner state を immutable lamp input へ投影します。
 /// </summary>
-internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerDataSource, IDisposable
+internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerDataSource, IDisposable, IAsyncDisposable
 {
     private readonly BMSPlaylist playlist;
 
@@ -35,6 +36,12 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     private long changeSequence;
 
     private int disposed;
+
+    private readonly object activityGate = new();
+
+    private readonly HashSet<TaskCompletionSource> activities = [];
+
+    private Task stopTask;
 
     /// <summary>
     /// production playlist lamp source を生成します。
@@ -62,7 +69,13 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     /// <inheritdoc />
     public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
 
-    /// <inheritdoc />
+    /// <summary>
+    /// immutable入力を捕捉します。開始済みcaptureの実終端は呼出元sessionが所有し、
+    /// 全captureを待ってからこのsourceを破棄する必要があります。
+    /// </summary>
+    /// <param name="query">捕捉するplaylistと基準日。</param>
+    /// <param name="cancellationToken">捕捉の取消token。</param>
+    /// <returns>captureの実終端までを表す要求Task。</returns>
     public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
         PlaylistLampViewerQuery query,
         CancellationToken cancellationToken)
@@ -318,31 +331,88 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
     }
 
     /// <summary>
-    /// source の event subscription を一度だけ解除します。
+    /// 新しいsource通知活動を拒否し、購読解除と受理済み活動の回収を一度要求します。
+    /// model lock待ちや既取得Changed delegateを同期的に待ちません。
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0)
+        TaskCompletionSource completion;
+        Task[] accepted;
+        lock (activityGate)
         {
-            return;
+            if (stopTask != null) { return; }
+            disposed = 1;
+            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            stopTask = completion.Task;
+            accepted = activities.Select(activity => activity.Task).ToArray();
         }
-        playlist.PlaylistTablesReplaced -= PlaylistTablesReplaced;
-        playlist.PlaylistEntriesHydrationCompleted -= PlaylistEntriesHydrationCompleted;
-        library.PropertyChanged -= LibraryPropertyChanged;
+        _ = Task.Run(() => StopCoreAsync(accepted, completion));
+    }
+
+    /// <summary>
+    /// 購読解除自身、キュー前score reader、queued playlist readerと既取得通知の実終端を待ちます。
+    /// captureは呼出元が先に待ちます。購読解除の故障は後続呼出しにも保持し、再試行しません。
+    /// </summary>
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        lock (activityGate) { return new ValueTask(stopTask); }
+    }
+
+    private async Task StopCoreAsync(Task[] accepted, TaskCompletionSource completion)
+    {
+        var failures = new List<Exception>();
+        void unsubscribe(Action action)
+        {
+            try { action(); }
+            catch (Exception exception) { failures.Add(exception); }
+        }
+        unsubscribe(() => playlist.PlaylistTablesReplaced -= PlaylistTablesReplaced);
+        unsubscribe(() => playlist.PlaylistEntriesHydrationCompleted -= PlaylistEntriesHydrationCompleted);
+        unsubscribe(() => library.PropertyChanged -= LibraryPropertyChanged);
+        BMSTable[] tables;
+        INotifyCollectionChanged collection;
         lock (subscriptionGate)
         {
-            if (subscribedTablesCollection != null)
-            {
-                subscribedTablesCollection.CollectionChanged -= PlaylistTablesCollectionChanged;
-                subscribedTablesCollection = null;
-            }
-            foreach (BMSTable table in subscribedTables)
-            {
-                table.PropertyChanged -= TablePropertyChanged;
-            }
+            collection = subscribedTablesCollection;
+            subscribedTablesCollection = null;
+            tables = subscribedTables.ToArray();
             subscribedTables.Clear();
         }
+        if (collection != null) { unsubscribe(() => collection.CollectionChanged -= PlaylistTablesCollectionChanged); }
+        foreach (BMSTable table in tables) { unsubscribe(() => table.PropertyChanged -= TablePropertyChanged); }
         Changed = null;
+        await Task.WhenAll(accepted).ConfigureAwait(false);
+        if (failures.Count == 0) { completion.TrySetResult(); }
+        else { completion.TrySetException(new AggregateException(failures)); }
+    }
+
+    private TaskCompletionSource ReserveActivity()
+    {
+        lock (activityGate)
+        {
+            if (disposed != 0) { return null; }
+            var activity = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            activities.Add(activity);
+            return activity;
+        }
+    }
+
+    private void CompleteActivity(TaskCompletionSource activity)
+    {
+        lock (activityGate)
+        {
+            activity.TrySetResult();
+            activities.Remove(activity);
+        }
+    }
+
+    private void RunSourceActivity(Action action)
+    {
+        TaskCompletionSource activity = ReserveActivity();
+        if (activity == null) { return; }
+        try { action(); }
+        finally { CompleteActivity(activity); }
     }
 
     private BMSTable FindTable(string playlistId)
@@ -373,6 +443,7 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         playlist.AcquireReaderLockBMSTables();
         try
         {
+            if (Volatile.Read(ref disposed) != 0) { return; }
             currentTables = [.. (playlist.BMSTables ?? []).Where(table => table != null)];
         }
         finally
@@ -400,75 +471,82 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private void PlaylistTablesReplaced(object sender, EventArgs e)
     {
-        SynchronizeTableCollectionSubscription();
-        SynchronizeTableSubscriptions();
-        NotifyChanged(string.Empty);
+        RunSourceActivity(() =>
+        {
+            SynchronizeTableCollectionSubscription();
+            SynchronizeTableSubscriptions();
+            NotifyChanged(string.Empty);
+        });
     }
 
     private void PlaylistTablesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
-    {
-        // CollectionChanged can be raised while BMSPlaylist owns its writer lock.  The
-        // actual snapshot and table-subscription reconciliation are deferred by NotifyChanged.
-        NotifyChanged(string.Empty);
-    }
+        => RunSourceActivity(() => NotifyChanged(string.Empty));
 
     private void PlaylistEntriesHydrationCompleted(object sender, PlaylistHydrationVersionEventArgs e)
-    {
-        NotifyChanged(string.Empty);
-    }
+        => RunSourceActivity(() => NotifyChanged(string.Empty));
 
     private void TablePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e == null
-            || string.IsNullOrEmpty(e.PropertyName)
-            || e.PropertyName is nameof(BMSTable.PlaylistEntriesRevision)
-                or nameof(BMSTable.PlaylistEntriesLoadState)
-                or nameof(BMSTable.EntriesLoadErrorMessage)
-                or nameof(BMSTable.Folder_order)
-                or nameof(BMSTable.folder_list)
-                or nameof(BMSTable.last_update))
+        RunSourceActivity(() =>
         {
-            NotifyChanged((sender as BMSTable)?.playlist_id?.ToString(CultureInfo.InvariantCulture));
-        }
+            if (e == null || string.IsNullOrEmpty(e.PropertyName)
+                || e.PropertyName is nameof(BMSTable.PlaylistEntriesRevision)
+                    or nameof(BMSTable.PlaylistEntriesLoadState)
+                    or nameof(BMSTable.EntriesLoadErrorMessage)
+                    or nameof(BMSTable.Folder_order)
+                    or nameof(BMSTable.folder_list)
+                    or nameof(BMSTable.last_update))
+            {
+                NotifyChanged((sender as BMSTable)?.playlist_id?.ToString(CultureInfo.InvariantCulture));
+            }
+        });
     }
 
     private void LibraryPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e == null
-            || string.IsNullOrEmpty(e.PropertyName)
-            || e.PropertyName is nameof(BMSLibrary.ScoreSnapshotVersion)
-                or nameof(BMSLibrary.ScoreSnapshotReady)
-                or nameof(BMSLibrary.BmsCharts)
-                or nameof(BMSLibrary.BmsonCharts)
-                or nameof(BMSLibrary.BMSParentFolderListCacheVersion)
-                or nameof(BMSLibrary.OwnedCollectionVersion)
-                or nameof(BMSLibrary.ChartInfoIndexVersion))
+        RunSourceActivity(() =>
         {
-            NotifyChanged(string.Empty);
-        }
+            if (e == null || string.IsNullOrEmpty(e.PropertyName)
+                || e.PropertyName is nameof(BMSLibrary.ScoreSnapshotVersion)
+                    or nameof(BMSLibrary.ScoreSnapshotReady)
+                    or nameof(BMSLibrary.BmsCharts)
+                    or nameof(BMSLibrary.BmsonCharts)
+                    or nameof(BMSLibrary.BMSParentFolderListCacheVersion)
+                    or nameof(BMSLibrary.OwnedCollectionVersion)
+                    or nameof(BMSLibrary.ChartInfoIndexVersion))
+            {
+                NotifyChanged(string.Empty);
+            }
+        });
     }
 
     private void NotifyChanged(string playlistId)
     {
-        if (Volatile.Read(ref disposed) != 0)
-        {
-            return;
-        }
+        if (Volatile.Read(ref disposed) != 0) { return; }
         long sequence = Interlocked.Increment(ref changeSequence);
         PlaylistLampViewerSourceChangedEventArgs args = new(
             playlistId,
             sequence,
             sourceIdentity: library.GetActiveScoreSourceForDiagnostics().ToString());
+        // 同期callbackがscore readerを使う期間から、worker予約までに所有の切れ目を作りません。
+        TaskCompletionSource activity = ReserveActivity();
+        if (activity == null) { return; }
         _ = Task.Run(() =>
         {
-            // Table/library notifications may arrive while their owner holds a write
-            // lock.  Keep every external subscriber off that publication stack.
-            if (Volatile.Read(ref disposed) == 0)
+            try
             {
+                if (Volatile.Read(ref disposed) != 0) { return; }
                 SynchronizeTableCollectionSubscription();
                 SynchronizeTableSubscriptions();
-                Changed?.Invoke(this, args);
+                if (Volatile.Read(ref disposed) == 0) { Changed?.Invoke(this, args); }
             }
+            catch (Exception exception)
+            {
+                // 任意通知の診断も活動終端より前に試み、終了後の別ログ継続を作りません。
+                try { NLogWrapper.FileLogger?.Warn(exception, "BmsLibraryPlaylistLampDataSource.NotifyChanged"); }
+                catch { /* 任意診断の故障を未確認解放へ混ぜません。 */ }
+            }
+            finally { CompleteActivity(activity); }
         });
     }
 

@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -16,6 +17,8 @@ using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -1660,7 +1663,7 @@ public sealed class CustomTableView : Grid
         {
             return false;
         }
-        Clipboard.SetText(text);
+        SetClipboardText(text);
         return true;
     }
 
@@ -1685,8 +1688,41 @@ public sealed class CustomTableView : Grid
             return false;
         }
         string text = CustomTableDataTransfer.BuildCellText(rows[rowIndex], column);
-        Clipboard.SetText(text);
+        SetClipboardText(text);
         return true;
+    }
+
+    private void SetClipboardText(string text)
+    {
+        try { Clipboard.SetText(text); }
+        catch (Exception exception)
+        {
+            // キー操作は受け付け済みです。コピーの成否とキーの処理済み状態を混同しません。
+            _ = NotifyClipboardFailureAsync(exception);
+        }
+    }
+
+    private async Task NotifyClipboardFailureAsync(Exception exception)
+    {
+        TryLogClipboardFailure(exception);
+        try
+        {
+            UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: Window.GetWindow(this)));
+            UiDialogRoute.ThrowIfNotShown(notification, "Custom table clipboard failure notification");
+        }
+        catch (Exception notificationFailure) { TryLogClipboardFailure(notificationFailure); }
+    }
+
+    private static void TryLogClipboardFailure(Exception exception)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, "custom table clipboard"); }
+        catch { /* 通知と診断の失敗をコピーの元原因へ合成しません。 */ }
     }
 
     private void EnsureCurrentCellForCurrentRow()

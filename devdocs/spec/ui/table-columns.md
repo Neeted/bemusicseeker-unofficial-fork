@@ -12,6 +12,8 @@
 
 ### 列設定の選択と保存
 
+メイン一覧とプレイリスト一覧の列初期化は、所有する確認入口が明示的なOKを得た場合だけ設定を置換します。否定・閉鎖・確認の表示失敗は初期化せず、表示失敗は所有イベントで一度案内します。任意の失敗通知が失敗しても初期化を実行したことにはしません。
+
 列設定は `ICustomTableColumnLayout` の `Width`、`DisplayIndex`、`Visibility` で表します。列は可視のものを `DisplayIndex`、同値なら `FallbackOrder` の順で作ります。幅変更と可視列の並べ替えは設定オブジェクトへ反映し、設定保存時に永続化します。
 
 通常・フォルダ表示は `STANDARD`、LR2互換性警告は `UNREGISTERED`、プレイリスト詳細と未所持表示は `PLAYLIST`、ゼロノートは `ZERO_NOTE`、解析失敗は `CHART_INFO_PARSE_ERROR`、リソース不足・全件確認・新規導入済みは `FULLSCAN`、重複は `DUPLICATE`、文字化けと修正済みは `ENCODING`、導入保留は `INSTALL`、履歴は `PLAY_HISTORY` を使います。プレイリスト一覧は独立した `PlaylistSummaryColumnSettings` を使います。
@@ -332,6 +334,7 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
 | 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
+| 主一覧・サマリーの初期化確認と所有イベント終端 | `MainWindowColumnResetTerminal`、`MainWindow` | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) の `MainColumnResetClickUsesActualCompiledMenuRoute` が対象とコールバックの接続を確認する。明示的なOK限定と呼出し前・await失敗の所有catchは静的配線点検に分担する。 |
 
 ## 関連資料
 

@@ -471,6 +471,35 @@ public sealed class OperationProgressHubViewModelTests
         Assert.IsFalse(hub.IsStartupBackgroundInitializationActive);
     }
 
+    /// <summary>Rows等の任意表示listenerがthrowしても実導入ownerの処理・終端・次要求を止めないことを確認し、表示故障を操作故障にする誤りを検出します。</summary>
+    [TestMethod]
+    public async Task ThrowingRowsObserverDoesNotStopAcceptedOwnerOrNextOperation()
+    {
+        using var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        using var fixture = ProgressWorkflowFixture.Create(hub);
+        int observed = 0;
+        hub.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is nameof(OperationProgressHubViewModel.Rows)
+                or nameof(OperationProgressHubViewModel.HasRows)
+                or nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive))
+            {
+                Interlocked.Increment(ref observed);
+                throw new IOException("optional progress observer marker");
+            }
+        };
+        fixture.StartPackageProgress();
+        fixture.ReleasePackageProgress();
+        await fixture.Package.WaitForIdleAsync();
+        Assert.IsTrue(observed > 0);
+        Assert.AreEqual(1, fixture.PackageExecutionCount);
+        Assert.IsFalse(hub.Rows.Any(row => row.Key == "install"));
+        fixture.StartPackageProgress();
+        await fixture.Package.WaitForIdleAsync();
+        Assert.AreEqual(2, fixture.PackageExecutionCount, "次要求を受理して実mutation portも実行します。");
+        Assert.IsFalse(hub.Rows.Any(row => row.Key == "install"));
+    }
+
     /// <summary>LR2実行行は起動と完了表示猶予中も独立件数を維持し、検証段階は不定進捗へ切り替えて起動親へ加算せず、LR2終端でだけ消えます。</summary>
     [TestMethod]
     public async Task Lr2SongDbSyncPresentation_RemainsVisibleDuringStartupAndCompletionDelay()
@@ -1008,6 +1037,7 @@ public sealed class OperationProgressHubViewModelTests
         private readonly ManualResetEventSlim packageRelease = new(false);
         private readonly ManualResetEventSlim maintenanceRelease = new(false);
         private readonly ManualResetEventSlim folderRelease = new(false);
+        private int packageExecutionCount;
 
         private ProgressWorkflowFixture(
             string root,
@@ -1028,6 +1058,9 @@ public sealed class OperationProgressHubViewModelTests
         }
 
         internal PackageInstallWorkflowOwner Package { get; }
+
+        /// <summary>受理した実導入処理がmutation portへ到達した回数を取得します。</summary>
+        internal int PackageExecutionCount => Volatile.Read(ref packageExecutionCount);
 
         internal MaintenanceRescanWorkflowOwner Maintenance { get; }
 
@@ -1059,6 +1092,7 @@ public sealed class OperationProgressHubViewModelTests
                 new ChartMutationActivityOwner(),
                 new DelegatePackageInstallMutationPort((current, paths, token, progressWriter) =>
                 {
+                    Interlocked.Increment(ref fixture.packageExecutionCount);
                     progressWriter.TryWrite(PackageInstallProgressUpdate.SourceProcessed());
                     progressWriter.TryWrite(PackageInstallProgressUpdate.ArchiveExtractStarted(paths.FirstOrDefault() ?? string.Empty, 1, packageTotalCount));
                     packageProgressStarted.Set();

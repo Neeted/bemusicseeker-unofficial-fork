@@ -81,6 +81,8 @@
 
 ### 表示と後続処理の区別
 
+`OperationProgressHubViewModel` の `Rows` / `HasRows` / 起動背景表示の変更通知は任意の表示更新です。購読者の例外でも受理済みownerの実処理・結果・次の受付を止めず、必須参照・索引・公開の故障をこの扱いへ広げません。行更新は高頻度のため、同じ表示通知の連続故障区間では元原因を一度だけ局所診断し、三つの通知がすべて成功したときだけ次の区間へ戻します。診断先の失敗で再通知や同期ログの連打を作りません。この状態は表示通知の寿命内だけで使い、操作の通知済み台帳や再実行条件にしません。
+
 表示は少なくとも開始、DB読込み、列挙、差分、画面準備、各種情報の読込み、必須処理の完了を区別します。件数を持つ子処理は処理済み件数・総数と対象を出せます。
 
 `startup_post_initialization_maintenance_complete` は進捗の段階ではありません。実UIと成功公開後の明示した一括登録を閉じ、固有の依存で実行した後続と事前計算の実終端が揃って空になったことを記録します。ログや集計が新しい仕事を開始しません。必要でないLR2要求への依存を作らず、独立readerの表示収束は含めません。
@@ -136,6 +138,7 @@ Playlist・通常フォルダ・差分更新・出力先設定変更・Catalog�
 | LR2の翻訳・保存位置から独立した段階進捗 | [`Lr2SongDbSyncStatusMapper`](../../../BeMusicSeeker/ViewModels/Lr2/Lr2SongDbSyncStatusMapper.cs) | `Lr2SongDbSyncStatusMapperTests` は既知・旧・未知・空段階、段階総数なし・0・正数、日本語と英語を確認する。辞書整合は `LocalizationResourceParityTests`、有限→不定→正常終端と親計算の独立は `OperationProgressHubViewModelTests`、Bindingは既存の `MainWindowProgressStatusBarWpfTests` が担う。 |
 | 処理別の行、伸縮する配置と行固有の操作 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) | [`MainWindowProgressStatusBarWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs) |
 | プレイリストの要求元ごとの生産・終端、同じ外部同期だけの表示統合 | [`PlaylistWorkspaceViewModel.SyncProgress`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.SyncProgress.cs)、[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) | [`PlaylistWorkspaceExternalSourceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)、[`BmsPlaylistExternalReloadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) は実操作からの進捗・終端を確認する。[`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistSync_UsesHttpAndUiTerminalBeforeAcceptingAnotherEdit` は実Queue外部同期の要求元・対象・終端と既存の受付・UI終端を確認する。[`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) の `PlaylistRows_SyncAndBeatorajaImportRemainIndependentInEitherCompletionOrder` は進捗受付境界への開始・更新・終端入力で、併存・同源だけの統合・両完了順の片側保持・保留表示排出後の消去を確認する。 |
+| 行の任意observer故障と受理済みowner・次操作の継続 | `OperationProgressHubViewModel` | [`OperationProgressHubViewModelTests`](../../../BeMusicSeeker.Tests/MainWindow/OperationProgressHubViewModelTests.cs) の `ThrowingRowsObserverDoesNotStopAcceptedOwnerOrNextOperation` が実導入ownerの終端・行消去・次受付を確認する。既存の `StartupBackgroundInitializationPresentation_IsolatesThrowingSubscriber` が起動背景表示の通知分離を担う。連続故障時の診断頻度は局所配線の静的点検に分担する。 |
 
 ## 関連資料
 

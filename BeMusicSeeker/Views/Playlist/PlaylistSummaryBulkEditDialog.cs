@@ -6,6 +6,7 @@ using System.Windows.Input;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -45,7 +46,7 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
     /// <summary>Gets whether the owner forced this window closed for application shutdown.</summary>
     internal bool IsOwnerShutdownClose => ownerShutdownCloseRequested;
 
-    /// <summary>現在反映中なら実操作・必要通知・再有効化までのTaskを返します。開始前と終端後は完了済みTaskです。通知単独の失敗も反映中に取得したTaskへ伝えます。</summary>
+    /// <summary>確認・実反映・任意通知・再有効化までのTaskを返します。確認失敗では反映せず、通知単独の失敗は局所診断します。</summary>
     internal Task WaitForApplyCompletionAsync() => applyTask;
 
     /// <summary>
@@ -152,14 +153,11 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
 
     private void ApplyExternalSync(object sender, RoutedEventArgs e)
     {
-        if (!ConfirmExternalSyncBulkApply())
-        {
-            return;
-        }
         RunApplyAsync(
             viewModel => viewModel.ApplyExternalSyncAsync(),
             viewModel => viewModel.ResetExternalSyncOption(),
-            "PlaylistSummaryBulkEditDialog.ApplyExternalSync").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalSync");
+            "PlaylistSummaryBulkEditDialog.ApplyExternalSync",
+            ConfirmExternalSyncBulkApplyAsync).ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalSync");
     }
 
     private void ApplyBmtOutput(object sender, RoutedEventArgs e)
@@ -186,7 +184,7 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
             "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
     }
 
-    private Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
+    private Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName, Func<Task<bool>> confirm = null)
     {
         if (DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel
             || Interlocked.CompareExchange(ref applyInProgress, 1, 0) != 0)
@@ -194,10 +192,9 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
             return Task.CompletedTask;
         }
 
-        IsEnabled = false;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         applyTask = completion.Task;
-        _ = RunApplyCoreAsync(bulkEditDialogViewModel, apply, afterApply, logName, completion);
+        _ = RunApplyCoreAsync(bulkEditDialogViewModel, apply, afterApply, logName, completion, confirm);
         return completion.Task;
     }
 
@@ -206,17 +203,28 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
         Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply,
         Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply,
         string logName,
-        TaskCompletionSource<bool> completion)
+        TaskCompletionSource<bool> completion,
+        Func<Task<bool>> confirm)
     {
         Exception failure = null;
         try
         {
             try
             {
-                await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)).LoggingAndPropagate(logName);
+                // UIの状態変更より先に、呼出元が待機できる操作Taskを公開しておきます。
+                IsEnabled = false;
+                if (confirm != null && !await confirm())
+                {
+                    return;
+                }
+                await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false));
                 afterApply?.Invoke(bulkEditDialogViewModel);
             }
-            catch (Exception ex) { await ShowOperationFailureAsync(ex); }
+            catch (Exception ex)
+            {
+                TryLogFailure(ex, logName);
+                await ShowOperationFailureAsync(ex);
+            }
         }
         catch (Exception ex) { failure = ex; }
         finally
@@ -224,16 +232,19 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
             try
             {
                 IsEnabled = true;
-                Interlocked.Exchange(ref applyInProgress, 0);
-                applyTask = Task.CompletedTask;
             }
             catch (Exception cleanupFailure)
             {
                 if (failure == null) { failure = cleanupFailure; }
-                else { failure.Data["PlaylistBulkEditCleanupFailure"] = cleanupFailure; }
+                else { TryLogFailure(cleanupFailure, logName + " restore_enabled_failed"); }
             }
-            if (failure is OperationCanceledException cancelled) { completion.TrySetCanceled(cancelled.CancellationToken); }
-            else if (failure != null) { completion.TrySetException(failure); }
+            finally
+            {
+                // 再有効化の購読者が失敗しても、操作受付とその待機寿命を取り残しません。
+                Interlocked.Exchange(ref applyInProgress, 0);
+                applyTask = Task.CompletedTask;
+            }
+            if (failure != null) { completion.TrySetException(failure); }
             else { completion.TrySetResult(true); }
         }
     }
@@ -241,16 +252,29 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
     private async Task ShowOperationFailureAsync(Exception exception)
     {
         if (ownerShutdownCloseRequested) { return; }
-        UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
-            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            owner: this));
-        UiDialogRoute.ThrowIfNotShown(notification, "Playlist bulk edit failure notification");
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                owner: this));
+            UiDialogRoute.ThrowIfNotShown(notification, "Playlist bulk edit failure notification");
+        }
+        catch (Exception notificationFailure)
+        {
+            TryLogFailure(notificationFailure, "Playlist bulk edit failure notification");
+        }
     }
 
-    private bool ConfirmExternalSyncBulkApply()
+    private static void TryLogFailure(Exception exception, string routeName)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, routeName); }
+        catch { /* 診断先の失敗を反映結果へ加えません。 */ }
+    }
+
+    private async Task<bool> ConfirmExternalSyncBulkApplyAsync()
     {
         if (base.DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel
             || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool enabled)
@@ -261,12 +285,16 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
         string message = enabled
             ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
             : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied;
-        return UiDialogRoute.ShowMessageBox(
-            this,
+        UiDialogResult confirmation = await dialogService.ConfirmAsync(new UiConfirmationRequest(
             message,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxButton.OKCancel,
             MessageBoxImage.Exclamation,
-            MessageBoxResult.Cancel) == MessageBoxResult.OK;
+            MessageBoxResult.Cancel,
+            owner: this));
+        UiDialogRoute.ThrowIfNotShown(confirmation, "Playlist bulk external sync confirmation");
+        return confirmation.Status == UiDialogStatus.Accepted
+            || confirmation.Status == UiDialogStatus.ClosedByUser
+                && confirmation.MessageBoxResult == MessageBoxResult.OK;
     }
 }

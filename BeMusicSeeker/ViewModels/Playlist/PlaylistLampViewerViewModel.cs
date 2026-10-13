@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
 using Livet.Commands;
@@ -206,8 +205,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             selectedAsOfDate = normalized;
             RaisePropertyChanged(nameof(SelectedAsOfDate));
-            session.UpdateSelectedAsOfDateAsync(normalized)
-                .ObserveFault("PlaylistLampViewerViewModel.SelectedAsOfDate");
+            session.RequestSelectedAsOfDate(normalized);
         }
     }
 
@@ -398,7 +396,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    /// <summary>Releases the session event subscription and session lifetime exactly once.</summary>
+    /// <summary>表示の購読を一度解除し、sessionの新受付を停止します。実終端はDisposeAsyncで待ちます。</summary>
     public new void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0)
@@ -409,6 +407,17 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         firstPresentable.TrySetCanceled();
         TerminalResultChanged = null;
         session.Dispose();
+    }
+
+    /// <summary>
+    /// 表示と受付を停止し、sessionが所有する全refresh・取消後片付けの実終端を待ちます。
+    /// このprojectionは別の仕事台帳を持ちません。
+    /// </summary>
+    /// <returns>sessionの必須回収結果。</returns>
+    internal ValueTask DisposeAsync()
+    {
+        Dispose();
+        return session.DisposeAsync();
     }
 
     private void SessionResultChanged(object sender, PlaylistLampAggregationResultChangedEventArgs e)

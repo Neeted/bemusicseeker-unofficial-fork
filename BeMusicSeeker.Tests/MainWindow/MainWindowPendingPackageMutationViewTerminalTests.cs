@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
@@ -46,11 +47,12 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
-    /// <summary>物理変更前の失敗は表示反映と移動を省いて元例外を伝えることを確認し、失敗を空結果として隠したり未変更の表示を更新する誤りを検出します。</summary>
+    /// <summary>物理変更前の失敗は表示反映と移動を省いて一回通知し、通知だけのために再送出したり未変更の表示を更新する誤りを検出します。</summary>
     [TestMethod]
-    public async Task ShouldApplyViewFalseSkipsViewAndNavigationButPropagatesFailure()
+    public async Task ShouldApplyViewFalseSkipsViewAndNavigationAndReportsFailureOnce()
     {
         var mutationFailure = new InvalidOperationException("mutation failed");
+        var dialogs = new FileDbReportRecordingDialogs();
         int applyCount = 0;
         int navigationCount = 0;
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
@@ -60,17 +62,17 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             {
                 navigationCount++;
                 return Task.FromResult(true);
-            });
+            }, dialogs);
 
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => terminal.ApplyAsync(
+        await terminal.ApplyAsync(
                 PendingPackageMutationResult.FailedBeforeMutation(mutationFailure),
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
-                nameof(ShouldApplyViewFalseSkipsViewAndNavigationButPropagatesFailure),
-                () => applyCount++));
+                nameof(ShouldApplyViewFalseSkipsViewAndNavigationAndReportsFailureOnce),
+                () => applyCount++);
 
-        Assert.AreSame(mutationFailure, exception);
+        Assert.AreEqual(1, dialogs.Messages.Count);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, mutationFailure.Message);
         Assert.AreEqual(0, applyCount);
         Assert.AreEqual(0, navigationCount);
     }
@@ -170,12 +172,13 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.AreEqual(0, navigationCount);
     }
 
-    /// <summary>物理変更後に表示反映も失敗した場合は物理・表示の順で例外をまとめ移動しないことを確認し、元の物理失敗の上書きや未反映画面からの移動を検出します。</summary>
+    /// <summary>物理変更後に表示反映も失敗した場合は未報告の変更失敗と実表示故障を同じ終端へ伝えて移動を止めることを確認します。</summary>
     [TestMethod]
-    public async Task ApplyFailureSuppressesNavigationAndOrdersMutationBeforeApply()
+    public async Task ApplyFailureSuppressesNavigationAndPropagatesRealViewFailure()
     {
         var mutationFailure = new InvalidOperationException("mutation failed");
         var applyFailure = new InvalidOperationException("apply failed");
+        var dialogs = new FileDbReportRecordingDialogs();
         int navigationCount = 0;
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => true,
@@ -184,7 +187,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             {
                 navigationCount++;
                 return Task.FromResult(true);
-            });
+            }, dialogs);
 
         AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
             () => terminal.ApplyAsync(
@@ -193,25 +196,25 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
                     PackageCatalogSection.Pending),
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
-                nameof(ApplyFailureSuppressesNavigationAndOrdersMutationBeforeApply),
+                nameof(ApplyFailureSuppressesNavigationAndPropagatesRealViewFailure),
                 () => ThrowFailure(applyFailure)));
 
-        Assert.AreEqual(2, exception.InnerExceptions.Count);
-        Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
-        Assert.AreSame(applyFailure, exception.InnerExceptions[1]);
+        CollectionAssert.AreEqual(new Exception[] { mutationFailure, applyFailure }, exception.InnerExceptions.ToArray());
+        Assert.AreEqual(0, dialogs.Messages.Count, "上位のowning境界が両原因を一度通知します。");
         Assert.AreEqual(0, navigationCount);
     }
 
-    /// <summary>物理変更後の失敗に続いて画面移動も失敗した場合は物理・移動の順で元例外を保持することを確認し、後段の失敗で前段を隠す誤りを検出します。</summary>
+    /// <summary>未報告の変更失敗と実navigation故障を同じ終端へ伝え、二重通知する誤りを検出します。</summary>
     [TestMethod]
-    public async Task NavigationFailureOrdersMutationBeforeNavigation()
+    public async Task NavigationFailureRemainsSeparateFromHandledMutationFailure()
     {
         var mutationFailure = new InvalidOperationException("mutation failed");
+        var dialogs = new FileDbReportRecordingDialogs();
         var navigationFailure = new InvalidOperationException("navigation failed");
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => true,
             () => 0,
-            _ => Task.FromException<bool>(navigationFailure));
+            _ => Task.FromException<bool>(navigationFailure), dialogs);
 
         AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
             () => terminal.ApplyAsync(
@@ -220,11 +223,10 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
                     PackageCatalogSection.Pending),
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
-                nameof(NavigationFailureOrdersMutationBeforeNavigation)));
+                nameof(NavigationFailureRemainsSeparateFromHandledMutationFailure)));
 
-        Assert.AreEqual(2, exception.InnerExceptions.Count);
-        Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
-        Assert.AreSame(navigationFailure, exception.InnerExceptions[1]);
+        CollectionAssert.AreEqual(new Exception[] { mutationFailure, navigationFailure }, exception.InnerExceptions.ToArray());
+        Assert.AreEqual(0, dialogs.Messages.Count, "上位のowning境界が両原因を一度通知します。");
     }
 
     /// <summary>表示反映だけが失敗した場合は同じ例外と発生元のstackを伝えることを確認し、集約や再throwで失敗位置を失う誤りを検出します。</summary>
@@ -290,9 +292,9 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         Assert.IsTrue(result.HasDurableCommit);
     }
 
-    /// <summary>commit済みreceiptと別の画面終端失敗が共存しても元例外を伝えて一回エラー通知することを確認し、receiptがあるだけで無関係な失敗を成功扱いする誤りを検出します。</summary>
+    /// <summary>commit済みreceiptと別のworkflow失敗を一回のエラー通知へ含め、通知後に表示目的で再送出せず確定factsを保つことを確認します。</summary>
     [TestMethod]
-    public async Task ReceiptDoesNotHideUnrelatedLifecycleFailure()
+    public async Task ReceiptReportIncludesUnrelatedFailureWithoutRethrow()
     {
         var sessionReceipt = new LibraryMutationSessionReceipt(
             [new LibraryMutationSessionTarget(@"C:\source", @"D:\destination")],
@@ -304,10 +306,11 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         var result = PendingPackageMutationResult.FailedAfterMutation(
             failure,
             sessionReceipt: sessionReceipt);
-        Exception observed = await Assert.ThrowsExceptionAsync<IOException>(() => terminal.ApplyAsync(
+        await terminal.ApplyAsync(
             result, PackageCatalogSection.Pending, MainViewUpdateMode.PendingInstallFolderSelected,
-            nameof(ReceiptDoesNotHideUnrelatedLifecycleFailure)));
-        Assert.AreSame(failure, observed);
+            nameof(ReceiptReportIncludesUnrelatedFailureWithoutRethrow));
+        Assert.AreSame(failure, result.Failure);
+        StringAssert.Contains(dialogs.Messages[0].MessageBoxText, failure.Message);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.AreEqual(1, dialogs.Messages.Count);
         Assert.AreEqual(System.Windows.MessageBoxImage.Error, dialogs.Messages[0].Icon);

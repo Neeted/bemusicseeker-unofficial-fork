@@ -14,6 +14,10 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Tests;
 
@@ -68,82 +72,103 @@ public sealed class MainWindowTreePresentationWpfTests
         });
     }
 
-    /// <summary>通常フォルダとrootのcompiled再読込・再初期化を各一回届け、通常失敗と所有されない取消を一回通知し、終了要求による取消だけを静穏に終えます。</summary>
+    /// <summary>通常フォルダとrootの再読込み入口で操作失敗を一回通知し、詳細は実ログだけへ残します。所有されない取消も通知し、終了要求による取消だけを静穏に終えます。</summary>
     [DataTestMethod]
     [DataRow(false, false)] // 普通の失敗は一回ずつ通知し、次の要求へ過去の失敗を持ち越しません。
     [DataRow(true, false)] // 終了要求のない取消は実失敗として通知します。
     [DataRow(true, true)] // 実Window終了で所有された取消だけを通知しません。
     public void LibraryContextMenusRouteReloadAndReinitializeThroughTypedTerminal(bool cancel, bool shutdown)
     {
-        List<string> calls = [];
-        List<UiMessageRequest> messages = [];
-        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        Logger logger = NLogWrapper.GetLogger(typeof(MainWindowTreePresentationWpfTests));
+        FieldInfo? fileLoggerProvider = typeof(NLogWrapper).GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(fileLoggerProvider);
+        var previousFileLogger = (Func<Logger>?)fileLoggerProvider.GetValue(null);
+        LoggingConfiguration? previousLogging = LogManager.Configuration;
+        using var logs = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+        try
         {
-            MessageObservedAsync = request => { messages.Add(request); return Task.CompletedTask; }
-        };
-        TaskCompletionSource reloadCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource reinitializeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        var terminal = new MainWindowLibraryReloadMenuTerminal(
-            () => { calls.Add("reload"); return calls.Count == 1 ? reloadCompletion.Task : Task.CompletedTask; },
-            () => { calls.Add("reinitialize"); return calls.Count == 2 ? reinitializeCompletion.Task : Task.CompletedTask; });
-        MainWindowPresentationTestHarness.RunConstructorOnly(
-            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (viewModel, window) =>
+            var configuration = new LoggingConfiguration();
+            configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, logs);
+            LogManager.Configuration = configuration;
+            fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
+            List<string> calls = [];
+            List<UiMessageRequest> messages = [];
+            var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
             {
-                Task reloadEvent = Task.CompletedTask;
-                Task reinitializeEvent = Task.CompletedTask;
-                try
+                MessageObservedAsync = request => { messages.Add(request); return Task.CompletedTask; }
+            };
+            TaskCompletionSource reloadCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            TaskCompletionSource reinitializeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var terminal = new MainWindowLibraryReloadMenuTerminal(
+                () => { calls.Add("reload"); return calls.Count == 1 ? reloadCompletion.Task : Task.CompletedTask; },
+                () => { calls.Add("reinitialize"); return calls.Count == 2 ? reinitializeCompletion.Task : Task.CompletedTask; });
+            MainWindowPresentationTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (viewModel, window) =>
                 {
-                    var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                    var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
-                    MenuItem[] normal = normalMenu.Items.OfType<MenuItem>().Take(2).ToArray();
-                    reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
-                    reinitializeEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));
-                    Assert.IsFalse(reloadCompletion.Task.IsCompleted);
-                    Assert.IsFalse(reinitializeCompletion.Task.IsCompleted);
-                    if (shutdown)
+                    Task reloadEvent = Task.CompletedTask;
+                    Task reinitializeEvent = Task.CompletedTask;
+                    try
                     {
-                        window.Close();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-library-reload-owned-shutdown");
-                        Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
+                        var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                        var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
+                        MenuItem[] normal = normalMenu.Items.OfType<MenuItem>().Take(2).ToArray();
+                        reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
+                        reinitializeEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));
+                        Assert.IsFalse(reloadCompletion.Task.IsCompleted);
+                        Assert.IsFalse(reinitializeCompletion.Task.IsCompleted);
+                        if (shutdown)
+                        {
+                            window.Close();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-library-reload-owned-shutdown");
+                            Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
+                        }
+                        if (cancel) { reloadCompletion.TrySetCanceled(); reinitializeCompletion.TrySetCanceled(); }
+                        else
+                        {
+                            reloadCompletion.TrySetException(new InvalidOperationException("library diff reload failed"));
+                            reinitializeCompletion.TrySetException(new InvalidOperationException("library reinitialize failed"));
+                        }
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-terminal");
+                        Assert.AreEqual(shutdown ? 0 : 2, messages.Count);
+                        if (!shutdown)
+                        {
+                            Assert.IsTrue(messages.All(request => request.MessageBoxText == Resources.Msg_error_unexpected));
+                            RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
+                            RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
+                            CollectionAssert.AreEqual(new[] { "reload", "reinitialize", "reload", "reinitialize" }, calls);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(2, messages.Count);
+                        }
                     }
-                    if (cancel) { reloadCompletion.TrySetCanceled(); reinitializeCompletion.TrySetCanceled(); }
-                    else
+                    finally
                     {
-                        reloadCompletion.TrySetException(new InvalidOperationException("library diff reload failed"));
-                        reinitializeCompletion.TrySetException(new InvalidOperationException("library reinitialize failed"));
-                    }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-terminal");
-                    Assert.AreEqual(shutdown ? 0 : 2, messages.Count);
-                    if (!cancel)
-                    {
-                        Assert.IsTrue(messages.Any(request => request.MessageBoxText.Contains("library diff reload failed", StringComparison.Ordinal)));
-                        Assert.IsTrue(messages.Any(request => request.MessageBoxText.Contains("library reinitialize failed", StringComparison.Ordinal)));
-                    }
-                    if (!shutdown)
-                    {
-                        Assert.IsTrue(messages.All(request => request.MessageBoxText.StartsWith(BeMusicSeeker.Properties.Resources.Msg_error_unexpected, StringComparison.Ordinal)));
-                        RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
-                        RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
-                        CollectionAssert.AreEqual(new[] { "reload", "reinitialize", "reload", "reinitialize" }, calls);
+                        reloadCompletion.TrySetResult();
+                        reinitializeCompletion.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-cleanup");
+                        if (shutdown)
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "compiled-library-reload-close-cleanup");
+                        }
                         TestUiDispatcherHost.ProcessQueuedPresentation();
-                        Assert.AreEqual(2, messages.Count);
                     }
-                }
-                finally
-                {
-                    reloadCompletion.TrySetResult();
-                    reinitializeCompletion.TrySetResult();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-cleanup");
-                    if (shutdown)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "compiled-library-reload-close-cleanup");
-                    }
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                }
-            },
-            libraryReloadMenuTerminal: terminal,
-            playlistWorkspaceDialogService: dialogs);
+                },
+                libraryReloadMenuTerminal: terminal,
+                playlistWorkspaceDialogService: dialogs);
+            LogManager.Flush();
+            if (!cancel)
+            {
+                Assert.IsTrue(logs.Logs.Any(line => line.Contains("library diff reload failed", StringComparison.Ordinal)
+                    && line.Contains(nameof(InvalidOperationException), StringComparison.Ordinal)));
+                Assert.IsTrue(logs.Logs.Any(line => line.Contains("library reinitialize failed", StringComparison.Ordinal)
+                    && line.Contains(nameof(InvalidOperationException), StringComparison.Ordinal)));
+            }
+        }
+        finally
+        {
+            fileLoggerProvider.SetValue(null, previousFileLogger);
+            LogManager.Configuration = previousLogging;
+        }
     }
 
     /// <summary>実ライブラリroot選択が通常一覧の主体へ無条件フィルターの更新要求を一回届けることを確認し、tree選択と一覧表示の接続漏れを検出します。</summary>

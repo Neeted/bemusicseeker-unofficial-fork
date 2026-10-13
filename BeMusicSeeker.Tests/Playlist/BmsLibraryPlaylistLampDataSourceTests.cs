@@ -1,6 +1,8 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
+using BeMusicSeeker.Models.Utils;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -53,7 +55,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            using var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+            await using var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
 
             PlaylistLampAggregationRequest request = await source.CaptureAsync(
                 PlaylistLampViewerQuery.Latest("17"),
@@ -97,7 +99,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            using var source = new BmsLibraryPlaylistLampDataSource(
+            await using var source = new BmsLibraryPlaylistLampDataSource(
                 playlist,
                 library,
                 () => throw new InvalidOperationException("history source path unavailable"));
@@ -156,7 +158,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            using var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+            await using var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
             var changed = new TaskCompletionSource<PlaylistLampViewerSourceChangedEventArgs>(
                 TaskCreationOptions.RunContinuationsAsynchronously);
             source.Changed += (_, args) =>
@@ -175,4 +177,163 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             Assert.IsTrue(library.ChartInfoIndexVersion > 0);
         });
     }
+    /// <summary>
+    /// 実playlist writer中のcollection変更を発火元へ返した後、queued readerが実ロック待ちへ到達し、
+    /// source停止がそのreaderの取得・解放・worker終端を待ちます。活動数だけで終了する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task Source_disposeAsyncDrainsQueuedPlaylistReaderBehindActualWriter()
+    {
+        await WithTemporarySongDb(async (_, songDbPath) =>
+        {
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService()) { BmsCharts = [] };
+            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>() };
+            var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+            // 受付済みworkerが実readerへ到達したことだけを観測します。フィールド配置は保証対象にしません。
+            ReaderWriterLockSlimWrapper playlistLock = typeof(BMSPlaylist).GetField("rwlockBMSTables", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(playlist)
+                as ReaderWriterLockSlimWrapper ?? throw new AssertFailedException("実playlist lockを観測できない。");
+            using var writerRelease = new ManualResetEventSlim();
+            var publicationReturned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var publication = Task.Run(() =>
+            {
+                playlist.AcquireWriterLockBMSTables();
+                try
+                {
+                    playlist.BMSTables.Add(new BMSTable { playlist_id = 20 });
+                    publicationReturned.TrySetResult();
+                    writerRelease.Wait();
+                }
+                finally { playlist.FreeWriterLockBMSTables(); }
+            });
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(publicationReturned.Task, publication, "source writer publication returned");
+                Assert.IsTrue(SpinWait.SpinUntil(() => playlistLock.WaitingReadCount > 0, TimeSpan.FromSeconds(5)),
+                    "queued workerが実playlist readerへ到達しなかった。");
+                Task drain = source.DisposeAsync().AsTask();
+                Assert.IsFalse(drain.IsCompleted);
+                writerRelease.Set();
+                await Task.WhenAll(publication, drain);
+                await source.DisposeAsync();
+                Assert.AreEqual(0, playlistLock.WaitingReadCount);
+            }
+            finally
+            {
+                writerRelease.Set();
+                await publication;
+                await source.DisposeAsync();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 実score writerを保持してtable変更を発火し、Task.Run前のscore identity readerを観測します。
+    /// 停止はqueued workerだけでなく同期発火元のmodel読取りと実終端も待ちます。
+    /// </summary>
+    [TestMethod]
+    public async Task Source_disposeAsyncDrainsPreQueueScoreReaderBehindActualWriter()
+    {
+        await WithTemporarySongDb(async (_, songDbPath) =>
+        {
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService()) { BmsCharts = [] };
+            var table = new BMSTable { playlist_id = 21 };
+            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+            // score writerを実取得し、キュー前readerのWaitingReadCountだけを局所反射で観測します。
+            ReaderWriterLockSlimWrapper scoreLock = typeof(BMSLibrary).GetField("rwlockBMSScores", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(library)
+                as ReaderWriterLockSlimWrapper ?? throw new AssertFailedException("実score lockを観測できない。");
+            using var writerRelease = new ManualResetEventSlim();
+            var writerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var writer = Task.Run(() =>
+            {
+                using (scoreLock.GetWriterGuard())
+                {
+                    writerEntered.TrySetResult();
+                    writerRelease.Wait();
+                }
+            });
+            Task? publication = null;
+            try
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(writerEntered.Task, writer, "source score writer acquired");
+                publication = Task.Run(() => table.Folder_order = ["changed"]);
+                Assert.IsTrue(SpinWait.SpinUntil(() => scoreLock.WaitingReadCount > 0, TimeSpan.FromSeconds(5)),
+                    "同期発火元がキュー前score readerへ到達しなかった。");
+                Task drain = source.DisposeAsync().AsTask();
+                Assert.IsFalse(drain.IsCompleted);
+                Assert.IsFalse(publication.IsCompleted);
+                writerRelease.Set();
+                await Task.WhenAll(writer, publication, drain);
+                await source.DisposeAsync();
+                Assert.AreEqual(0, scoreLock.WaitingReadCount);
+            }
+            finally
+            {
+                writerRelease.Set();
+                await writer;
+                if (publication != null) { await publication; }
+                await source.DisposeAsync();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 既取得Changed delegateの先頭subscriberからsession/source停止へ再入しても詰まらず、
+    /// 残るsubscriberを含む通知実終端まで待ちます。任意通知throwを後続解放故障へ混ぜません。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)] // 後続subscriberの任意通知故障もsource回収の成功を変えません。
+    public async Task Source_disposeAsyncDrainsRetainedChangedDelegateAndRejectsSessionRefresh(bool subscriberThrows)
+    {
+        await WithTemporarySongDb(async (_, songDbPath) =>
+        {
+            var library = new TestBmsLibrary(songDbPath, null, null, new TestFileMutationService(), new ChartInfoMetadataTestSupport.RecordingDialogService()) { BmsCharts = [] };
+            var table = new BMSTable { playlist_id = 22 };
+            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
+            var source = new BmsLibraryPlaylistLampDataSource(playlist, library);
+            using var subscriberRelease = new ManualResetEventSlim();
+            var subscriberEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var tailInvoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            PlaylistLampViewerSession? session = null;
+            Task? callbackDrain = null;
+            source.Changed += (_, _) =>
+            {
+                session?.Dispose();
+                callbackDrain = source.DisposeAsync().AsTask();
+                subscriberEntered.TrySetResult();
+                subscriberRelease.Wait();
+            };
+            session = new PlaylistLampViewerSession("22", source);
+            source.Changed += (_, _) =>
+            {
+                tailInvoked.TrySetResult();
+                if (subscriberThrows) { throw new InvalidOperationException("optional retained source notification"); }
+            };
+            Task? publication = null;
+            try
+            {
+                await session.StartAsync();
+                PlaylistLampAggregationResult before = session.Current;
+                publication = Task.Run(() => table.Folder_order = ["changed"]);
+                await subscriberEntered.Task;
+                Assert.IsNotNull(callbackDrain);
+                Assert.IsFalse(callbackDrain.IsCompleted);
+                Task drain = source.DisposeAsync().AsTask();
+                Assert.IsFalse(drain.IsCompleted);
+                subscriberRelease.Set();
+                await Task.WhenAll(publication, tailInvoked.Task, callbackDrain, drain, session.DisposeAsync().AsTask());
+                await source.DisposeAsync();
+                Assert.AreSame(before, session.Current, "既取得session handlerは停止後のrefreshを受理しません。");
+            }
+            finally
+            {
+                subscriberRelease.Set();
+                if (publication != null) { await publication; }
+                await session.DisposeAsync();
+                await source.DisposeAsync();
+            }
+        });
+    }
+
 }

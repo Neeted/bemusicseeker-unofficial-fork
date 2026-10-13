@@ -175,7 +175,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             }
             finally
             {
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -310,7 +310,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -569,7 +569,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -680,7 +680,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -763,7 +763,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -852,7 +852,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -960,7 +960,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -1067,7 +1067,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 {
                     owner.Close();
                 }
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -1224,7 +1224,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     owner.Close();
                 }
 
-                viewModel.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -1286,7 +1286,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
                 foreach (PlaylistLampViewerViewModel viewer in viewers)
                 {
-                    viewer.Dispose();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewer.DisposeAsync().AsTask(), "lamp presentation session actual drain");
                 }
             }
         });
@@ -1339,7 +1339,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     owner.Close();
                 }
 
-                viewer.Dispose();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewer.DisposeAsync().AsTask(), "lamp presentation session actual drain");
             }
         });
     }
@@ -1815,7 +1815,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         }
         finally
         {
-            viewModel.Dispose();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "lamp presentation session actual drain");
         }
     }
 

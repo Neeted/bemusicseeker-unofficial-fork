@@ -30,6 +30,8 @@
 
 ### 要求と失敗の扱い
 
+確認の表示失敗は承認にも利用者取消にも置き換えず、その操作を開始しません。列初期化は明示的なOKだけで実行します。サマリー一括編集の外部同期確認は実 `applyTask` とclose guardに含め、確認・実適用・必要な回収・再有効化まで待ちます。確認または本体の失敗は所有入口で一度案内し、その任意通知が失敗しても元結果・確定済み変更・draftの意味を変えません。検索ルート選択、子editorやLampの初回表示も呼出し前から同じ所有入口で保護し、実際に開始したTaskを通知監視で代用しません。
+
 要求には意図、親ウィンドウ、スレッド境界、結果と失敗の表し方を定めます。通知の失敗を成功や取消へ読み替えず、別の表示手段へ隠れて切り替えません。`UiDialogRoute` は共通窓口へ接続する同期用の補助であり、表示失敗を隠しません。
 
 通常終了時の一時コピー削除通知は共通経路を使いますが、ファイナライザーから画面を表示しません。ファイナライザーの後片付け失敗はログへ残します。`App` の緊急表示は `EmergencyDialog` に限定し、通常画面からの緊急経路の流用は認めません。
@@ -57,6 +59,7 @@ LR2個別参照の確認・選択で表示失敗が起きた場合は、元の�
 | 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択を自動検証する。実フォーカスは[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
 | 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
+| 一括編集の実確認寿命、任意通知失敗、更新リンク失敗 | `PlaylistSummaryBulkEditDialog`、`UpdateAvailableDialog` | [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup` は確認中の実applyTask・close guard、確認失敗の未適用とdraft保持、出力確定後の通知失敗と後片付けを確認する。[`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent` は実buttonと通知Taskの終端後も成功で閉じないことを確認する。 |
 
 ## 関連資料
 

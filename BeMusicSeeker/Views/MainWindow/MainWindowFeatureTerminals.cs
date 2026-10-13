@@ -8,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -157,7 +158,7 @@ internal sealed class MainWindowColumnResetTerminal
                     BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxButton.OKCancel,
                     MessageBoxImage.Question,
-                    MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+                    MessageBoxResult.Cancel) == MessageBoxResult.OK)
             {
                 viewModel.RegularChartList.ResetCurrentColumnPresentation();
             }
@@ -495,14 +496,14 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
     }
 
     /// <summary>
-    /// Applies one pending-package mutation result to the already-owned UI view.
+    /// 変更receiptを一度通知し、必須表示・navigationの実故障と未報告の本体故障を所有入口へ伝えます。
     /// </summary>
-    /// <param name="result">The mutation result; a <see langword="null"/> result is a no-op.</param>
-    /// <param name="section">The package-catalog section represented by the route.</param>
-    /// <param name="emptySectionMode">The navigation mode used when the applied section is empty.</param>
-    /// <param name="routeName">The route name used for existing failure logging.</param>
-    /// <param name="applyView">The caller-owned UI view and selection application action.</param>
-    /// <returns>A task that completes after view application, optional navigation, and failure propagation.</returns>
+    /// <param name="result">変更結果。nullなら何もしません。</param>
+    /// <param name="section">この入口が表すパッケージ区画。</param>
+    /// <param name="emptySectionMode">反映後の区画が空の場合のnavigation先。</param>
+    /// <param name="routeName">所有入口を識別する診断名。</param>
+    /// <param name="applyView">呼出元が所有する必須一覧・選択反映。</param>
+    /// <returns>必須表示反映・navigation・任意の結果通知を終えたTask。処理済みの変更失敗は表示目的で再送出しません。</returns>
     internal async Task ApplyAsync(
         PendingPackageMutationResult result,
         PackageCatalogSection section,
@@ -516,13 +517,13 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         }
         ArgumentNullException.ThrowIfNull(routeName);
 
-        bool initiallySelected = result.ShouldApplyView && isSectionRootSelected();
         MainWindowPendingPackageMutationAppliedViewState appliedViewState = null;
         Exception applyFailure = null;
         if (result.ShouldApplyView)
         {
             try
             {
+                bool initiallySelected = isSectionRootSelected();
                 applyView?.Invoke();
                 appliedViewState = new MainWindowPendingPackageMutationAppliedViewState(
                     initiallySelected,
@@ -542,7 +543,7 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         {
             try
             {
-                await navigateInstallAsync(emptySectionMode).LoggingAndPropagate(routeName);
+                await navigateInstallAsync(emptySectionMode);
             }
             catch (Exception exception)
             {
@@ -553,24 +554,35 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         await FileDbMutationReport.ShowAsync(dialogs,
             BeMusicSeeker.Properties.Resources.Install, result.SessionReceipt, result.Failure);
 
-        Exception mutationFailure = null;
-        try
+        if (result.SessionReceipt == null && result.Failure != null
+            && applyFailure == null && navigationFailure == null)
         {
-            if (result.Failure != null
-                && !ReferenceEquals(result.Failure, result.SessionReceipt?.PrimaryFailure))
+            try { NLogWrapper.FileLogger?.Warn(result.Failure, routeName); }
+            catch { /* 診断先の失敗を元結果へ合成しません。 */ }
+            try
             {
-                await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
+                UiDialogResult notification = await (dialogs ?? new UiDialogCoordinator()).ShowMessageAsync(
+                    new UiMessageRequest(
+                        BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + result.Failure.Message,
+                        BeMusicSeeker.Properties.Resources.Error,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Hand,
+                        MessageBoxResult.OK));
+                UiDialogRoute.ThrowIfNotShown(notification, routeName + " failure notification");
             }
-        }
-        catch (Exception exception)
-        {
-            mutationFailure = exception;
+            catch (Exception notificationFailure)
+            {
+                try { NLogWrapper.FileLogger?.Warn(notificationFailure, routeName + " failure notification"); }
+                catch { /* 通知の診断を再通知しません。 */ }
+            }
         }
 
         var failures = new List<Exception>(capacity: 3);
-        if (mutationFailure != null)
+        // receipt未報告の本体失敗と必須表示故障は、一つのowning通知へまとめて渡します。
+        if (result.SessionReceipt == null && result.Failure != null
+            && (applyFailure != null || navigationFailure != null))
         {
-            failures.Add(mutationFailure);
+            failures.Add(result.Failure);
         }
         if (applyFailure != null)
         {

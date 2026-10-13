@@ -493,10 +493,18 @@ public sealed class SelectedChartExternalActionWorkflowOwnerTests
 
         Assert.AreEqual(1, launcherCalls);
 
+        var failedPaths = new List<string>();
+        var failure = new InvalidOperationException("document launcher failed");
         SelectedChartExternalActionWorkflowOwner failingOwner = CreateOwner(
-            associatedFileLauncher: _ => throw new InvalidOperationException("document launcher failed"));
-        Assert.ThrowsException<InvalidOperationException>(() =>
+            associatedFileLauncher: path =>
+            {
+                failedPaths.Add(path);
+                throw failure;
+            });
+        InvalidOperationException observed = Assert.ThrowsException<InvalidOperationException>(() =>
             failingOwner.OpenRelatedDocument(@"C:\Songs\readme.txt"));
+        Assert.AreSame(failure, observed);
+        CollectionAssert.AreEqual(new[] { @"C:\Songs\readme.txt" }, failedPaths);
     }
 
     private static SelectedChartExternalActionWorkflowOwner CreateOwner(

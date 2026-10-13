@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
@@ -16,6 +18,7 @@ using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Parago.Windows;
 
@@ -71,6 +74,74 @@ public sealed class DialogPresentationTests
                 {
                     sentinelHost.Window.Close();
                 }
+                fixture.Cleanup();
+            }
+        });
+    }
+
+    /// <summary>実更新buttonのshell失敗では正確なURLを一度だけ要求し、通知失敗でも成功で閉じず実イベント終端を待ちます。</summary>
+    [DataTestMethod]
+    [DataRow(true, 0)] // 適用button、Failed通知。
+    [DataRow(true, 1)] // 適用button、待機後に通知Taskが失敗。
+    [DataRow(true, 2)] // 適用button、通知呼出しが同期失敗。
+    [DataRow(false, 0)] // 配布ページbutton、Failed通知。
+    [DataRow(false, 1)] // 配布ページbutton、待機後に通知Taskが失敗。
+    [DataRow(false, 2)] // 配布ページbutton、通知呼出しが同期失敗。
+    public void UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent(bool applyButton, int notificationFailureKind)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            const string releaseUrl = "https://example.test/releases/v2.2.0.0";
+            var shell = new FailingUpdateShellGateway();
+            var noticeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseNotice = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dialogs = new FileDbReportRecordingDialogs
+            {
+                MessageHandler = _ =>
+                {
+                    noticeStarted.TrySetResult();
+                    if (notificationFailureKind == 2) { throw new IOException("update notice synchronous failure"); }
+                    return releaseNotice.Task;
+                }
+            };
+            PresentationFixture fixture = CreateUpdateAvailableFixture(
+                UpdateCheckResult.Available(new Version(2, 2, 0, 0), "2.1.0.0", "2.2.0.0",
+                    [new UpdateAssetInfo
+                    {
+                        Kind = "app", Label = "App", FileName = "app.zip", Url = "https://example.test/app.zip",
+                        Sha256 = new string('a', 64), SizeBytes = 1
+                    }], releaseUrl), shell, dialogs);
+            Task? terminal = null;
+            try
+            {
+                windowTest.ShowAndWaitForContentRendered(fixture.HostWindow);
+                Button button = FindVisualDescendants<Button>(fixture.HostWindow).Single(candidate =>
+                    AutomationProperties.GetAutomationId(candidate) == (applyButton ? "UpdateApply" : "UpdateOpenReleasePage"));
+                terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(
+                    () => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button)));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(noticeStarted.Task, terminal, "update link failure notice"),
+                    "update notice-or-event");
+                Assert.AreEqual(1, shell.Requests.Count);
+                Assert.AreEqual(ExternalShellRequestKind.Url, shell.Requests.Single().Kind);
+                Assert.AreEqual(releaseUrl, shell.Requests.Single().Target);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                Assert.AreSame(fixture.HostWindow, dialogs.Messages.Single().Owner);
+                StringAssert.Contains(dialogs.Messages.Single().MessageBoxText, shell.Failure.Message);
+                Assert.IsTrue(fixture.HostWindow.IsVisible);
+                if (notificationFailureKind != 2) { Assert.IsFalse(terminal.IsCompleted); }
+                if (notificationFailureKind == 1) { releaseNotice.TrySetException(new IOException("update notice awaited failure")); }
+                else { releaseNotice.TrySetResult(UiDialogResult.NotShown(UiDialogStatus.Failed)); }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "update actual event terminal");
+                Assert.IsTrue(fixture.HostWindow.IsVisible);
+                Assert.IsFalse(fixture.HostWindow.DialogResult == true);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+            }
+            finally
+            {
+                releaseNotice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "update actual event finally"); }
+                if (fixture.HostWindow.IsVisible) { fixture.HostWindow.Close(); }
                 fixture.Cleanup();
             }
         });
@@ -522,13 +593,17 @@ public sealed class DialogPresentationTests
             cleanup: owner.SettingDialog.Dispose);
     }
 
-    private static PresentationFixture CreateUpdateAvailableFixture()
+    private static PresentationFixture CreateUpdateAvailableFixture(
+        UpdateCheckResult? result = null,
+        IExternalShellGateway? shell = null,
+        IUiDialogService? dialogs = null)
     {
         var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         var dialog = new UpdateAvailableDialog(
-            UpdateCheckResult.NoUpdate("1.0.0.0"),
+            result ?? UpdateCheckResult.NoUpdate("1.0.0.0"),
             progressHub,
-            ExternalShellGatewayPolicy.Current);
+            shell ?? ExternalShellGatewayPolicy.Current,
+            dialogs);
         return CreateNativeFixture(
             dialog,
             [
@@ -1470,6 +1545,20 @@ public sealed class DialogPresentationTests
         internal string AutomationId { get; }
 
         internal DialogButtonRole Role { get; }
+    }
+
+    private sealed class FailingUpdateShellGateway : IExternalShellGateway
+    {
+        internal List<ExternalShellRequest> Requests { get; } = [];
+        internal IOException Failure { get; } = new("update release launch failed");
+        public void Open(ExternalShellRequest request) { Requests.Add(request); throw Failure; }
+        public ExplorerOpenResult OpenFileAndSelect(string filePath) => throw new NotSupportedException();
+        public ExplorerOpenResult OpenDirectory(string directoryPath) => throw new NotSupportedException();
+        public bool TryOpenDirectoryWithExplorerProcess(string directoryPath, out string failureReason)
+        {
+            failureReason = string.Empty;
+            throw new NotSupportedException();
+        }
     }
 
     private sealed class PresentationFixture

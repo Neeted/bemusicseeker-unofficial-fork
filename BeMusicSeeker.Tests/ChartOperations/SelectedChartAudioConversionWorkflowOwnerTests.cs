@@ -33,6 +33,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     [TestMethod]
     public void ProductionExecutorExportsBmsonThroughTheSharedWriterAndReleasesItsSession()
     {
+        int unexpectedNotificationCount = 0;
         string root = CreateRoot();
         var lease = new BassAudioSessionLease();
         SampleRate previousFrequency = BassAudioPlayer.Frequency;
@@ -50,7 +51,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float");
             var results = new List<SelectedChartAudioConversionFileResult>();
             executor.Execute([CreateTarget(path, ChartOperationCapabilities.ConvertToAudio).Chart], root, settings,
-                CancellationToken.None, _ => Assert.Fail("WAVE should be available."), results.Add);
+                CancellationToken.None, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), results.Add);
             Assert.AreEqual(1, results.Count);
             Assert.IsNull(results[0].Error);
             Assert.IsNull(lease.Session);
@@ -72,6 +73,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
             DeleteRoot(root);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>実BMSとBMSONを一要求でWAVEへ変換し、独立したframe数・ステレオPCM・設定、解放と次の明示変換を確認します。Busyでは停止・writerを始めず、encoderとsessionの解放中も受付を保持します。</summary>
@@ -80,6 +82,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     [TestMethod]
     public async Task RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup()
     {
+        int unexpectedNotificationCount = 0;
         string root = CreateRoot();
         var nativeLease = new BassAudioSessionLease();
         var gate = new ChartFileOperationSynchronizer();
@@ -113,7 +116,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             var owner = new SelectedChartAudioConversionWorkflowOwner(
                 () => new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
                     SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 2f, prefix + "%TITLE%", "WAVE", "48000Hz", "float"),
-                _ => Assert.Fail("WAVE is available."), playback, dialogs, executor, gate);
+                _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), playback, dialogs, executor, gate);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(bmsPath, ChartOperationCapabilities.ConvertToAudio),
                 CreateTarget(path, ChartOperationCapabilities.ConvertToAudio)]);
@@ -165,6 +168,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
             DeleteRoot(root);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>BMS/BMSONを混ぜた選択から既存の所有ファイルだけを順に残し、保留・不在を変換へ含める誤りを検出します。</summary>
@@ -1340,8 +1344,10 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
     /// <summary>実worker保持中は次要求をBusyで拒否し、worker終端後には再実行できることから早期開放と受付残留を検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
-    [TestMethod]
-    public async Task RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)] // 任意Busy通知がthrowしても実workerと次受付を維持。
+    public async Task RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion(bool busyNoticeThrows)
     {
         string root = CreateRoot();
         var workerEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1374,7 +1380,9 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Task reached = await Task.WhenAny(workerEntered.Task, first);
             if (reached == first) { await first; }
             Assert.AreSame(workerEntered.Task, reached);
+            dialogs.MessageFailure = busyNoticeThrows ? new IOException("optional Busy notice") : null;
             Assert.AreEqual(SelectedChartAudioConversionStatus.Busy, (await owner.RunAsync(request)).Status);
+            dialogs.MessageFailure = null;
             Assert.AreEqual(1, executor.CallCount);
             Assert.AreEqual(1, playback.StopCalls);
             releaseWorker.Set();
@@ -1475,10 +1483,13 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
         }
     }
 
-    /// <summary>完了通知がowner不在で未表示なら操作も失敗し、出力済みだけで成功を返す誤りを検出します。</summary>
+    /// <summary>未表示・Failed・throwの任意完了通知でも実変換の対象・件数・結果を保持し、通知を変換故障へ合成する誤りを検出します。</summary>
     /// <remarks>実ファイルの存在で対象受付と保存先の再確認を観測し、変換・表示のportは局所記録へ差し替えます。</remarks>
-    [TestMethod]
-    public async Task RunAsync_CompletionNotificationNotShownFailsInsteadOfReturningSuccess()
+    [DataTestMethod]
+    [DataRow(0)] // owner不在の未表示。
+    [DataRow(1)] // 表示窓口がFailedを返す。
+    [DataRow(2)] // 表示呼出しが同期throwする。
+    public async Task RunAsync_CompletionNotificationFailurePreservesConversionResult(int notificationFailureKind)
     {
         string root = CreateRoot();
         try
@@ -1489,7 +1500,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             {
                 FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
                 ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
-                MessageResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
+                MessageResult = UiDialogResult.NotShown(notificationFailureKind == 0 ? UiDialogStatus.OwnerUnavailable : UiDialogStatus.Failed),
+                MessageFailure = notificationFailureKind == 2 ? new IOException("optional completion notice") : null
             };
             var executor = new RecordingExecutor(events)
             {
@@ -1497,11 +1509,16 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             };
             SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, new RecordingPlayback(events), executor, events);
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.RunAsync(new SelectedChartAudioConversionRequest([
-                    CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
-                ])));
+            SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([
+                CreateTarget(chartPath, ChartOperationCapabilities.ConvertToAudio)
+            ]));
 
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
+            Assert.AreEqual(1, result.TotalCount);
+            Assert.AreEqual(1, result.CompletedCount);
+            Assert.AreEqual(0, result.FailedCount);
+            Assert.AreEqual(1, result.FileResults.Count);
+            Assert.IsTrue(result.FileResults[0].Succeeded);
             Assert.AreEqual(1, dialogs.MessageCalls);
             Assert.AreEqual(1, executor.CallCount);
         }
@@ -1871,6 +1888,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
         internal int MessageCalls { get; private set; }
 
+        internal Exception? MessageFailure { get; set; }
+
         internal string LastMessage { get; private set; } = string.Empty;
 
         internal int PickerCalls { get; private set; }
@@ -1884,6 +1903,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             events.Add("message");
             MessageCalls++;
             LastMessage = request.MessageBoxText;
+            if (MessageFailure != null) { throw MessageFailure; }
             return Task.FromResult(MessageResult);
         }
 

@@ -1566,6 +1566,101 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         throw new AssertFailedException($"Menu item '{name}' was not found.");
     }
 
+    /// <summary>カタログ・保留メニューの同期例外と待機後のTask失敗を一回の一般通知で扱い、通知失敗でも操作を再実行せず実イベントの終端を待ちます。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void CompiledPackageMenusHandleSynchronousAndAwaitedFaultsOnce(bool pendingBulk, bool synchronousThrow)
+    {
+        var failure = new IOException("compiled package operation marker");
+        var releaseOperation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var noticeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseNotice = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageHandler = _ =>
+            {
+                noticeStarted.TrySetResult();
+                return releaseNotice.Task;
+            }
+        };
+        int calls = 0;
+        PackageCatalogSection? capturedSection = null;
+        async Task<PackageCatalogMutationResult> CatalogFaultAsync()
+        {
+            await releaseOperation.Task;
+            throw failure;
+        }
+        async Task BulkFaultAsync()
+        {
+            await releaseOperation.Task;
+            throw failure;
+        }
+        var catalog = new MainWindowPackageCatalogTerminal(
+            section =>
+            {
+                calls++;
+                capturedSection = section;
+                if (synchronousThrow) { throw failure; }
+                return CatalogFaultAsync();
+            },
+            (_, _) => Task.FromResult(PackageCatalogMutationResult.Rejected),
+            _ => Task.FromResult(PackageCatalogMutationResult.Rejected));
+        var bulk = new MainWindowPendingBulkMaintenanceTerminal(
+            () =>
+            {
+                calls++;
+                if (synchronousThrow) { throw failure; }
+                return BulkFaultAsync();
+            },
+            () => Task.CompletedTask,
+            () => Task.CompletedTask);
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (_, window) =>
+            {
+                var menu = (ContextMenu)window.FindResource("treeViewInstallPendingContextMenu");
+                MenuItem item = pendingBulk
+                    ? menu.Items.OfType<MenuItem>().Last().Items.OfType<MenuItem>().First()
+                    : menu.Items.OfType<MenuItem>().First();
+                Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                try
+                {
+                    Assert.AreEqual(1, calls);
+                    if (!pendingBulk) { Assert.AreEqual(PackageCatalogSection.Pending, capturedSection); }
+                    if (!synchronousThrow)
+                    {
+                        Assert.AreEqual(0, dialogs.Messages.Count);
+                        Assert.IsFalse(terminal.IsCompleted);
+                    }
+                    releaseOperation.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(noticeStarted.Task, terminal, "compiled package failure notice"),
+                        "compiled package notice-or-terminal");
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                    Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.Messages[0].MessageBoxText);
+                    Assert.AreEqual(MessageBoxImage.Hand, dialogs.Messages[0].Icon);
+                    Assert.AreSame(window, dialogs.Messages[0].Owner);
+                    Assert.IsFalse(terminal.IsCompleted, "イベント終端は通知の実待機を所有します。");
+                    releaseNotice.TrySetResult(UiDialogResult.NotShown(UiDialogStatus.Failed));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "compiled package terminal");
+                    Assert.AreEqual(1, calls);
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                }
+                finally
+                {
+                    releaseOperation.TrySetResult();
+                    releaseNotice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "compiled package finally terminal");
+                }
+            },
+            packageCatalogTerminal: catalog,
+            pendingBulkMaintenanceTerminal: bulk,
+            playlistWorkspaceDialogService: dialogs);
+    }
+
     private static void RaiseMenuClick(MenuItem item)
         => item.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, item));
 }

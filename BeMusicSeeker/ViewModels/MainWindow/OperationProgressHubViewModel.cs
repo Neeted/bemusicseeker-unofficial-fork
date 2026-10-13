@@ -7,6 +7,7 @@ using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -23,6 +24,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private bool playlistProgressSourcesAttached;
     private long startupBackgroundOperationToken;
     private long startupBackgroundOriginGeneration;
+    private int rowsPresentationFailureActive;
     private readonly ConcurrentDictionary<string, long> playlistUiVersions = new();
     private long playlistUiVersionSeed;
     private Action<Action> dispatchPlaylistProgressAction;
@@ -460,10 +462,30 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private void RaiseRowsChanged()
     {
-        // 表示購読先の失敗が受付済みの仕事や起動後グループの終結を変えないよう隔離します。
-        try { RaisePropertyChanged(nameof(Rows)); } catch { }
-        try { RaisePropertyChanged(nameof(HasRows)); } catch { }
-        try { RaisePropertyChanged(nameof(IsStartupBackgroundInitializationActive)); } catch { }
+        // 同じ表示故障が進捗の高頻度通知ごとに同期ログを増やさないよう、
+        // 三つの表示通知が回復するまでの連続した故障区間を一回だけ診断します。
+        bool completed = RaisePresentationPropertyChanged(nameof(Rows))
+            & RaisePresentationPropertyChanged(nameof(HasRows))
+            & RaisePresentationPropertyChanged(nameof(IsStartupBackgroundInitializationActive));
+        if (completed) { Interlocked.Exchange(ref rowsPresentationFailureActive, 0); }
+    }
+
+    private bool RaisePresentationPropertyChanged(string propertyName)
+    {
+        try
+        {
+            RaisePropertyChanged(propertyName);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            if (Interlocked.Exchange(ref rowsPresentationFailureActive, 1) == 0)
+            {
+                try { NLogWrapper.FileLogger?.Warn(exception, "operation progress presentation property=" + propertyName); }
+                catch { /* 任意表示の診断失敗を再通知しません。 */ }
+            }
+            return false;
+        }
     }
 
     private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
