@@ -49,7 +49,7 @@ internal static class PlaylistUrlCompletionSupport
             {
                 resolvedUri = new Uri(Path.GetFullPath(normalizedValue));
             }
-            catch
+            catch (Exception failure) when (failure is ArgumentException or NotSupportedException or IOException or UriFormatException)
             {
                 return false;
             }

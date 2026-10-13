@@ -105,6 +105,12 @@ Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォー�
 
 取得途中の読取り・書込み失敗、サイズ超過、取消しでは、自分が作成した未完了ファイルを回収します。保存と応答の解放を終える前に取得成功を返しません。応答破棄で取得物を渡せなかった場合も回収し、回収自体が失敗した場合は元の取得失敗と未回収を隠しません。
 
+### 任意のURL補完
+
+補完元の通常の通信・ファイル読取り・JSON形式の失敗では、利用可能な既存補完を保持します。内部故障や資源不足を取得元不在へ読み替えず、予約された作業を失敗として終えます。モデルが所有する停止要求は取消しとして返し、退役した表へ結果を適用しません。
+
+TSVとStellaの開始済み取得はともに終端まで待ちます。複数の取得元が失敗した場合の元例外はその合流で診断し、UI用に保持しません。診断故障は予約、キャッシュ適用、必須参照更新の成否を変えません。既存の同一取得元キャッシュと明示要求による再取得を維持し、自動再試行は追加しません。
+
 ### 診断と検証境界
 
 `playlist_url_download` と `playlist_external_package_lookup` で解決、対象外、重複、サイズ、保存、失敗、取消を記録します。引渡し後の展開は `auto_install extract_start` / `extract_done` / `extract_failed` に対象、展開先、項目数、経過時間を記録します。
@@ -121,6 +127,7 @@ Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォー�
 | 通信中の許可と取得後の導入拒否 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs)、[`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
 | 単一期限・本文取消・接続解放 | [`AppHttpClient`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) |
 | HTMLの再取得なし・相対URI基準 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) |
+| 補完元の通常失敗・内部故障と退役 | `BMSPlaylist.UrlCompletion` | `PlaylistUrlCompletionTests.BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure` は旧補完と次の明示要求、`BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply` は停止token、取消終端と旧行への適用拒否を確認する。 |
 | 外部同期のURL補完とローカルURIの区別 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`PlaylistUrlCompletionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlCompletionTests.cs) |
 
 ## 関連資料

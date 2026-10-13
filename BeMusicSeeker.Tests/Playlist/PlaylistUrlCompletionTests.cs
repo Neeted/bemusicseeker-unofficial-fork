@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -328,6 +329,78 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>通常の取得失敗は旧補完を保持し、内部故障は失敗した作業として返します。次の明示要求では再取得できます。</summary>
+    [DataTestMethod]
+    [DataRow("http")]
+    [DataRow("io")]
+    [DataRow("timeout")]
+    [DataRow("internal")]
+    [DataRow("resource")]
+    public async Task BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure(string kind)
+    {
+        string databasePath = CreateEmptySongDbPath();
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            Exception failure = kind switch
+            {
+                "http" => new HttpRequestException("source unavailable"),
+                "io" => new IOException("source unreadable"),
+                "timeout" => new TaskCanceledException("source timeout"),
+                "resource" => new OutOfMemoryException("resource failure"),
+                _ => new InvalidOperationException("internal failure")
+            };
+            bool shouldFail = false;
+            int fetchCount = 0;
+            PlaylistUrlCompletionOptionsSnapshot options = new()
+            {
+                EnablePlaylistUrlCompletion = true,
+                PlaylistMd5UrlMappingTsvUri = "https://example.invalid/first.tsv",
+                OverwritePlaylistUrlsWithCompletion = true
+            };
+            playlist = new TestBmsPlaylist(databasePath, null, null, null, () => options,
+                () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), null,
+                (uri, _) =>
+                {
+                    fetchCount++;
+                    if (shouldFail) { throw failure; }
+                    return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\t" + uri.AbsoluteUri);
+                }, null);
+            BMSTable table = CreateTable(5004, "SourceFailureTable");
+            BMSTableEntry entry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "SourceFailureSong");
+            table.entries = [entry];
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            await ScheduleUrlCompletionRefreshAsync(playlist, "initial");
+            Uri? previous = entry.RuntimeUrlCompletion;
+            Assert.AreEqual(new Uri("https://example.invalid/first.tsv"), previous);
+
+            options = new PlaylistUrlCompletionOptionsSnapshot
+            {
+                EnablePlaylistUrlCompletion = true,
+                PlaylistMd5UrlMappingTsvUri = "https://example.invalid/next.tsv",
+                OverwritePlaylistUrlsWithCompletion = true
+            };
+            shouldFail = true;
+            Exception? observed = null;
+            try { await ScheduleUrlCompletionRefreshAsync(playlist, "source_changed"); }
+            catch (Exception exception) { observed = exception; }
+            if (kind is "internal" or "resource") { Assert.AreSame(failure, observed); }
+            else { Assert.IsNull(observed); }
+            Assert.AreEqual(previous, entry.RuntimeUrlCompletion);
+            Assert.AreEqual(2, fetchCount);
+
+            shouldFail = false;
+            await ScheduleUrlCompletionRefreshAsync(playlist, "next_explicit_request");
+            Assert.AreEqual(3, fetchCount);
+            Assert.AreEqual(new Uri("https://example.invalid/next.tsv"), entry.RuntimeUrlCompletion);
+        }
+        finally
+        {
+            playlist?.RequestShutdown("source-failure-fixture");
+            DeleteTempSongDbDirectory(databasePath);
+        }
+    }
+
     /// <summary>Stella無効時は取得せず、有効化で適用後に再無効化すると補完を消し、不要な再取得もしません。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -451,7 +524,16 @@ public sealed class PlaylistUrlCompletionTests
             Assert.IsFalse(refresh.IsCompleted);
             if (retire) { playlist.RequestStop("test_replaced_pair"); Assert.IsTrue(capturedToken.IsCancellationRequested); }
             release.TrySetResult();
-            await refresh;
+            if (retire)
+            {
+                OperationCanceledException? canceled = null;
+                try { await refresh; }
+                catch (OperationCanceledException failure) { canceled = failure; }
+                Assert.IsNotNull(canceled);
+                Assert.AreEqual(capturedToken, canceled.CancellationToken);
+                Assert.IsTrue(refresh.IsCanceled);
+            }
+            else { await refresh; }
 
             Assert.AreEqual(1, fetchCount);
             if (retire) { Assert.IsNull(entry.RuntimeUrlCompletion); }
@@ -460,7 +542,16 @@ public sealed class PlaylistUrlCompletionTests
         finally
         {
             release.TrySetResult();
-            await refresh;
+            if (retire)
+            {
+                OperationCanceledException? canceled = null;
+                try { await refresh; }
+                catch (OperationCanceledException failure) { canceled = failure; }
+                Assert.IsNotNull(canceled);
+                Assert.AreEqual(capturedToken, canceled.CancellationToken);
+                Assert.IsTrue(refresh.IsCanceled);
+            }
+            else { await refresh; }
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
