@@ -9,6 +9,9 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>選択した二つの保存先へheader、dataの順でJSONを書き、write失敗は元原因・段階・pathの局所診断を試み、一件のError receiptへ渡します。</summary>
+    /// <param name="bmsTable">正本の入力値を変えずに出力する対象表。</param>
+    /// <returns>選択と出力の実試行・通知session終端を待つTask。処理済みwrite失敗の正常終端は、両ファイルの出力成功を意味しません。</returns>
     internal async Task ExportPlaylistTableAsync(BMSTable bmsTable)
     {
         if (bmsTable == null)
@@ -93,13 +96,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                 contents = bmsTable.HeaderToJson(Path.GetFileName(fileNameData));
                 dataContents = bmsTable.DataToJson();
             }
+            string writeStage = "header";
+            string writePath = fileNameHeader;
             try
             {
                 File.WriteAllText(fileNameHeader, contents);
+                writeStage = "data";
+                writePath = fileNameData;
                 File.WriteAllText(fileNameData, dataContents);
             }
-            catch (Exception)
+            catch (Exception exception)
             {
+                TryLogPlaylistDropSecondaryFailure(exception,
+                    "playlist_json_export_write_failed stage=" + writeStage + " path=" + writePath);
                 notificationOwner.QueueError(
                     BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
                     BeMusicSeeker.Properties.Resources.Error);

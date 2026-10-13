@@ -512,6 +512,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             MainWindowViewModel? owner = null;
             var unhandled = new List<Exception>();
+            var secondaryFailures = new List<(Exception Exception, string Route)>();
             var noticeFailure = new IOException("backup notice failed");
             DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) =>
             {
@@ -531,7 +532,8 @@ public sealed class SettingsWindowPresentationTests
                 PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
                     dbPath,
                     [new BMSTable { playlist_id = 1, name = "Saved backup", symbol = "B" }],
-                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications);
+                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    reloadFailureLog: (exception, route) => secondaryFailures.Add((exception, route)));
                 playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
                 string destination = Path.Combine(directory, "backup.sql");
                 byte[] oldBytes = System.Text.Encoding.UTF8.GetBytes("old backup bytes");
@@ -571,9 +573,9 @@ public sealed class SettingsWindowPresentationTests
                 LogManager.Flush();
                 Assert.IsTrue(logs.Logs.Any(log => log.Contains("playlist backup path=" + destination, StringComparison.Ordinal)
                     && log.Contains(nameof(IOException), StringComparison.Ordinal)));
-                Assert.AreEqual(1, logs.Logs.Count(log => log.Contains("playlist backup notification", StringComparison.Ordinal)
-                    && log.Contains(noticeFailure.Message, StringComparison.Ordinal)),
-                    "保存結果とは別に、結果通知の表示失敗を一回診断します。");
+                Assert.AreEqual(1, secondaryFailures.Count);
+                Assert.AreEqual("playlist_operation_notification_presentation_failed route=playlist backup notification", secondaryFailures.Single().Route);
+                Assert.AreSame(noticeFailure, secondaryFailures.Single().Exception.InnerException);
 
                 dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
                 ClickBackupPageButton(window, Resources.Backup_playlist);
@@ -589,10 +591,7 @@ public sealed class SettingsWindowPresentationTests
                 CollectionAssert.AreEqual(savedBytes, File.ReadAllBytes(destination));
                 Assert.AreEqual(3, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual(2, dialogs.MessageRequests.Count);
-                LogManager.Flush();
-                Assert.AreEqual(1, logs.Logs.Count(log => log.Contains("playlist backup notification", StringComparison.Ordinal)
-                    && log.Contains(noticeFailure.Message, StringComparison.Ordinal)),
-                    "次の成功と取消では通知失敗の診断を重ねません。");
+                Assert.AreEqual(1, secondaryFailures.Count, "次の成功と取消では通知失敗の診断を重ねません。");
                 Assert.AreEqual(0, unhandled.Count);
             }
             finally

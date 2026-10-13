@@ -205,6 +205,7 @@ internal static class PlaylistWorkspaceFixtureFactory
 
     /// <summary>実DBのバックアップ・復元と必要UIを接続します。受付を観測する場合は同じfixture libraryを共有します。</summary>
     /// <param name="libraryOverride">復元のL/Pとモデルのbindingへ共通に渡す、テストが所有するlibrary。</param>
+    /// <param name="reloadFailureLog">通知表示などの二次失敗を観測する診断先。省略時は記録しません。</param>
     internal static PlaylistWorkspaceViewModel CreateBackupWorkspace(
         string songDbPath,
         IEnumerable<BMSTable> tables,
@@ -212,7 +213,8 @@ internal static class PlaylistWorkspaceFixtureFactory
         out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
         Func<Action, Task>? restoreUiApplyScheduler = null,
         Func<bool>? restoreUiThreadCheck = null,
-        TestBmsLibrary? libraryOverride = null)
+        TestBmsLibrary? libraryOverride = null,
+        Action<Exception, string>? reloadFailureLog = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(songDbPath);
         Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -236,6 +238,7 @@ internal static class PlaylistWorkspaceFixtureFactory
             out _,
             playlistStoreProvider: () => createdPlaylist,
             playlistLibraryProvider: () => library,
+            reloadFailureLog: reloadFailureLog,
             restoreUiApplyScheduler: restoreUiApplyScheduler,
             restoreUiThreadCheck: restoreUiThreadCheck);
         workspace.RefreshPlaylistTreeTables(createdPlaylist);

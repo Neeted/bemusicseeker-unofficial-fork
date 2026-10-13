@@ -4272,11 +4272,15 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { release.Set(); Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>保存済配置Aを未保存draftから保ち、保存完了後は古いeditorもBを使い、Pの必須通知を実Closeが待ちます。</summary>
+    /// <summary>
+    /// 未保存の編集中は配置Aを保ち、保存後の空の通知結果の配送が成功・失敗のどちらでも配置Bと保存完了を維持し、変更なしの次保存を増やしません。
+    /// 古い編集画面もBへ保存し、ドロップの空の通知結果の配送中はPを保持して競合を拒否し、終了要求が配送・後片付けの終端を待ちます。
+    /// </summary>
+    /// <remarks>標準構成の実設定・DB・出力・受付接続を確認します。空の通知結果の購読処理を故障させ、実ダイアログ表示や必須の移行・再読込み故障はそれぞれの既存ケースへ分担します。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose(bool failAfterPublication)
+    public void DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose(bool failSettingsReceiptConsumer)
     {
         string root = CreateTemporaryRoot();
         using var releaseNotification = new ManualResetEventSlim();
@@ -4313,20 +4317,35 @@ public sealed partial class SettingDialogEditCompletionTests
                 var owner = new MainWindowViewModel(composition, factory);
                 var presentation = new RecordingSettingsDialogPresentationPort();
                 owner.SettingDialog.AttachPresentationPort(presentation);
-                var originalFailure = new IOException("required placement notification failed after commit");
-                bool injectFailure = failAfterPublication;
+                var consumerFailure = new IOException("optional empty settings receipt consumer failed after placement publication");
+                bool injectFailure = failSettingsReceiptConsumer;
+                PlaylistOperationNotificationPresentationRequestedEventArgs? settingsReceiptRequest = null;
+                PlaylistOperationNotificationPresentationRequestedEventArgs? dropReceiptRequest = null;
+                int settingsReceiptRequestCount = 0;
+                int dropReceiptRequestCount = 0;
                 owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
                 {
-                    if (injectFailure && request.RouteName == "custom folder output base sync notification") { throw originalFailure; }
+                    if (request.RouteName == "custom folder output base sync notification")
+                    {
+                        // 任意配送の例外捕捉に表明失敗を隠させないよう、故障前に記録し、受理Task終端後に検証します。
+                        settingsReceiptRequest = request;
+                        Interlocked.Increment(ref settingsReceiptRequestCount);
+                        if (injectFailure) { throw consumerFailure; }
+                    }
                     if (request.RouteName != "playlist drop custom folder output notification") { return; }
+                    dropReceiptRequest = request;
+                    Interlocked.Increment(ref dropReceiptRequestCount);
                     notification.TrySetResult(); releaseNotification.Wait();
                 };
+                var startedTasks = new List<Task>();
                 Task? drop = null;
                 Task? close = null;
+                Task<PlaylistPropertyDialogViewModel>? open = null;
                 PlaylistPropertyDialogViewModel? editor = null;
                 try
                 {
                     Task<bool> initialize = owner.InitializeAsync();
+                    startedTasks.Add(initialize);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "placement-real-initialize");
                     Assert.AreEqual(true, initialize.GetAwaiter().GetResult());
                     if (owner.ProgressHub.IsStartupBackgroundInitializationActive)
@@ -4355,8 +4374,11 @@ public sealed partial class SettingDialogEditCompletionTests
                         entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Folder A")],
                         Folder_order = ["Folder A"]
                     };
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "placement-registration"), "placement-registration");
-                    Task<PlaylistPropertyDialogViewModel> open = owner.PlaylistWorkspace.OpenPropertyDialogAsync(table);
+                    Task registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "placement-registration");
+                    startedTasks.Add(registration);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(registration, "placement-registration");
+                    open = owner.PlaylistWorkspace.OpenPropertyDialogAsync(table);
+                    startedTasks.Add(open);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "placement-old-editor");
                     editor = open.GetAwaiter().GetResult();
                     Assert.IsNotNull(editor);
@@ -4375,38 +4397,48 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
                     Task<bool> whole = runtime.QueueAsync("unsaved-placement", true, true);
+                    startedTasks.Add(whole);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(whole, "placement-whole");
                     Assert.IsTrue(whole.GetAwaiter().GetResult());
                     Assert.AreEqual(library.Lr2SongDbSyncRequestedVersion, library.Lr2SongDbSyncCompletedVersion, "未保存出力先draftはcurrentnessを失効させません。");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(failAfterPublication ? owner.SettingDialog.ApplySettingsAsync() : owner.SettingDialog.SaveSettings(), "placement-real-save");
-                    Assert.AreEqual(failAfterPublication ? 1 : 0, failures.Count, string.Join(Environment.NewLine, failures));
-                    if (failAfterPublication)
-                    {
-                        Assert.AreSame(originalFailure, failures.Single());
-                        Assert.IsTrue(owner.SettingDialog.HasPendingSettingChanges());
-                        CollectionAssert.Contains(presentation.Requests, "close");
-                        CollectionAssert.DoesNotContain(presentation.Requests, "open");
-                        Assert.IsFalse(composition.OperationAdmission.IsActive);
-                        Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
-                        injectFailure = false;
-                    }
+                    Task apply = owner.SettingDialog.ApplySettingsAsync();
+                    startedTasks.Add(apply);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "placement-real-save");
+                    Assert.AreEqual(1, settingsReceiptRequestCount);
+                    Assert.IsNotNull(settingsReceiptRequest);
+                    Assert.IsTrue(settingsReceiptRequest.Receipt.IsEmpty, "表示内容のない通知結果の購読処理だけを故障対象にします。");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+                    CollectionAssert.Contains(presentation.Requests, "close");
+                    CollectionAssert.DoesNotContain(presentation.Requests, "open");
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
                     Assert.AreEqual(1, session.SaveCount);
                     Assert.AreEqual(outputB, PortableSettingsPersistenceTests.OpenSettings(configPath).LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(outputB, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(outputB, composition.BmsLibraryOptionsProvider().LR2CustomFolderOutputBaseDir);
                     Assert.IsTrue(File.Exists(Path.Combine(outputB, relative)));
-                    if (failAfterPublication)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SaveSettings(), "placement-explicit-retry");
-                        Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
-                        Assert.AreEqual(2, session.SaveCount);
-                    }
+                    injectFailure = false;
+                    Task unchangedSave = owner.SettingDialog.SaveSettings();
+                    startedTasks.Add(unchangedSave);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(unchangedSave, "placement-unchanged-explicit-save");
+                    Assert.IsFalse(owner.SettingDialog.HasPendingSettingChanges());
+                    Assert.AreEqual(1, session.SaveCount, "任意の購読処理の故障を次の保存原因へ持ち越しません。");
+                    Assert.AreEqual(1, settingsReceiptRequestCount, "変更なしの明示保存で古い配置同期の通知結果を再配送しません。");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(outputB, PortableSettingsPersistenceTests.OpenSettings(configPath).LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(outputB, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
+                    Assert.AreEqual(outputB, composition.BmsLibraryOptionsProvider().LR2CustomFolderOutputBaseDir);
+                    Assert.IsTrue(File.Exists(Path.Combine(outputB, relative)));
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
                     Directory.CreateDirectory(Path.Combine(outputA, table.Output_dir));
                     string residual = Path.Combine(outputA, table.Output_dir, "external-residual.txt");
                     File.WriteAllText(residual, "retain external remainder");
                     editor.name = "Edited after placement";
                     editor.output_dir = "Placement";
                     Task<PlaylistPropertyDialogOperationResult> saveEditor = editor.SaveAndApplyAsync();
+                    startedTasks.Add(saveEditor);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(saveEditor, "placement-old-editor-save");
                     Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, saveEditor.GetAwaiter().GetResult());
                     Assert.AreEqual("retain external remainder", File.ReadAllText(residual));
@@ -4416,27 +4448,44 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     ChartFile chart = library.BmsCharts.Single();
                     drop = Task.Run(() => owner.PlaylistWorkspace.AddRowsToFolderAsync([LibraryChartRow.FromChartFile(chart)], table, PlaylistFolderNode.CreateFolder("Folder A")));
+                    startedTasks.Add(drop);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(notification.Task, drop), "playlist-close-notification-or-failure");
-                    if (!notification.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(drop, "playlist-close-early-terminal"); Assert.Fail("実必須通知へ到達しませんでした。"); }
+                    if (!notification.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(drop, "playlist-close-early-terminal"); Assert.Fail("ドロップの任意通知の配送へ到達しませんでした。"); }
+                    Assert.AreEqual(1, dropReceiptRequestCount);
+                    Assert.IsNotNull(dropReceiptRequest);
+                    Assert.IsTrue(dropReceiptRequest.Receipt.IsEmpty, "実ダイアログ表示ではなく、空の通知結果の購読処理を保持します。");
                     Assert.IsFalse(drop.IsCompleted);
                     Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
                     Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out _));
                     close = owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                    Assert.IsFalse(close.IsCompleted, "CloseはPの通知・cleanup実終端を待ちます。");
+                    Assert.IsFalse(close.IsCompleted, "終了要求はPの通知結果の配送・後片付けの実終端を待ちます。");
                     releaseNotification.Set();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(drop, "playlist-close-actual-work");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(close, "playlist-close-actual-terminal");
+                    Assert.AreEqual(1, dropReceiptRequestCount);
                     Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
                     Assert.IsFalse(composition.OperationAdmission.IsActive);
                 }
                 finally
                 {
                     releaseNotification.Set();
-                    try { if (drop != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(drop, "placement-cleanup-drop"); } }
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(startedTasks), "placement-cleanup-started-tasks"); }
                     finally
                     {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(close ?? owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "placement-cleanup-close");
-                        editor?.Dispose(); owner.SettingDialog.Dispose();
+                        try
+                        {
+                            close ??= owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(close, "placement-cleanup-close");
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                if (editor == null && open?.IsCompletedSuccessfully == true) { editor = open.GetAwaiter().GetResult(); }
+                                editor?.Dispose();
+                            }
+                            finally { owner.SettingDialog.Dispose(); }
+                        }
                     }
                 }
             });

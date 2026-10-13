@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -26,25 +27,28 @@ public sealed class PlaylistExternalFailureBoundaryTests
     /// <summary>
     /// 通常の取得失敗で全体同期が例外終了せず、旧表・成功表のDB・STATUSと受付解放を保つことを確認します。
     /// 全対象失敗も全件成功とは通知しません。明示的な再取得では同じ表の失敗状態が解消します。
+    /// 進捗表示が失敗する行でも対象成否・DB・後続購読者への終端を保ち、成功した次操作へ失敗を持ち越しません。
     /// HTTPは既存loopback fixture、JSONは実ファイルを使い、WPF Windowや外部ネットワークは使いません。
     /// </summary>
     [DataTestMethod]
-    [DataRow(404, "http", true, (int)PlaylistSyncStatusKind.Http404)]
-    [DataRow(403, "http", true, (int)PlaylistSyncStatusKind.Http403)]
-    [DataRow(400, "http", true, (int)PlaylistSyncStatusKind.HttpError)]
-    [DataRow(200, "header", true, (int)PlaylistSyncStatusKind.HeaderParseError)]
-    [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError)]
-    [DataRow(200, "entry", true, (int)PlaylistSyncStatusKind.DataParseError)]
-    [DataRow(200, "url", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
-    [DataRow(200, "page-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
-    [DataRow(200, "header-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
-    [DataRow(200, "data-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
-    [DataRow(200, "missing-file", true, (int)PlaylistSyncStatusKind.UnknownError)]
-    [DataRow(200, "header-not-found", true, (int)PlaylistSyncStatusKind.HeaderNotFound)]
-    [DataRow(404, "http", false, (int)PlaylistSyncStatusKind.Http404)]
+    [DataRow(404, "http", true, (int)PlaylistSyncStatusKind.Http404, false)]
+    [DataRow(403, "http", true, (int)PlaylistSyncStatusKind.Http403, false)]
+    [DataRow(400, "http", true, (int)PlaylistSyncStatusKind.HttpError, false)]
+    [DataRow(200, "header", true, (int)PlaylistSyncStatusKind.HeaderParseError, false)]
+    [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError, false)]
+    [DataRow(200, "entry", true, (int)PlaylistSyncStatusKind.DataParseError, false)]
+    [DataRow(200, "url", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
+    [DataRow(200, "page-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
+    [DataRow(200, "header-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
+    [DataRow(200, "data-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
+    [DataRow(200, "missing-file", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
+    [DataRow(200, "header-not-found", true, (int)PlaylistSyncStatusKind.HeaderNotFound, false)]
+    [DataRow(404, "http", false, (int)PlaylistSyncStatusKind.Http404, false)]
+    [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError, true)]
+    [DataRow(200, "data", false, (int)PlaylistSyncStatusKind.DataParseError, true)]
     [TestCategory("Playlist")]
     public async Task ExternalSync_SourceFailurePreservesStatusAndCommittedTables(
-        int statusCode, string malformedPart, bool includeSuccessfulTarget, int expectedKind)
+        int statusCode, string malformedPart, bool includeSuccessfulTarget, int expectedKind, bool failProgress)
     {
         string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -104,19 +108,45 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 case "data-scheme": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"ftp://example.invalid/data.json\"}"); break;
             }
             workspace = CreatePlaylistWorkspace(playlist, library);
+            var progress = new List<PlaylistSyncProgressSnapshot>();
+            var execution = new List<bool>();
+            int queuedCount = 0;
+            int referenceAppliedCount = 0;
+            if (failProgress)
+            {
+                workspace.PlaylistExternalSyncQueued += (_, _) => throw new InvalidOperationException("queued display failed");
+                workspace.PlaylistExternalSyncReferenceApplied += (_, _) => throw new InvalidOperationException("reference progress failed");
+                workspace.PlaylistExternalSyncCompleted += (_, _) => throw new InvalidOperationException("completed display failed");
+                workspace.PlaylistSyncProgressChanged += (_, _) => throw new InvalidOperationException("progress display failed");
+            }
+            workspace.PlaylistExternalSyncQueued += (_, _) => queuedCount++;
+            workspace.PlaylistExternalSyncReferenceApplied += (_, _) => referenceAppliedCount++;
+            workspace.PlaylistSyncProgressChanged += (_, change) => progress.Add(change.Snapshot);
+            workspace.RequestProgressReporter = (_, running) =>
+            {
+                execution.Add(running);
+                if (failProgress) { throw new InvalidOperationException("request display failed"); }
+            };
             int completedCount = 0;
+            bool reportedSkipped = true;
             bool reportedSuccess = true;
             workspace.PlaylistExternalSyncCompleted += (_, completion) =>
             {
                 completedCount++;
                 reportedSuccess = completion.Succeeded;
-                Assert.IsFalse(completion.WasSkipped);
+                reportedSkipped = completion.WasSkipped;
             };
 
             // 全体再読込みが使う同期入口を直接待つ。失敗をAssert.Throwsで成功条件にしません。
             await workspace.RunExternalPlaylistSyncAsync("source-failure", true, true, 1);
             Assert.AreEqual(1, completedCount);
             Assert.IsFalse(reportedSuccess);
+            Assert.IsFalse(reportedSkipped);
+            Assert.AreEqual(1, queuedCount);
+            Assert.AreEqual(1, referenceAppliedCount);
+            Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive));
+            Assert.IsFalse(progress.Last().IsActive);
+            CollectionAssert.AreEqual(new[] { true, false }, execution);
             Assert.IsFalse(playlist.IsPlaylistUpdating);
             bool admissionAccepted = playlist.TryEnterPlaylistMutation(out IDisposable admission);
             admission?.Dispose();
@@ -149,6 +179,19 @@ public sealed class PlaylistExternalFailureBoundaryTests
             playlist.CommitBMSTableHeaderToDB(bad);
             await workspace.ResyncPlaylistsAsync([bad]);
             Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7902"].HasFailureStatus);
+
+            // 同じ表示障害を残した全件成功の同期でも、実結果・終端・次の受付を保持します。
+            await workspace.RunExternalPlaylistSyncAsync("source-recovered", true, true, 2);
+            Assert.AreEqual(2, completedCount);
+            Assert.IsTrue(reportedSuccess);
+            Assert.IsFalse(reportedSkipped);
+            Assert.AreEqual(2, queuedCount);
+            Assert.AreEqual(2, referenceAppliedCount);
+            Assert.IsFalse(progress.Last().IsActive);
+            CollectionAssert.AreEqual(new[] { true, false, true, false }, execution);
+            bool freshAdmissionAccepted = playlist.TryEnterPlaylistMutation(out IDisposable freshAdmission);
+            freshAdmission?.Dispose();
+            Assert.IsTrue(freshAdmissionAccepted);
         }
         finally
         {

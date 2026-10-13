@@ -581,7 +581,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
     /// <summary>
     /// DB=B確定後のLR2新先出力・config保存・BMT出力の三つの失敗境界でDB=Bを保持し、
     /// 同じ編集画面の明示再保存だけで旧Aを整理します。C再編集では未完了を先に終えるPとTask終端も確認します。
-    /// 下位移行の管理領域・モード網羅は既存移行テスト、画面の所有と通知はWPF代表へ分担します。
+    /// migration/config行の待合せは空の通知結果でも到達する任意の購読処理、bmt行は必要なBMT出力を保持します。
+    /// 購読処理の故障を実出力・保存の失敗へ加えず、下位移行の管理領域・モード網羅は既存移行テスト、画面の所有と表示はWPF代表へ分担します。
     /// </summary>
     [DataTestMethod]
     // DB=B確定後、migrationは新先Bのディレクトリ生成、configは登録保存、bmtは台帳保存を失敗させる。bmt行だけ追加編集Cを行う。
@@ -2871,24 +2872,29 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消、結果通知を個別に失敗させ、DB前失敗だけ旧levelへ戻します。DB後失敗は確定値と元例外を保持し、二次通知失敗による上書きを検出します。</summary>
+    /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消を分け、DB前失敗だけ旧levelへ戻します。空receiptのconsumer故障と実LR2警告の表示・診断故障を区別し、元結果を保って配送終端まで受付と編集状態を保持し、次の明示編集を保存します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    // noneは正常系。DB前失敗、DB後の各出力失敗・取消、二次通知失敗をfailureStageで区別する。
+    // 空receiptでは表示を試みずconsumerだけを故障させる。実表示故障はLR2書込み失敗から生成されたWarningへ重ねる。
     [DataRow("none")]
     [DataRow("preparation")]
     [DataRow("output")]
-    [DataRow("notification")]
+    [DataRow("empty_receipt_consumer")]
     [DataRow("output_notification")]
     [DataRow("bmt_preparation")]
     [DataRow("bmt_cancel")]
-    [DataRow("bmt_cancel_notification")]
-    [DataRow("database_notification")]
+    [DataRow("bmt_cancel_empty_receipt_consumer")]
+    [DataRow("database_empty_receipt_consumer")]
     public async Task DetailEdit_ReoutputsLr2FolderRowsForLevelProjection(string failureStage)
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         FileStream? outputBlocker = null;
+        Task? edit = null;
+        TestBmsPlaylist? playlist = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        var receiptEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReceipt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
             string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderCustomFolder");
@@ -2903,10 +2909,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
             bool injectFailure = false;
+            double? levelBeforeBmtCancellation = null;
             var preparationFailure = new InvalidOperationException("detail output settings failed after DB commit");
             var bmtPreparationFailure = new InvalidOperationException("detail BMT settings failed after DB commit");
-            var notificationFailure = new InvalidOperationException("detail receipt presentation failed");
-            bool failNotification = failureStage == "notification" || failureStage.EndsWith("_notification", StringComparison.Ordinal);
+            var presentationFailure = new InvalidOperationException("detail warning presentation failed");
+            var consumerFailure = new InvalidOperationException("detail empty receipt consumer failed");
+            var diagnosticFailure = new InvalidOperationException("detail receipt diagnostic failed");
+            bool failEmptyConsumer = failureStage.EndsWith("empty_receipt_consumer", StringComparison.Ordinal);
+            bool failPresentation = failureStage == "output_notification";
             Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
             {
                 if (injectFailure && failureStage == "preparation") { throw preparationFailure; }
@@ -2932,20 +2942,19 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             }
             var library = new TestBmsLibrary(songDbPath, null, null, null,
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, settings: testSettings);
-            TestBmsPlaylist? playlist = null;
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath,
                 getOutputSettings, beatorajaBmtOptionsProvider: () =>
                 {
                     if (injectFailure && failureStage == "bmt_preparation") { throw bmtPreparationFailure; }
-                    if (injectFailure && failureStage is "bmt_cancel" or "bmt_cancel_notification")
+                    if (injectFailure && failureStage is "bmt_cancel" or "bmt_cancel_empty_receipt_consumer")
                     {
                         // 実DB確定とLR2終端の後、BMT workerのshutdown判定で取消にします。
-                        using (var committedDb = new LR2SongDBExtended(songDbPath))
+                        using (LR2SongDBExtended committedDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
                         {
-                            Assert.AreEqual(12, committedDb.Table<BMSTableEntry>().Single().level);
+                            levelBeforeBmtCancellation = committedDb.Table<BMSTableEntry>().Single().level;
                         }
-                        Assert.IsNotNull(playlist);
-                        playlist.RequestShutdown("detail-post-commit-bmt-test");
+                        (playlist ?? throw new InvalidOperationException("The playlist was not initialized before BMT cancellation."))
+                            .RequestShutdown("detail-post-commit-bmt-test");
                     }
                     return new BeatorajaBmtOptionsSnapshot();
                 }, settings: testSettings)
@@ -2953,18 +2962,44 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             playlist.ReOutputCustomFolderAndCommitToDB(table);
-            PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+            var diagnostics = new List<(Exception Exception, string Diagnostic)>();
+            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                reloadFailureLog: (exception, diagnostic) =>
+                {
+                    diagnostics.Add((exception, diagnostic));
+                    if (failureStage is "empty_receipt_consumer" or "output_notification") { throw diagnosticFailure; }
+                },
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
-            int notificationCalls = 0;
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
-            {
-                notificationCalls++;
-                if (failNotification) { throw notificationFailure; }
-            };
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
             workspace.DetailViewState.Source.Rows = [source];
             var context = new MainChartListCellEditContext(source.CreateViewRow(), nameof(PlaylistDetailRow.Level),
                 ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+            var receipts = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+            var displayAttempts = new List<PlaylistOperationNotificationOwner.OperationNotification>();
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                receipts.Add(request);
+                // 実MainWindowと同じく要素だけを表示対象にし、空eventを表示失敗の根拠にしません。
+                foreach (PlaylistOperationNotificationOwner.OperationNotification notification in request.Receipt.Notifications)
+                {
+                    displayAttempts.Add(notification);
+                    if (failPresentation)
+                    {
+                        receiptEntered.TrySetResult();
+                        releaseReceipt.Task.GetAwaiter().GetResult();
+                        throw presentationFailure;
+                    }
+                }
+                if (failEmptyConsumer)
+                {
+                    if (failureStage == "empty_receipt_consumer")
+                    {
+                        receiptEntered.TrySetResult();
+                        releaseReceipt.Task.GetAwaiter().GetResult();
+                    }
+                    throw consumerFailure;
+                }
+            };
             workspace.BeginDetailEdit(context);
             if (failureStage is "output" or "output_notification")
             {
@@ -2972,18 +3007,41 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                     .First(path => ReadShiftJisText(path).Contains("LEVEL 1", StringComparison.Ordinal));
                 outputBlocker = new FileStream(outputFile, FileMode.Open, FileAccess.Read, FileShare.None);
             }
-            if (failureStage == "database_notification")
+            if (failureStage == "database_empty_receipt_consumer")
             {
                 using var failDatabase = new LR2SongDBExtended(songDbPath);
                 failDatabase.Execute("CREATE TRIGGER fail_detail_save BEFORE INSERT ON playlist_entry BEGIN SELECT RAISE(FAIL, 'forced detail DB failure'); END;");
             }
             injectFailure = true;
-            Task edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+            edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+            Task? mutationIdle = null;
+            if (failureStage is "empty_receipt_consumer" or "output_notification")
+            {
+                await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, edit, "detail-edit.receipt-presentation");
+                Assert.IsFalse(edit.IsCompleted, "consumerまたは実表示の終端前に受理Taskを完了させません。");
+                using (LR2SongDBExtended committedDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(12, committedDb.Table<BMSTableEntry>().Single().level);
+                }
+                Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                bool acceptedWhilePresenting = playlist.TryEnterPlaylistMutation(out IDisposable rejected);
+                rejected?.Dispose();
+                Assert.IsFalse(acceptedWhilePresenting);
+                mutationIdle = playlist.WaitForPlaylistMutationIdleAsync();
+                Assert.IsFalse(mutationIdle.IsCompleted, "通知配送中は受付とcapabilityを保持します。");
+                releaseReceipt.TrySetResult();
+            }
             Exception? observedFailure = null;
             try { await edit; }
             catch (Exception exception) { observedFailure = exception; }
-            if (failureStage == "none") { Assert.IsNull(observedFailure); }
-            else if (failureStage == "database_notification")
+            await (mutationIdle ?? playlist.WaitForPlaylistMutationIdleAsync());
+            Assert.IsFalse(playlist.HasShutdownBlockingWork, "成功・実失敗・shutdown取消の全てで受理済み処理を解放します。");
+            if (failureStage is "none" or "empty_receipt_consumer")
+            {
+                Assert.IsNull(observedFailure);
+                Assert.IsTrue(edit.IsCompletedSuccessfully);
+            }
+            else if (failureStage == "database_empty_receipt_consumer")
             {
                 Assert.IsNotNull(observedFailure);
                 Assert.IsFalse(observedFailure is PlaylistMutationPostCommitException);
@@ -2994,25 +3052,49 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.IsInstanceOfType<PlaylistMutationPostCommitException>(observedFailure);
                 var failure = (PlaylistMutationPostCommitException)observedFailure;
                 if (failureStage == "preparation") { Assert.AreSame(preparationFailure, failure.InnerException); }
-                else if (failureStage is "output" or "output_notification") { Assert.IsInstanceOfType<IOException>(failure.InnerException); }
+                else if (failureStage is "output" or "output_notification")
+                {
+                    Assert.IsInstanceOfType<IOException>(failure.InnerException);
+                    Assert.IsFalse(failure.ToString().Contains(presentationFailure.Message, StringComparison.Ordinal));
+                    Assert.IsFalse(failure.ToString().Contains(diagnosticFailure.Message, StringComparison.Ordinal));
+                }
                 else if (failureStage == "bmt_preparation") { Assert.AreSame(bmtPreparationFailure, failure.InnerException); }
-                else if (failureStage == "notification") { Assert.AreSame(notificationFailure, failure.InnerException); }
                 else
                 {
                     Assert.IsInstanceOfType<OperationCanceledException>(failure.InnerException);
                     Assert.IsTrue(playlist.IsShutdownRequested);
+                    Assert.AreEqual<double?>(12d, levelBeforeBmtCancellation, "BMT取消を要求した時点で実DBは確定済みです。");
                     StringAssert.Contains(failure.InnerException.Message, "Playlist BMT output");
                 }
             }
-            if (failureStage.EndsWith("_notification", StringComparison.Ordinal))
+            if (failEmptyConsumer || failPresentation)
             {
-                Assert.IsNotNull(observedFailure);
-                Assert.AreSame(notificationFailure, observedFailure.Data["PlaylistDetailNotificationFailure"], "二次通知失敗は元の操作失敗を置換しません。");
+                Assert.AreEqual(1, diagnostics.Count);
+                Assert.AreSame(failPresentation ? presentationFailure : consumerFailure, diagnostics[0].Exception,
+                    "表示または空consumerの原因は元の操作結果へ合成せず局所診断します。");
+                StringAssert.Contains(diagnostics[0].Diagnostic, "playlist detail cell edit notification");
             }
-            Assert.AreEqual(1, notificationCalls);
+            else { Assert.AreEqual(0, diagnostics.Count); }
+            Assert.AreEqual(1, receipts.Count);
+            Assert.AreEqual("playlist detail cell edit notification", receipts[0].RouteName);
+            if (failureStage is "output" or "output_notification")
+            {
+                Assert.IsFalse(receipts[0].Receipt.IsEmpty);
+                PlaylistOperationNotificationOwner.OperationNotification warning = receipts[0].Receipt.Notifications.Single();
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.Caption);
+                Assert.AreEqual(string.Format(Resources.Warn_CustomFolderOutputFailed, table.name,
+                    Path.Combine(providerOutputBaseDir, table.Output_dir)), warning.Message);
+                Assert.AreSame(warning, displayAttempts.Single());
+            }
+            else
+            {
+                Assert.IsTrue(receipts[0].Receipt.IsEmpty, "空receipt consumerの故障を存在しないdialogの表示故障にしません。");
+                Assert.AreEqual(0, displayAttempts.Count);
+            }
             if (observedFailure != null) { Assert.IsTrue(edit.IsFaulted); }
 
-            int expectedLevel = failureStage == "database_notification" ? 1 : 12;
+            int expectedLevel = failureStage == "database_empty_receipt_consumer" ? 1 : 12;
             Assert.AreEqual(expectedLevel, entry.level);
             Assert.AreEqual(expectedLevel.ToString(), ((PlaylistDetailRow)context.Row).Level);
             Assert.AreEqual(expectedLevel.ToString(), source.CreateViewRow().Level, "入力snapshotもDBの確定値を保持します。");
@@ -3022,7 +3104,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 Assert.AreEqual(expectedLevel, verify.Table<BMSTableEntry>().Single(row =>
                     row.playlist_id == table.playlist_id && row.md5 == entry.md5).level);
-                if (failureStage == "none")
+                if (failureStage is "none" or "empty_receipt_consumer")
                 {
                     var folders = verify.Table<LR2SongDB.folder>().ToList();
                     Assert.IsTrue(Directory.Exists(Path.Combine(providerOutputBaseDir, table.Output_dir)));
@@ -3035,22 +3117,61 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                         "*.lr2folder", SearchOption.AllDirectories).Any(path => ReadShiftJisText(path).Contains("LEVEL 12", StringComparison.Ordinal)));
                 }
             }
-            if (failureStage == "database_notification")
+            if (failureStage == "database_empty_receipt_consumer")
             {
                 using (var database = new LR2SongDBExtended(songDbPath)) { database.Execute("DROP TRIGGER fail_detail_save;"); }
-                failNotification = false;
+                failEmptyConsumer = false;
+                failPresentation = false;
                 workspace.BeginDetailEdit(context);
-                await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+                edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "12", commit: true));
+                await edit;
                 Assert.AreEqual(12, entry.level);
                 Assert.AreEqual("12", ((PlaylistDetailRow)context.Row).Level);
                 Assert.AreEqual("12", source.CreateViewRow().Level);
-                Assert.AreEqual(2, notificationCalls);
+                Assert.AreEqual(2, receipts.Count);
+                Assert.IsTrue(receipts[1].Receipt.IsEmpty);
                 using LR2SongDBExtended verifyRetry = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
                 Assert.AreEqual(12, verifyRetry.Table<BMSTableEntry>().Single().level, "同じ入力の再保存も実DBへ反映します。");
+            }
+            else if (failureStage is "empty_receipt_consumer" or "output_notification")
+            {
+                failEmptyConsumer = false;
+                failPresentation = false;
+                outputBlocker?.Dispose();
+                outputBlocker = null;
+                var nextContext = new MainChartListCellEditContext(source.CreateViewRow(), nameof(PlaylistDetailRow.Level),
+                    ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
+                workspace.BeginDetailEdit(nextContext);
+                edit = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(nextContext, "13", commit: true));
+                await edit;
+                Assert.AreEqual(13, entry.level);
+                Assert.AreEqual("13", ((PlaylistDetailRow)nextContext.Row).Level);
+                Assert.AreEqual("13", source.CreateViewRow().Level);
+                Assert.AreEqual(2, receipts.Count);
+                Assert.IsTrue(receipts[1].Receipt.IsEmpty);
+                Assert.AreEqual(failureStage == "output_notification" ? 1 : 0, displayAttempts.Count, "次の空receiptで表示を試みません。");
+                Assert.AreEqual(1, diagnostics.Count, "次の明示保存へ以前の表示・診断失敗を持ち越しません。");
+                Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
+                using LR2SongDBExtended verifyNext = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(13, verifyNext.Table<BMSTableEntry>().Single().level, "次の編集値を新しい実DB値として保存します。");
+                var nextFolders = verifyNext.Table<LR2SongDB.folder>().ToList();
+                Assert.AreEqual(0, nextFolders.Count(row => row.title is "LEVEL 1" or "LEVEL 12"));
+                Assert.AreEqual(2, nextFolders.Single(row => row.title == "LEVEL 13").type);
+                Assert.IsTrue(Directory.EnumerateFiles(Path.Combine(providerOutputBaseDir, table.Output_dir),
+                    "*.lr2folder", SearchOption.AllDirectories).Any(path => ReadShiftJisText(path).Contains("LEVEL 13", StringComparison.Ordinal)));
             }
         }
         finally
         {
+            releaseReceipt.TrySetResult();
+            if (edit != null) { try { await edit; } catch (Exception) { } }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
             outputBlocker?.Dispose();
             if (Directory.Exists(tempDirectory))
             {

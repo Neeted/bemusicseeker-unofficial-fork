@@ -1858,17 +1858,22 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             workspace.PlaylistExternalSyncCompleted += (_, fact) => completed.Add(fact);
             workspace.ProgressRequestFactory = (name, version) => new(7, 0, name, version);
             Task? rejected = null;
+            bool acceptedDuringSync = false;
+            bool rejectedCompletedSynchronously = false;
             workspace.RequestProgressReporter = (request, running) =>
             {
                 execution.Add((request, running));
                 if (running && request.Version == 1)
                 {
-                    Assert.IsFalse(playlist.TryEnterPlaylistMutation(out _));
+                    acceptedDuringSync = playlist.TryEnterPlaylistMutation(out IDisposable unexpectedAdmission);
+                    unexpectedAdmission?.Dispose();
                     rejected = workspace.RunExternalPlaylistSyncAsync("rejected", false, true, 22);
-                    Assert.IsTrue(rejected.IsCompleted, "An unaccepted request never waits for P.");
+                    rejectedCompletedSynchronously = rejected.IsCompleted;
                 }
             };
             await workspace.RunExternalPlaylistSyncAsync("first", false, true, 11);
+            Assert.IsFalse(acceptedDuringSync);
+            Assert.IsTrue(rejectedCompletedSynchronously, "未受理の要求は受付の解放を待ちません。");
             Assert.IsNotNull(rejected);
             await rejected;
             Assert.AreEqual(2, completed.Count);

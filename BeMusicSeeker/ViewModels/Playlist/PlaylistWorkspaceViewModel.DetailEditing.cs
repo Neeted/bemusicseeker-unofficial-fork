@@ -31,14 +31,15 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// プレイリスト詳細のセル編集をP内で保存し、関連出力と必要な通知の実終端まで待ちます。
+    /// プレイリスト詳細のセル編集をP内で保存し、関連出力・通知の実試行とsession終端まで待ちます。
+    /// 操作後の任意表示の失敗は局所診断し、保存・出力・取消の結果へ加えません。
     /// 再同期前の古い項目は保存せず通知し、最新行からの明示編集を受け付けます。
     /// </summary>
     /// <param name="request">一覧から受け取った編集結果。</param>
     /// <returns>
-    /// 保存・必要通知までを追跡するTask。DB未確定の失敗だけを戻し、確定後の出力・取消・通知失敗は確定値と元原因を保持します。
+    /// 保存・必要出力・通知session終端までを追跡するTask。DB未確定の失敗だけを戻し、確定後の出力・取消・receipt取得やsession寿命の失敗は確定値と元原因を保持します。
     /// </returns>
-    /// <exception cref="PlaylistMutationPostCommitException">保存後の処理が失敗または取り消されました。二次通知失敗は元例外のDataへ保持します。</exception>
+    /// <exception cref="PlaylistMutationPostCommitException">保存後の必要処理が失敗または取り消されました。先行の実失敗を保ち、二次receipt・session失敗は局所診断します。</exception>
     internal async Task CompleteDetailEdit(MainChartListCellEditEndedEventArgs request)
     {
         if (request?.Context.Row is not PlaylistDetailRow playlistRow)
@@ -149,42 +150,59 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
         }
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         bool committed = false;
         ExceptionDispatchInfo primaryFailure = null;
         try
         {
-            BMSTable changed = playlistStore.CommitBMSTableEntry(playlistRow.Entry, capability);
-            committed = true;
-            if (changed != null)
+            using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
+            try
             {
-                await playlistStore.BmtOutput.ExportTablesAsync([changed], "playlist_detail_cell_edit", capability).ConfigureAwait(false);
+                BMSTable changed = playlistStore.CommitBMSTableEntry(playlistRow.Entry, capability);
+                committed = true;
+                if (changed != null)
+                {
+                    await playlistStore.BmtOutput.ExportTablesAsync([changed], "playlist_detail_cell_edit", capability).ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception)
+            {
+                // model内のLR2失敗でもDBは確定済みです。後続BMTの取消も同じ確定後境界へ揃えます。
+                committed |= exception is PlaylistMutationPostCommitException;
+                primaryFailure = ExceptionDispatchInfo.Capture(committed && exception is not PlaylistMutationPostCommitException
+                    ? new PlaylistMutationPostCommitException("playlist_detail_cell_edit", exception)
+                    : exception);
+            }
+            try
+            {
+                PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist detail cell edit notification");
+            }
+            catch (Exception receiptFailure)
+            {
+                // 任意表示はpublisher内で終端済みです。ここでは必須receipt取得の実失敗だけを扱います。
+                if (primaryFailure != null)
+                {
+                    TryLogPlaylistDropSecondaryFailure(receiptFailure, "playlist_detail_cell_edit_receipt_failed");
+                }
+                else
+                {
+                    primaryFailure = ExceptionDispatchInfo.Capture(committed
+                        ? new PlaylistMutationPostCommitException("playlist_detail_cell_edit", receiptFailure)
+                        : receiptFailure);
+                }
             }
         }
-        catch (Exception exception)
+        catch (Exception sessionFailure)
         {
-            // model内のLR2失敗でもDBは確定済みです。後続BMTの取消も同じ確定後境界へ揃えます。
-            committed |= exception is PlaylistMutationPostCommitException;
-            primaryFailure = ExceptionDispatchInfo.Capture(committed && exception is not PlaylistMutationPostCommitException
-                ? new PlaylistMutationPostCommitException("playlist_detail_cell_edit", exception)
-                : exception);
-        }
-        try
-        {
-            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist detail cell edit notification");
-        }
-        catch (Exception notificationFailure)
-        {
+            // session取得・解放の実失敗も確定状態で分類し、先行の保存・出力失敗を置換しません。
             if (primaryFailure != null)
             {
-                // presentation失敗でDB確定やLR2/BMTの元原因を置換しません。
-                primaryFailure.SourceException.Data["PlaylistDetailNotificationFailure"] = notificationFailure;
+                TryLogPlaylistDropSecondaryFailure(sessionFailure, "playlist_detail_cell_edit_notification_session_failed");
             }
             else
             {
                 primaryFailure = ExceptionDispatchInfo.Capture(committed
-                    ? new PlaylistMutationPostCommitException("playlist_detail_cell_edit", notificationFailure)
-                    : notificationFailure);
+                    ? new PlaylistMutationPostCommitException("playlist_detail_cell_edit", sessionFailure)
+                    : sessionFailure);
             }
         }
         primaryFailure?.Throw();

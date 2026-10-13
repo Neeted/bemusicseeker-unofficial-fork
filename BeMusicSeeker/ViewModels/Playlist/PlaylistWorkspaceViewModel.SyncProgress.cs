@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -86,8 +87,31 @@ public sealed partial class PlaylistWorkspaceViewModel
         ReportPlaylistSyncProgress(snapshot);
     }
 
+    // 進捗表示の失敗は保存・参照反映の成否へ戻さず、独立した購読先への終端通知も妨げません。
+    private void PublishPlaylistProgressEvent<T>(EventHandler<T> handlers, T args) where T : EventArgs
+    {
+        if (handlers == null) { return; }
+        foreach (EventHandler<T> handler in handlers.GetInvocationList())
+        {
+            try { handler(this, args); }
+            catch (Exception failure)
+            {
+                TryLogPlaylistDropSecondaryFailure(failure, "playlist_progress_notification_failed event=" + typeof(T).Name);
+            }
+        }
+    }
+
+    private void ReportRequestProgress(OperationProgressRequest request, bool running)
+    {
+        try { RequestProgressReporter?.Invoke(request, running); }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_request_progress_failed running=" + running);
+        }
+    }
+
     private void PublishPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
     {
-        PlaylistSyncProgressChanged?.Invoke(this, new PlaylistSyncProgressChangedEventArgs(snapshot));
+        PublishPlaylistProgressEvent(PlaylistSyncProgressChanged, new PlaylistSyncProgressChangedEventArgs(snapshot));
     }
 }

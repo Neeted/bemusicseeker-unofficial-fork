@@ -225,6 +225,296 @@ public sealed class BmsPlaylistExternalReloadTests
     }
 
     /// <summary>
+    /// 実JSON再取得・SQLite確定・参照置換・BMT成功またはmanifest故障へ、推薦実力の実変化で生じるInformationの表示・診断故障を重ねます。
+    /// 有効行と削除履歴の有限集合をmodel/DBで照合し、BMTは有効行だけ、manifest故障では先行生成物と旧台帳を保ちます。
+    /// BMT Warningを別に観測し、終端Information配送中のP/Taskと実結果・完了事実、次の明示JSON変更と空receiptの非表示を保ちます。削除履歴の分岐はPlaylistReloadMergeTests、実modalは上位へ分担します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)] // BMT成功を実Informationの表示・診断故障で失敗へ変えない。
+    [DataRow(true)] // manifest失敗のWarningと終端Informationを分け、必須出力原因を保つ。
+    [TestCategory("Playlist")]
+    public async Task ExternalPlaylistSync_ReceiptDisplayFailurePreservesCommittedResultAndNextRequest(bool failBmt)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistExternalReloadTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var receiptEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseReceipt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        Task? operation = null;
+        FileStream? blocker = null;
+        bool failPresentation = true;
+        try
+        {
+            const string OldMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string ChangedMd5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            const string FreshMd5 = "cccccccccccccccccccccccccccccccc";
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string bmt = Path.Combine(directory, "bmt");
+            Directory.CreateDirectory(bmt);
+            string manifest = Path.Combine(bmt, BmtTableExportService.ManifestFileName);
+            File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
+            byte[] originalManifest = File.ReadAllBytes(manifest);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"Receipt boundary\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            var library = new TestBmsLibrary(songPath, settings: testSettings);
+            playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt },
+                () => new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = true },
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty),
+                recommendationScoreReader: _ => Task.FromResult(ReadWalkureInput("standard")), settings: testSettings);
+            BMSTable original = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            original.playlist_id = 7513;
+            original.is_bmt_output = true;
+            Assert.IsTrue(original.EnableExternalSync());
+            BMSTable recommendation = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"));
+            recommendation.playlist_id = 7514;
+            recommendation.org_name = "旧方針 ★3.87";
+            recommendation.header_sha256 = null;
+            recommendation.data_sha256 = null;
+            recommendation.is_bmt_output = false;
+            Assert.IsTrue(recommendation.EnableExternalSync());
+            Assert.IsFalse(recommendation.entries.Any(entry => entry.md5 is OldMd5 or ChangedMd5 or FreshMd5),
+                "推薦入力とJSON入力のhashを分離し、JSON表の索引反映を完全一致で観測します。");
+            playlist.BMSTables = new ObservableCollection<BMSTable>([original, recommendation]);
+            playlist.CommitBMSTablesWithEntriesToDB([original, recommendation]);
+            library.AddReferenceBMSTables(original);
+            library.AddReferenceBMSTables(recommendation);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(OldMd5, null).Symbols);
+            var diagnostics = new List<(Exception Exception, string Diagnostic)>();
+            var diagnosticFailure = new InvalidOperationException("external receipt diagnostic failed");
+            workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                reloadFailureLog: (exception, diagnostic) =>
+                {
+                    diagnostics.Add((exception, diagnostic));
+                    throw diagnosticFailure;
+                },
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
+            playlist.BmtOutput.FailureReporter = failures =>
+            {
+                bmtFailures.AddRange(failures);
+                workspace.ReportBmtOutputFailures(failures);
+            };
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            workspace.RequestDetailSelection(original, PlaylistFolderNode.CreateFolder("1"));
+            var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
+            var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
+            var receipts = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
+            var displayAttempts = new List<(string Route, PlaylistOperationNotificationOwner.OperationNotification Notification)>();
+            var presentationFailure = new InvalidOperationException("external receipt display failed");
+            workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
+            workspace.PlaylistExternalSyncCompleted += (_, completion) => completed.Add(completion);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+            {
+                receipts.Add(request);
+                foreach (PlaylistOperationNotificationOwner.OperationNotification notification in request.Receipt.Notifications)
+                {
+                    displayAttempts.Add((request.RouteName, notification));
+                    // BMT Warningは参照採用より前の独立通知です。終端Informationだけを保持します。
+                    if (request.RouteName == "external playlist sync notification" && failPresentation)
+                    {
+                        receiptEntered.TrySetResult();
+                        releaseReceipt.Task.GetAwaiter().GetResult();
+                        throw presentationFailure;
+                    }
+                }
+            };
+            File.WriteAllText(data, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"level\":\"2\"}]");
+            if (failBmt) { blocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.Read); }
+            PlaylistWorkspaceViewModel currentWorkspace = workspace;
+            operation = Task.Run(() => currentWorkspace.RunExternalPlaylistSyncAsync("receipt-display-failure", false, true, 31));
+            await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, operation, "external-sync.receipt-display");
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.AreEqual(0, completed.Count, "receipt配送の実終端前に完了事実を公開しません。");
+            Assert.AreEqual(failBmt ? 2 : 1, receipts.Count);
+            PlaylistOperationNotificationPresentationRequestedEventArgs terminalReceipt = receipts.Single(request =>
+                request.RouteName == "external playlist sync notification");
+            Assert.IsFalse(terminalReceipt.Receipt.IsEmpty);
+            PlaylistOperationNotificationOwner.OperationNotification information = terminalReceipt.Receipt.Notifications.Single();
+            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, information.Severity);
+            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, information.Caption);
+            double expectedSkill = ReadWalkureCase("standard")["rating"]?.Value<double>("playerStarRating")
+                ?? throw new AssertFailedException("The independent recommendation skill expectation is missing.");
+            Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage,
+                expectedSkill.ToString("F2"), (expectedSkill - 3.87).ToString(" (+#0.00); (-#0.00);")), information.Message);
+            Assert.AreSame(information, displayAttempts.Single(attempt => attempt.Route == "external playlist sync notification").Notification);
+            PlaylistOperationNotificationPresentationRequestedEventArgs[] bmtReceipts = receipts.Where(request =>
+                request.RouteName == "beatoraja BMT output failure").ToArray();
+            Assert.AreEqual(failBmt ? 1 : 0, bmtReceipts.Length);
+            bool acceptedWhilePresenting = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+            admission?.Dispose();
+            Assert.IsFalse(acceptedWhilePresenting);
+            Task mutationIdle = playlist.WaitForPlaylistMutationIdleAsync();
+            Assert.IsFalse(mutationIdle.IsCompleted);
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            BMSTable confirmed = playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id);
+            Assert.AreNotSame(original, confirmed);
+            Assert.AreSame(confirmed, workspace.CapturePlaylistDetailSelection().Table);
+            (int? PlaylistId, string Md5, bool IsRemoved, string Title, double? Level)[] expectedConfirmedEntries =
+            [
+                (original.playlist_id, ChangedMd5, false, "After", 2),
+                (original.playlist_id, OldMd5, true, "Before", 1)
+            ];
+            Assert.AreEqual(2, confirmed.entries.Count);
+            CollectionAssert.AreEquivalent(expectedConfirmedEntries, confirmed.entries
+                .Select(entry => (entry.playlist_id, entry.md5, entry.is_removed, entry.title, entry.level)).ToArray());
+            BMSTableEntry active = confirmed.entries.Single(entry => !entry.is_removed);
+            Assert.AreEqual(ChangedMd5, active.md5);
+            Assert.AreEqual(2, active.level);
+            Assert.AreEqual("After", active.title);
+            Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(OldMd5, null).Symbols);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(ChangedMd5, null).Symbols);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                var savedEntries = db.Table<BMSTableEntry>()
+                    .Where(entry => entry.playlist_id == original.playlist_id).ToList();
+                Assert.AreEqual(2, savedEntries.Count);
+                CollectionAssert.AreEquivalent(expectedConfirmedEntries, savedEntries
+                    .Select(entry => (entry.playlist_id, entry.md5, entry.is_removed, entry.title, entry.level)).ToArray());
+                BMSTableEntry saved = savedEntries.Single(entry => !entry.is_removed);
+                Assert.AreEqual(original.playlist_id, saved.playlist_id);
+                Assert.AreEqual(ChangedMd5, saved.md5);
+                Assert.AreEqual(2, saved.level);
+                Assert.AreEqual("After", saved.title);
+            }
+            releaseReceipt.TrySetResult();
+            Exception? observedFailure = null;
+            try { await operation; }
+            catch (Exception failure) { observedFailure = failure; }
+            await mutationIdle;
+            string outputFile = Directory.GetFiles(bmt, "*.bmt").Single();
+            JObject exported = BeatorajaBmtTableImportService.ReadCachedTableData(outputFile);
+            JToken song = exported["folder"]?.Single()?["songs"]?.Single()
+                ?? throw new AssertFailedException("The required BMT row was not exported.");
+            Assert.AreEqual(ChangedMd5, song.Value<string>("md5"));
+            Assert.AreEqual("After", song.Value<string>("title"));
+            if (failBmt)
+            {
+                Assert.IsInstanceOfType<PlaylistMutationPostCommitException>(observedFailure);
+                var failure = (PlaylistMutationPostCommitException)observedFailure;
+                Exception cause = failure.InnerException ?? throw new AssertFailedException("The required BMT cause was lost.");
+                Assert.IsInstanceOfType<IOException>(cause.GetBaseException());
+                StringAssert.Contains(cause.Message, manifest);
+                Assert.IsTrue(operation.IsFaulted);
+                PlaylistOperationNotificationOwner.OperationNotification warning = bmtReceipts.Single().Receipt.Notifications.Single();
+                Assert.IsFalse(bmtReceipts.Single().Receipt.IsEmpty);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.Caption);
+                BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
+                Assert.AreEqual(bmt, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
+                StringAssert.Contains(manifestFailure.Cause, manifest);
+                StringAssert.Contains(manifestFailure.Cause, cause.Message);
+                StringAssert.Contains(manifestFailure.Cause, cause.GetBaseException().Message);
+                Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format,
+                    manifestFailure.Path, manifestFailure.Cause), warning.Message);
+                Assert.AreSame(warning, displayAttempts.Single(attempt => attempt.Route == "beatoraja BMT output failure").Notification);
+                Assert.IsFalse(failure.ToString().Contains(presentationFailure.Message, StringComparison.Ordinal));
+                Assert.IsFalse(failure.ToString().Contains(diagnosticFailure.Message, StringComparison.Ordinal));
+                CollectionAssert.AreEqual(originalManifest, File.ReadAllBytes(manifest));
+            }
+            else
+            {
+                Assert.IsNull(observedFailure);
+                Assert.IsTrue(operation.IsCompletedSuccessfully);
+                var managed = JObject.Parse(File.ReadAllText(manifest));
+                Assert.AreEqual(Path.GetFileName(outputFile), managed["files"]?.Single()?.Value<string>());
+            }
+            Assert.AreEqual(1, completed.Count);
+            Assert.AreEqual(!failBmt, completed[0].Succeeded);
+            Assert.IsFalse(completed[0].WasSkipped);
+            Assert.AreEqual(failBmt ? 2 : 1, receipts.Count, "表示失敗で操作や通知を再実行しません。");
+            Assert.AreEqual(failBmt ? 2 : 1, displayAttempts.Count);
+            Assert.AreEqual(1, diagnostics.Count);
+            Assert.AreSame(presentationFailure, diagnostics[0].Exception);
+            StringAssert.Contains(diagnostics[0].Diagnostic, "external playlist sync notification");
+            Assert.IsFalse(progress.Last().IsActive);
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            Assert.IsFalse(playlist.HasShutdownBlockingWork);
+
+            failPresentation = false;
+            blocker?.Dispose();
+            blocker = null;
+            File.WriteAllText(data, "[{\"md5\":\"cccccccccccccccccccccccccccccccc\",\"title\":\"Fresh\",\"level\":\"3\"}]");
+            operation = Task.Run(() => currentWorkspace.RunExternalPlaylistSyncAsync("fresh-json-change", false, true, 32));
+            await operation;
+            await playlist.WaitForPlaylistMutationIdleAsync();
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            BMSTable fresh = playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id);
+            Assert.AreNotSame(confirmed, fresh);
+            Assert.AreSame(fresh, workspace.CapturePlaylistDetailSelection().Table);
+            (int? PlaylistId, string Md5, bool IsRemoved, string Title, double? Level)[] expectedFreshEntries =
+            [
+                (original.playlist_id, FreshMd5, false, "Fresh", 3),
+                (original.playlist_id, ChangedMd5, true, "After", 2),
+                (original.playlist_id, OldMd5, true, "Before", 1)
+            ];
+            Assert.AreEqual(3, fresh.entries.Count);
+            CollectionAssert.AreEquivalent(expectedFreshEntries, fresh.entries
+                .Select(entry => (entry.playlist_id, entry.md5, entry.is_removed, entry.title, entry.level)).ToArray());
+            BMSTableEntry freshActive = fresh.entries.Single(entry => !entry.is_removed);
+            Assert.AreEqual(FreshMd5, freshActive.md5);
+            Assert.AreEqual(3, freshActive.level);
+            Assert.AreEqual("Fresh", freshActive.title);
+            Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(OldMd5, null).Symbols);
+            Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(ChangedMd5, null).Symbols);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(FreshMd5, null).Symbols);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                var savedEntries = db.Table<BMSTableEntry>()
+                    .Where(entry => entry.playlist_id == original.playlist_id).ToList();
+                Assert.AreEqual(3, savedEntries.Count);
+                CollectionAssert.AreEquivalent(expectedFreshEntries, savedEntries
+                    .Select(entry => (entry.playlist_id, entry.md5, entry.is_removed, entry.title, entry.level)).ToArray());
+                BMSTableEntry saved = savedEntries.Single(entry => !entry.is_removed);
+                Assert.AreEqual(original.playlist_id, saved.playlist_id);
+                Assert.AreEqual(FreshMd5, saved.md5);
+                Assert.AreEqual(3, saved.level);
+                Assert.AreEqual("Fresh", saved.title);
+            }
+            string freshOutputFile = Directory.GetFiles(bmt, "*.bmt").Single();
+            JObject freshOutput = BeatorajaBmtTableImportService.ReadCachedTableData(freshOutputFile);
+            JToken freshSong = freshOutput["folder"]?.Single()?["songs"]?.Single()
+                ?? throw new AssertFailedException("The next explicit change was not exported.");
+            Assert.AreEqual(FreshMd5, freshSong.Value<string>("md5"));
+            Assert.AreEqual("Fresh", freshSong.Value<string>("title"));
+            var freshManaged = JObject.Parse(File.ReadAllText(manifest));
+            Assert.AreEqual(Path.GetFileName(freshOutputFile), freshManaged["files"]?.Single()?.Value<string>());
+            Assert.AreEqual(2, completed.Count);
+            Assert.IsTrue(completed[1].Succeeded);
+            Assert.IsFalse(completed[1].WasSkipped);
+            Assert.AreEqual(failBmt ? 3 : 2, receipts.Count);
+            PlaylistOperationNotificationPresentationRequestedEventArgs[] terminalReceipts = receipts.Where(request =>
+                request.RouteName == "external playlist sync notification").ToArray();
+            Assert.AreEqual(2, terminalReceipts.Length);
+            Assert.IsTrue(terminalReceipts[1].Receipt.IsEmpty, "推薦skillが不変の次操作は表示内容を生成しません。");
+            Assert.AreEqual(failBmt ? 2 : 1, displayAttempts.Count, "空receiptのevent配送では表示を試みません。");
+            Assert.AreEqual(1, diagnostics.Count, "前操作の表示失敗を次の明示要求へ持ち越しません。");
+            Assert.IsFalse(progress.Last().IsActive);
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            Assert.IsFalse(playlist.HasShutdownBlockingWork);
+        }
+        finally
+        {
+            releaseReceipt.TrySetResult();
+            if (operation != null) { try { await operation; } catch (Exception) { } }
+            blocker?.Dispose();
+            if (workspace != null)
+            {
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                await workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            }
+            if (playlist != null) { await playlist.WaitForPlaylistMutationIdleAsync(); }
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>
     /// Aの実JSON・DB・正本置換を確定した後、Bの実HTTP取得を操作tokenで取り消します。
     /// schedulerの完了だけを保持して全開始Taskの終端までPと進捗が続くこと、解放後にAのreceiptと全体取消原因が届きBのDBを変更しないことを確認します。
     /// true行は実workspaceのreceipt購読でA採用後のsort通知失敗も重ね、全体取消原因と二次失敗を共に保持します。通常対象失敗、置換前の拒否・中断、出力失敗は既存ケースへ分担します。

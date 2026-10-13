@@ -802,10 +802,22 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         string routeName)
     {
-        RaiseRequiredEvent(
-            PlaylistOperationNotificationPresentationRequested,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName),
-            nameof(PlaylistOperationNotificationPresentationRequested));
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+        var request = new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName);
+        try
+        {
+            RaiseRequiredEvent(
+                PlaylistOperationNotificationPresentationRequested,
+                request,
+                nameof(PlaylistOperationNotificationPresentationRequested));
+        }
+        catch (Exception exception)
+        {
+            // receipt取得とsession寿命は必須のまま、操作後の表示だけを局所診断で終えます。
+            TryLogPlaylistDropSecondaryFailure(
+                exception,
+                "playlist_operation_notification_presentation_failed route=" + routeName);
+        }
     }
 
     private void PublishPlaylistDropOperationNotificationReceipt(

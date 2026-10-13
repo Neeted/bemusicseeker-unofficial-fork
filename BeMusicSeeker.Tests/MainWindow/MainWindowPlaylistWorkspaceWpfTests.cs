@@ -480,11 +480,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     /// <summary>
     /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
-    /// 採用後の所有通知、通知失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
+    /// 実Warningの本文・ownerと採用後のHand通知、両表示失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
     /// </summary>
     [DataTestMethod]
-    [DataRow(false)] // 出力失敗の通知が正常に終了。
-    [DataRow(true)] // 通知も失敗するが、保存済み状態と次の明示操作を妨げない。
+    [DataRow(false)] // 実BMT Warningと最終Hand通知が正常に終了。
+    [DataRow(true)] // 実BMT Warningと最終Handの表示も失敗するが、保存済み状態と次の明示操作を妨げない。
     public void PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId(bool failNotification)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -495,6 +495,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             int failureNotices = 0;
             Exception? notificationObservationFailure = null;
             var notificationFailure = new IOException("property failure notification failed");
+            var warningPresentationFailure = new IOException("property BMT warning presentation failed");
+            var outputWarnings = new List<(Window Owner, UiMessageRequest Request)>();
+            var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
             ActualMainWindowFixture? fixture = null;
             FileStream? blocker = null;
             try
@@ -502,6 +505,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 fixture = CreateActualMainWindowFixture(windowTest,
                     messagePresenter: (owner, request) =>
                     {
+                        if (request.Icon == MessageBoxImage.Exclamation && request is not UiConfirmationRequest)
+                        {
+                            outputWarnings.Add((owner, request));
+                            // BMT ownerが独立して診断する表示故障であり、Workspaceのreload診断へ合算しません。
+                            if (failNotification) { throw warningPresentationFailure; }
+                        }
                         if (request.Icon == MessageBoxImage.Hand)
                         {
                             failureNotices++;
@@ -531,6 +540,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     bmtOptionsProvider: () => enableOutput
                         ? new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output }
                         : new BeatorajaBmtOptionsSnapshot());
+                Action<IReadOnlyList<BmtTableExportService.FileOperationFailure>> reportBmtFailures = fixture.Playlist.BmtOutput.FailureReporter;
+                Assert.IsNotNull(reportBmtFailures, "標準compositionの実BMT Warning接続を保持します。");
+                fixture.Playlist.BmtOutput.FailureReporter = failures =>
+                {
+                    bmtFailures.AddRange(failures);
+                    reportBmtFailures(failures);
+                };
                 output = Path.Combine(fixture.Root, "property-bmt");
                 Directory.CreateDirectory(output);
                 string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
@@ -575,6 +591,17 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-notification");
                         Assert.IsTrue(dialog.IsEnabled);
                         Assert.AreEqual(1, failureNotices);
+                        Assert.AreEqual(1, outputWarnings.Count, "実manifest失敗のWarningを一回表示しようとします。");
+                        BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
+                        Assert.AreEqual(output, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
+                        StringAssert.Contains(manifestFailure.Cause, manifest);
+                        (Window warningOwner, UiMessageRequest warningRequest) = outputWarnings.Single();
+                        Assert.AreSame(dialog, warningOwner, "実coordinatorは開いているプロパティ画面をWarningのownerに解決します。");
+                        Assert.AreSame(activeFixture.Window, warningRequest.Owner);
+                        Assert.AreEqual(Resources.MessageBoxTitle_Warning, warningRequest.Caption);
+                        Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format, manifestFailure.Path, manifestFailure.Cause),
+                            warningRequest.MessageBoxText);
+                        Assert.IsFalse(warningRequest.MessageBoxText.Contains(warningPresentationFailure.Message, StringComparison.Ordinal));
                         Assert.IsTrue(dialog.IsVisible);
                         Assert.IsFalse(dialog.HasTerminalOutcome);
                         Assert.AreSame(dialog.DataContext, activeFixture.ViewModel.PlaylistWorkspace.ActivePropertyDialog);
@@ -598,6 +625,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreNotSame(firstSave, ownerWaitAfterSuccess);
                         Assert.IsTrue(dialog.HasTerminalOutcome);
                         Assert.AreEqual(1, failureNotices);
+                        Assert.AreEqual(1, outputWarnings.Count, "次の保存へ旧Warningやその表示故障を持ち越しません。");
                         Assert.AreSame(replacement, activeFixture.Playlist.BMSTables.Single());
                     });
                 Assert.AreSame(fixture.Window, observation.Owner);

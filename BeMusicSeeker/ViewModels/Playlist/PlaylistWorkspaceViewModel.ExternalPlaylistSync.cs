@@ -40,12 +40,12 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         if (!playlistExternalSyncScheduler(reason, () => RunExternalPlaylistSyncAsync(reason, fromReloadTables, publishReferenceReceipt, operationToken)))
         {
-            PlaylistExternalSyncCompleted?.Invoke(this, new PlaylistExternalSyncCompletionEventArgs(
+            PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
                 reason, 0, fromReloadTables, publishReferenceReceipt, operationToken, succeeded: false, wasSkipped: true));
         }
     }
 
-    /// <summary>Pを通信・対象確定前に取得し、外部同期の保存・必要出力・公開・通知終端を直接待ちます。内部継続は同owner権限を借用します。</summary>
+    /// <summary>Pを通信・対象確定前に取得し、外部同期の保存・必要出力・公開・通知session終端を直接待ちます。内部継続は同owner権限を借用し、進捗・任意receipt表示の失敗は実同期結果へ加えません。</summary>
     internal async Task RunExternalPlaylistSyncAsync(string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken,
         LibraryFileMutationCapability capability = null)
     {
@@ -58,7 +58,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         else if (playlistReloadCleanupShutdownRequestedProvider() || !playlists.TryEnterPlaylistMutation(out admission))
         {
-            PlaylistExternalSyncCompleted?.Invoke(this, new PlaylistExternalSyncCompletionEventArgs(
+            PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
                 reason, 0, fromReloadTables, publishReferenceReceipt, operationToken, succeeded: false, wasSkipped: true));
             return;
         }
@@ -69,12 +69,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             int version = System.Threading.Interlocked.Increment(ref externalSyncProgressSeed);
             OperationProgressRequest request = ProgressRequestFactory?.Invoke(ExternalPlaylistSyncProgressSource, version);
             if (request != null) { request = request with { OperationToken = operationToken }; }
-            PlaylistExternalSyncQueued?.Invoke(this, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
+            PublishPlaylistProgressEvent(PlaylistExternalSyncQueued, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
             bool succeeded = false;
             List<Exception> failures = [];
             try
             {
-                RequestProgressReporter?.Invoke(request, true);
+                ReportRequestProgress(request, true);
                 BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request);
                 PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await playlists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true,
                     syncResultCallback: null,
@@ -86,7 +86,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (reloadFailure != null) { failures.Add(reloadFailure); }
                 if (publishReferenceReceipt)
                 {
-                    PlaylistExternalSyncReferenceApplied?.Invoke(this,
+                    PublishPlaylistProgressEvent(PlaylistExternalSyncReferenceApplied,
                         new PlaylistExternalSyncReferenceAppliedEventArgs(reason, version, operationToken));
                 }
                 RequestPlaylistSummaryDataRefresh("external_playlist_sync");
@@ -98,23 +98,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             finally
             {
                 CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request), failures);
-                CapturePlaylistWorkflowFailure(() => RequestProgressReporter?.Invoke(request, false), failures);
-                CapturePlaylistWorkflowFailure(() => RaisePlaylistOperationNotificationPresentationRequested(
-                    notifications.TakeReceipt(), "external playlist sync notification"), failures);
-                CapturePlaylistWorkflowFailure(() => PlaylistExternalSyncCompleted?.Invoke(this, new PlaylistExternalSyncCompletionEventArgs(
-                    reason, version, fromReloadTables, publishReferenceReceipt, operationToken, succeeded && failures.Count == 0, wasSkipped: false)), failures);
+                ReportRequestProgress(request, false);
+                CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
+                    notifications, "external playlist sync notification"), failures);
+                PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
+                    reason, version, fromReloadTables, publishReferenceReceipt, operationToken, succeeded && failures.Count == 0, wasSkipped: false));
             }
             ThrowPlaylistWorkflowFailures(failures);
         }
-    }
-
-    private void RaisePlaylistOperationNotificationPresentationRequested(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        PlaylistOperationNotificationPresentationRequested?.Invoke(
-            this,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName));
     }
 
     private void SetPlaylistExternalSyncReceiptSubscription(
