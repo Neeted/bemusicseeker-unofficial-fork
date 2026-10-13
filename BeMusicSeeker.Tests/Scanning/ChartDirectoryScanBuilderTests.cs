@@ -179,7 +179,7 @@ public sealed class ChartDirectoryScanBuilderTests
 
         Assert.IsFalse(succeeded);
         Assert.IsNull(result);
-        StringAssert.Contains(failureReason, "root_not_found:");
+        StringAssert.Contains(failureReason, "root_missing_or_unavailable:");
     }
 
     /// <summary>

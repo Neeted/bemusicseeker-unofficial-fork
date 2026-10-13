@@ -6,15 +6,18 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
+/// <summary>導入推定の入力元を訪問上限内で列挙し、通常の外部失敗では取得済みの部分結果を保持します。</summary>
 internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
 {
     private readonly int maxVisitedFileSystemEntryCount;
 
+    /// <summary>訪問上限を指定します。1未満の値は従来どおり1項目として扱います。</summary>
     internal BoundedSourceSurfaceEnumerator(int maxVisitedFileSystemEntryCount)
     {
         this.maxVisitedFileSystemEntryCount = Math.Max(1, maxVisitedFileSystemEntryCount);
     }
 
+    /// <summary>外部失敗・上限超過を不完全として返し、内部不具合や資源不足は呼出元へ伝播します。</summary>
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
     {
         var result = new RootFileEnumerationResult
@@ -23,7 +26,11 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
             MaxVisitedFileSystemEntryCount = maxVisitedFileSystemEntryCount
         };
 
-        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories);
+        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories, result);
+        foreach (string reason in result.IncompleteReasons)
+        {
+            LogFailure(reason);
+        }
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         RootFileEnumerationService.LogSearchConditions(result.BackendName, roots, groupList);
         foreach (RootFileEnumerationGroup group in groupList)
@@ -33,37 +40,36 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
 
         if (roots.Count == 0 || groupList.Count == 0)
         {
-            result.Success = true;
+            result.Success = result.IsComplete;
             return result;
         }
 
         var stopwatch = Stopwatch.StartNew();
+        int totalFileCount = 0;
+        string currentRoot = string.Empty;
         try
         {
-            int totalFileCount = 0;
             foreach (string root in roots)
             {
+                currentRoot = root;
                 if (!EnumerateRoot(root, groupList, result, ref totalFileCount))
                 {
-                    result.TotalFileCount = totalFileCount;
-                    result.Success = true;
-                    return result;
+                    break;
                 }
             }
 
-            result.TotalFileCount = totalFileCount;
-            result.Success = true;
+            result.Success = result.IsComplete && !result.ScanLimitExceeded;
             return result;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
-            result.Success = false;
-            result.ErrorReason = ex.Message;
+            RecordFailure(result, currentRoot, "bounded_enumeration_failed", ex);
             return result;
         }
         finally
         {
             stopwatch.Stop();
+            result.TotalFileCount = totalFileCount;
             result.EnumerationMs = stopwatch.ElapsedMilliseconds;
             foreach (RootFileEnumerationGroup group in groupList)
             {
@@ -74,7 +80,7 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
 
     private bool EnumerateRoot(string root, IReadOnlyCollection<RootFileEnumerationGroup> groups, RootFileEnumerationResult result, ref int totalFileCount)
     {
-        string normalizedRoot = SafeNormalizeDirectory(root);
+        string normalizedRoot = SafeNormalizeDirectory(root, result, "root_normalize_failed");
         if (string.IsNullOrWhiteSpace(normalizedRoot))
         {
             return true;
@@ -111,7 +117,7 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
                     return false;
                 }
 
-                string normalizedPath = SafeNormalizePath(path);
+                string normalizedPath = SafeNormalizePath(path, result, "file_normalize_failed");
                 if (string.IsNullOrWhiteSpace(normalizedPath))
                 {
                     continue;
@@ -119,7 +125,7 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
 
                 totalFileCount++;
                 string extension = Path.GetExtension(normalizedPath);
-                RootFileEnumerationEntry entry = CreateEntryFromFileInfo(normalizedPath);
+                RootFileEnumerationEntry entry = CreateEntryFromFileInfo(normalizedPath, result);
                 if (entry == null)
                 {
                     continue;
@@ -132,15 +138,16 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
                         continue;
                     }
                     if ((group.IncludeAllFiles || (!string.IsNullOrWhiteSpace(extension) && group.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase)))
-                        && !IsExcludedByGroup(normalizedPath, group))
+                        && !IsExcludedByGroup(normalizedPath, group, result))
                     {
                         result.AddEntry(group.Name, entry);
                     }
                 }
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
+            RecordFailure(result, directory, "file_enumeration_failed", ex);
         }
         return true;
     }
@@ -156,23 +163,28 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
                     return false;
                 }
 
-                string normalizedPath = SafeNormalizeDirectory(path);
+                string normalizedPath = SafeNormalizeDirectory(path, result, "directory_normalize_failed");
                 if (string.IsNullOrWhiteSpace(normalizedPath)
                     || visitedDirectories.Contains(normalizedPath)
-                    || IsReparsePoint(normalizedPath))
+                    || IsReparsePoint(normalizedPath, result))
                 {
                     continue;
                 }
 
                 RootFileEnumerationEntry entry = null;
+                bool metadataRead = false;
                 foreach (RootFileEnumerationGroup group in groups)
                 {
-                    if (!group.IncludeDirectories || IsExcludedByGroup(normalizedPath, group))
+                    if (!group.IncludeDirectories || IsExcludedByGroup(normalizedPath, group, result))
                     {
                         continue;
                     }
 
-                    entry ??= RootFileEnumerationEntry.FromDirectoryInfo(normalizedPath);
+                    if (!metadataRead)
+                    {
+                        entry = CreateEntryFromDirectoryInfo(normalizedPath, result);
+                        metadataRead = true;
+                    }
                     result.AddEntry(group.Name, entry);
                 }
 
@@ -180,8 +192,9 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
                 pendingDirectories.Push(normalizedPath);
             }
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
+            RecordFailure(result, directory, "directory_enumeration_failed", ex);
         }
         return true;
     }
@@ -195,64 +208,89 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
         }
 
         result.ScanLimitExceeded = true;
+        result.MarkIncomplete("scan_limit_exceeded");
         return false;
     }
 
-    private static bool IsReparsePoint(string path)
+    private static bool IsReparsePoint(string path, RootFileEnumerationResult result)
     {
         try
         {
             return (LongPathFileSystem.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
+            RecordFailure(result, path, "directory_attributes_failed", ex);
             return true;
         }
     }
 
-    private static bool IsExcludedByGroup(string path, RootFileEnumerationGroup group)
+    private static bool IsExcludedByGroup(string path, RootFileEnumerationGroup group, RootFileEnumerationResult result)
     {
         return group?.ExcludedDirectories?.Length > 0
-            && group.ExcludedDirectories.Any(excludedDirectory => IsSameOrDescendant(path, excludedDirectory));
+            && group.ExcludedDirectories.Any(excludedDirectory => IsSameOrDescendant(path, excludedDirectory, result));
     }
 
-    private static bool IsSameOrDescendant(string candidate, string root)
+    private static bool IsSameOrDescendant(string candidate, string root, RootFileEnumerationResult result)
     {
-        string normalizedCandidate = SafeNormalizeDirectory(candidate);
-        string normalizedRoot = SafeNormalizeDirectory(root);
+        string normalizedCandidate = SafeNormalizeDirectory(candidate, result, "exclusion_candidate_normalize_failed");
+        string normalizedRoot = SafeNormalizeDirectory(root, result, "exclusion_root_normalize_failed");
         return !string.IsNullOrWhiteSpace(normalizedCandidate)
             && !string.IsNullOrWhiteSpace(normalizedRoot)
             && LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedRoot);
     }
 
-    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path)
+    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path, RootFileEnumerationResult result)
     {
         try
         {
             string normalizedPath = LongPathFileSystem.NormalizePathForStorage(path);
-            return LongPathFileSystem.FileExists(normalizedPath)
-                ? new RootFileEnumerationEntry(normalizedPath, LongPathFileSystem.GetLastWriteTimeUtc(normalizedPath, isDirectory: false))
-                : null;
+            if (!LongPathFileSystem.FileExists(normalizedPath))
+            {
+                RecordFailure(result, normalizedPath, "file_metadata_unavailable");
+                return null;
+            }
+            return new RootFileEnumerationEntry(normalizedPath, LongPathFileSystem.GetLastWriteTimeUtc(normalizedPath, isDirectory: false));
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
+            RecordFailure(result, path, "file_metadata_failed", ex);
             return null;
         }
     }
 
-    private static string SafeNormalizePath(string path)
+    private static RootFileEnumerationEntry CreateEntryFromDirectoryInfo(string path, RootFileEnumerationResult result)
+    {
+        try
+        {
+            if (!LongPathFileSystem.DirectoryExists(path))
+            {
+                RecordFailure(result, path, "directory_metadata_unavailable");
+                return null;
+            }
+            return new RootFileEnumerationEntry(path, LongPathFileSystem.GetLastWriteTimeUtc(path, isDirectory: true));
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+        {
+            RecordFailure(result, path, "directory_metadata_failed", ex);
+            return null;
+        }
+    }
+
+    private static string SafeNormalizePath(string path, RootFileEnumerationResult result, string phase)
     {
         try
         {
             return string.IsNullOrWhiteSpace(path) ? string.Empty : LongPathFileSystem.NormalizePathForStorage(path);
         }
-        catch
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
         {
+            RecordFailure(result, path, phase, ex);
             return string.Empty;
         }
     }
 
-    private static string SafeNormalizeDirectory(string path)
+    private static string SafeNormalizeDirectory(string path, RootFileEnumerationResult result, string phase)
     {
         try
         {
@@ -260,9 +298,33 @@ internal sealed class BoundedSourceSurfaceEnumerator : IRootFileEnumerator
                 ? string.Empty
                 : LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(path));
         }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+        {
+            RecordFailure(result, path, phase, ex);
+            return string.Empty;
+        }
+    }
+
+    private static void RecordFailure(RootFileEnumerationResult result, string path, string phase, Exception exception = null)
+    {
+        string reason = phase + ":" + path;
+        if (exception != null)
+        {
+            reason += ":" + exception.GetType().Name + ":" + exception.Message;
+        }
+        result.MarkFailed(reason);
+        LogFailure(reason, exception);
+    }
+
+    private static void LogFailure(string reason, Exception exception = null)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "bounded_source_surface_incomplete reason=" + reason);
+        }
         catch
         {
-            return string.Empty;
+            // 診断出力の失敗で、走査の完全性や取得済みの部分結果を変えない。
         }
     }
 }

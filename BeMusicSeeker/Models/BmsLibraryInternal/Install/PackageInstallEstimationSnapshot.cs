@@ -250,7 +250,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
     }
 
     /// <summary>
-    /// Builds a recursive install surface only when <paramref name="packagePath"/> is a directory package.
+    /// <paramref name="packagePath"/> がディレクトリ型パッケージの場合だけ再帰列挙し、上限超過以外の部分資源は従来どおり推定入力へ渡します。
     /// </summary>
     internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath)
     {
@@ -258,7 +258,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
     }
 
     /// <summary>
-    /// Builds an install surface using <paramref name="maxVisitedFileSystemEntryCount"/> only for directory packages.
+    /// ディレクトリ型パッケージだけに <paramref name="maxVisitedFileSystemEntryCount"/> を適用し、不完全な列挙の状態と観測件数を診断します。
     /// </summary>
     internal static PackageInstallSurfaceSnapshot BuildPackageInstallSurfaceSnapshot(string packagePath, int maxVisitedFileSystemEntryCount)
     {
@@ -289,7 +289,33 @@ internal static class PackageInstallEstimationSnapshotBuilder
     private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, int maxVisitedFileSystemEntryCount)
     {
         RootFileEnumerationResult enumerationResult = EnumerateSourceSurfaceBounded(sourceDirectory, maxVisitedFileSystemEntryCount);
+        int chartFileCount = enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).Count;
+        int resourceFileCount = CountDistinctPaths(
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.MovieGroupName));
+        int trackedFileCount = CountDistinctPaths(
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName),
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
+            enumerationResult.GetPaths(ChartDirectoryScanBuilder.MovieGroupName));
+        if (!enumerationResult.Success || !enumerationResult.IsComplete || enumerationResult.ScanLimitExceeded)
+        {
+            try
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                    "package_install_source_surface_incomplete root={0} success={1} complete={2} limitExceeded={3} observedChartFiles={4} observedResourceFiles={5} observedTrackedFiles={6} reason={7}",
+                    sourceDirectory, enumerationResult.Success, enumerationResult.IsComplete, enumerationResult.ScanLimitExceeded,
+                    chartFileCount, resourceFileCount, trackedFileCount, RootFileEnumerationService.GetNonAuthoritativeReason(enumerationResult));
+            }
+            catch
+            {
+                // 任意の診断出力で、通常の部分結果を使う既存の推定条件を変えない。
+            }
+        }
+
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        // 通常の外部失敗では取得済み資源を保ち、従来どおり上限超過だけで破棄する。
         DirectoryResourceLookupCache.Entry entry = enumerationResult?.ScanLimitExceeded == true
             ? new DirectoryResourceLookupCache.Entry()
             : CreateResourceEntryFromEnumeration(sourceDirectory, enumerationResult);
@@ -301,16 +327,9 @@ internal static class PackageInstallEstimationSnapshotBuilder
             BundledResources = entry,
             SourceCandidateResources = entry.Clone(),
             ScanMs = enumerationResult?.EnumerationMs ?? 0L,
-            ChartFileCount = (enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? []).Count,
-            ResourceFileCount = CountDistinctPaths(
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
-            TrackedFileCount = CountDistinctPaths(
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName),
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ImageGroupName),
-                enumerationResult?.GetPaths(ChartDirectoryScanBuilder.MovieGroupName)),
+            ChartFileCount = chartFileCount,
+            ResourceFileCount = resourceFileCount,
+            TrackedFileCount = trackedFileCount,
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
             ScanBackend = enumerationResult?.BackendName ?? "bounded_fast_source_surface",
             ScanLimitExceeded = enumerationResult?.ScanLimitExceeded ?? false,

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.Utils;
@@ -99,21 +100,79 @@ public sealed class RootFileEnumerationTests
     }
 
     /// <summary>
-    /// 存在しないルートの列挙は成功にも権威ある完了にもならず、不完全な結果で削除判定する誤りを検出する。
+    /// 高速・上限付き列挙ともに初めから存在しないルートを成功や権威ある完了にせず、完全な空結果へ置き換える誤りを検出する。
     /// </summary>
-    [TestMethod]
-    public void FastEnumerator_MissingRootIsIncompleteAndNotSuccessful()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OsEnumerator_MissingRootIsIncompleteAndNotSuccessful(bool bounded)
     {
         string missingRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RootEnumMissing_" + Guid.NewGuid().ToString("N"));
 
-        RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(
+        IRootFileEnumerator enumerator = bounded
+            ? new BoundedSourceSurfaceEnumerator(maxVisitedFileSystemEntryCount: 100)
+            : new FastRootFileEnumerator();
+        RootFileEnumerationResult result = enumerator.EnumerateFiles(
             [missingRoot],
             [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])]);
 
         Assert.IsFalse(result.Success);
         Assert.IsFalse(result.IsComplete);
-        StringAssert.Contains(result.IncompleteReason, "root_not_found:");
+        StringAssert.Contains(result.IncompleteReason, "root_missing_or_unavailable:");
+        StringAssert.Contains(result.IncompleteReason, missingRoot);
+        Assert.IsFalse(result.ScanLimitExceeded);
         Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
+    }
+
+    /// <summary>
+    /// 存在確認後に所有ルートを削除して実列挙を失敗させ、原因の段階・パスと不完全性を保ったまま独立ルートの譜面・音声を返すことを確認する。
+    /// </summary>
+    [TestMethod]
+    public void BoundedEnumerator_DisappearingRootPreservesIndependentPathsAndReportsIncomplete()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_BoundedRootDisappearance_" + Guid.NewGuid().ToString("N"));
+        string survivingRoot = Path.Combine(tempRoot, "Surviving");
+        string disappearingRoot = Path.Combine(tempRoot, "Gone");
+        string chartPath = Path.Combine(survivingRoot, "chart.bms");
+        string audioPath = Path.Combine(survivingRoot, "00.wav");
+        try
+        {
+            Directory.CreateDirectory(survivingRoot);
+            Directory.CreateDirectory(disappearingRoot);
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            File.WriteAllText(audioPath, "audio");
+            RootFileEnumerationResult result = new BoundedSourceSurfaceEnumerator(maxVisitedFileSystemEntryCount: 100).EnumerateFiles(
+                EnumerateRoots(),
+                [
+                    new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"]),
+                    new RootFileEnumerationGroup(ChartDirectoryScanBuilder.AudioGroupName, [".wav"])
+                ]);
+
+            Assert.IsFalse(result.Success);
+            Assert.IsFalse(result.IsComplete);
+            Assert.IsFalse(result.ScanLimitExceeded);
+            Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
+            Assert.IsTrue(result.IncompleteReasons.Any(reason => reason.Contains("file_enumeration_failed:") && reason.Contains(disappearingRoot)));
+            Assert.IsTrue(result.IncompleteReasons.Any(reason => reason.Contains("directory_enumeration_failed:") && reason.Contains(disappearingRoot)));
+            StringAssert.Contains(RootFileEnumerationService.GetNonAuthoritativeReason(result), disappearingRoot);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).ToList(), chartPath);
+            CollectionAssert.Contains(result.GetPaths(ChartDirectoryScanBuilder.AudioGroupName).ToList(), audioPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+
+        IEnumerable<string> EnumerateRoots()
+        {
+            yield return disappearingRoot;
+            // NormalizeExecutionRootsが直前のルートを確認した次のMoveNextで削除し、実走査前の外部消失順序を固定する。
+            Directory.Delete(disappearingRoot, recursive: true);
+            yield return survivingRoot;
+        }
     }
 
     /// <summary>

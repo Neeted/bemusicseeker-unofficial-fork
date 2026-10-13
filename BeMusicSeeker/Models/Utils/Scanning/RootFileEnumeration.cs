@@ -275,6 +275,7 @@ internal static class RootFileEnumerationService
         }
     }
 
+    /// <summary>実行ルートを正規化し、存在確認で利用可能と判定できないルートは不在と断定せず不完全理由へ記録します。</summary>
     internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result = null)
     {
         var candidates = new List<string>();
@@ -296,7 +297,7 @@ internal static class RootFileEnumerationService
             }
             if (!LongPathFileSystem.DirectoryExists(normalizedPath))
             {
-                result?.MarkIncomplete("root_not_found:" + normalizedPath);
+                result?.MarkIncomplete("root_missing_or_unavailable:" + normalizedPath);
                 continue;
             }
             candidates.Add(normalizedPath);
