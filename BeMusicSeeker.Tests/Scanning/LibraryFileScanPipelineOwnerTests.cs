@@ -17,6 +17,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 {
     private string? ownedDirectoryPath;
 
+    /// <summary>runnerから注入される任意contextへ、終端を確認できず保持した専用fixtureの場所を記録します。</summary>
+    public TestContext? TestContext { get; set; }
+
     /// <summary>管理主体の準備で所有した専用DBとディレクトリを各ケースの終端で回収します。</summary>
     [TestCleanup]
     public void CleanupOwnedDirectory()
@@ -323,6 +326,212 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 else if (generation != 0) { owner?.AbortActiveFileScan(generation); }
             }
             finally { Directory.Delete(directoryPath, recursive: true); }
+        }
+    }
+
+    /// <summary>
+    /// 実DB確定が失敗しても開始済みLR2準備の終端まで受付を保持し、準備の成功・二次故障によらず
+    /// 元SQLite原因と先行確定したDB・所持集合を保ち、失敗要求の目録・譜面情報・準備surfaceを公開しません。
+    /// </summary>
+    /// <remarks>実走査・保存とLR2準備を接続し、専用FSを列挙する依存だけで準備を保持します。falseは準備成功、trueは解放後の準備故障です。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplyActiveFileScan_CommitFailureJoinsLr2PreparationBeforeReleasingRequest(bool failPreparationAfterRelease)
+    {
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        var preparationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var preparationRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var preparationDependencyExited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var commitFailureObserved = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var rootFileEnumerator = new GatedPreparationRootFileEnumerator(
+            preparationEntered, preparationRelease, preparationDependencyExited, failPreparationAfterRelease);
+        Task<Lr2FolderFileDiffPreparationResult>? apply = null;
+        bool canDeleteDirectory = false;
+        LibraryFileScanPipelineOwner? owner = null;
+        long generation = 0;
+        long overlappingGeneration = 0;
+        long nextGeneration = 0;
+        const string commitFailureMarker = "scan-preparation-primary-commit-failure";
+        const string failedReason = "test_commit_failure_preparation_lifetime";
+        try
+        {
+            string committedPath = Path.Combine(directoryPath, "committed.bms");
+            File.WriteAllText(committedPath, "#PLAYER 1\r\n#TITLE Committed\r\n#BPM 120\r\n#00111:01\r\n");
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks
+            {
+                PerformanceWarnObserved = message =>
+                {
+                    if (message.StartsWith("song_tbl_file_check db_commit_chunk_failed", StringComparison.Ordinal))
+                    {
+                        commitFailureObserved.TrySetResult(message);
+                    }
+                }
+            };
+            owner = CreateOwner(
+                callbacks,
+                lr2ModeEnabled: true,
+                chartFileScanner: new FastDirectoryFileScanner(),
+                directoryPath: directoryPath,
+                rootFileEnumerator: rootFileEnumerator);
+            BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
+            generation = owner.BeginFileScanRequest(options, [directoryPath], "test_initial_commit");
+            Lr2FolderFileDiffPreparationResult first = owner.ApplyActiveFileScan(
+                generation, true, InstallDestinationCleanupSnapshot.Empty);
+            generation = 0;
+            Assert.IsTrue(first.FileCheckResult.HasDbDiff);
+            Assert.IsTrue(first.SynchronizationInput.CommittedBmsPaths.Contains(committedPath));
+            CatalogChartCollectionSnapshot committedCatalog = callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot();
+            Assert.AreEqual(1, committedCatalog.BmsRows.Count);
+            FileScanCatalogReplacementEvent committedReplacement = callbacks.LastCatalogReplacement;
+            FileScanCatalogResidualEvent committedResidual = callbacks.LastCatalogResidual;
+            CatalogChartInfoOwnerEvent[] committedChartInfoEvents = callbacks.CatalogChartInfoEvents.ToArray();
+            string[] committedEventOrder = callbacks.EventOrder.ToArray();
+            string songDbPath = Path.Combine(directoryPath, "song.db");
+            LR2SongDB.song committedSong;
+            using (LR2SongDBExtended baseline = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                committedSong = baseline.Query<LR2SongDB.song>("SELECT * FROM song;").Single();
+            }
+
+            string rejectedPath = Path.Combine(directoryPath, "rejected.bms");
+            File.WriteAllText(rejectedPath, "#PLAYER 1\r\n#TITLE Rejected\r\n#BPM 150\r\n#00111:01\r\n");
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_scan_preparation_commit BEFORE INSERT ON song WHEN NEW.path = '"
+                    + rejectedPath.Replace("'", "''", StringComparison.Ordinal)
+                    + "' BEGIN SELECT RAISE(ABORT, '" + commitFailureMarker + "'); END;");
+            }
+            rootFileEnumerator.Arm();
+            generation = owner.BeginFileScanRequest(options, [directoryPath], failedReason);
+            apply = Task.Run(() => owner.ApplyActiveFileScan(generation, true, InstallDestinationCleanupSnapshot.Empty));
+            await Task.WhenAny(preparationEntered.Task, apply);
+            if (!preparationEntered.Task.IsCompleted)
+            {
+                await apply;
+                Assert.Fail("実LR2準備の制御点へ到達する前に走査要求が終端しました。");
+            }
+            await Task.WhenAny(commitFailureObserved.Task, apply);
+            if (!commitFailureObserved.Task.IsCompleted)
+            {
+                await apply;
+                Assert.Fail("実DB確定の失敗を観測する前に走査要求が終端しました。");
+            }
+            StringAssert.Contains(await commitFailureObserved.Task, commitFailureMarker);
+            // 通常完了の期限ではなく、閉じた準備gate中の禁止された早期終端だけを短く観測します。
+            try
+            {
+                await apply.WaitAsync(TimeSpan.FromMilliseconds(100));
+                Assert.Fail("開始済みLR2準備の終端前に走査要求を解放しました。");
+            }
+            catch (TimeoutException)
+            {
+            }
+            bool overlapRejected = false;
+            try
+            {
+                overlappingGeneration = owner.BeginFileScanRequest(options, [], "test_overlapping_request");
+            }
+            catch (InvalidOperationException)
+            {
+                overlapRejected = true;
+            }
+            Assert.IsTrue(overlapRejected, "LR2準備を保持した失敗要求の受付を、新しい要求へ渡しません。");
+
+            preparationRelease.TrySetResult();
+            Exception? failure = null;
+            try
+            {
+                await apply;
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+            Assert.IsNotNull(failure);
+            Exception cause = failure.GetBaseException();
+            Assert.IsInstanceOfType(cause, typeof(SQLite.SQLiteException));
+            StringAssert.Contains(cause.Message, commitFailureMarker);
+            Assert.IsNotNull(cause.StackTrace);
+            StringAssert.Contains(cause.StackTrace, nameof(BmsLibraryDbGateway.CommitFileScanDiffChunk));
+            // 依存のexitは準備Task全体の終端と別です。実applyの終端を先に待ってから両方を確認します。
+            await preparationDependencyExited.Task;
+            CatalogChartCollectionSnapshot currentCatalog = callbacks.CatalogOwnedCollectionOwner.CaptureSnapshot();
+            Assert.AreEqual(committedCatalog.OwnedCollectionVersion, currentCatalog.OwnedCollectionVersion);
+            Assert.AreEqual(1, currentCatalog.BmsRows.Count);
+            Assert.AreSame(committedCatalog.BmsRows.Single(), currentCatalog.BmsRows.Single());
+            Assert.AreSame(committedReplacement, callbacks.LastCatalogReplacement);
+            Assert.AreSame(committedResidual, callbacks.LastCatalogResidual);
+            CollectionAssert.AreEqual(committedChartInfoEvents, callbacks.CatalogChartInfoEvents.ToArray());
+            CollectionAssert.AreEqual(committedEventOrder, callbacks.EventOrder.ToArray());
+            lock (callbacks.PerformanceMessages)
+            {
+                Assert.IsFalse(callbacks.PerformanceMessages.Any(message =>
+                    message.StartsWith("lr2folder_file_diff_prepare reason=" + failedReason + " ", StringComparison.Ordinal)));
+            }
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                LR2SongDB.song retainedSong = verify.Query<LR2SongDB.song>("SELECT * FROM song;").Single();
+                Assert.AreEqual(committedSong.path, retainedSong.path);
+                Assert.AreEqual(committedSong.hash, retainedSong.hash);
+                Assert.AreEqual(committedSong.title, retainedSong.title);
+                Assert.AreNotEqual(rejectedPath, retainedSong.path);
+            }
+            nextGeneration = owner.BeginFileScanRequest(options, [], "test_request_after_preparation_terminal");
+            Assert.IsTrue(nextGeneration > generation, "開始済み準備を回収した終端後は新しい明示要求を受理します。");
+            // 本文のgate・実apply終端・全表明を完遂した場合だけ、専用FSの削除を許可します。
+            canDeleteDirectory = true;
+        }
+        finally
+        {
+            preparationRelease.TrySetResult();
+            if (apply != null)
+            {
+                try
+                {
+                    await apply;
+                }
+                catch (Exception)
+                {
+                    // 期待失敗を観測し、本文の表明を後片付けで隠しません。
+                }
+            }
+            bool preparationEntryObserved = preparationEntered.Task.IsCompleted;
+            // 壊れた本番joinの早期終端では、遅い準備Taskがこの後に専用FSへ入る可能性があります。
+            // ここでの保持決定は後続通知で削除へ戻さず、依存exitと子Task全体の終端を同一視しません。
+            bool retainDirectory = apply != null && !canDeleteDirectory;
+            if (preparationEntryObserved)
+            {
+                await preparationDependencyExited.Task;
+            }
+            if (generation != 0)
+            {
+                owner?.AbortActiveFileScan(generation);
+            }
+            if (overlappingGeneration != 0)
+            {
+                owner?.AbortActiveFileScan(overlappingGeneration);
+            }
+            if (nextGeneration != 0)
+            {
+                owner?.AbortActiveFileScan(nextGeneration);
+            }
+            if (retainDirectory)
+            {
+                try
+                {
+                    TestContext?.WriteLine("準備子Taskを含む期待した終端検証を完遂できないため保持: " + directoryPath);
+                }
+                catch (Exception)
+                {
+                    // 保持場所の診断失敗で、元のtest失敗を置き換えません。
+                }
+            }
+            else
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
         }
     }
 
@@ -724,7 +933,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         RecordingLibraryFileScanPipelineCallbacks callbacks,
         bool lr2ModeEnabled = false,
         IChartFileScanner? chartFileScanner = null,
-        LibraryDirectoryPreflightService? directoryPreflightService = null, string? directoryPath = null)
+        LibraryDirectoryPreflightService? directoryPreflightService = null, string? directoryPath = null,
+        IRootFileEnumerator? rootFileEnumerator = null)
     {
         directoryPath ??= ownedDirectoryPath ??= Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directoryPath);
@@ -795,7 +1005,55 @@ public sealed class LibraryFileScanPipelineOwnerTests
             new BmsLibraryInitializationService(),
             new EverythingNative(ApplicationPathPolicy.Current),
             chartFileScanner,
+            rootFileEnumerator,
             directoryPreflightService: directoryPreflightService);
+    }
+
+    private sealed class GatedPreparationRootFileEnumerator(
+        TaskCompletionSource entered,
+        TaskCompletionSource release,
+        TaskCompletionSource dependencyExited,
+        bool failAfterRelease) : IRootFileEnumerator
+    {
+        private readonly FastRootFileEnumerator inner = new();
+        private int armed;
+        private int lr2EnumerationCount;
+
+        /// <summary>先行scanの終端後、次のscan内の二回目のLR2候補列挙だけを準備gateへ接続します。</summary>
+        internal void Arm()
+        {
+            Interlocked.Exchange(ref lr2EnumerationCount, 0);
+            Volatile.Write(ref armed, 1);
+        }
+
+        /// <summary>実FS列挙へ委譲し、背景準備の候補列挙だけを明示解放まで保持して依存のexitを通知します。</summary>
+        public RootFileEnumerationResult EnumerateFiles(
+            IEnumerable<string> rootDirectories,
+            IEnumerable<RootFileEnumerationGroup> groups,
+            bool verboseLog = false)
+        {
+            RootFileEnumerationGroup[] requestedGroups = groups.ToArray();
+            if (Volatile.Read(ref armed) == 0
+                || !requestedGroups.Any(group => group.Extensions.Contains(".lr2folder", StringComparer.OrdinalIgnoreCase))
+                || Interlocked.Increment(ref lr2EnumerationCount) != 2)
+            {
+                return inner.EnumerateFiles(rootDirectories, requestedGroups, verboseLog);
+            }
+            entered.TrySetResult();
+            try
+            {
+                release.Task.GetAwaiter().GetResult();
+                if (failAfterRelease)
+                {
+                    throw new IOException("scan-preparation-secondary-enumeration-failure");
+                }
+                return inner.EnumerateFiles(rootDirectories, requestedGroups, verboseLog);
+            }
+            finally
+            {
+                dependencyExited.TrySetResult();
+            }
+        }
     }
 
     private sealed class SequenceChartFileScanner(params ChartScanExecutionResult[] results) : IChartFileScanner
@@ -914,6 +1172,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
 
         internal Action<string>? PerformanceObserved { get; init; }
+
+        /// <summary>既存の警告診断を観測し、対象処理の失敗自体は生成しません。</summary>
+        internal Action<string>? PerformanceWarnObserved { get; init; }
         internal Action<string>? EverythingObserved { get; init; }
 
         public void LogInstallPerformance(string message)
@@ -924,6 +1185,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public void LogInstallPerformanceWarn(string message)
         {
+            PerformanceWarnObserved?.Invoke(message);
         }
 
         public void LogEverythingScan(string message)
