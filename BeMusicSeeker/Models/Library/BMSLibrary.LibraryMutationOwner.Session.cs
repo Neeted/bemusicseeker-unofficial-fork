@@ -380,6 +380,8 @@ internal sealed partial class LibraryMutationOwner
         /// <summary>
         /// 確定事実を一回適用し、導入の必須後処理が全て成功した場合だけ、今回の現在値を加入済み項目へ渡します。
         /// DB確定後の失敗は証票に保持し、物理処理の巻戻しや再実行は行いません。公開通知は排他解放後へ延期します。
+        /// 導入先の走査・逆引き反映の例外も必須反映失敗として保持し、依存する後処理と完全成功の公開を止めます。
+        /// 不完全な走査の既存スキップ方針は維持し、その性能診断の失敗は確定結果へ加えません。
         /// </summary>
         /// <returns>この変更セッションの変更不能な終端事実。</returns>
         internal LibraryMutationSessionReceipt Commit()
@@ -523,20 +525,34 @@ internal sealed partial class LibraryMutationOwner
             {
                 if (finalizationFailure == null && installedResourceDirectories.Count > 0)
                 {
-                    if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                        installedResourceDirectories,
-                        out ChartScanResult scan,
-                        out string scanFailureReason))
+                    try
                     {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
+                        if (ChartDirectoryScanBuilder.TryBuildFromRoots(
+                            installedResourceDirectories,
+                            out ChartScanResult scan,
+                            out string scanFailureReason))
+                        {
+                            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
+                            reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
+                        }
+                        else
+                        {
+                            try
+                            {
+                                owner.LogInstallPerformanceWarning(
+                                    reason + " resource_cache_update skipped reason=incomplete_scan detail="
+                                    + (scanFailureReason ?? "unknown")
+                                    + " dirs=" + installedResourceDirectories.Count);
+                            }
+                            catch (Exception)
+                            {
+                                // 不完全走査の性能診断だけの失敗を必須反映失敗へ昇格させません。
+                            }
+                        }
                     }
-                    else
+                    catch (Exception exception)
                     {
-                        owner.LogInstallPerformanceWarning(
-                            reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                            + (scanFailureReason ?? "unknown")
-                            + " dirs=" + installedResourceDirectories.Count);
+                        finalizationFailure = exception;
                     }
                 }
             }
@@ -563,9 +579,16 @@ internal sealed partial class LibraryMutationOwner
                         }
                         else
                         {
-                            owner.LogInstallPerformanceWarning(
-                                reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                                + (scanFailureReason ?? "unknown"));
+                            try
+                            {
+                                owner.LogInstallPerformanceWarning(
+                                    reason + " resource_cache_update skipped reason=incomplete_scan detail="
+                                    + (scanFailureReason ?? "unknown"));
+                            }
+                            catch (Exception)
+                            {
+                                // 診断先の失敗は、後続の独立した索引反映を中断する理由にしません。
+                            }
                         }
                     }
                     if (resourceDirectoryRemovals.Count > 0)

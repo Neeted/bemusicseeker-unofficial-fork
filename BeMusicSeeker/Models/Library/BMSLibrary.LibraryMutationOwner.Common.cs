@@ -1876,6 +1876,7 @@ internal sealed partial class LibraryMutationOwner
             postLeaseNotificationObserver);
     }
 
+    /// <summary>排他解放後の任意通知を公開し、通知・診断先の失敗を確定結果や残る公開へ伝播させません。</summary>
     private void TryInvokePostLeaseNotification(Action notification, string diagnostic)
     {
         if (notification == null)
@@ -1888,7 +1889,14 @@ internal sealed partial class LibraryMutationOwner
         }
         catch (Exception exception)
         {
-            NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+            try
+            {
+                NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+            }
+            catch (Exception)
+            {
+                // 診断先の失敗で、既存の通知列の後続を止めません。
+            }
         }
     }
 

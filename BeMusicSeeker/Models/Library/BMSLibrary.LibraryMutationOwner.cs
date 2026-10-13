@@ -2068,6 +2068,7 @@ internal sealed partial class LibraryMutationOwner
             MessageBoxResult.OK);
     }
 
+    /// <summary>排他解放後の任意通知を順に公開し、各通知と診断先の失敗後も残る独立した通知を続けます。</summary>
     private void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)
     {
         foreach (Action notification in notifications ?? [])
@@ -2082,9 +2083,16 @@ internal sealed partial class LibraryMutationOwner
             }
             catch (Exception exception)
             {
-                NLogWrapper.FileLogger?.Warn(
-                    exception,
-                    "library_file_operation_post_lease_notification_failed");
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        exception,
+                        "library_file_operation_post_lease_notification_failed");
+                }
+                catch (Exception)
+                {
+                    // 一つの通知の二次診断失敗で、後続通知を放棄しません。
+                }
             }
         }
     }

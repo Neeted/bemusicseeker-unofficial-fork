@@ -431,11 +431,14 @@ public sealed class BmsLibraryPackageLifecycleTests
         });
     }
 
-    /// <summary>共有UIキュー保持中も変更scopeは返却し、解放後に一回のsubscriber例外を失敗窓口へ渡すことから同期UI待ちや通知失敗の隠蔽を検出します。</summary>
-    /// <remarks>実ownerのNormal投稿後に同じpriorityのdrainを所有し、同期公開actionの返却を観測します。共有キューを保持するため並列実行しません。</remarks>
+    /// <summary>共有UIキュー保持中に両集合状態を確定してscopeを返し、先行通知・診断先の失敗後も後続通知と実公開Taskの正常終端を保つことを確認します。</summary>
+    /// <remarks>実ownerの公開操作と同priorityのdrainを捕捉して全Taskを回収し、同期UI待ち・後続通知の欠落・診断故障による公開Taskの失敗を検出します。共有キューを保持するため並列実行しません。</remarks>
     [DoNotParallelize]
-    [TestMethod]
-    public async Task PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure()
+    [DataTestMethod]
+    // falseは診断成功、trueは元通知原因を受け取った診断先も失敗する条件です。
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PackageLifecycleOwner_QueuedScopeReturnsBeforeUiPublicationAndObservesSubscriberFailure(bool diagnosticThrows)
     {
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierTests_" + Guid.NewGuid().ToString("N"));
         string songDbPath = Path.Combine(root, "song.db");
@@ -444,13 +447,16 @@ public sealed class BmsLibraryPackageLifecycleTests
         var publicationFailed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         IUiScheduledOperation? lane = null;
         IUiScheduledOperation? drain = null;
+        PublicationTrackingUiScheduler? publicationScheduler = null;
         Exception? primaryFailure = null;
         try
         {
             Directory.CreateDirectory(root);
             File.WriteAllBytes(songDbPath, []);
             Exception? observedFailure = null;
-            int propertyChangedCount = 0;
+            int pendingNotificationCount = 0;
+            int installedNotificationCount = 0;
+            int diagnosticCount = 0;
             var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
             lane = scheduler.Schedule(() =>
             {
@@ -458,34 +464,62 @@ public sealed class BmsLibraryPackageLifecycleTests
                 releaseLane.Wait();
             }, UiSchedulePriority.Normal);
             await TestUiDispatcherHost.AwaitNotificationAsync(laneEntered.Task, lane.Completion, "package-lifecycle.ui-gate");
+            publicationScheduler = new PublicationTrackingUiScheduler(scheduler);
             var owner = new PackageLifecycleOwner(
-                new BmsLibraryDbGateway(songDbPath), scheduler,
-                _ =>
+                new BmsLibraryDbGateway(songDbPath), publicationScheduler,
+                propertyName =>
                 {
-                    propertyChangedCount++;
-                    throw new InvalidOperationException("collection subscriber failed");
+                    if (propertyName == "ChartPackagesPending")
+                    {
+                        pendingNotificationCount++;
+                        throw new InvalidOperationException("collection subscriber failed");
+                    }
+                    if (propertyName == "ChartPackagesInstalled")
+                    {
+                        installedNotificationCount++;
+                    }
                 },
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
                 exception =>
                 {
+                    diagnosticCount++;
                     observedFailure = exception;
                     publicationFailed.TrySetResult();
+                    if (diagnosticThrows)
+                    {
+                        throw new InvalidOperationException("collection diagnostic failed");
+                    }
                 });
             ObservableCollection<ChartPackage> replacement = CreatePackageCollection([
                 new ChartPackage { path = "C:\\Pending\\Queued", delete_parent = false }
             ]);
+            ObservableCollection<ChartPackage> installedReplacement = CreatePackageCollection([
+                new ChartPackage { path = "C:\\Installed\\Queued", delete_parent = false }
+            ]);
             using (owner.BeginCollectionMutationScope(queuePublication: true))
             {
                 owner.SetPendingPackages(replacement);
+                owner.SetInstalledPackages(installedReplacement);
             }
+            IUiScheduledOperation? publication = publicationScheduler.PublicationOperation;
             drain = scheduler.Schedule(() => { }, UiSchedulePriority.Normal);
+            Assert.IsNotNull(publication);
+            Assert.IsTrue(publication.IsAccepted);
+            Assert.IsFalse(publication.IsCompleted);
             Assert.AreSame(replacement, owner.PendingPackages);
-            Assert.AreEqual(0, propertyChangedCount);
+            Assert.AreSame(installedReplacement, owner.InstalledPackages);
+            Assert.AreEqual(0, pendingNotificationCount);
+            Assert.AreEqual(0, installedNotificationCount);
             releaseLane.Set();
-            await TestUiDispatcherHost.AwaitNotificationAsync(publicationFailed.Task, drain.Completion, "package-lifecycle.subscriber-failure");
+            await TestUiDispatcherHost.AwaitNotificationAsync(publicationFailed.Task, publication.Completion, "package-lifecycle.subscriber-failure");
+            await publication.Completion;
             await drain.Completion;
-            Assert.AreEqual(1, propertyChangedCount);
+            Assert.AreEqual(1, pendingNotificationCount);
+            Assert.AreEqual(1, installedNotificationCount);
+            Assert.AreEqual(1, diagnosticCount);
+            Assert.AreSame(replacement, owner.PendingPackages);
+            Assert.AreSame(installedReplacement, owner.InstalledPackages);
             Assert.IsNotNull(observedFailure);
             Assert.IsInstanceOfType<InvalidOperationException>(observedFailure);
             Assert.AreEqual("collection subscriber failed", observedFailure.Message);
@@ -498,6 +532,7 @@ public sealed class BmsLibraryPackageLifecycleTests
             {
                 var started = new List<Task>();
                 if (lane != null) { started.Add(lane.Completion); }
+                if (publicationScheduler?.PublicationOperation is IUiScheduledOperation publication) { started.Add(publication.Completion); }
                 if (drain != null) { started.Add(drain.Completion); }
                 await Task.WhenAll(started);
             }
@@ -516,17 +551,49 @@ public sealed class BmsLibraryPackageLifecycleTests
         if (primaryFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primaryFailure).Throw(); }
     }
 
+    /// <summary>既存UI境界へ全呼出しを転送し、ownerが投稿した実公開操作だけをテストの終端待機用に捕捉します。</summary>
+    private sealed class PublicationTrackingUiScheduler(IUiScheduler scheduler) : IUiScheduler
+    {
+        internal IUiScheduledOperation? PublicationOperation { get; private set; }
+
+        public bool IsAvailable => scheduler.IsAvailable;
+
+        public bool CanExecuteInline => scheduler.CanExecuteInline;
+
+        public bool CheckAccess() => scheduler.CheckAccess();
+
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            IUiScheduledOperation operation = scheduler.Schedule(action, priority);
+            PublicationOperation = operation;
+            return operation;
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => scheduler.Invoke(action, priority);
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => scheduler.Invoke(action, priority);
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => scheduler.InvokeAsync(action, priority);
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+            => scheduler.InvokeAsync(action, priority);
+    }
+
     /// <summary>受理された公開操作が取消された場合はsubscriberを呼ばず取消失敗を報告し、受理だけで成功扱いする誤りを検出します。</summary>
     [TestMethod]
     public void PackageLifecycleOwner_QueuedScopeReportsAcceptedPublicationCancellation()
     {
+        int unexpectedNotificationCount = 0;
         WithTemporarySongDb(delegate (string songDbPath)
         {
             Exception? observedFailure = null;
             var owner = new PackageLifecycleOwner(
                 new BmsLibraryDbGateway(songDbPath),
                 new CanceledScheduleUiScheduler(),
-                _ => Assert.Fail("Canceled publication must not invoke the subscriber."),
+                _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
                 packages => new ObservableCollection<ChartPackage>(packages ?? []),
                 () => { },
                 exception => observedFailure = exception);
@@ -540,6 +607,7 @@ public sealed class BmsLibraryPackageLifecycleTests
 
             Assert.IsInstanceOfType<OperationCanceledException>(observedFailure);
         });
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>削除対象の実install行を除いて残るpackageを一回公開し、DBと保留collectionの不整合を検出します。</summary>

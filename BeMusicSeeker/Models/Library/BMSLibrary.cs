@@ -2906,6 +2906,7 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>
     /// storage rows replacement の確定後に、facade が公開する行コレクション通知を発行します。
+    /// 通知とその診断先の失敗は確定結果へ加えず、呼出元が残る独立した公開へ進めるようにします。
     /// </summary>
     private void TryInvokePostLeaseNotification(Action notification, string diagnostic)
     {
@@ -2919,7 +2920,14 @@ public partial class BMSLibrary : ObservableObject
         }
         catch (Exception exception)
         {
-            NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+            try
+            {
+                NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+            }
+            catch (Exception)
+            {
+                // 診断先の二次失敗で、後続の独立した通知と延期scopeの完了を放棄しません。
+            }
         }
     }
 

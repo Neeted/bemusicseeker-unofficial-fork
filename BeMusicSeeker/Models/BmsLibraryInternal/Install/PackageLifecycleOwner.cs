@@ -203,6 +203,12 @@ internal sealed partial class PackageLifecycleOwner
 
     internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
 
+    /// <summary>
+    /// パッケージ集合状態の反映後の通知を延期します。非同期公開では通知・診断先の失敗を局所処理し、独立した後続通知を続けます。
+    /// 同期公開と入れ子scopeの既存の通知・例外伝播は維持します。
+    /// </summary>
+    /// <param name="queuePublication">最外scopeの通知をUIキューへ投稿する場合は true。false はscope完了時の同期公開です。</param>
+    /// <returns>入れ子順に完了して延期した通知を引き渡すscope。</returns>
     internal IDisposable BeginCollectionMutationScope(bool queuePublication = false)
     {
         CollectionMutationDeferral previous = collectionMutationDeferral.Value;
@@ -714,21 +720,21 @@ internal sealed partial class PackageLifecycleOwner
             IUiScheduledOperation operation = uiScheduler.Schedule(
                 () =>
                 {
-                    try
+                    foreach (Action mutation in mutations)
                     {
-                        foreach (Action mutation in mutations)
+                        try
                         {
                             mutation();
                         }
-                    }
-                    catch (Exception exception)
-                    {
-                        collectionPublicationFailed(exception);
+                        catch (Exception exception)
+                        {
+                            ReportCollectionPublicationFailureBestEffort(exception);
+                        }
                     }
                 });
             if (!operation.IsAccepted)
             {
-                collectionPublicationFailed(new InvalidOperationException(
+                ReportCollectionPublicationFailureBestEffort(new InvalidOperationException(
                     "Package collection publication was rejected: " + operation.RejectionReason));
                 return;
             }
@@ -737,12 +743,12 @@ internal sealed partial class PackageLifecycleOwner
                 {
                     if (task.IsFaulted)
                     {
-                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                        ReportCollectionPublicationFailureBestEffort(task.Exception?.GetBaseException()
                             ?? new InvalidOperationException("Package collection publication failed."));
                     }
                     else if (task.IsCanceled || operation.IsAborted)
                     {
-                        collectionPublicationFailed(new OperationCanceledException(
+                        ReportCollectionPublicationFailureBestEffort(new OperationCanceledException(
                             "Package collection publication was canceled after scheduling."));
                     }
                 },
@@ -752,7 +758,20 @@ internal sealed partial class PackageLifecycleOwner
         }
         catch (Exception exception)
         {
+            ReportCollectionPublicationFailureBestEffort(exception);
+        }
+    }
+
+    /// <summary>任意公開の元原因を既存の診断先へ渡し、診断先の二次失敗を後続通知や公開Taskへ伝播させません。</summary>
+    private void ReportCollectionPublicationFailureBestEffort(Exception exception)
+    {
+        try
+        {
             collectionPublicationFailed(exception);
+        }
+        catch (Exception)
+        {
+            // 診断だけの失敗で、確定済み状態や独立した後続通知を変更しません。
         }
     }
 
@@ -769,12 +788,12 @@ internal sealed partial class PackageLifecycleOwner
                     }
                     catch (Exception exception)
                     {
-                        collectionPublicationFailed(exception);
+                        ReportCollectionPublicationFailureBestEffort(exception);
                     }
                 });
             if (!operation.IsAccepted)
             {
-                collectionPublicationFailed(new InvalidOperationException(
+                ReportCollectionPublicationFailureBestEffort(new InvalidOperationException(
                     "Package lifecycle property publication was rejected: "
                     + operation.RejectionReason));
                 return;
@@ -784,12 +803,12 @@ internal sealed partial class PackageLifecycleOwner
                 {
                     if (task.IsFaulted)
                     {
-                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                        ReportCollectionPublicationFailureBestEffort(task.Exception?.GetBaseException()
                             ?? new InvalidOperationException("Package lifecycle property publication failed."));
                     }
                     else if (task.IsCanceled || operation.IsAborted)
                     {
-                        collectionPublicationFailed(new OperationCanceledException(
+                        ReportCollectionPublicationFailureBestEffort(new OperationCanceledException(
                             "Package lifecycle property publication was canceled after scheduling."));
                     }
                 },
@@ -799,7 +818,7 @@ internal sealed partial class PackageLifecycleOwner
         }
         catch (Exception exception)
         {
-            collectionPublicationFailed(exception);
+            ReportCollectionPublicationFailureBestEffort(exception);
         }
     }
 

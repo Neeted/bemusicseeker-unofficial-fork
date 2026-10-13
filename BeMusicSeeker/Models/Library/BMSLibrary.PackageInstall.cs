@@ -634,6 +634,10 @@ public partial class BMSLibrary
         return new PackageInstallCommandResult(registeredPackages, sessionReceipt);
     }
 
+    /// <summary>
+    /// 排他解放後の任意通知と診断を順に公開します。
+    /// 通知・診断先の失敗は確定済み結果へ加えず、残る独立した公開を続けます。
+    /// </summary>
     private static void FlushPostLeaseEffects(
         IEnumerable<Action> authoritativeEffects,
         IEnumerable<Action> diagnosticEffects)
@@ -646,7 +650,14 @@ public partial class BMSLibrary
             }
             catch (Exception exception)
             {
-                NLogWrapper.FileLogger?.Warn(exception, "package_install_post_lease_notification_failed");
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(exception, "package_install_post_lease_notification_failed");
+                }
+                catch (Exception)
+                {
+                    // 診断先の失敗でも残る任意通知を放棄しません。
+                }
             }
         }
         foreach (Action diagnostic in diagnosticEffects ?? [])
@@ -657,7 +668,14 @@ public partial class BMSLibrary
             }
             catch (Exception exception)
             {
-                NLogWrapper.FileLogger?.Warn(exception, "package_install_diagnostic_failed");
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(exception, "package_install_diagnostic_failed");
+                }
+                catch (Exception)
+                {
+                    // 診断の二次失敗は確定済みの操作結果へ加えません。
+                }
             }
         }
     }
@@ -892,7 +910,10 @@ public partial class BMSLibrary
         });
     }
 
-    /// <summary>install session の package collection state と公開 scope を required finalizer として一度だけ適用します。</summary>
+    /// <summary>
+    /// 導入セッションのパッケージ集合状態を必須後処理として一度だけ反映し、通知の延期scopeを呼出元へ渡します。
+    /// 状態反映の失敗は必須反映失敗であり、排他解放後の延期scopeの完了と通知先の成否は別に扱います。
+    /// </summary>
     private void AppendInstallCollectionSessionFinalizer(
         LibraryMutationOwner.LibraryMutationSession mutationSession,
         Action<IDisposable> publicationScopeObserver,
@@ -2367,6 +2388,10 @@ public partial class BMSLibrary
         };
     }
 
+    /// <summary>
+    /// 推定導入の必須状態反映後の任意通知を公開し、パッケージ集合通知の延期scopeを完了します。
+    /// 通知先とその診断先の失敗で、残る独立した通知や延期scopeの完了を放棄しません。
+    /// </summary>
     private static void PublishPendingEstimatedInstallPostGuardEffects(
         PendingEstimatedInstallExecutionReceipt receipt,
         PendingEstimatedInstallExecutionContext executionContext)
@@ -2379,7 +2404,14 @@ public partial class BMSLibrary
             }
             catch (Exception exception)
             {
-                NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+                }
+                catch (Exception)
+                {
+                    // 診断先が失敗しても、集合通知の延期寿命は最後まで完了させます。
+                }
             }
         }
 
@@ -2400,6 +2432,9 @@ public partial class BMSLibrary
             "estimated_install_collection_publication_failed");
     }
 
+    /// <summary>
+    /// 推定導入の任意案内を取り出して公開します。案内と診断先の失敗は確定結果を変更せず、残る案内へ進みます。
+    /// </summary>
     private void PublishPendingEstimatedInstallFeedback(
         EstimatedInstallDeferredFeedback deferredFeedback,
         bool suppressCleanupOnlyWarning = false)
@@ -2458,9 +2493,16 @@ public partial class BMSLibrary
                 }
                 catch (Exception exception)
                 {
-                    NLogWrapper.FileLogger?.Warn(
-                        exception,
-                        "estimated_install_feedback_notification_failed kind=" + notification.Kind);
+                    try
+                    {
+                        NLogWrapper.FileLogger?.Warn(
+                            exception,
+                            "estimated_install_feedback_notification_failed kind=" + notification.Kind);
+                    }
+                    catch (Exception)
+                    {
+                        // 一つの案内の二次診断失敗で、後続案内を止めません。
+                    }
                 }
             }
         }
@@ -2478,6 +2520,7 @@ public partial class BMSLibrary
     /// <summary>
     /// 推定導入の確定結果を返します。受付拒否または推定先のない正常スキップでは、変更なしのセッション結果を返します。
     /// 呼出元は通常の拒否やスキップを実行失敗として扱わずに済みます。
+    /// DB確定後の必須反映失敗は永続確定を保持した結果で返し、排他解放後の任意通知・診断の失敗は結果へ加えません。
     /// </summary>
     internal PendingInstallBatchResult InstallPendingPackagesToEstimatedDestinationsWithReceipt(IEnumerable<ChartPackage> packages, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
@@ -2587,9 +2630,16 @@ public partial class BMSLibrary
             }
             catch (Exception exception)
             {
-                NLogWrapper.FileLogger?.Warn(
-                    exception,
-                    "estimated_install_deferred_feedback_publication_failed");
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        exception,
+                        "estimated_install_deferred_feedback_publication_failed");
+                }
+                catch (Exception)
+                {
+                    // 任意案内の診断失敗を操作の必須反映失敗として伝播させません。
+                }
             }
         });
         if (operationFailure != null)

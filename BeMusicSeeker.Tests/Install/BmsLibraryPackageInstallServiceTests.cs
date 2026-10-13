@@ -1341,13 +1341,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
                     Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
-                    AssertLibraryWriterCanBeAcquired(
+                    AssertLibraryGateIsNotHeldByCurrentThread(
                         library,
                         "rwlockBMSFilesInitializedAll");
-                    AssertLibraryWriterCanBeAcquired(
+                    AssertLibraryGateIsNotHeldByCurrentThread(
                         library,
                         "rwlockPendingInstallCharts");
-                    AssertLibraryWriterCanBeAcquired(
+                    AssertLibraryGateIsNotHeldByCurrentThread(
                         library,
                         "rwlockBMSFiles");
                 }
@@ -2158,7 +2158,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 資源導入後の通知先が例外を投げても確定済みの資源と所持表示を保ち、通知失敗で導入成功を取り消す誤りを検出する。
+    /// 資源導入後の項目通知と保留集合通知が失敗しても永続確定・資源・所属を保ち、後続の導入済み集合通知へ到達することを確認する。
+    /// 通知失敗による必須反映失敗への誤分類と、集合通知の延期scopeを完了しない誤りを検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
@@ -2198,7 +2199,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
-            var library = new TestBmsLibrary(songDbPath)
+            var library = new TestBmsLibrary(
+                songDbPath,
+                null,
+                null,
+                new RealFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null))
             {
                 BmsCharts = null,
                 BmsonCharts = [installedBmson],
@@ -2207,23 +2214,19 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             Exception? packageEntryInspectionFailure = null;
             bool subscriberFailureReached = false;
+            bool pendingCollectionSubscriberFailureReached = false;
+            bool installedCollectionNotificationAfterSubscriberFailure = false;
             System.ComponentModel.PropertyChangedEventHandler handler = (_, _) =>
             {
                 try
                 {
-                    AssertLibraryWriterCanBeAcquired(
-                        library,
-                        "rwlockBMSFilesInitializedAll");
-                    AssertLibraryWriterCanBeAcquired(
-                        library,
-                        "rwlockPendingInstallCharts");
-                    AssertLibraryWriterCanBeAcquired(
-                        library,
-                        "rwlockBMSFiles");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockBMSFilesInitializedAll");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockPendingInstallCharts");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockBMSFiles");
                 }
                 catch (Exception exception)
                 {
-                    packageEntryInspectionFailure = exception;
+                    packageEntryInspectionFailure ??= exception;
                 }
                 if (File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")))
                 {
@@ -2231,15 +2234,37 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     throw new InvalidOperationException("subscriber publication failed");
                 }
             };
+            System.ComponentModel.PropertyChangedEventHandler libraryHandler = (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.ChartPackagesPending))
+                {
+                    pendingCollectionSubscriberFailureReached = true;
+                    throw new InvalidOperationException("pending collection subscriber publication failed");
+                }
+                if (args.PropertyName == nameof(BMSLibrary.ChartPackagesInstalled))
+                {
+                    installedCollectionNotificationAfterSubscriberFailure |=
+                        subscriberFailureReached && pendingCollectionSubscriberFailureReached;
+                }
+            };
             pendingEntry.PropertyChanged += handler;
+            library.PropertyChanged += libraryHandler;
             try
             {
-                library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
+                PendingInstallBatchResult result =
+                    library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pendingPackage]);
 
                 Assert.IsNull(
                     packageEntryInspectionFailure,
                     packageEntryInspectionFailure?.ToString());
                 Assert.IsTrue(subscriberFailureReached);
+                Assert.IsTrue(pendingCollectionSubscriberFailureReached);
+                Assert.IsTrue(installedCollectionNotificationAfterSubscriberFailure);
+                Assert.IsTrue(result.SessionReceipt.DurableCommit);
+                Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+                Assert.IsFalse(result.SessionReceipt.HasDurableFinalizationFailure);
+                Assert.IsFalse(result.SessionReceipt.ManualRecoveryRequired);
+                Assert.IsFalse(result.SessionReceipt.CompletedWithCleanupFailure);
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
                 Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
                 Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "sound.wav")));
@@ -2247,6 +2272,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             finally
             {
                 pendingEntry.PropertyChanged -= handler;
+                library.PropertyChanged -= libraryHandler;
             }
         });
     }
@@ -3250,9 +3276,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         showMessage: false);
                     if (isAutoRoute) { Assert.IsNull(probe, "必要な公開中も非同期操作の外側Lを保持します。"); }
                     else { Assert.IsNotNull(probe); }
-                    AssertLibraryWriterCanBeAcquired(library, "rwlockBMSFilesInitializedAll");
-                    AssertLibraryWriterCanBeAcquired(library, "rwlockPendingInstallCharts");
-                    AssertLibraryWriterCanBeAcquired(library, "rwlockBMSFiles");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockBMSFilesInitializedAll");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockPendingInstallCharts");
+                    AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockBMSFiles");
                     // 通知の観測はSELECTだけなので、writer接続を使わず共有writer lockの保持を避けます。
                     using LR2SongDBExtended notifiedSongDb = readOnlySongDbGateway.OpenSongDbReadOnly();
                     Assert.AreEqual(
@@ -7324,7 +7350,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         return new DateTime(2002, 1, 11, 18, 0, 8);
     }
 
-    private static void AssertLibraryWriterCanBeAcquired(
+    private static void AssertLibraryGateIsNotHeldByCurrentThread(
         BMSLibrary library,
         string fieldName)
     {
@@ -7340,11 +7366,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsNotNull(gateValue, fieldName + " was not found.");
         var gate = gateValue as ReaderWriterLockSlimWrapper;
         Assert.IsNotNull(gate, fieldName + " was not a reader/writer gate.");
+        // 再帰writerの再取得では解放を証明できないため、通知thread自身の三種類の所有を直接確認します。
         Assert.IsFalse(gate.IsReadLockHeld, fieldName + " reader was held by the subscriber thread.");
-        using (gate.GetWriterGuard())
-        {
-            Assert.IsTrue(gate.IsWriteLockHeld, fieldName + " writer could not be reacquired.");
-        }
+        Assert.IsFalse(gate.IsWriteLockHeld, fieldName + " writer was held by the subscriber thread.");
+        Assert.IsFalse(gate.IsUpgradeableReadLockHeld, fieldName + " upgradeable reader was held by the subscriber thread.");
     }
 
     private static void WithTemporaryDirectory(Action<string> testAction)
