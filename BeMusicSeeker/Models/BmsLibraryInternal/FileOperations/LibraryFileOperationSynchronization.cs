@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -355,9 +357,10 @@ internal sealed class LibraryFileOperationSynchronization
             this.scopes = scopes ?? [];
         }
 
+        /// <summary>全scopeの実解放を逆順で試し、最初の解放失敗の元スタックを保持して伝えます。</summary>
         public void Dispose()
         {
-            Exception firstException = null;
+            ExceptionDispatchInfo firstException = null;
             for (int index = scopes.Count - 1; index >= 0; index--)
             {
                 try
@@ -366,24 +369,29 @@ internal sealed class LibraryFileOperationSynchronization
                 }
                 catch (Exception exception)
                 {
-                    firstException ??= exception;
+                    firstException ??= ExceptionDispatchInfo.Capture(exception);
                 }
             }
-            if (firstException != null)
-            {
-                throw firstException;
-            }
+            firstException?.Throw();
         }
 
+        /// <summary>取得途中の全scopeを解放し、二次失敗は任意診断だけに留めて呼出元の取得失敗を保持します。</summary>
         internal static void DisposeScopesSafely(IEnumerable<IDisposable> scopes)
         {
             try
             {
                 new CompositeDisposable([.. (scopes ?? [])]).Dispose();
             }
-            catch
+            catch (Exception exception)
             {
-                // Preserve the acquisition failure while still attempting every release.
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(exception, "Library snapshot acquisition cleanup failed.");
+                }
+                catch
+                {
+                    // 全解放を試した後の二次故障と診断故障で、取得時の主原因を上書きしません。
+                }
             }
         }
     }

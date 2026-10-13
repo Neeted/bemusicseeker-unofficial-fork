@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
@@ -197,7 +198,12 @@ internal sealed class StartupLibraryConstructionOwner
         }
     }
 
-    /// <summary>既存の非致命的バックアップを実行し、受付外へ渡す変更不能な通知を返します。</summary>
+    /// <summary>
+    /// 既存の非致命的バックアップを実行し、受付外へ渡す変更不能な通知を返します。
+    /// 最適化用の列挙・公開後の最適化と任意診断の失敗では、実公開済みの保存結果を変更しません。
+    /// </summary>
+    /// <param name="startupSettings">今回の起動で捕捉した設定。</param>
+    /// <returns>公開前の保存失敗または世代削除警告を伝える通知。</returns>
     internal static async Task<IReadOnlyList<UiMessageRequest>> PrepareBackupAsync(StartupSettingsSnapshot startupSettings)
     {
         List<UiMessageRequest> notifications = [];
@@ -211,15 +217,19 @@ internal sealed class StartupLibraryConstructionOwner
                 songDBPath = startupSettings.LR2SongDBPath;
             }
             string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
-            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
+            if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB))
             {
                 try
                 {
-                    scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", System.IO.SearchOption.AllDirectories)];
+                    if (LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
+                    {
+                        scoreDBPaths = [.. LongPathFileSystem.EnumerateFiles(scoreDirectoryPath, "*.db", SearchOption.AllDirectories)];
+                    }
                 }
-                catch
+                catch (Exception exception)
                 {
                     scoreDBPaths = [];
+                    ReportOptionalBackupFailureBestEffort(exception, $"Score DB optimization enumeration failed: path={scoreDirectoryPath}");
                 }
             }
             Backup.BackupSaveResult backupSaveResult = null;
@@ -241,8 +251,9 @@ internal sealed class StartupLibraryConstructionOwner
                         {
                             Backup.RebuildDatabase(songDBPath, scoreDBPaths);
                         }
-                        catch
+                        catch (Exception exception)
                         {
+                            ReportOptionalBackupFailureBestEffort(exception, $"Startup backup optimization failed: songPath={songDBPath}, scoreDirectoryPath={scoreDirectoryPath}");
                         }
                     }
                     return result;
@@ -265,6 +276,18 @@ internal sealed class StartupLibraryConstructionOwner
             }
         }
         return Array.AsReadOnly(notifications.ToArray());
+    }
+
+    private static void ReportOptionalBackupFailureBestEffort(Exception exception, string message)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(exception, message);
+        }
+        catch
+        {
+            // 最適化とその診断は任意であり、バックアップの公開結果へ合成しません。
+        }
     }
 
     /// <summary>

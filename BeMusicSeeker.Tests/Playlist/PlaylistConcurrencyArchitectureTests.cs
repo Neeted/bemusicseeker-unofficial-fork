@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -55,43 +56,76 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.AreEqual(1, callbackCount);
     }
 
-    /// <summary>読取り・書込み・昇格可能読取りの実取得で対応する回数を増やし、各解放で0へ戻す。Lock APIと観測状態のずれを検出する。</summary>
+    /// <summary>正常または毎回throwする表示購読者の下でも実読取り・書込み・昇格可能読取りを取得し、既存の計上区分と全解放後の0・未保持を保ちます。通知を実lock取得・解放の失敗へ変える誤りを検出します。</summary>
     [TestMethod]
-    public void ReaderWriterLockSlimWrapper_RawLockApiUpdatesObservableCounts()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ReaderWriterLockSlimWrapper_RawLockApiUpdatesObservableCounts(bool throwFromObserver)
     {
         var rwlock = new ReaderWriterLockSlimWrapper();
-
-        rwlock.EnterReadLock();
+        int notificationCount = 0;
+        PropertyChangedEventHandler observer = (_, _) =>
+        {
+            notificationCount++;
+            if (throwFromObserver)
+            {
+                throw new InvalidOperationException("raw lock display notification failure");
+            }
+        };
+        rwlock.PropertyChanged += observer;
         try
         {
-            Assert.AreEqual(1u, rwlock.LockingReadCount);
+            rwlock.EnterReadLock();
+            try
+            {
+                Assert.AreEqual(1u, rwlock.LockingReadCount);
+                Assert.IsTrue(rwlock.IsReadLockHeld);
+            }
+            finally
+            {
+                rwlock.ExitReadLock();
+            }
+            Assert.AreEqual(0u, rwlock.LockingReadCount);
+            Assert.IsFalse(rwlock.IsReadLockHeld);
+
+            rwlock.EnterWriteLock();
+            try
+            {
+                Assert.AreEqual(1u, rwlock.LockingWriteCount);
+                Assert.IsTrue(rwlock.IsWriteLockHeld);
+            }
+            finally
+            {
+                rwlock.ExitWriteLock();
+            }
+            Assert.AreEqual(0u, rwlock.LockingWriteCount);
+            Assert.IsFalse(rwlock.IsWriteLockHeld);
+
+            Assert.IsTrue(rwlock.TryEnterUpgradeableReadLock(TimeSpan.Zero));
+            try
+            {
+                Assert.AreEqual(1u, rwlock.LockingWriteCount);
+                Assert.AreEqual(0u, rwlock.LockingUpgradeCount);
+                Assert.IsTrue(rwlock.IsUpgradeableReadLockHeld);
+            }
+            finally
+            {
+                rwlock.ExitUpgradeableReadLock();
+            }
+            Assert.AreEqual(0u, rwlock.LockingReadCount);
+            Assert.AreEqual(0u, rwlock.LockingWriteCount);
+            Assert.AreEqual(0u, rwlock.LockingUpgradeCount);
+            Assert.IsFalse(rwlock.IsUpgradeableReadLockHeld);
+            Assert.AreEqual(6, notificationCount);
         }
         finally
         {
-            rwlock.ExitReadLock();
+            // 修正前の取得時通知故障でも、購読解除後に同じthreadの実lockを回収します。
+            rwlock.PropertyChanged -= observer;
+            if (rwlock.IsWriteLockHeld) { rwlock.ExitWriteLock(); }
+            if (rwlock.IsUpgradeableReadLockHeld) { rwlock.ExitUpgradeableReadLock(); }
+            if (rwlock.IsReadLockHeld) { rwlock.ExitReadLock(); }
+            rwlock.Dispose();
         }
-        Assert.AreEqual(0u, rwlock.LockingReadCount);
-
-        rwlock.EnterWriteLock();
-        try
-        {
-            Assert.AreEqual(1u, rwlock.LockingWriteCount);
-        }
-        finally
-        {
-            rwlock.ExitWriteLock();
-        }
-        Assert.AreEqual(0u, rwlock.LockingWriteCount);
-
-        Assert.IsTrue(rwlock.TryEnterUpgradeableReadLock(TimeSpan.Zero));
-        try
-        {
-            Assert.AreEqual(1u, rwlock.LockingWriteCount);
-        }
-        finally
-        {
-            rwlock.ExitUpgradeableReadLock();
-        }
-        Assert.AreEqual(0u, rwlock.LockingWriteCount);
     }
 }

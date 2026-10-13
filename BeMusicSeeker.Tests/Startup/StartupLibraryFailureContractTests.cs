@@ -1,9 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 using static BeMusicSeeker.Tests.StartupLibraryConstructionTestSupport;
@@ -131,6 +135,52 @@ public sealed class StartupLibraryFailureContractTests
             playlistLease.Dispose();
             current.Playlist.RequestStop("test_cleanup");
             current.Library.RequestStop("test_cleanup");
+        }
+        finally
+        {
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 保証：コピー可能だがSQLiteではない選択済みscore.dbの最適化が失敗しても、保存失敗通知を返さず、公開したscoreの元bytesと選択したsongの公開を保持します。
+    /// </summary>
+    /// <remarks>既存fixtureの実song DBと専用FSを使い、起動ownerから実SaveSelectedBackupsWithResult・DB最適化を通して公開と通知の接続を確認します。</remarks>
+    [TestMethod]
+    public async Task PrepareBackupAsync_OptimizationFailurePreservesPublishedScoreBytesWithoutSaveFailureNotification()
+    {
+        string temporaryRoot = CreateTemporaryRoot();
+        string songDbPath = Path.Combine(temporaryRoot, "song.db");
+        string scoreDirectoryPath = Path.Combine(temporaryRoot, "LR2files", "Database", "Score");
+        string scoreDbPath = Path.Combine(scoreDirectoryPath, "score.db");
+        string backupRoot = Path.Combine(temporaryRoot, "backups");
+        byte[] scoreBytes = [110, 111, 116, 45, 97, 45, 115, 113, 108, 105, 116, 101, 45, 100, 98];
+        try
+        {
+            CreateSongDatabase(songDbPath);
+            Directory.CreateDirectory(scoreDirectoryPath);
+            Directory.CreateDirectory(backupRoot);
+            File.WriteAllBytes(scoreDbPath, scoreBytes);
+            var settings = new StartupSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                IsLR2BackupEnabled = true,
+                LR2BackupTarget = Backup.Target.SongDB | Backup.Target.ScoreDB,
+                LR2RootPath = temporaryRoot,
+                LR2SongDBPath = songDbPath,
+                LR2BackupPath = backupRoot,
+                LR2BackupSpan = 1,
+                LR2BackupNum = 1
+            };
+
+            IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(settings);
+
+            string publishedDirectory = Path.Combine(backupRoot, DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+            Assert.IsTrue(File.Exists(Path.Combine(publishedDirectory, "song.db")));
+            CollectionAssert.AreEqual(scoreBytes, File.ReadAllBytes(Path.Combine(publishedDirectory, "Score", "score.db")));
+            CollectionAssert.AreEqual(scoreBytes, File.ReadAllBytes(scoreDbPath));
+            Assert.AreEqual(0, notifications.Count);
+            Assert.IsFalse(Backup.RebuildDatabase(null, [scoreDbPath]), "score fixture must exercise an actual optimization failure.");
         }
         finally
         {

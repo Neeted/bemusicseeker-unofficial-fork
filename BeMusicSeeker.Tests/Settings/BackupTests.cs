@@ -259,23 +259,41 @@ public sealed class BackupTests
         });
     }
 
-    /// <summary>旧世代の読取り専用ファイルで削除を失敗させ、公開済み内容を保持し保存成功と対象を示す警告を返すことを確認します。</summary>
+    /// <summary>最古の旧世代の削除だけを失敗させても他の旧世代を回収し、公開済みbytesと保存成功、正確な失敗先の警告を保持することを確認します。</summary>
     [TestMethod]
     public void SaveBackupsWithResult_PruneFailureWarnsAfterSuccessfulPublication()
     {
         WithBackupTree((root, source) =>
         {
-            string old = CreateOldGenerations(root)[0];
-            File.SetAttributes(Path.Combine(old, "sentinel.db"), FileAttributes.ReadOnly);
+            string[] old = CreateOldGenerations(root);
+            string failedGeneration = old[^1];
+            string failedFile = Path.Combine(failedGeneration, "sentinel.db");
+            FileAttributes originalAttributes = File.GetAttributes(failedFile);
+            try
+            {
+                File.SetAttributes(failedFile, originalAttributes | FileAttributes.ReadOnly);
 
-            Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, [source]);
+                Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(root, TimeSpan.Zero, 1, [source]);
 
-            Assert.IsTrue(result.Saved);
-            Assert.IsNull(result.FailureException);
-            Assert.AreEqual("source-content", ReadAllText(Path.Combine(TodayPath(root), "song.db")));
-            Assert.AreEqual("old-content", ReadAllText(Path.Combine(old, "sentinel.db")));
-            Assert.IsTrue(result.Warnings.Any(warning => warning.Contains(old, StringComparison.Ordinal)));
-            Assert.AreEqual(2, Directory.GetDirectories(root).Length);
+                Assert.IsTrue(result.Saved);
+                Assert.IsNull(result.FailureException);
+                CollectionAssert.AreEqual(File.ReadAllBytes(source), File.ReadAllBytes(Path.Combine(TodayPath(root), "song.db")));
+                Assert.AreEqual("old-content", ReadAllText(failedFile));
+                Assert.AreEqual(1, result.Warnings.Count);
+                Assert.AreEqual(string.Format(Properties.Resources.Warn_FileOrDirDeleteFailed, failedGeneration), result.Warnings.Single());
+                foreach (string removableGeneration in old.Where(path => path != failedGeneration))
+                {
+                    Assert.IsFalse(Directory.Exists(removableGeneration), removableGeneration);
+                }
+                CollectionAssert.AreEquivalent(new[] { failedGeneration, TodayPath(root) }, Directory.GetDirectories(root));
+            }
+            finally
+            {
+                if (File.Exists(failedFile))
+                {
+                    File.SetAttributes(failedFile, originalAttributes);
+                }
+            }
         });
     }
 

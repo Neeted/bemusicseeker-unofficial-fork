@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -104,6 +106,100 @@ public sealed class Lr2SynchronizationArchitectureTests
             initializedMin.Dispose();
             pendingInstall.Dispose();
             bmsFiles.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 保証：3つの実lockの取得・解放表示が毎回throwしてもscopeのbodyへ到達し、成功またはbodyの元失敗を維持して全lockを解放し、次の明示scopeを取得できます。
+    /// </summary>
+    /// <remarks>実EnterFolderMoveSnapshotScopeを通し、通知故障を必須release失敗と誤分類してbodyの型・message・stackを上書きする誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FolderMoveSnapshotScope_ThrowingDisplayObserversPreserveBodyOutcomeAndReleaseAllLocks(bool failBody)
+    {
+        List<string> events = [];
+        var boundary = new RecordingMutationBoundary(events);
+        ReaderWriterLockSlimWrapper initializedAll = CreateObservedLock("initialized-all", events);
+        ReaderWriterLockSlimWrapper initializedMin = CreateObservedLock("initialized-min", events);
+        ReaderWriterLockSlimWrapper pendingInstall = CreateObservedLock("pending-install", events);
+        ReaderWriterLockSlimWrapper bmsFiles = CreateObservedLock("bms-files", events);
+        ReaderWriterLockSlimWrapper[] snapshotLocks = [initializedMin, pendingInstall, bmsFiles];
+        int notificationCount = 0;
+        PropertyChangedEventHandler observer = (_, _) =>
+        {
+            notificationCount++;
+            throw new InvalidOperationException("folder snapshot display notification failure");
+        };
+        foreach (ReaderWriterLockSlimWrapper gate in snapshotLocks)
+        {
+            gate.PropertyChanged += observer;
+        }
+        try
+        {
+            var synchronization = new LibraryFileOperationSynchronization(
+                boundary, initializedAll, initializedMin, pendingInstall, bmsFiles);
+            bool bodyReached = false;
+            Action executeBody = () =>
+            {
+                using (synchronization.EnterFolderMoveSnapshotScope())
+                {
+                    bodyReached = true;
+                    Assert.AreEqual(1u, initializedMin.LockingReadCount);
+                    Assert.IsTrue(initializedMin.IsReadLockHeld);
+                    Assert.AreEqual(1u, pendingInstall.LockingWriteCount);
+                    Assert.IsTrue(pendingInstall.IsWriteLockHeld);
+                    Assert.AreEqual(1u, bmsFiles.LockingWriteCount);
+                    Assert.IsTrue(bmsFiles.IsWriteLockHeld);
+                    if (failBody)
+                    {
+                        ThrowFolderMoveSnapshotBodyFailure();
+                    }
+                }
+            };
+            if (failBody)
+            {
+                InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(executeBody);
+                Assert.AreEqual("folder snapshot body failure", exception.Message);
+                StringAssert.Contains(exception.StackTrace, nameof(ThrowFolderMoveSnapshotBodyFailure));
+            }
+            else
+            {
+                executeBody();
+            }
+            Assert.IsTrue(bodyReached);
+            AssertSnapshotLocksReleased([initializedAll, .. snapshotLocks]);
+            Assert.AreEqual(6, notificationCount);
+            CollectionAssert.AreEqual(new[]
+            {
+                "initialized-min.read.enter", "pending-install.write.enter", "bms-files.write.enter",
+                "bms-files.write.exit", "pending-install.write.exit", "initialized-min.read.exit"
+            }, events);
+
+            // 自動再試行ではなく、通知故障が続く同じwrapperへの次の明示scopeです。
+            using (synchronization.EnterFolderMoveSnapshotScope())
+            {
+                Assert.IsTrue(initializedMin.IsReadLockHeld);
+                Assert.IsTrue(pendingInstall.IsWriteLockHeld);
+                Assert.IsTrue(bmsFiles.IsWriteLockHeld);
+            }
+            AssertSnapshotLocksReleased([initializedAll, .. snapshotLocks]);
+            Assert.AreEqual(12, notificationCount);
+        }
+        finally
+        {
+            foreach (ReaderWriterLockSlimWrapper gate in snapshotLocks)
+            {
+                gate.PropertyChanged -= observer;
+            }
+            // guardが返らない修正前の通知故障でも、取得threadで残った実lockを回収します。
+            foreach (ReaderWriterLockSlimWrapper gate in new[] { bmsFiles, pendingInstall, initializedMin, initializedAll })
+            {
+                if (gate.IsWriteLockHeld) { gate.ExitWriteLock(); }
+                if (gate.IsUpgradeableReadLockHeld) { gate.ExitUpgradeableReadLock(); }
+                if (gate.IsReadLockHeld) { gate.ExitReadLock(); }
+                gate.Dispose();
+            }
         }
     }
 
@@ -367,6 +463,25 @@ public sealed class Lr2SynchronizationArchitectureTests
             {
                 LongPathFileSystem.DeleteDirectory(tempRoot, recursive: true);
             }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowFolderMoveSnapshotBodyFailure()
+    {
+        throw new InvalidOperationException("folder snapshot body failure");
+    }
+
+    private static void AssertSnapshotLocksReleased(IEnumerable<ReaderWriterLockSlimWrapper> locks)
+    {
+        foreach (ReaderWriterLockSlimWrapper gate in locks)
+        {
+            Assert.AreEqual(0u, gate.LockingReadCount);
+            Assert.AreEqual(0u, gate.LockingWriteCount);
+            Assert.AreEqual(0u, gate.LockingUpgradeCount);
+            Assert.IsFalse(gate.IsReadLockHeld);
+            Assert.IsFalse(gate.IsWriteLockHeld);
+            Assert.IsFalse(gate.IsUpgradeableReadLockHeld);
         }
     }
 

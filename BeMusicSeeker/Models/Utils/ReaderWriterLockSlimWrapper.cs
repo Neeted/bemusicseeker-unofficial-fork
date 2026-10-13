@@ -1,8 +1,12 @@
 using System;
 using System.Threading;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.Utils;
 
+/// <summary>
+/// 実ロックの取得・解放と観測用の回数を管理します。表示への変更通知の失敗では、取得済みロックや解放の結果を変更しません。
+/// </summary>
 public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = LockRecursionPolicy.SupportsRecursion) : ObservableObject
 {
     private class ReaderGuard : Ribbit.Threading.ReaderGuard
@@ -90,6 +94,9 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
 
     private uint _LockingUpgradeCount;
 
+    // 高頻度の表示通知故障をwrapperごとに一回だけ診断し、例外履歴は保持しません。
+    private int lockCountNotificationFailureReported;
+
     public int CurrentReadCount => readerWriterLockSlim.CurrentReadCount;
 
     public bool IsReadLockHeld => readerWriterLockSlim.IsReadLockHeld;
@@ -112,6 +119,7 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
 
     public int WaitingWriteCount => readerWriterLockSlim.WaitingWriteCount;
 
+    /// <summary>実ロックの読取り回数です。値の確定は必須で、表示通知は任意です。</summary>
     public uint LockingReadCount
     {
         get
@@ -123,11 +131,12 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
             if (_LockingReadCount != value)
             {
                 _LockingReadCount = value;
-                RaisePropertyChanged("LockingReadCount");
+                NotifyLockCountBestEffort(nameof(LockingReadCount));
             }
         }
     }
 
+    /// <summary>実ロックの書込み相当（昇格可能読取りを含む）回数です。値の確定は必須で、表示通知は任意です。</summary>
     public uint LockingWriteCount
     {
         get
@@ -139,11 +148,12 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
             if (_LockingWriteCount != value)
             {
                 _LockingWriteCount = value;
-                RaisePropertyChanged("LockingWriteCount");
+                NotifyLockCountBestEffort(nameof(LockingWriteCount));
             }
         }
     }
 
+    /// <summary>昇格回数の観測値です。既存APIの計上区分を保ち、値の確定と任意の表示通知を分離します。</summary>
     public uint LockingUpgradeCount
     {
         get
@@ -155,7 +165,29 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
             if (_LockingUpgradeCount != value)
             {
                 _LockingUpgradeCount = value;
-                RaisePropertyChanged("LockingUpgradeCount");
+                NotifyLockCountBestEffort(nameof(LockingUpgradeCount));
+            }
+        }
+    }
+
+    private void NotifyLockCountBestEffort(string propertyName)
+    {
+        try
+        {
+            RaisePropertyChanged(propertyName);
+        }
+        catch (Exception exception)
+        {
+            if (Interlocked.Exchange(ref lockCountNotificationFailureReported, 1) == 0)
+            {
+                try
+                {
+                    NLogWrapper.FileLogger?.Warn(exception, $"Lock count display notification failed: property={propertyName}");
+                }
+                catch
+                {
+                    // 通知もその診断も、実Enter/Exitと確定済みcountを失敗へ変えません。
+                }
             }
         }
     }
