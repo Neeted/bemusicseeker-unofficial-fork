@@ -28,37 +28,11 @@ $v216ArtifactMetadataPath = Join-Path $repoRoot 'devdocs\acceptance\v216-first-h
 $functionalReportingTargetSeconds = 180
 . (Join-Path $PSScriptRoot 'verification-runner-contract.ps1')
 . (Join-Path $PSScriptRoot 'verification-process-lifecycle.ps1')
+. (Join-Path $PSScriptRoot 'format-code.ps1')
 . (Join-Path $PSScriptRoot 'distribution-artifact.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-outcomes.ps1')
 . (Join-Path $PSScriptRoot 'verification-test-discovery.ps1')
 $verificationRunnerContract = Get-VerificationRunnerContract
-
-function Get-RepositoryFormatArguments {
-    param(
-        [Parameter(Mandatory)]
-        [string]$WorkspaceRoot
-    )
-
-    $formatContract = $verificationRunnerContract.RepositoryFormat
-    if ($formatContract.WorkspaceKind -cne 'folder' -or
-        $formatContract.ProjectEvaluation -cne 'none' -or
-        -not [bool]$formatContract.VerifiesAllGenuineWorkspaceFiles) {
-        throw 'Repository format contract must use folder mode for the genuine workspace only.'
-    }
-
-    $arguments = @(
-        'format'
-        'whitespace'
-        $WorkspaceRoot
-        '--folder'
-        '--verify-no-changes'
-        '--verbosity'
-        'minimal')
-    foreach ($excludedRoot in @($formatContract.GeneratedRootExclusions)) {
-        $arguments += @('--exclude', $excludedRoot)
-    }
-    return $arguments
-}
 
 $functionalFilter = @(
     'TestCategory!=Net10Performance',
@@ -1620,12 +1594,21 @@ function Invoke-UpdateAcceptance {
 }
 
 function Assert-RepositoryWhitespace {
+    param(
+        [Parameter(Mandatory)]
+        [string]$DiagnosticsDirectory,
+
+        [Parameter(Mandatory)]
+        [object]$DeadlinePolicy
+    )
+
     Invoke-CheckedCommand git diff '--check' 'HEAD' '--'
 
-    $untrackedFiles = @(git ls-files --others --exclude-standard)
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to enumerate untracked files (exit code $LASTEXITCODE)."
-    }
+    $untrackedFiles = @(Get-RepositoryGitPaths `
+            -RepositoryRoot $repoRoot `
+            -Arguments @('ls-files', '--others', '--exclude-standard', '-z', '--') `
+            -DiagnosticsDirectory $DiagnosticsDirectory `
+            -DeadlinePolicy $DeadlinePolicy)
 
     if ($untrackedFiles.Count -eq 0) {
         return
@@ -1657,26 +1640,24 @@ function Assert-BuiltOutputs {
     Assert-ReleaseOutputLayout -ExecutablePath (Resolve-Path -LiteralPath $uiExecutable).Path
 }
 
-# 全コードモードで、ビルド前に空白整形と C# の正規形を一つの期限内で確認する。
-function Invoke-RepositoryFormatVerification {
+# 整形後のコードをビルドする。対象範囲だけをモードで切り替え、整形処理は手動入口と共有する。
+function Invoke-RepositoryFormattingPhase {
     param(
         [Parameter(Mandatory)]
         [string]$DiagnosticsRoot
     )
 
+    $formatScope = if ($Mode -eq 'Full') { 'All' } else { 'Changed' }
     [void](Invoke-MonitoredVerificationPhase -Name 'format' -DiagnosticsRoot $DiagnosticsRoot -Action {
         param($phaseStopwatch, $phaseDirectory, $deadlinePolicy)
-        Invoke-VerificationPhaseCommand `
-            -Label 'dotnet format whitespace' `
-            -CommandPath 'dotnet' `
-            -Arguments (Get-RepositoryFormatArguments -WorkspaceRoot $repoRoot) `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'whitespace') `
-            -DeadlinePolicy $deadlinePolicy
-        Invoke-VerificationPhaseCommand `
-            -Label 'dotnet format style' `
-            -CommandPath 'dotnet' `
-            -Arguments @('format', 'style', $solution, '--verify-no-changes', '--severity', 'error', '--no-restore', '--verbosity', 'minimal') `
-            -DiagnosticsDirectory (Join-Path $phaseDirectory 'style') `
+        Invoke-RepositoryFormatting `
+            -RepositoryRoot $repoRoot `
+            -Scope $formatScope `
+            -DiagnosticsDirectory $phaseDirectory `
+            -DeadlinePolicy $deadlinePolicy `
+            -NoRestore
+        Assert-RepositoryWhitespace `
+            -DiagnosticsDirectory (Join-Path $phaseDirectory 'git-whitespace') `
             -DeadlinePolicy $deadlinePolicy
     })
 }
@@ -1705,7 +1686,7 @@ function Invoke-CanonicalFunctionalVerification {
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
         $restoreStopwatch.Stop()
 
-        Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
+        Invoke-RepositoryFormattingPhase -DiagnosticsRoot $DiagnosticsRoot
 
         $buildStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-BudgetedCommand `
@@ -1721,7 +1702,6 @@ function Invoke-CanonicalFunctionalVerification {
         Invoke-ParallelFunctionalTestShards `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'functional') `
             -TimeoutSeconds $TimeoutSeconds
-        Assert-RepositoryWhitespace
     }
     finally {
         Write-Host "Canonical Functional completed; test execution budget: ${TimeoutSeconds}s; diagnostics: $DiagnosticsRoot"
@@ -1752,10 +1732,10 @@ function Invoke-FilteredQuickVerification {
             -Arguments @('restore', $solution, '-r', 'win-x64', '--locked-mode', '-p:PublishReadyToRun=true') `
             -DiagnosticsDirectory (Join-Path $DiagnosticsRoot 'restore')
 
-        # 整形検査は独立した共有期限を使い、既存の復元・ビルド・テスト予算には含めない。
+        # 自動整形と差分の空白検査は独立した共有期限を使い、既存の復元・ビルド・テスト予算には含めない。
         $filteredQuickStopwatch.Stop()
         try {
-            Invoke-RepositoryFormatVerification -DiagnosticsRoot $DiagnosticsRoot
+            Invoke-RepositoryFormattingPhase -DiagnosticsRoot $DiagnosticsRoot
         }
         finally {
             $filteredQuickStopwatch.Start()
@@ -1774,7 +1754,6 @@ function Invoke-FilteredQuickVerification {
             -Arguments $testArguments `
             -DiagnosticsDirectory $testDirectory
         Assert-BuiltOutputs
-        Assert-RepositoryWhitespace
     }
     finally {
         $filteredQuickStopwatch.Stop()
@@ -1949,8 +1928,6 @@ try {
                     -ReceiptPath (Join-Path $phaseDirectory 'release-outcomes.json'))
             return $releaseAcceptanceResultsPath
         })[-1]
-
-        Assert-RepositoryWhitespace
     }
     elseif (-not $canonicalFunctionalRequested) {
         $effectiveFilter = $TestFilter

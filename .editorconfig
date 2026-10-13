@@ -10,7 +10,7 @@ indent_size = 4
 tab_width = 4
 trim_trailing_whitespace = true
 
-# C# の正規形を定め、dotnet format style で検査する。ビルド時解析も補助として使う。
+# C# の正規形を定め、dotnet format style で自動修正する。
 # その他の品質診断は SDK の既定に従う。
 dotnet_sort_system_directives_first = true
 dotnet_separate_import_directive_groups = false

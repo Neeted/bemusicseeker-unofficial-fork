@@ -13,12 +13,6 @@ function Get-VerificationRunnerContract {
 
     return [pscustomobject][ordered]@{
         PhaseDescriptors = $phaseDescriptors
-        RepositoryFormat = [pscustomobject][ordered]@{
-            WorkspaceKind = 'folder'
-            ProjectEvaluation = 'none'
-            VerifiesAllGenuineWorkspaceFiles = $true
-            GeneratedRootExclusions = @('artifacts/verification', 'bin', 'obj', '.tmp')
-        }
     }
 }
 

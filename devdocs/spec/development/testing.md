@@ -47,13 +47,30 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
 | `Functional` | 通常の最終統合。同じ最終版に対して一回を原則とする。 |
 | `Full` | 配布・更新・リリースに関わる検証。共通の `Functional` の後に配布物の受入を行う。 |
 
-`Quick` はフィルターの有無によらず、`Functional` / `Full` と同じ整形検査を行います。全コードモードで、ロックファイルに従う復元の後、空白整形と C# スタイルの検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。整形差分が必要なら失敗とし、自動修正はしません。
+`Quick` はフィルターの有無によらず、`Functional` / `Full` と共通の自動整形処理を使います。全コードモードで、ロックファイルに従う復元、C# スタイルの自動修正、空白・改行の自動整形、Git 差分の空白検査、SDK 標準の品質解析を含む通常のビルド、出力検査、実テストの順に進みます。整形による変更は失敗とせず、整形後のコードを同じ実行内で検証します。
 
-整形検査は、まずプロジェクトを評価せず、ルートを `dotnet format whitespace --folder --verify-no-changes` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。続いて `dotnet format style BeMusicSeeker.sln --verify-no-changes --severity error --no-restore --verbosity minimal` で、ソリューションの C# スタイルを検査します。両検査は既存の `format` フェーズの180秒期限を共有し、どちらかの失敗・期限超過で後続のビルド・テストへ進みません。このフェーズは既存の復元・ビルド・テストの時間予算に含めません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
+### 自動整形の対象と実行
 
-SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK の `version` と `rollForward` の選択に従います。[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` にだけ `EnforceCodeStyleInBuild=true` を適用し、nullable 診断を警告ではなくビルドエラーとして扱います。nullable 解析そのものは各プロジェクトとソースの既存設定に従い、この共通設定から新しい解析範囲を有効化しません。補助ツールのプロジェクトにはこのビルド時スタイル検査と nullable 診断のエラー化を追加せず、SDK の既定解析を従来どおり実行します。
+`Quick` / `Functional` は、未ステージ・ステージ済みの変更ファイルと、Git の除外設定に該当しない未追跡ファイルの和集合から、現在存在する C# ファイルを選びます。対象は作業ツリー上のファイル全体であり、変更行だけには限定しません。`Full` は全体を対象とします。いずれも生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` を除きます。変更対象がゼロなら両 formatter を起動せず、対象指定なしの全体整形に置き換えません。
 
-C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、エラーに設定した規則を `dotnet format style` で検査します。通常のビルドで実行できるスタイル解析は補助防御として維持します。nullable 診断は null 許容契約の不一致を作業中に残さないためビルドエラーとして扱い、その他の SDK 品質診断は既定の重大度を維持します。全警告を一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象として検査します。
+[共通の整形処理](../../../scripts/format-code.ps1)は、先に `dotnet format style BeMusicSeeker.sln --severity error --no-restore --verbosity minimal` でスタイルを修正し、続いて `dotnet format whitespace --folder` で空白・改行を揃えます。変更範囲では同じファイル一覧を両方の `--include` に渡します。整形後に同じ formatter の変更なし検査を重ねません。C# 以外も含む Git 差分の空白検査は、整形後・ビルド前に行います。
+
+標準検証では対象取得と両 formatter が `format` フェーズの180秒期限を共有します。Git の取得失敗、formatter の非ゼロ終了・期限超過、差分の空白エラーでは、後続のビルド・テストへ進みません。このフェーズは復元・ビルド・テストの時間予算に含めません。formatter の警告は診断へ残します。自動整形の成功は、自動修正できないものも含むすべてのスタイル診断がゼロであることを意味しません。
+
+手動で整形だけを行う場合も、同じ処理を使います。
+
+```powershell
+pwsh -NoProfile -File .\scripts\format-code.ps1
+pwsh -NoProfile -File .\scripts\format-code.ps1 -Scope All
+```
+
+手動入口の既定範囲は `Changed` です。整形対象がある場合はロックファイルに従う復元から実行し、復元済みなら `-NoRestore` で省略できます。手動実行では対象取得・復元・整形を一つの180秒期限で扱います。整形規則、SDK、プロジェクト構成を変更した作業では、`-Scope All` で全体を整形します。通常検証が設定変更から対象範囲を推定して自動で広げることはありません。
+
+C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、エラーに設定した規則を formatter の自動修正対象にします。ビルド時のスタイル解析は全モードで有効化せず、スタイルの処理を formatter に集約します。SDK 標準の品質解析は [`global.json`](../../../global.json) の `version` と `rollForward` に従って選択した SDK の既定を維持します。
+
+[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` の nullable 診断をビルドエラーとして扱います。nullable 解析の範囲は各プロジェクトとソースの既存設定に従います。補助ツールには nullable 診断のエラー化を追加せず、全警告も一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードは引き続きテストプロジェクトのコンパイル対象とします。
+
+文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
 
 ### 実行期限と失敗分類
 
@@ -282,7 +299,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | --- | --- | --- |
 | 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
 | テスト整理前後の比較 | [標準スクリプト](../../../scripts/verify-refactor.ps1)、本書 | 同条件の全体経過時間、ホスト終了時刻、実行件数・スキップを照合し、保証整理と時間目標を分けて報告する。 |
-| 全コードモードの空白整形・C# 正規形、差分失敗、共有期限 | [正規形設定](../../../.editorconfig)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormatVerification` | 両 formatter の変更なし検査と、違反時にビルド前で失敗する実行プローブ。 |
+| 変更範囲・全体の自動整形、整形後の検証、失敗時の停止 | [共通の整形処理](../../../scripts/format-code.ps1)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormattingPhase` | [`RepositoryFormattingTests`](../../../BeMusicSeeker.Tests/Verification/RepositoryFormattingTests.cs)（`ProcessIntegration`）は実 Git による対象選択と、外部コマンドを代替した標準経路の実行順・対象ゼロ・失敗伝播・共有期限を確認する。SDK 自体の修正内容はこのテストの対象外。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、障害解決の条件を区別する。 |
 | UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/Verification/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
