@@ -131,12 +131,13 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName(), Path.GetTempFileName()];
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生開始に失敗しました。"),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -158,6 +159,7 @@ public sealed class PlaybackPanelViewModelTests
             completion.TrySetResult();
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。</summary>
@@ -166,6 +168,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow(true)]
     public async Task FileMutation_StopsCurrentSongBeforeWritingAndRejectsPlaybackWhileBusy(bool failStop)
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName()];
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -174,7 +177,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var operations = new ChartFileOperationSynchronizer();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生開始に失敗しました。"), operations);
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations);
         var store = new PhysicalChartDeletionStore();
         var mutation = new SelectedChartMutationWorkflowOwner(
             () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
@@ -211,12 +214,14 @@ public sealed class PlaybackPanelViewModelTests
             completion.TrySetResult();
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>内蔵playerのReady受信で開始を確定し、演奏CompletionやUI投稿の受信を待たずに次候補を一件準備することを確認します。</summary>
     [TestMethod]
     public async Task InternalReady_StartsNextPreparationBeforeCompletionOrUiPublication()
     {
+        int unexpectedNotificationCount = 0;
         string firstPath = Path.GetTempFileName();
         string secondPath = Path.GetTempFileName();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -225,7 +230,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = firstPath }), (ChartTestValues.Empty() with { Path = secondPath }) } };
         var dispatcher = new QueuedPlaybackUiDispatcher();
         var panel = new PlaybackPanelViewModel(player, dispatcher, new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Valid input failed."),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
             new ChartFileOperationSynchronizer());
         Task start = panel.StartAtIndex(0);
         try
@@ -252,19 +257,21 @@ public sealed class PlaybackPanelViewModelTests
             File.Delete(firstPath);
             File.Delete(secondPath);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>先のNextがReady待機中でも後から届いたNextを捨てず、受付順に各対象を一回ずつ開始することを確認します。</summary>
     [TestMethod]
     public async Task ReceivedNextRequests_KeepEachStartWhileEarlierReadyIsPending()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName(), Path.GetTempFileName()];
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Valid input failed."), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         Task? firstNext = null;
         Task? secondNext = null;
         try
@@ -291,6 +298,7 @@ public sealed class PlaybackPanelViewModelTests
             completion.TrySetResult();
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>Readyの入力不良が開始時または非同期に届いても一回通知して次の有効曲へ進み、同じ失敗を重ねて処理しないことを確認します。</summary>
@@ -346,12 +354,13 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task InternalShortSong_CallbackAndCompletionBeforeReadyCauseOneNaturalStop()
     {
+        int unexpectedNotificationCount = 0;
         string path = Path.GetTempFileName();
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { Ready = ready.Task };
         var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = path }) } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Valid input failed."), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         Task closed = player.WaitForCommandAsync("Close");
         Task start = panel.StartAtIndex(0);
         try
@@ -373,12 +382,14 @@ public sealed class PlaybackPanelViewModelTests
             await panel.CloseProcess();
             File.Delete(path);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>単曲再生の自然停止が先読み回収失敗を受け取ると、元の原因を一回通知し停止表示を維持して次曲を始めないことを確認します。</summary>
     [TestMethod]
     public async Task NaturalSinglePlayStop_NotifiesPreloadCleanupFailureOnceWithoutStartingNextSong()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName()];
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -388,7 +399,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore { SinglePlay = true, RepeatPlay = false }, dialogs,
-            _ => Assert.Fail("Valid input failed."), new ChartFileOperationSynchronizer());
+            _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         var failure = new InvalidOperationException("The next-song decoder cleanup failed.");
         try
         {
@@ -420,12 +431,14 @@ public sealed class PlaybackPanelViewModelTests
             await completion.Task;
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>採用した先読みが停止後に失敗しても元の原因を一回通知し、失効した開始の表示や再生を復活させないことを確認します。</summary>
     [TestMethod]
     public async Task AdoptedPreloadFailure_AfterStopNotifiesOnceWithoutRestarting()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName()];
         var firstCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var nextPreparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -442,7 +455,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("Valid input failed."),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
             new ChartFileOperationSynchronizer());
         var failure = new InvalidOperationException("The adopted next-song preparation failed.");
         Task? next = null;
@@ -480,6 +493,7 @@ public sealed class PlaybackPanelViewModelTests
             await firstCompletion.Task;
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>player交換と終了の双方は旧playerのClose終端を待ち、回収前に新playerの表示値へ切り替えないことを確認します。</summary>
@@ -522,6 +536,7 @@ public sealed class PlaybackPanelViewModelTests
     [DataRow(true)]
     public async Task PreloadCandidate_DoesNotSkipTemporaryTargetAndAllowsPendingTargetWithoutCopy(bool destinationExists)
     {
+        int unexpectedNotificationCount = 0;
         string root = Path.Combine(Path.GetTempPath(), "bms-preload-temporary-candidate-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         string destination = Path.Combine(root, "destination");
@@ -535,7 +550,7 @@ public sealed class PlaybackPanelViewModelTests
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { Completion = completion.Task };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Valid input failed."), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         try
         {
             await panel.StartAtIndex(0);
@@ -551,6 +566,7 @@ public sealed class PlaybackPanelViewModelTests
             completion.TrySetResult();
             Directory.Delete(root, recursive: true);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>通常入力と一時配置入力の外部開始は旧Closeの実終端を待ち、開始呼出しまで入力を保持します。同期失敗と返却Taskの遅い失敗を各一回通知することも確認します。</summary>
@@ -563,6 +579,7 @@ public sealed class PlaybackPanelViewModelTests
     public async Task LegacyStart_WaitsForPreviousCloseAndRetainsInputUntilInvocation(
         bool temporaryTarget, bool failAtInvocation)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-legacy-start-" + Guid.NewGuid().ToString("N"));
         string source = Path.Combine(directory, "source");
         string destination = Path.Combine(directory, "destination");
@@ -586,7 +603,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList), new InMemoryPlaybackSettingsStore(),
-            dialogs, _ => Assert.Fail("有効な入力の開始順序を確認します。"), new ChartFileOperationSynchronizer());
+            dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         panel.AttachLibrary(new TestBmsLibrary(songDbPath, settings: testSettings));
         var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -656,6 +673,7 @@ public sealed class PlaybackPanelViewModelTests
             await panel.StopPlayback(closeProcess: true);
             Directory.Delete(directory, recursive: true);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>実コピーした相対音源・画像を内蔵Readyまで保持しCompletion前に所有物だけ回収します。既存素材・同名別フォルダ・元入力の保全と再試聴を確認します。</summary>
@@ -1254,13 +1272,14 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName(), Path.GetTempFileName()];
         var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var player = new PreloadBmsPlayer { SupportsBmson = true, Ready = ready.Task };
         var chartList = new MainChartListViewModel { SelectedIndex = 0 };
         var settings = new InMemoryPlaybackSettingsStore();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(chartList),
-            settings, new FakePlaybackDialogService(), _ => Assert.Fail("再生に失敗しました。"), new ChartFileOperationSynchronizer());
+            settings, new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         chartList.RowProjection.SetPlaybackStatusProvider(panel.GetPlaybackStatus);
         ChartFile first = (ChartTestValues.Empty() with { Path = paths[0] });
         first = ChartFileProjection.WithScore(first, ChartScoreSnapshot.FromBmsScore(new BMSScore { IsLr2IrScoreUnsent = true }, first.Path));
@@ -1351,6 +1370,7 @@ public sealed class PlaybackPanelViewModelTests
                 File.Delete(path);
             }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
     /// <summary>bmson非対応の外部playerにはbmson行の起動を受理せず、player呼出しを行わないことを確認します。</summary>
     [TestMethod]
@@ -2559,6 +2579,7 @@ public sealed class PlaybackPanelViewModelTests
     [TestMethod]
     public async Task NaturalExit_QueuedBehindManualNextDoesNotAdvanceTheReplacementSong()
     {
+        int unexpectedNotificationCount = 0;
         string[] paths = [Path.GetTempFileName(), Path.GetTempFileName(), Path.GetTempFileName(), Path.GetTempFileName()];
         using var releaseRow = new ManualResetEventSlim();
         var enteredRow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2566,7 +2587,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), enteredRow, releaseRow);
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Valid input failed."),
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
             new ChartFileOperationSynchronizer());
         var start = Task.Run(() => panel.StartAtIndex(0));
         Task? manualNext = null;
@@ -2590,6 +2611,7 @@ public sealed class PlaybackPanelViewModelTests
             await panel.CloseForShutdown();
             foreach (string path in paths) { File.Delete(path); }
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     private sealed class GatedPlaybackChartQueue(
@@ -2719,6 +2741,7 @@ public sealed class PlaybackPanelViewModelTests
     [DoNotParallelize]
     public void PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent()
     {
+        int unexpectedNotificationCount = 0;
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker.ChartArtwork." + Guid.NewGuid().ToString("N"));
@@ -2726,7 +2749,7 @@ public sealed class PlaybackPanelViewModelTests
             var player = new PreloadBmsPlayer { SupportsBmson = true };
             var rows = new MainChartListViewModel();
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("選曲に失敗しました。"), new ChartFileOperationSynchronizer());
+                new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
             var view = new PlaybackPanelView { DataContext = panel };
             var window = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };
             Task selection = Task.CompletedTask;
@@ -2828,6 +2851,7 @@ public sealed class PlaybackPanelViewModelTests
                 }
             }
         });
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>compiled Viewを表示して初期Collapsedの子HWNDを所有UIスレッド上に生成し、指定した題名・字幕・作者を実Textへ反映することを確認します。</summary>
@@ -2895,6 +2919,7 @@ public sealed class PlaybackPanelViewModelTests
     [DoNotParallelize]
     public void PlaybackPanelView_PlayerSurfaceAndOverlayPreserveHostAndPhysicalLayout()
     {
+        int unexpectedNotificationCount = 0;
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             string path = Path.GetTempFileName();
@@ -2902,7 +2927,7 @@ public sealed class PlaybackPanelViewModelTests
             var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = path }) } };
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
                 new InMemoryPlaybackSettingsStore { UsesBmiIdxView = true }, new FakePlaybackDialogService(),
-                _ => Assert.Fail("再生開始に失敗しました。"), new ChartFileOperationSynchronizer());
+                _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
             var view = new PlaybackPanelView { DataContext = panel };
             var window = new Window { Content = view, Width = 800d, Height = 400d, WindowStyle = WindowStyle.None };
             try
@@ -2988,6 +3013,7 @@ public sealed class PlaybackPanelViewModelTests
                 }
             }
         });
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>小型と利用不能player面を指定してViewを表示すると、最初から画像の小型最終値へ同期しanimation clockを残さないことを確認します。</summary>

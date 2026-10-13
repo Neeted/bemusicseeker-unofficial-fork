@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
 using ManagedBass;
@@ -313,7 +314,7 @@ internal sealed class AudioEncoderSession : IDisposable
         if (failure != null)
         {
             State = AudioEncoderSessionState.Faulted;
-            throw failure;
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
 
@@ -455,7 +456,7 @@ internal sealed class AudioEncoderSession : IDisposable
         if (State != AudioEncoderSessionState.Started || encoderHandle == 0)
         {
             State = AudioEncoderSessionState.Faulted;
-            throw PreserveOutputFailure(CreateException(AudioEncoderFailureStage.EncoderDied));
+            ExceptionDispatchInfo.Capture(PreserveOutputFailure(CreateException(AudioEncoderFailureStage.EncoderDied))).Throw();
         }
 
         ThrowPendingOutputFailure();
@@ -475,7 +476,7 @@ internal sealed class AudioEncoderSession : IDisposable
         if (active is not PlaybackState.Playing and not PlaybackState.Paused)
         {
             State = AudioEncoderSessionState.Faulted;
-            throw PreserveOutputFailure(CreateException(AudioEncoderFailureStage.EncoderDied, nativeError: activeError));
+            ExceptionDispatchInfo.Capture(PreserveOutputFailure(CreateException(AudioEncoderFailureStage.EncoderDied, nativeError: activeError))).Throw();
         }
 
         ThrowPendingOutputFailure();
@@ -660,7 +661,7 @@ internal sealed class AudioEncoderSession : IDisposable
         if (outputFailure != null)
         {
             State = AudioEncoderSessionState.Faulted;
-            throw outputFailure;
+            ExceptionDispatchInfo.Capture(outputFailure).Throw();
         }
 
         State = AudioEncoderSessionState.Stopped;
@@ -709,7 +710,7 @@ internal sealed class AudioEncoderSession : IDisposable
             if (processExit.IsUnresolved)
             {
                 State = AudioEncoderSessionState.Faulted;
-                throw processFailure;
+                ExceptionDispatchInfo.Capture(processFailure).Throw();
             }
         }
 

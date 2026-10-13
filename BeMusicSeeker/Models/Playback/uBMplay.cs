@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -416,7 +417,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             }
             if (playerFailure != null)
             {
-                throw playerFailure;
+                ExceptionDispatchInfo.Capture(playerFailure).Throw();
             }
         }
     }

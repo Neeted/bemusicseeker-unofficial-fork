@@ -29,6 +29,7 @@ public sealed class AudioContractsTests
     [DataRow(true)] // decoder解放を保持しscheduler再開故障を届ける。
     public async Task CompletionFailure_JoinsRealInputAndDecoderCleanupBeforeRuntimeFree(bool holdDecoderRelease)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-completion-input-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string firstPath = WritePlaybackChart(directory, "A.bms", 120, 50);
@@ -104,7 +105,7 @@ public sealed class AudioContractsTests
             await operation.Ready;
             await ObserveSignalOrFailureAsync(tickEntered.Task, operation.Completion);
             Assert.AreEqual(PlayState.Playing, active?.PlayState);
-            await ((INextSongPreloadPlayer)actual).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => Assert.Fail("予期しない先読み故障です。"));
+            await ((INextSongPreloadPlayer)actual).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
             await ObserveSignalOrFailureAsync(inputEntered.Task, operation.Completion);
             BassAudioSession session = active?.ResourceSession ?? throw new AssertFailedException("実playerが必要です。");
             session.PublishCallbackOutputHandle(session.MixerHandle);
@@ -156,6 +157,7 @@ public sealed class AudioContractsTests
             CaptureCleanup(failures, () => Directory.Delete(directory, true));
         }
         ThrowFailures(failures);
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>停止中に現曲故障と先読みfatalが重なっても両原因を保持し、実cleanup終端後に一回だけ通知する。</summary>
@@ -172,6 +174,7 @@ public sealed class AudioContractsTests
 
     private async Task VerifyOwnedPlaybackFailureNotificationAsync(bool backgroundOwnsFailure)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-owned-failure-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string firstPath = WritePlaybackChart(directory, "A.bms", 120, 50);
@@ -233,7 +236,7 @@ public sealed class AudioContractsTests
         testSettings.FolderSkipPlayMode = false;
         testSettings.SinglePlayMode = false;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => Assert.Fail("Valid chart failed."),
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
             new ChartFileOperationSynchronizer());
         Task start = panel.StartAtIndex(0);
         Task? stop = null;
@@ -311,6 +314,8 @@ public sealed class AudioContractsTests
             CaptureCleanup(failures, () => Directory.Delete(directory, true));
         }
         ThrowFailures(failures);
+        Assert.AreEqual(0, dialogs.TemporaryFilesRemainNotifications, "一時ファイルの残留通知を呼び出しません。");
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>イベント方式の変更後に通常Loadまたは準備済み採用で次曲へ進み、旧playerのStop終端と必要な先読み準備完了を待ち、次session自身の実callbackまでReadyと曲情報を公開しない。</summary>
@@ -322,6 +327,7 @@ public sealed class AudioContractsTests
     [DataRow(true, true)] // イベント→非イベント、準備済み採用。
     public async Task EventModeNextStart_LoadAndPreparedAdoptionWaitForOwnRealCallback(bool originalEventMode, bool usePreload)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-event-next-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         SampleRate previousFrequency = BassAudioPlayer.Frequency;
@@ -389,7 +395,7 @@ public sealed class AudioContractsTests
             Assert.AreSame(physicalRuntime.Initialize(original), physicalRuntime.Initialize(original));
             if (usePreload)
             {
-                await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => Assert.Fail("予期しない先読み故障です。"));
+                await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
                 await preparationEntered.Task;
             }
             testSettings.PlayerWASAPIParam = !originalEventMode;
@@ -443,6 +449,7 @@ public sealed class AudioContractsTests
             BassAudioPlayer.Frequency = previousFrequency;
             Directory.Delete(directory, true);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>初回出力期限を過ぎた開始は元の期限・cleanup失敗を両方保持し、共有観測や遅延callbackで開始を再開しない。</summary>
@@ -553,6 +560,7 @@ public sealed class AudioContractsTests
     [DataRow(true)]
     public async Task PreloadFatal_CloseJoinsPreparationAndNotifiesOnceWithIndependentCleanupFailure(bool failCleanup)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-preload-fatal-close-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string firstPath = WritePlaybackChart(directory, "first.bms", 120, 50);
@@ -584,7 +592,7 @@ public sealed class AudioContractsTests
         testSettings.FolderSkipPlayMode = false;
         testSettings.SinglePlayMode = false;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => Assert.Fail("Valid chart failed."), new ChartFileOperationSynchronizer());
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
         try
         {
             await panel.StartAtIndex(0);
@@ -612,6 +620,8 @@ public sealed class AudioContractsTests
             catch (Exception failure) when (ReferenceEquals(failure, cleanupFailure)) { }
             Directory.Delete(directory, recursive: true);
         }
+        Assert.AreEqual(0, dialogs.TemporaryFilesRemainNotifications, "一時ファイルの残留通知を呼び出しません。");
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>手動・自然終了・準備保留の各切替を先読み有無で測定し、次曲の解析と復号を重複させず一回ずつ行う。</summary>
@@ -620,6 +630,7 @@ public sealed class AudioContractsTests
     [TestCategory("Performance")]
     public async Task PredecodeSwitchMeasurement()
     {
+        int unexpectedNotificationCount = 0;
         SampleRate previousFrequency = BassAudioPlayer.Frequency;
         string directory = Path.Combine(Path.GetTempPath(), "bms-predecode-measure-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -698,7 +709,7 @@ public sealed class AudioContractsTests
                             await first.Ready;
                             if (usePreload)
                             {
-                                await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => Assert.Fail("予期しない先読み故障です。"));
+                                await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
                                 await preparationEntered.Task;
                                 if (route != "pending") { await preparationFinished.Task; }
                             }
@@ -733,6 +744,7 @@ public sealed class AudioContractsTests
             BassAudioPlayer.Frequency = previousFrequency;
             Directory.Delete(directory, recursive: true);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>旧playerのStopと一致先読み準備のどちらを先に終えても、Stop終端と準備完了が揃うまで次出力を初期化せず準備を再実行・取消しない。</summary>
@@ -742,6 +754,7 @@ public sealed class AudioContractsTests
     [DataRow(false)]
     public async Task InternalSwitch_WaitsForSourceReleaseAndMatchingPreparation(bool releaseFirst)
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "bms-switch-join-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string firstPath = WritePlaybackChart(directory, "first.bms", 400, 50);
@@ -788,7 +801,7 @@ public sealed class AudioContractsTests
         try
         {
             await first.Ready;
-            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => Assert.Fail("予期しない先読み故障です。"));
+            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
             await preparationEntered.Task;
             next = player.BeginStart(nextPath, null, allowPreload: true);
             await Task.WhenAny(releaseEntered.Task, next.Ready);
@@ -828,12 +841,15 @@ public sealed class AudioContractsTests
             BassAudioRuntime.Shutdown();
             Directory.Delete(directory, recursive: true);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
-    /// <summary>Closeは準備取消の通知だけでFreeせず準備cleanupへ合流し、現曲DisposeとFreeの独立失敗も欠落なく返す。</summary>
+    /// <summary>Closeは準備取消の通知だけでFreeせず準備cleanupへ合流し、表示通知の失敗とnative回収を分け、現曲DisposeとFreeの実失敗を保持します。安全なclose後の次要求も受理します。</summary>
     [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task InternalClose_WaitsForCancelledPreparationCleanupBeforeFree(bool failCleanup)
+    [DataRow(false, false)] // 正常な回収と次の明示開始。
+    [DataRow(false, true)] // 表示通知の故障だけなら回収・次開始を維持。
+    [DataRow(true, false)] // 実native回収の独立失敗を保持。
+    [DataRow(true, true)] // 通知故障が重なっても実native回収の失敗を保持。
+    public async Task InternalClose_WaitsForCancelledPreparationCleanupBeforeFree(bool failCleanup, bool failNotification)
     {
         string directory = Path.Combine(Path.GetTempPath(), "bms-close-preload-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -850,8 +866,15 @@ public sealed class AudioContractsTests
             InitializeResult = CreatePlaybackInitializationResult(),
             FreeException = failCleanup ? freeFailure : null
         };
+        int factoryCalls = 0;
+        int notificationFailures = 0;
+        Exception? preloadFailure = null;
         var player = new InternalBMSAutoPlayerSoundOnly(new SettingsPlayerSettingsGateway(() => testSettings), runtime,
-            autoPlayerFactory: path => new DisposeObservedBmsAutoPlayer(new Ribbit.BMS.BMSFile(path), events, failCleanup ? disposeFailure : null),
+            autoPlayerFactory: path =>
+            {
+                Interlocked.Increment(ref factoryCalls);
+                return new DisposeObservedBmsAutoPlayer(new Ribbit.BMS.BMSFile(path), events, failCleanup ? disposeFailure : null);
+            },
             songPreparation: (_, token) =>
             {
                 entered.SetResult();
@@ -861,15 +884,28 @@ public sealed class AudioContractsTests
                 token.ThrowIfCancellationRequested();
                 throw new AssertFailedException("Cancellation must end preparation.");
             });
+        System.ComponentModel.PropertyChangedEventHandler observer = (_, args) =>
+        {
+            if (failNotification && args.PropertyName == nameof(player.Duration) && player.Duration == TimeSpan.MinValue)
+            {
+                Interlocked.Increment(ref notificationFailures);
+                throw new InvalidOperationException("close presentation observer failed");
+            }
+        };
+        PlaybackStartOperation? next = null;
         PlaybackStartOperation first = player.BeginStart(firstPath, null, allowPreload: true);
         Task? close = null;
         try
         {
             await first.Ready;
-            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), _ => Assert.Fail("予期しない先読み故障です。"));
+            Assert.AreNotEqual(TimeSpan.MinValue, player.Duration);
+            player.PropertyChanged += observer;
+            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(nextPath), failure => preloadFailure = failure);
             await entered.Task;
             close = player.CloseAsync();
-            await cancelled.Task;
+            await Task.WhenAny(cancelled.Task, close);
+            if (!cancelled.Task.IsCompleted) { await close; }
+            Assert.IsTrue(cancelled.Task.IsCompleted, "停止処理が準備取消より先に終わりました。");
             Assert.IsFalse(close.IsCompleted);
             Assert.IsFalse(events.Contains("free"));
             cleanup.Set();
@@ -886,14 +922,41 @@ public sealed class AudioContractsTests
             else { await close; }
             Assert.AreEqual(1, events.Count(value => value == "dispose"));
             Assert.AreEqual(1, events.Count(value => value == "free"));
+            Assert.AreEqual(failNotification ? 1 : 0, Volatile.Read(ref notificationFailures));
+            Assert.AreEqual(TimeSpan.MinValue, player.CurrentTime, "通知故障があっても旧player参照を解除します。");
+            Assert.IsNull(preloadFailure);
+            if (!failCleanup)
+            {
+                next = player.BeginStart(nextPath, null, allowPreload: false);
+                await next.Ready;
+                Assert.AreEqual(2, Volatile.Read(ref factoryCalls));
+            }
         }
         finally
         {
             cleanup.Set();
-            try { await (close ?? player.CloseAsync()); }
-            catch (Exception) when (failCleanup) { }
-            try { await first.Completion; } catch (OperationCanceledException) { }
-            Directory.Delete(directory, recursive: true);
+            player.PropertyChanged -= observer;
+            try
+            {
+                try { await (close ?? player.CloseAsync()); }
+                catch (Exception) when (failCleanup) { }
+            }
+            finally
+            {
+                try
+                {
+                    if (next != null)
+                    {
+                        try { await player.CloseAsync(); }
+                        finally { try { await next.Completion; } catch (OperationCanceledException) { } }
+                    }
+                }
+                finally
+                {
+                    try { try { await first.Completion; } catch (OperationCanceledException) { } }
+                    finally { Directory.Delete(directory, recursive: true); }
+                }
+            }
         }
     }
 
@@ -1322,6 +1385,7 @@ public sealed class AudioContractsTests
     [TestMethod]
     public async Task InternalPlayer_LateCancelledStartDoesNotCloseTheReplacementSong()
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         string oldPath = WritePlaybackChart(directory, "old.bms", bpm: 400, measure: 50);
@@ -1368,7 +1432,7 @@ public sealed class AudioContractsTests
             Assert.IsTrue(player.Duration > TimeSpan.Zero);
             await ObserveSignalOrFailureAsync(oldTerminal.Task, newOperation.Completion);
             Assert.IsFalse(oldOperation.Completion.IsCompleted, "旧故障の配送だけをTask境界で遅延します。");
-            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(candidatePath), _ => Assert.Fail("予期しない先読み故障です。"));
+            await ((INextSongPreloadPlayer)player).PrepareNextAsync(NextSongPreloadInput.Capture(candidatePath), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
             await ObserveSignalOrFailureAsync(prepareEntered.Task, newOperation.Completion);
             oldDelivery.TrySetResult();
 
@@ -1402,6 +1466,7 @@ public sealed class AudioContractsTests
         CaptureCleanup(failures, player.CloseProcess);
         CaptureCleanup(failures, () => Directory.Delete(directory, recursive: true));
         ThrowFailures(failures);
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>出力条件を変更した次曲では旧停止・source解放・session解放を先行し、表示リセットを旧曲へのseekにせず新要求を初期化する。</summary>
@@ -2280,8 +2345,13 @@ public sealed class AudioContractsTests
     {
         internal TaskCompletionSource<Exception> Failure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal int Notifications { get; private set; }
+        internal int TemporaryFilesRemainNotifications { get; private set; }
         public bool ConfirmTemporaryInstallPlayback() => throw new AssertFailedException("Temporary copy is outside this input.");
-        public Task NotifyTemporaryFilesRemainAsync(string directory) => throw new AssertFailedException("一時コピーの残留通知は対象外です。");
+        public Task NotifyTemporaryFilesRemainAsync(string directory)
+        {
+            TemporaryFilesRemainNotifications++;
+            return Task.CompletedTask;
+        }
         public void NotifyPlaybackFailure(Exception exception)
         {
             Notifications++;

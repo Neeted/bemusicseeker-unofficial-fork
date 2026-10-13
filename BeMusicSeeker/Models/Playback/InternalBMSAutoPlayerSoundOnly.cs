@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.BMS;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models;
 
@@ -42,6 +43,8 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     private Action<object, EventArgs> _onExitEvent;
 
     private bool _playbackTaskCompletedSuccessfully;
+
+    private int propertyNotificationFailureReported;
 
     private bool _fastForwarding;
 
@@ -123,7 +126,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (!(_StopTime == value))
             {
                 _StopTime = value;
-                RaisePropertyChanged("StopTime");
+                NotifyPropertyChangedBestEffort(nameof(StopTime));
             }
         }
     }
@@ -139,7 +142,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (!(_BmsDuration == value))
             {
                 _BmsDuration = value;
-                RaisePropertyChanged("BmsDuration");
+                NotifyPropertyChangedBestEffort(nameof(BmsDuration));
             }
         }
     }
@@ -155,7 +158,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (!(_MusicDuration == value))
             {
                 _MusicDuration = value;
-                RaisePropertyChanged("MusicDuration");
+                NotifyPropertyChangedBestEffort(nameof(MusicDuration));
             }
         }
     }
@@ -171,7 +174,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_CurrentVoices != value)
             {
                 _CurrentVoices = value;
-                RaisePropertyChanged("CurrentVoices");
+                NotifyPropertyChangedBestEffort(nameof(CurrentVoices));
             }
         }
     }
@@ -187,7 +190,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_MaxVoices != value)
             {
                 _MaxVoices = value;
-                RaisePropertyChanged("MaxVoices");
+                NotifyPropertyChangedBestEffort(nameof(MaxVoices));
             }
         }
     }
@@ -203,7 +206,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_NoteDensity != value)
             {
                 _NoteDensity = value;
-                RaisePropertyChanged("NoteDensity");
+                NotifyPropertyChangedBestEffort(nameof(NoteDensity));
             }
         }
     }
@@ -219,7 +222,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_NoteDensityMax != value)
             {
                 _NoteDensityMax = value;
-                RaisePropertyChanged("NoteDensityMax");
+                NotifyPropertyChangedBestEffort(nameof(NoteDensityMax));
             }
         }
     }
@@ -235,7 +238,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_Bpm != value)
             {
                 _Bpm = value;
-                RaisePropertyChanged("Bpm");
+                NotifyPropertyChangedBestEffort(nameof(Bpm));
             }
         }
     }
@@ -251,7 +254,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_MinBpm != value)
             {
                 _MinBpm = value;
-                RaisePropertyChanged("MinBpm");
+                NotifyPropertyChangedBestEffort(nameof(MinBpm));
             }
         }
     }
@@ -267,7 +270,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_MaxBpm != value)
             {
                 _MaxBpm = value;
-                RaisePropertyChanged("MaxBpm");
+                NotifyPropertyChangedBestEffort(nameof(MaxBpm));
             }
         }
     }
@@ -283,7 +286,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_Total != value)
             {
                 _Total = value;
-                RaisePropertyChanged("Total");
+                NotifyPropertyChangedBestEffort(nameof(Total));
             }
         }
     }
@@ -299,7 +302,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_Combo != value)
             {
                 _Combo = value;
-                RaisePropertyChanged("Combo");
+                NotifyPropertyChangedBestEffort(nameof(Combo));
             }
         }
     }
@@ -315,7 +318,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_Notes != value)
             {
                 _Notes = value;
-                RaisePropertyChanged("Notes");
+                NotifyPropertyChangedBestEffort(nameof(Notes));
             }
         }
     }
@@ -331,7 +334,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_Measure != value)
             {
                 _Measure = value;
-                RaisePropertyChanged("Measure");
+                NotifyPropertyChangedBestEffort(nameof(Measure));
             }
         }
     }
@@ -347,7 +350,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (_LastMeasure != value)
             {
                 _LastMeasure = value;
-                RaisePropertyChanged("LastMeasure");
+                NotifyPropertyChangedBestEffort(nameof(LastMeasure));
             }
         }
     }
@@ -375,11 +378,12 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
             if (!(_duration == value))
             {
                 _duration = value;
-                RaisePropertyChanged("Duration");
+                NotifyPropertyChangedBestEffort(nameof(Duration));
             }
         }
     }
 
+    /// <summary>現曲の再生位置です。現曲がなければ変更せず、seekの実故障はplayerの演奏Task終端と局所診断へ渡します。</summary>
     public TimeSpan CurrentTime
     {
         get
@@ -388,30 +392,44 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         }
         set
         {
+            BMSAutoPlayer player = _player;
+            if (player == null) { return; }
             try
             {
-                if (!(_player.CurrentTime == value))
+                if (player.CurrentTime != value)
                 {
-                    _player.CurrentTime = value;
-                    RaisePropertyChanged(nameof(CurrentTime));
+                    player.CurrentTime = value;
+                    NotifyPropertyChangedBestEffort(nameof(CurrentTime));
                 }
             }
-            catch
+            catch (Exception failure)
             {
+                // native seekの故障はplayer自身の出力故障・演奏Task終端へ渡されています。
+                // ここで表示用に再送出せず、元のseek原因を局所診断します。
+                LogPlaybackDiagnostic(failure, "seek");
             }
         }
     }
 
-    private void NotifyCurrentTimeChanged()
+    private void NotifyCurrentTimeChanged() => NotifyPropertyChangedBestEffort(nameof(CurrentTime));
+
+    private void NotifyPropertyChangedBestEffort(string propertyName)
     {
-        try
+        try { RaisePropertyChanged(propertyName); }
+        catch (Exception failure)
         {
-            RaisePropertyChanged(nameof(CurrentTime));
+            // 40ms周期の表示で同じ購読先故障を同期記録し続けないよう、開始要求ごとに一度だけ診断します。
+            if (Interlocked.Exchange(ref propertyNotificationFailureReported, 1) == 0)
+            {
+                LogPlaybackDiagnostic(failure, "property_changed property=" + propertyName);
+            }
         }
-        catch
-        {
-            // 表示通知の例外は、CurrentTime setterと同じく再生制御へ伝えません。
-        }
+    }
+
+    private static void LogPlaybackDiagnostic(Exception failure, string stage)
+    {
+        try { NLogWrapper.FileLogger?.Warn(failure, "internal_player_failed stage=" + stage); }
+        catch { /* 任意診断の失敗は再生結果・native解放を変更しません。 */ }
     }
 
     private Action CreatePlaybackThreadAction()
@@ -460,7 +478,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                             num2 = 5;
                             timeSpan = elapsed;
                         }
-                        RaisePropertyChanged(() => CurrentTime);
+                        NotifyPropertyChangedBestEffort(nameof(CurrentTime));
                         StopTime = _player.StopTime;
                         CurrentVoices = audioPlaybackRuntime.CurrentVoices;
                         MaxVoices = audioPlaybackRuntime.MaxVoices;
@@ -508,7 +526,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         CloseAsync().GetAwaiter().GetResult();
     }
 
-    /// <summary>先読みの後片付けと旧曲の停止を待ってからruntimeを解放します。</summary>
+    /// <summary>先読みと旧曲の停止を待ち、表示通知の成否によらずplayerとruntimeの解放を試みます。実解放の故障は保持して返します。</summary>
     public async Task CloseAsync()
     {
         await startStopGate.WaitAsync().ConfigureAwait(false);
@@ -566,6 +584,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
     private void CloseProcessCore(BMSAutoPlayer expectedPlayer)
     {
         BMSAutoPlayer releasedPlayer;
+        Exception cleanupFailure = null;
         lock (_sharedObjectLock)
         {
             if (expectedPlayer != null && !ReferenceEquals(_player, expectedPlayer))
@@ -573,39 +592,48 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
                 return;
             }
 
-            Duration = TimeSpan.MinValue;
-            NotifyCurrentTimeChanged();
-            _playbackTaskCompletedSuccessfully = false;
-            StopTime = _player?.StopTime ?? TimeSpan.Zero;
-            CurrentVoices = 0;
-            audioPlaybackRuntime.ClearMaxVoices();
-            MaxVoices = audioPlaybackRuntime.MaxVoices;
-            NoteDensity = (int)(_player?.NoteDensity ?? 0.0);
-            NoteDensityMax = (int)(_player?.NoteDensityMax ?? 0.0);
-            Bpm = (int)(_player?.Chart.DisplayBpm ?? 0.0);
-            MinBpm = (int)(_player?.Chart.DisplayMinBpm ?? 0.0);
-            MaxBpm = (int)(_player?.Chart.DisplayMaxBpm ?? 0.0);
-            Total = _player?.Chart.Total ?? 0.0;
-            Combo = _player?.Combo ?? 0;
-            Notes = _player?.Chart.TotalNoteCount ?? 0;
-            Measure = _player?.CurrentMeasure ?? 0;
-            LastMeasure = _player?.Chart.LastMeasure ?? 0;
             releasedPlayer = _player;
             _player = null;
+            _playbackTaskCompletedSuccessfully = false;
             _fastForwarding = false;
             _fastBackwarding = false;
+            try
+            {
+                Duration = TimeSpan.MinValue;
+                NotifyCurrentTimeChanged();
+                StopTime = releasedPlayer?.StopTime ?? TimeSpan.Zero;
+                CurrentVoices = 0;
+                audioPlaybackRuntime.ClearMaxVoices();
+                MaxVoices = audioPlaybackRuntime.MaxVoices;
+                NoteDensity = (int)(releasedPlayer?.NoteDensity ?? 0.0);
+                NoteDensityMax = (int)(releasedPlayer?.NoteDensityMax ?? 0.0);
+                Bpm = (int)(releasedPlayer?.Chart.DisplayBpm ?? 0.0);
+                MinBpm = (int)(releasedPlayer?.Chart.DisplayMinBpm ?? 0.0);
+                MaxBpm = (int)(releasedPlayer?.Chart.DisplayMaxBpm ?? 0.0);
+                Total = releasedPlayer?.Chart.Total ?? 0.0;
+                Combo = releasedPlayer?.Combo ?? 0;
+                Notes = releasedPlayer?.Chart.TotalNoteCount ?? 0;
+                Measure = releasedPlayer?.CurrentMeasure ?? 0;
+                LastMeasure = releasedPlayer?.Chart.LastMeasure ?? 0;
+            }
+            catch (Exception failure)
+            {
+                // 通知は各setterで隔離済みです。実runtime・状態取得の失敗でも必要な解放を放棄しません。
+                cleanupFailure = failure;
+            }
         }
         // 停止合流は表示monitor外で行い、再生終了側の状態確認を妨げません。
-        Exception disposalFailure = null;
         try { releasedPlayer?.Dispose(); }
-        catch (Exception failure) { disposalFailure = failure; }
+        catch (Exception failure)
+        {
+            cleanupFailure = cleanupFailure == null ? failure : new AggregateException(cleanupFailure, failure);
+        }
         try { audioPlaybackRuntime.Free(); }
         catch (Exception failure)
         {
-            if (disposalFailure != null) { throw new AggregateException(disposalFailure, failure); }
-            throw;
+            cleanupFailure = cleanupFailure == null ? failure : new AggregateException(cleanupFailure, failure);
         }
-        if (disposalFailure != null) { ExceptionDispatchInfo.Capture(disposalFailure).Throw(); }
+        if (cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }
     }
 
     public void DecreaseHighSpeed()
@@ -696,6 +724,7 @@ public class InternalBMSAutoPlayerSoundOnly : ObservableObject, IBMSPlayer, INot
         await startStopGate.WaitAsync().ConfigureAwait(false);
         try
         {
+            Interlocked.Exchange(ref propertyNotificationFailureReported, 0);
             if (!LongPathFileSystem.FileExists(bmsFilePath))
             {
                 throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_BmsFileNotFound, bmsFilePath);
