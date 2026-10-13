@@ -476,6 +476,56 @@ public sealed class CatalogMutationOwnerTests
         }
     }
 
+    /// <summary>通常フォルダ（type=1）の保存中に実RAISE(ROLLBACK)で保存点が失効しても元SQLite失敗と未変更DB/現在値を保持し、接続解放後の次の明示保存が成功する。</summary>
+    /// <remarks>既存CatalogMutationOwnerの専用短命接続と実folder writerを通す。共有transaction状態やprivate counterを改変せず、失効savepointを共有状態不整合に格上げしない。</remarks>
+    [TestMethod]
+    public void ApplyLr2NormalFolderSync_RaiseRollbackKeepsPrimaryFailureAndAllowsNextExplicitSave()
+    {
+        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        string root = Path.Combine(scope.DirectoryPath, "FolderRollback");
+        Directory.CreateDirectory(root);
+        string folderPath = Lr2SongDbSyncTestSupport.ToFolderPath(root);
+        string folderInfoPath = Path.Combine(root, "folderinfo.txt");
+        File.WriteAllText(folderInfoPath, "#TITLE next explicit folder\r\n");
+        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        {
+            setup.CreateTable<LR2SongDB.folder>();
+            setup.InsertOrReplace(new LR2SongDB.folder { path = folderPath, type = 1, title = "durable folder", date = 1 }, typeof(LR2SongDB.folder));
+            setup.Execute("CREATE TRIGGER folder_force_rollback BEFORE INSERT ON folder"
+                + " WHEN NEW.path = '" + folderPath.Replace("'", "''") + "'"
+                + " BEGIN SELECT RAISE(ROLLBACK, 'forced folder rollback'); END;");
+        }
+        var rows = new CatalogOwnedCollectionOwner();
+        ChartFile chart = CreateBms("retained.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        CatalogChartCollectionSnapshot snapshot = rows.ReplaceChartsAndCaptureSnapshot([chart], []);
+        rows.ApplyBuiltCollection(OwnedChartCollectionState.FromCharts([chart]));
+        var owner = new CatalogMutationOwner(rows, new BmsLibraryDbGateway(scope.SongDbPath));
+        var request = new Lr2NormalFolderDbSyncRequest
+        {
+            RootDirectories = [root],
+            DirectoryPaths = [root],
+            FolderInfoFilePaths = [folderInfoPath],
+            DirectoryLastWriteTimeUtcResolver = _ => new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
+        };
+        SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyLr2NormalFolderSync(request));
+        Assert.AreEqual(SQLite.SQLite3.Result.Constraint, failure.Result);
+        StringAssert.Contains(failure.Message, "forced folder rollback");
+        Assert.AreEqual(snapshot.OwnedCollectionVersion, rows.OwnedCollectionVersion);
+        Assert.AreEqual(chart.Path, rows.BmsRows.Single().Path);
+        CollectionAssert.AreEqual(new[] { chart.Path }, rows.Collection.CreatePathSnapshot().ToArray());
+        using (LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+        {
+            Assert.AreEqual("durable folder", readback.ExecuteScalar<string>("SELECT title FROM folder WHERE path = ?;", folderPath));
+            Assert.AreEqual(1, readback.Table<LR2SongDB.folder>().Count());
+        }
+        using (var setup = new LR2SongDBExtended(scope.SongDbPath)) { setup.Execute("DROP TRIGGER folder_force_rollback;"); }
+        Lr2NormalFolderDbSyncResult result = owner.ApplyLr2NormalFolderSync(request);
+        Assert.AreEqual(1, result.UpsertedCount);
+        using LR2SongDBExtended finalReadback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        Assert.AreEqual("next explicit folder", finalReadback.ExecuteScalar<string>("SELECT title FROM folder WHERE path = ?;", folderPath));
+        Assert.AreEqual(snapshot.OwnedCollectionVersion, rows.OwnedCollectionVersion);
+    }
+
     /// <summary>
     /// 移転後の削除がDB例外になれば一括変更をrollbackし、旧行と削除対象を残して現在値・集合世代を進めない。
     /// </summary>

@@ -83,6 +83,9 @@ public sealed class SQLiteProviderRuntimeTests
             StringAssert.Contains(failure!.Message, "sqlite3_step");
             StringAssert.Contains(failure.Message, "19");
             StringAssert.Contains(failure.Message, "deterministic step failure");
+            connection.Execute("DROP TRIGGER raw_probe_abort;");
+            connection.Execute("INSERT INTO raw_probe (text_value) VALUES ('next explicit');");
+            Assert.AreEqual("next explicit", connection.ExecuteScalar<string>("SELECT text_value FROM raw_probe;"));
         }
         finally
         {
@@ -123,6 +126,42 @@ public sealed class SQLiteProviderRuntimeTests
         {
             DeleteTemporaryDatabase(databasePath);
         }
+    }
+
+    /// <summary>DELETE journalの実commit Busyを失敗として返し、読取り解除後に未確定行が残らず次の明示transactionが成功する。commitの再呼出しによる偽成功を検出する。</summary>
+    [TestMethod]
+    public void SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges()
+    {
+        string databasePath = CreateTemporaryDatabasePath("CommitBusy");
+        try
+        {
+            using var writer = new SQLiteConnectionEx(databasePath);
+            Assert.AreEqual("delete", writer.ExecuteScalar<string>("PRAGMA journal_mode=DELETE;"));
+            writer.BusyTimeout = TimeSpan.Zero;
+            writer.Execute("CREATE TABLE commit_probe (id INTEGER PRIMARY KEY, value TEXT);");
+            writer.Execute("INSERT INTO commit_probe VALUES (1, 'prefix');");
+            using (var reader = new SQLiteConnectionEx(databasePath, SQLite.SQLiteOpenFlags.ReadOnly))
+            {
+                reader.BeginTransaction();
+                try
+                {
+                    Assert.AreEqual("prefix", reader.ExecuteScalar<string>("SELECT value FROM commit_probe WHERE id = 1;"));
+                    writer.BeginTransaction();
+                    writer.Execute("INSERT INTO commit_probe VALUES (2, 'uncommitted');");
+                    SQLite.SQLiteException failure = Assert.ThrowsException<SQLite.SQLiteException>(writer.Commit);
+                    Assert.AreEqual(SQLite.SQLite3.Result.Busy, failure.Result);
+                }
+                finally { reader.Rollback(); }
+            }
+            Assert.AreEqual(1, writer.ExecuteScalar<int>("SELECT COUNT(*) FROM commit_probe;"));
+            Assert.AreEqual("prefix", writer.ExecuteScalar<string>("SELECT value FROM commit_probe WHERE id = 1;"));
+            writer.BeginTransaction();
+            writer.Execute("INSERT INTO commit_probe VALUES (3, 'next explicit');");
+            writer.Commit();
+            Assert.AreEqual("next explicit", writer.ExecuteScalar<string>("SELECT value FROM commit_probe WHERE id = 3;"));
+            Assert.AreEqual(0, writer.ExecuteScalar<int>("SELECT COUNT(*) FROM commit_probe WHERE id = 2;"));
+        }
+        finally { DeleteTemporaryDatabase(databasePath); }
     }
 
     private static string CreateTemporaryDatabasePath(string name)

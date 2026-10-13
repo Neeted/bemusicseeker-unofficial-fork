@@ -440,7 +440,8 @@ public partial class BMSLibrary : ObservableObject
     {
         if (installPerformanceLoggingEnabled)
         {
-            installPerformanceLogger.Info(message);
+            try { installPerformanceLogger.Info(message); }
+            catch { /* 任意の性能記録で本体の保存・終端を中断しません。 */ }
         }
     }
 
@@ -448,7 +449,8 @@ public partial class BMSLibrary : ObservableObject
     {
         if (installPerformanceLoggingEnabled)
         {
-            installPerformanceLogger.Warn(message);
+            try { installPerformanceLogger.Warn(message); }
+            catch { /* 診断出力の失敗で元の操作失敗を置換しません。 */ }
         }
     }
 

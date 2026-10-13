@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -88,7 +89,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
         }
     }
 
-    /// <summary>受理済み操作の設定で実同期し、状態保存・後片付け後に失敗と取消を伝播します。受付は呼出し元が保持します。</summary>
+    /// <summary>受理済み操作の設定で実同期し、状態保存・後片付け後に失敗と取消を伝播します。必須投影を一度試み、所有token確認後に完了を保存します。同時終了でも投影故障はFailedに残します。受付は呼出し元が保持します。</summary>
     /// <param name="options">署名と準備から継続して渡す変更不能設定。</param>
     internal static void Run(
         BMSLibrary.Lr2SynchronizationOwner host,
@@ -108,30 +109,41 @@ internal static class Lr2SongDbSyncRequestCoordinator
         var committedCompatibilityFacts = new List<ResourceHealthMaintenanceSnapshot>();
         object committedCompatibilityFactsGate = new();
         var changedChartInfoMd5s = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool compatibilityProjectionCompleted = false;
+        bool compatibilityProjectionAttempted = false;
+        Exception compatibilityProjectionFailure = null;
         Dictionary<string, ChartFile> compatibilityProjectionIndex = null;
         Action applyCommittedCompatibilityProjection = () =>
         {
-            if (compatibilityProjectionCompleted)
+            if (compatibilityProjectionAttempted)
             {
                 return;
             }
 
+            compatibilityProjectionAttempted = true;
             List<ResourceHealthMaintenanceSnapshot> compatibilityFactsSnapshot;
             lock (committedCompatibilityFactsGate)
             {
                 compatibilityFactsSnapshot = [.. committedCompatibilityFacts];
             }
-            if (compatibilityFactsSnapshot.Count > 0)
+            try
             {
-                projectedCompatibilityWarningCount = host.ApplyLr2SongDbSyncCompatibilityProjection(
-                    compatibilityFactsSnapshot,
-                    reason,
-                    compatibilityProjectionIndex,
-                    logSummary: false,
-                    dispatchPresentation: false);
+                if (compatibilityFactsSnapshot.Count > 0)
+                {
+                    projectedCompatibilityWarningCount = host.ApplyLr2SongDbSyncCompatibilityProjection(
+                        compatibilityFactsSnapshot,
+                        reason,
+                        compatibilityProjectionIndex,
+                        logSummary: false,
+                        dispatchPresentation: false);
+                }
             }
-            compatibilityProjectionCompleted = true;
+            catch (Exception projectionException)
+            {
+                compatibilityProjectionFailure = projectionException is OperationCanceledException
+                    ? new InvalidOperationException("A required LR2 compatibility projection failed.", projectionException)
+                    : projectionException;
+                ExceptionDispatchInfo.Capture(compatibilityProjectionFailure).Throw();
+            }
         };
 
         try
@@ -239,8 +251,28 @@ internal static class Lr2SongDbSyncRequestCoordinator
                 LogInstallPerformance = host.LogInstallPerformance
             });
             applyCommittedCompatibilityProjection();
-            stopwatch.Stop();
             bool completed = string.Equals(result.FinalStage, Lr2SongDbSyncService.CompletedStage, StringComparison.Ordinal);
+            if (completed)
+            {
+                // 生成側の保守writerを解放してから必須投影を終え、所有取消を確認して実完了を保存します。
+                host.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+                {
+                    ProcessedCursor = result.ProcessedCount,
+                    TotalCount = result.TotalCount,
+                    Stage = "sync_state_saving"
+                });
+                cancellationToken.ThrowIfCancellationRequested();
+                host.MarkLr2SongDbSyncCompletedStatus(signature, runId, result.TotalCount);
+                host.UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+                {
+                    ProcessedCursor = result.TotalCount,
+                    TotalCount = result.TotalCount,
+                    Stage = Lr2SongDbSyncService.CompletedStage,
+                    StageProcessedCount = result.TotalCount,
+                    StageTotalCount = result.TotalCount
+                });
+            }
+            stopwatch.Stop();
             host.LogInstallPerformance("lr2_song_db_sync " + (completed ? "completed" : "incomplete")
                 + " reason=" + (reason ?? "unknown")
                 + " runId=" + runId
@@ -305,12 +337,19 @@ internal static class Lr2SongDbSyncRequestCoordinator
             catch (Exception projectionException)
             {
                 host.LogInstallPerformance("lr2_song_db_sync compatibility_projection_after_cancel_failed"
-                    + " reason=" + (reason ?? "unknown")
-                    + " exception=" + projectionException.GetType().Name
-                    + " message=" + projectionException.Message);
+                    + " reason=" + (reason ?? "unknown") + " " + projectionException
+                    + " original=" + cancellationException);
             }
             stopwatch.Stop();
             Lr2SongDbSyncRuntimeSnapshot runtimeSnapshot = host.GetLr2SongDbSyncRuntimeSnapshot();
+            if (compatibilityProjectionFailure != null)
+            {
+                host.RecordLr2SongDbSyncFailure(signature, runId, requestVersion,
+                    compatibilityProjectionFailure, runtimeSnapshot.Stage);
+                host.ReportStartupBackgroundTask("lr2_song_db_sync", "failed", stopwatch.ElapsedMilliseconds,
+                    failed: true, detail: compatibilityProjectionFailure.Message);
+                ExceptionDispatchInfo.Capture(compatibilityProjectionFailure).Throw();
+            }
             bool shutdownInterruption = host.IsShutdownRequested;
             if (shutdownInterruption)
             {
@@ -344,9 +383,8 @@ internal static class Lr2SongDbSyncRequestCoordinator
             catch (Exception projectionException)
             {
                 host.LogInstallPerformance("lr2_song_db_sync compatibility_projection_after_failure_failed"
-                    + " reason=" + (reason ?? "unknown")
-                    + " exception=" + projectionException.GetType().Name
-                    + " message=" + projectionException.Message);
+                    + " reason=" + (reason ?? "unknown") + " " + projectionException
+                    + " original=" + ex);
             }
             stopwatch.Stop();
             host.RecordLr2SongDbSyncFailure(signature, runId, requestVersion, ex, "failed");

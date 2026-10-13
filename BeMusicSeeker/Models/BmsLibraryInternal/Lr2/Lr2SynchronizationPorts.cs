@@ -96,10 +96,12 @@ internal sealed class Lr2SearchRootSnapshot
     internal int ConfiguredCustomOutputRootCount { get; }
 }
 
+/// <summary>LR2要求の実終端で保存する状態です。MarkCompletedは必須投影と所有token確認の成功後だけに使います。</summary>
 internal enum Lr2SongDbSyncStatusMutationKind
 {
     MarkIncomplete,
-    MarkFailed
+    MarkFailed,
+    MarkCompleted
 }
 
 internal sealed class Lr2SongDbSyncStatusMutationRequest

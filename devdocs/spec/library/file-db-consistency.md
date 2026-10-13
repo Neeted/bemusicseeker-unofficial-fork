@@ -46,9 +46,9 @@
 
 `SQLiteConnectionEx.Commit()` は基底の確定を一回だけ呼びます。`Busy` や `Locked` を再試行で隠しません。sqlite-netは確定失敗時に内部状態を変更して巻戻しを試みるため、二回目の `Commit` が何もせず成功したように見える経路を作りません。
 
-`BmsLibraryDbGateway.ExecuteSongDbTransaction` は、処理本体または確定の例外に対して元の保存点への巻戻しを一回試みます。巻戻しの失敗は診断へ分離し、元の例外とスタックを維持します。既に成功した別のトランザクションまで未実行に戻ったとは報告しません。
+`BmsLibraryDbGateway.ExecuteSongDbTransaction` は、処理本体または確定の例外に対して元の保存点への巻戻しを一回試みます。巻戻しの失敗は診断へ分離し、元の例外とスタックを維持します。既に成功した別のトランザクションまで未実行に戻ったとは報告しません。カタログの局所folder保存は専用短命接続を所有し、`RAISE(ROLLBACK)` 後の失効保存点への巻戻しエラーでも元SQLite原因を保って接続を解放します。失効保存点だけを根拠に共有状態不整合とは扱いません。
 
-既存のDML再試行、待機時間、スキーマ用接続の寿命を、汎用的な確定再試行へ拡張しません。ネイティブSQLを別経路で実行して接続の管理状態を飛び越える方法も使いません。
+既存のDML再試行、待機時間、スキーマ用接続の寿命を、汎用的な確定再試行へ拡張しません。確定の再実行や、接続の管理状態を無視した別経路の保存は行いません。LR2楽曲チャンクの既存直接SQL巻戻しは保存の再実行とは区別し、SQLiteの実終端を確認します。安全な巻戻しと未解決状態、確定後の必須反映は[LR2同期](../integration/lr2-song-db.md#楽曲チャンクの確定と必須反映)に従います。
 
 ### 局所的なファイル処理と補償
 
@@ -116,7 +116,7 @@ flowchart TB
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 原子的な単一ファイルの公開と失敗時の保全 | [`AtomicFileWriter`](../../../BeMusicSeeker/Models/Utils/FileOperations/AtomicFileWriter.cs) | [`AtomicFileWriterTests`](../../../BeMusicSeeker.Tests/FileOperations/AtomicFileWriterTests.cs) |
-| SQLiteの確定と巻戻し、元の例外の保持 | [`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs)、[`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs) |
+| SQLiteの確定と巻戻し、元の例外の保持 | [`SQLiteConnectionEx`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`SQLiteProviderRuntimeTests`](../../../BeMusicSeeker.Tests/Runtime/SQLiteProviderRuntimeTests.cs)、[`CatalogMutationOwnerTests`](../../../BeMusicSeeker.Tests/Catalog/CatalogMutationOwnerTests.cs)。`SQLiteConnectionEx_CommitBusyRemainsFailureAndRollsBackUncommittedChanges` はDELETE journalの読取transactionにより実Commit Busyを作り、失敗・未確定行不在・先行行保持・次の明示transactionを確認する。`ApplyLr2NormalFolderSync_RaiseRollbackKeepsPrimaryFailureAndAllowsNextExplicitSave` は実ROLLBACK triggerで元SQLite原因・未変更DBと現在値・接続解放後の次の明示保存を確認する。生値読取りのstep／finalizeと元原因は既存SQLiteケースが分担する。 |
 | 一時配置・バックアップ・一回限りの補償 | [`ResilientFileMutationService`](../../../BeMusicSeeker/Models/Utils/FileOperations/ResilientFileMutationService.cs) | [`ResilientFileMutationServiceTests`](../../../BeMusicSeeker.Tests/FileOperations/ResilientFileMutationServiceTests.cs) |
 | 導入と統合の型衝突、確定失敗、後片付け | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs)、[`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`BmsLibraryDuplicateServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) |
 | 異常結果の分類と解放後の表示 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../BeMusicSeeker.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs)、[`PackageInstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PackageInstallWorkflowOwnerTests.cs)、[`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs) の `DeleteAsync_ReportsCatalogFailureAfterReleaseAndRetainsFacts`（表示成功／例外）は、報告時の再受付、操作中表示の終了、元の結果の保持を確認する。通知ごとの分担は[変更操作の対応表](mutations.md#実装とテストの対応)を参照する。 |

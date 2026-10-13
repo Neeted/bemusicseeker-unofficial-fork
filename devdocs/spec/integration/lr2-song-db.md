@@ -56,6 +56,20 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 全入力の探索・取得・解析と必要な親行の構成が成功してから、一つのトランザクションでフォルダ表全体を置き換えます。不完全な入力や同順位の衝突では表を変更せず、`Incomplete` または `Failed` を返します。通常のプレイリスト・設定・譜面変更は、明示された局所範囲だけを同期します。
 
+### 楽曲チャンクの確定と必須反映
+
+楽曲行、`chart_info`、解析失敗と互換性事実、処理位置は同じ既存チャンクのトランザクションで一回だけ確定します。確定前の失敗はそのチャンクを巻き戻し、先行する確定済みチャンクと利用者列・処理位置を保持します。実確定後の索引・投影失敗でDBを巻き戻したり、処理位置を未確定の位置へ戻したりしません。
+
+`ChartInfoRowsCommitted`、`ChartInfoParseFailuresCommitted`、`Lr2CompatibilityFactsCommitted` は確定済み事実の必須引渡しです。一つが失敗しても同じチャンクの他の必要な引渡しを各一度試み、失敗原因とスタックを維持して同期を失敗させます。必須引渡し内部の取消例外を、同期所有の終了取消へ読み替えません。進捗、性能記録、背景報告と画面通知は任意であり、その失敗で確定結果や失敗保存・実要求終端を飛ばしません。
+
+楽曲行pipelineは先着した実故障を保持します。先着原因が所有取消だった場合だけ、後続の必須引渡しなどの実故障を優先し、通常の終了取消に隠しません。取消例外の所有資格は原因の記録時点で、例外のtokenが要求tokenまたはそのlinked pipeline tokenと一致し、要求tokenが取消済み、または所有者の実終了flagが成立している場合に限って確定します。例外型とtoken一致を先に確認し、該当しない実故障で終了flagの取得を行いません。後から要求が取消されても、無関係な取消例外や先着した実故障を再分類・置換しません。選択した原因にかかわらず全待機を直ちに停止し、開始済みreader・workerと完了continuationの実終端を待ってから状態保存と原因の返却を行います。非所有取消例外は全join・未解決巻戻しの優先判定・`Failed` 保存を試みた後にだけ、元messageと内部原因のtoken・stackを保った実失敗として返します。要求coordinatorの通常取消分岐へ渡さず、後発shutdownでも `Failed` を維持します。記録済みの所有取消は既存の要求token checkpointを通します。終了flagがtoken取消に先行してcheckpointが戻った場合も、全join後に実確定cursor・全体対象件数・`song_rows`・段階件数0/0を既存のguard付き進捗入口へ最後に渡してから、元OCEを返し、`Failed` 保存へ落としません。これにより古いworker進捗が確定位置を追い越さず、要求coordinatorの `Incomplete` 保存へ実確定位置を引き渡します。取消済みtokenの経路はcheckpoint内の通知と例外返却を使い、未解決巻戻しの経路はこの通知より先に失敗します。任意通知の故障で元OCEや確定DB結果を変えません。終了flagのない要求token取消は、従来どおり想定外取消を `Failed` として保存して要求token付きOCEを返します。それ以外の実故障の返却契約は変えません。
+
+巻戻しではSQLiteの実トランザクション終端を確認します。管理APIが失敗しても、既存の直接SQLによる巻戻しが成功した場合、またはSQLiteが既に巻戻している場合は、安全な取消完了として元操作の失敗・終了取消の区別を保持します。管理状態だけが解除されて実トランザクションが残る場合も直接巻戻しを試みます。実状態を確立できなければ元処理と両巻戻し原因を診断し、未解決の接続上へ状態保存を重ねず、所有接続の解放を含む実終端まで失敗として返します。終了要求の有無だけで正常な中断へ変換しません。
+
+`Lr2SongDbSyncService.Run` の `FinalStage == CompletedStage` は内部の生成成功だけを示し、永続状態は `Running` と実確定した処理位置、未設定の完了時刻を残します。生成側は全体の完了進捗も出しません。保守writerと所有接続を解放した後、既存要求coordinatorが必須終端投影を一度実行し、所有tokenの取消を確認してから、既存状態保存窓口の `MarkCompleted` で実完了を保存します。その保存成功後にだけ完了進捗と完了要求版を公開します。投影を生成側のcallbackへ移して保守writerと所持集合writerのロック順を逆転させません。
+
+要求の終端で確定互換性事実を投影するときは、試行済みと成功済みを区別し、失敗した投影をcatchから再実行しません。先行する詳細索引や一部互換性投影の成功を保持し、終了取消の後に必須投影が失敗した場合も `Failed` とします。元の実失敗に続く二次投影の失敗は両方を診断して元失敗を返します。実投影の成功後でも所有終了が先着すれば完了を保存せず `Incomplete` とします。失敗状態の保存自体が失敗しても元原因を置換せず、公開の `Running` を解除して実要求を終結します。保存先に `Running` が残る場合も未完了を維持し、未確定の完了で次回同期を省略しません。全体の再試行・巻戻しや新たな永続故障台帳は追加しません。
+
 ### カスタムフォルダの階層
 
 通常の `.lr2folder` は `type=2` です。特殊な種別は組込みフォルダだけに付け、`newsong.lr2folder` は3、`course1.lr2folder` から `course3.lr2folder` は6です。それ以外は本文に `#COMMAND` や `#TAG` があっても2です。
@@ -70,7 +84,7 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 同期状態は `lr2_song_db_sync_status` の `name=default` 行に保持します。状態、入力署名、実行識別子、処理位置、総数、段階、エラー、更新・完了時刻を記録します。状態には `NotNeeded`、`Needed`、`Running`、`Completed`、`Failed`、`Cancelled`、`Incomplete` があります。
 
-`Completed` は、完全な生成入力、フォルダ表の確定、楽曲の生成列更新、親L/P内で取得した入力の反映、状態の保存が成功したことを示します。同じ入力署名で完了済みなら全体同期を省略します。これは `chart_info` の存在・完全性・現行性の証明ではありません。譜面情報の補完は[譜面情報の管理](../library/chart-info.md)に従います。
+`Completed` は、完全な生成入力、フォルダ表の確定、楽曲の生成列更新、親L/P内で取得した入力の反映、必須詳細索引・互換性投影、状態の保存が成功したことを示します。同じ入力署名で完了済みなら全体同期を省略します。これは `chart_info` の存在・完全性・現行性の証明ではありません。譜面情報の補完は[譜面情報の管理](../library/chart-info.md)に従います。
 
 通常起動ではローカル必須出力の成功後、既存状態・署名で必要な全体同期を同じ親L/Pで直接待ちます。正常・失敗・中断とcleanupの実終端後に親受付を解放します。ローカル失敗では同期へ進まず、LR2だけの通常失敗ではローカル確定を維持し独立結果・永続記録・通知へ残します。親L/P解放後の必須UIと実host接続が成功してから通常・設定共通の終端で解禁し、同期失敗をUI成功の証明にもUI失敗の取消にも読み替えません。同期の失敗を上位のローカル準備成功へ混ぜず、進捗バーの再試行ボタンは設けません。設定画面の手動同期と次回起動は新しい入力を取得します。
 
@@ -135,6 +149,8 @@ sequenceDiagram
 
 ディレクトリ比較とDBの完全一致キーを区別します。通常の局所変更で全BMSの列挙・整列・全祖先索引の再構築を行いません。全体同期では一回の完全なフォルダ生成と確定を行い、楽曲行の所属は変更しません。探索が不完全なら広範囲の不要行削除を行いません。
 
+低水準の文の解放では、`sqlite3_finalize` が直前の実行失敗を返した場合も文自体は破棄済みとして扱います。既に実行失敗がある場合は二次診断をログへ置き、`Exception.Data` の履歴へ追加しません。解放APIの呼出し自体が例外で終わり解放を確認できない場合は、未解決の後片付けとして元失敗とともに返します。実行失敗がない場合の解放エラーは、そのまま操作失敗です。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
@@ -153,8 +169,13 @@ sequenceDiagram
 | 完全なフォルダ集合・衝突・一括確定 | [`Lr2FolderTableReconciliationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderTableReconciliationService.cs) | [`Lr2FolderTableReconciliationServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2FolderTableReconciliationServiceTests.cs)、[`Lr2FolderRowGeneratorTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2FolderRowGeneratorTests.cs) |
 | 同期状態と生成列の永続化 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`Lr2SongDbWriter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) | [`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs)、[`Lr2SongDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncServiceTests.cs)、[`Lr2SongDbWriterTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbWriterTests.cs) |
 | 操作内の確定結果の直接引渡し | [`LibraryFileInitializationResult`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/LibraryFileInitializationResult.cs) | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) |
-| 確定パスのチャンク処理・分母・保存結果の維持 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) の `CommittedInputSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries`: 全件が直接確定入力の対象の0・1・1,000・1,001・10,001件で、読取りなしの完了、確定処理位置、保存行と利用者列の保持を確認する。混在入力は既存の `CommittedInputSongRowsSkipReaderAndCurrentnessRead`。 |
+| 確定パスのチャンク処理・分母・保存結果の維持 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) の `CommittedInputSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries`: 全件が直接確定入力の対象の0・1・1,000・1,001・10,001件で、読取りなしの内部生成成功、Running・未設定完了時刻・完了進捗不在、確定処理位置、保存行と利用者列の保持を確認する。全体Completedは実coordinatorの投影・状態保存境界へ分担する。混在入力は既存の `CommittedInputSongRowsSkipReaderAndCurrentnessRead`。 |
 | 採番と順序枠の所有権 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | 採番より前の枠取得、全退出経路の返却条件、番号順回収時の返却を静的に確認する。境界件数のテストでは本番のCPU別並列度を使い、特定のスレッド切替順を強制しない。 |
+| 実確定後の必須引渡しと任意通知の故障分離 | `Lr2SongDbSyncService` | `Lr2SongDbSyncServiceTests.SyncService_RequiredCommittedCallbackFailureKeepsDurableFactsAndCursor` は詳細／互換性の2条件で、callback内の別readonly接続により実確定を観測し、任意進捗・性能記録も故障している条件で元stack・未完了・保存行／利用者列／実cursorとrollback不在、他の必要な引渡しを確認する。 |
+| 所有取消と非所有取消に交差する必須確定引渡しの実故障 | `Lr2SongDbSyncService.UpsertSongRows` | `Lr2SongDbSyncServiceTests.SyncService_PipelineCancellationRacePreservesGenuineCauseAndCommittedPrefix` は実1001行と二つの実chart入力、reader／必須callbackの別gateを使う。詳細／互換性の2条件ではCPU1でも実workerの所有取消が先着した診断を待ち、元callback型・message・stackと保持中readerのjoin待機を確認する。第3条件では要求未取消のまま末尾readerから要求token付きOCEを先着させ、診断時の要求未取消を確認してからshutdown／取消と別callback故障を起こす。外側が通常取消ではない実失敗であり、先着OCEのmessage・token・stackが保持されることを確認する。各条件で全必要callback各一回、別readonly接続のRunningからFailed・song_rows・cursor1000・未設定完了時刻、実確定prefixと全利用者列、未変更tail、完了進捗不在、authorizerによるrollback不在と全reader／callback終端を確認する。既存pipelineの実故障first-cause保証を維持する。 |
+| 終了flagがtoken取消に先行する正規終了とチャンク巻戻し | `Lr2SongDbSyncService.UpsertSongRows` | `Lr2SongDbSyncServiceTests.SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk` は同じ1譜面と実SQLite writerで、実詳細保存後の終了flag＋即時token取消／終了flagのみを確認する。両条件とも要求token付きOCE、flagのみではservice返却時も要求未取消、元title／artistと詳細行の巻戻し、実transaction終端、cursor0・未設定完了時刻・Failed／Completed保存なし、必須確定callback不在を確認する。先着非所有OCEと必須callback優先・全joinは既存3条件のpipeline race、未解決巻戻しの優先はauthorizerケースが分担する。 |
+| 終了取消後の安全な巻戻し・未解決状態と確定cursorの終端引渡し | `Lr2SongDbSyncService` | `Lr2SongDbSyncServiceTests.SyncService_ShutdownRollbackDistinguishesSafeFallbackFromUnresolvedTransaction` は実1001行と所有接続のSQLite authorizerでROLLBACKコンパイルだけ一回／二回拒否する既存2条件に、安全fallback＋終了flagのみを加える。全worker join後の末尾writerでflagを立てた後の通知を収集し、安全rollbackの最後の通知がcursor1000・total1001・song_rows・段階件数0/0・autocommit1であることを時間待ちなしに確認する。flagのみでは要求token未取消のまま要求token付きOCEを返し、記録後の任意reporter故障でも元OCEとDB結果を保持する。両rollback故障の実失敗・原因診断、確定prefix／利用者列とdurable cursor、未確定tail・未設定完了時刻・未完了、authorizer解除と接続解放後の別接続読戻しを維持する。 |
+| 必須投影失敗と同時終了、先行投影と実要求終端 | `Lr2SongDbSyncRequestCoordinator`、`BMSLibrary.Lr2SynchronizationOwner` | `BmsLibraryLr2SongDbSyncTests.QueueLr2SongDbSync_CompletionWaitsForRequiredProjectionAndOwnerCheckpoint` は実モデル／SQLite／DataPortと投影portの局所decoratorを使う。投影入口をgateで保持し、別readonly接続のRunning・未設定完了時刻・確定行／利用者列／cursor3、実Task未完了・両受付保持・完了版不進行を確認する。解放後の実投影成功はCompleted、通常確定後／終了取消catchでの必須投影故障はFailed、投影成功後の所有終了はIncompleteとする。Failed保存だけを拒否する実triggerでも保存先のRunning・元投影原因・公開Failedを維持する。先行索引・一部互換性投影を保持し、投影を再試行せず全実Taskと両受付の終端後にUIキューを排出する。正常完了・保存失敗・通常終了取消は既存Queueケースが分担する。 |
 | reader/workerの即時故障停止、元原因と全開始処理の終端、実要求取消の区別 | `Lr2SongDbSyncService.UpsertSongRows` | `Lr2SongDbSyncServiceTests.SyncService_PipelineTerminationPreservesFirstCauseAndCommittedPrefix`。実解析・実SQLite・実1,000件確定を使う1001行の末尾内部/OOM故障と要求取消はCPU1でも確認する。9002行のparser/reader欠番は実policyで必要な並列度がある場合だけ実行し、本番診断のordering window容量、最終枠のreader、保持中の健全parserをgateで観測して、元stack・prefix/利用者列保持・解析失敗非生成・全callback終端を確認する。 |
 | 局所BMS範囲・祖先・完全一致キー | [`Lr2NormalFolderSyncScopeBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderSyncScopeBuilder.cs)、[`Lr2NormalFolderDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderDbSyncService.cs) | [`Lr2NormalFolderSyncScopeBuilderTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2NormalFolderSyncScopeBuilderTests.cs)、[`Lr2NormalFolderDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2NormalFolderDbSyncServiceTests.cs)、[`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 

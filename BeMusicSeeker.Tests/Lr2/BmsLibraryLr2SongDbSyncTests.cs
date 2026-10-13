@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6860,6 +6862,234 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             try { await operation; }
             finally { release.Dispose(); }
         }
+    }
+
+    /// <summary>必須終端投影の待機中は実確定行/cursorとRunningを保ち、実投影・所有取消確認・状態保存の後だけCompletedにする。終了要求に続く投影故障、失敗保存の故障でも先行確定と実要求終端を保持する。</summary>
+    /// <remarks>正常譜面の実詳細解析と実モデル/DataPort/Catalog/SQLite/投影を通し、既存投影portの入口gateを別readonly接続から観測する。成功、通常完了側で部分投影・終了要求後に故障する条件、終了取消の捕捉側で投影が故障する条件、投影成功後の所有終了、Failed保存だけを拒否する実triggerを分担する。</remarks>
+    [DataTestMethod]
+    [DataRow("completed")]
+    [DataRow("projection_failure_with_shutdown")]
+    [DataRow("cancel_then_projection_failure")]
+    [DataRow("shutdown_after_projection")]
+    [DataRow("failed_status_write")]
+    public async Task QueueLr2SongDbSync_CompletionWaitsForRequiredProjectionAndOwnerCheckpoint(string outcome)
+    {
+        using var scope = TestDatabaseScope.Create();
+        using var projectionRelease = new ManualResetEventSlim();
+        var projectionEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool projectionFails = outcome is "projection_failure_with_shutdown" or "cancel_then_projection_failure" or "failed_status_write";
+        bool interrupted = outcome == "shutdown_after_projection";
+        string root = Path.Combine(scope.DirectoryPath, "ProjectionFailure");
+        Directory.CreateDirectory(root);
+        string firstPath = Path.Combine(root, "first.bms");
+        string secondPath = Path.Combine(root, "second.bms");
+        WriteBasicBms(firstPath, "first committed projection", CreateLr2TooLongResourcePath());
+        File.AppendAllText(firstPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        WriteBasicBms(secondPath, "second committed projection", CreateLr2TooLongResourcePath());
+        File.AppendAllText(secondPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        ChartFile first = CreateSyncTestFile(firstPath, ChartFileContentReader.ReadSnapshot(firstPath)) with
+        { Favorite = 7, Tag = "keep", AddDate = 123 };
+        ChartFile second = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath));
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
+        var scheduler = new QueuedUiScheduler();
+        var library = new TestBmsLibrary(scope.SongDbPath, null, null, null, null, scheduler,
+            optionsSnapshotProvider: () => options, settings: testSettings)
+        {
+            SearchTargets = [root],
+            BmsCharts = [first, second]
+        };
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(scope.SongDbPath, setup =>
+        {
+            setup.CreateTable<LR2SongDB.folder>();
+            BmsLibraryDbGateway.EnsureChartInfoSchema(setup);
+            BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(setup);
+            if (outcome == "failed_status_write")
+            {
+                setup.Execute("CREATE TRIGGER deny_failed_sync_status BEFORE INSERT ON lr2_song_db_sync_status"
+                    + " WHEN NEW.status = 'Failed' BEGIN SELECT RAISE(ABORT, 'forced failure status save'); END;");
+            }
+            setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(first), typeof(LR2SongDB.song));
+            setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(second), typeof(LR2SongDB.song));
+        });
+        var initialization = new LibraryFileInitializationResult(InvokeCaptureLr2SongDbSyncScanSurface(
+            library, options, [root], CreateCompleteLr2ScanSurface([root], [root], [], [root])));
+        BMSLibrary.Lr2SynchronizationOwner composedOwner = library.Lr2Synchronization;
+        BMSLibrary.Lr2SynchronizationOwner? owner = null;
+        void RequestShutdown()
+        {
+            library.RequestShutdown("required-compatibility-projection-test");
+            (owner ?? throw new InvalidOperationException("The synchronization owner has not been composed."))
+                .RequestShutdownCancellation("required-compatibility-projection-test");
+        }
+        var projection = new GatedCompatibilityProjection(
+            ReadSynchronizationDependency<ILr2SynchronizationProjectionPort>(composedOwner, "projection"),
+            firstPath, RequestShutdown, outcome, projectionRelease, projectionEntered);
+        owner = new BMSLibrary.Lr2SynchronizationOwner(
+            ReadSynchronizationDependency<ILr2SynchronizationDataPort>(composedOwner, "data"),
+            ReadSynchronizationDependency<ILr2SynchronizationRuntimePort>(composedOwner, "runtime"),
+            projection,
+            _ => scheduler.Schedule(() => { }),
+            composedOwner.OperationAdmission,
+            playlistOperationAdmission: composedOwner.PlaylistOperationAdmission);
+        Task<Lr2SongDbSyncStatusSnapshot>? operation = null;
+        try
+        {
+            operation = Lr2SongDbSyncRequestCoordinator.QueueAsync(owner, "required_projection_failure", true,
+                prepareGeneratedData: null, allowIncompleteToQueue: true, initializationResult: initialization);
+            Task enteredOrFinished = await Task.WhenAny(projectionEntered.Task, operation).WaitAsync(TimeSpan.FromSeconds(30));
+            if (enteredOrFinished == operation)
+            {
+                await operation;
+                Assert.Fail("必須終端投影の入口へ到達する前に同期が終了しました。");
+            }
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(owner.Running);
+            Assert.IsTrue(owner.ObservableRunning);
+            Assert.AreEqual(0, owner.CompletedVersion);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Running, owner.GetLr2SongDbSyncStatusSnapshot().Status);
+            Assert.AreNotEqual(Lr2SongDbSyncService.CompletedStage, owner.GetLr2SongDbSyncRuntimeSnapshot().Stage);
+            Assert.AreEqual(3, owner.GetLr2SongDbSyncStatusSnapshot().ProcessedCursor);
+            Assert.IsTrue(owner.OperationAdmission.IsActive);
+            Assert.IsTrue(owner.PlaylistOperationAdmission.IsActive);
+            Assert.IsTrue(projection.ChartInfoApplied);
+            Assert.IsNotNull(library.ResolveChartInfo(first.Sha256, first.Md5));
+            Assert.IsNotNull(library.ResolveChartInfo(second.Sha256, second.Md5));
+            using (LR2SongDBExtended waitingReadback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            {
+                AssertDurableFacts(waitingReadback, "Running");
+            }
+
+            projectionRelease.Set();
+            if (projectionFails)
+            {
+                InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                    async () => await operation.WaitAsync(TimeSpan.FromSeconds(30)));
+                Assert.AreEqual("required compatibility projection fault", failure.Message);
+                StringAssert.Contains(failure.StackTrace ?? string.Empty, nameof(GatedCompatibilityProjection.ThrowCompatibilityProjectionFault));
+            }
+            else if (interrupted)
+            {
+                await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await operation.WaitAsync(TimeSpan.FromSeconds(30)));
+            }
+            else
+            {
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, (await operation.WaitAsync(TimeSpan.FromSeconds(30))).Status);
+            }
+            Lr2SongDbSyncStatusKind expectedStatus = projectionFails ? Lr2SongDbSyncStatusKind.Failed
+                : interrupted ? Lr2SongDbSyncStatusKind.Incomplete : Lr2SongDbSyncStatusKind.Completed;
+            Assert.AreEqual(1, projection.CompatibilityCalls, "catchで試行済みの必須投影を再実行しない。");
+            Assert.IsFalse(owner.Running);
+            Assert.IsFalse(owner.ObservableRunning);
+            Assert.AreEqual(expectedStatus == Lr2SongDbSyncStatusKind.Completed ? 1 : 0, owner.CompletedVersion);
+            Assert.AreEqual(expectedStatus, owner.GetLr2SongDbSyncStatusSnapshot().Status);
+            if (expectedStatus != Lr2SongDbSyncStatusKind.Completed)
+            {
+                Assert.AreNotEqual(Lr2SongDbSyncService.CompletedStage, owner.GetLr2SongDbSyncRuntimeSnapshot().Stage);
+            }
+            Assert.AreEqual(3, owner.GetLr2SongDbSyncStatusSnapshot().ProcessedCursor);
+            Assert.IsNotNull(library.ResolveChartInfo(first.Sha256, first.Md5));
+            Assert.IsNotNull(library.ResolveChartInfo(second.Sha256, second.Md5));
+            using (LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly())
+            {
+                AssertDurableFacts(readback, outcome == "failed_status_write" ? "Running" : expectedStatus.ToString());
+                int firstFlags = readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", firstPath);
+                int secondFlags = readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", secondPath);
+                ChartFile firstLive = library.BmsCharts.Single(file => file.Path == firstPath);
+                ChartFile secondLive = library.BmsCharts.Single(file => file.Path == secondPath);
+                Assert.AreEqual(firstFlags, firstLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags);
+                if (projectionFails) { Assert.AreNotEqual(secondFlags, secondLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags); }
+                else { Assert.AreEqual(secondFlags, secondLive.ResourceHealthMaintenanceSnapshot?.Lr2WarningFlags); }
+            }
+            scheduler.Drain();
+            Assert.AreEqual(0, scheduler.PendingCount);
+            Assert.IsFalse(owner.OperationAdmission.IsActive);
+            Assert.IsFalse(owner.PlaylistOperationAdmission.IsActive);
+        }
+        finally
+        {
+            projectionRelease.Set();
+            try
+            {
+                if (operation != null)
+                {
+                    owner.RequestShutdownCancellation("required-projection-cleanup");
+                    try { await operation; }
+                    catch (InvalidOperationException) { }
+                    catch (OperationCanceledException) { }
+                }
+            }
+            finally { scheduler.Drain(); }
+        }
+
+        void AssertDurableFacts(LR2SongDBExtended readback, string expectedState)
+        {
+            LR2SongDBExtended.lr2_song_db_sync_status durable = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.AreEqual(expectedState, durable.status);
+            Assert.AreEqual(3, durable.processed_cursor);
+            Assert.AreEqual(3, durable.total_count);
+            if (expectedState == "Completed") { Assert.IsNotNull(durable.completed_at); }
+            else { Assert.IsNull(durable.completed_at); }
+            Assert.AreEqual("first committed projection", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
+            Assert.AreEqual("second committed projection", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
+            Assert.AreEqual(first.Md5, readback.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", firstPath));
+            Assert.AreEqual(second.Md5, readback.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", secondPath));
+            Assert.AreEqual(2, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 IN (?, ?);", first.Sha256, second.Sha256));
+            Assert.IsTrue(readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", firstPath) > 0);
+            Assert.IsTrue(readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", secondPath) > 0);
+            Assert.AreEqual(7, readback.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", firstPath));
+            Assert.AreEqual("keep", readback.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", firstPath));
+            Assert.AreEqual(123, readback.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", firstPath));
+        }
+    }
+
+    // 標準構成の既存portを読取りだけで借り、故障注入用の製品APIやreadonly fieldの書換えを増やしません。
+    private static T ReadSynchronizationDependency<T>(BMSLibrary.Lr2SynchronizationOwner owner, string name) where T : class
+    {
+        FieldInfo field = typeof(BMSLibrary.Lr2SynchronizationOwner).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Missing synchronization dependency: " + name);
+        return field.GetValue(owner) as T ?? throw new InvalidOperationException("Unexpected synchronization dependency: " + name);
+    }
+
+    private sealed class GatedCompatibilityProjection(
+        ILr2SynchronizationProjectionPort inner,
+        string firstPath,
+        Action requestShutdown,
+        string outcome,
+        ManualResetEventSlim release,
+        TaskCompletionSource<bool> entered) : ILr2SynchronizationProjectionPort
+    {
+        internal int CompatibilityCalls { get; private set; }
+        internal bool ChartInfoApplied { get; private set; }
+        public void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) => inner.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
+        public Dictionary<string, ChartFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() => inner.CreateLr2SongDbSyncCompatibilityProjectionIndex();
+        public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() => inner.CreateLr2SongDbSyncChartInfoResolverSnapshot();
+        public HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) => inner.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
+        public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows)
+        {
+            inner.UpsertLr2SongDbSyncChartInfoIndexRows(rows);
+            ChartInfoApplied = true;
+            if (outcome == "cancel_then_projection_failure") { requestShutdown(); }
+        }
+        public int ApplyLr2SongDbSyncCompatibilityProjection(IReadOnlyList<ResourceHealthMaintenanceSnapshot> facts,
+            string reason, IReadOnlyDictionary<string, ChartFile> index, bool logSummary, bool dispatchPresentation)
+        {
+            CompatibilityCalls++;
+            entered.TrySetResult(true);
+            release.Wait();
+            if (outcome is "projection_failure_with_shutdown" or "cancel_then_projection_failure" or "failed_status_write")
+            {
+                inner.ApplyLr2SongDbSyncCompatibilityProjection([facts.Single(fact => fact.Path == firstPath)],
+                    reason, index, logSummary, dispatchPresentation);
+                if (outcome == "projection_failure_with_shutdown") { requestShutdown(); }
+                return ThrowCompatibilityProjectionFault();
+            }
+            int applied = inner.ApplyLr2SongDbSyncCompatibilityProjection(facts, reason, index, logSummary, dispatchPresentation);
+            if (outcome == "shutdown_after_projection") { requestShutdown(); }
+            return applied;
+        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static int ThrowCompatibilityProjectionFault() => throw new InvalidOperationException("required compatibility projection fault");
+        public void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string>? md5s = null) => inner.DispatchWarningPresentationChanged(reason, md5s);
     }
 
     private static ChartFile CreateReadableSyncChart(string chartPath, string title)

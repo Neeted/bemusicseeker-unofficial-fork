@@ -428,6 +428,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>専用接続と保守writer内で生成行とcursorを確定します。終端投影と永続Completed保存はguard解放後の要求coordinatorが担います。</summary>
     internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request)
     {
         if (request == null)
@@ -472,6 +473,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>要求の終端状態を専用接続で保存します。完了要求は必須投影と所有token確認を済ませてから渡します。</summary>
     internal Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request)
     {
@@ -503,6 +505,12 @@ internal sealed class CatalogMutationOwner
                     request.TotalCount,
                     request.Stage,
                     request.Detail,
+                    request.NowUtc),
+                Lr2SongDbSyncStatusMutationKind.MarkCompleted => Lr2SongDbSyncStatusService.MarkCompleted(
+                    songDb,
+                    request.Signature,
+                    request.RunId,
+                    request.TotalCount,
                     request.NowUtc),
                 _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, "Unknown LR2 song DB status mutation.")
             };

@@ -1288,13 +1288,20 @@ public partial class BMSLibrary
         internal TimeSpan CurrentChartInfoParseTimeout =>
             data.CurrentChartInfoParseTimeout;
 
+        /// <summary>任意の背景報告を公開します。報告失敗は同期の保存・実要求終端へ影響させません。</summary>
         internal void ReportStartupBackgroundTask(
             string name,
             string status,
             long elapsedMs,
             bool failed,
-            string detail) =>
-            runtime.ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
+            string detail)
+        {
+            try { runtime.ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail); }
+            catch (Exception reportFailure)
+            {
+                BMSLibrary.LogInstallPerformanceWarn("lr2_song_db_sync background_report_failed " + reportFailure);
+            }
+        }
 
         internal void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId)
         {
@@ -1346,8 +1353,30 @@ public partial class BMSLibrary
                 logSummary,
                 dispatchPresentation);
 
-        internal void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
-            projection.DispatchWarningPresentationChanged(reason, md5s);
+        /// <summary>任意の画面通知を依頼します。必須索引・互換性投影の完了条件にはしません。</summary>
+        internal void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null)
+        {
+            try { projection.DispatchWarningPresentationChanged(reason, md5s); }
+            catch (Exception notificationFailure)
+            {
+                BMSLibrary.LogInstallPerformanceWarn("lr2_song_db_sync warning_notification_failed " + notificationFailure);
+            }
+        }
+
+        /// <summary>必須終端投影と所有token確認を終えた要求のCompletedを既存状態保存窓口へ渡します。実要求版と進捗の公開は保存成功後に呼出し元が行います。</summary>
+        internal void MarkLr2SongDbSyncCompletedStatus(string signature, string runId, int totalCount)
+        {
+            data.ApplyLr2SongDbSyncStatusMutation(
+                new Lr2SongDbSyncStatusMutationRequest(
+                    Lr2SongDbSyncStatusMutationKind.MarkCompleted,
+                    signature,
+                    runId,
+                    processedCursor: totalCount,
+                    totalCount,
+                    stage: Lr2SongDbSyncService.CompletedStage,
+                    detail: null,
+                    DateTime.UtcNow));
+        }
 
         internal void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
         {
@@ -1382,9 +1411,10 @@ public partial class BMSLibrary
                 return;
             }
             try { MarkLr2SongDbSyncFailedStatus(signature, runId, failure); }
-            catch
+            catch (Exception statusFailure)
             {
-                // 状態保存自体が失敗しても、元の同期失敗と実行中でない公開状態を保持する。
+                BMSLibrary.LogInstallPerformanceWarn("lr2_song_db_sync failure_status_write_failed "
+                    + statusFailure + " original=" + failure);
             }
             FailRequest(requestVersion, Lr2SongDbSyncStatusKind.Failed, stage, failure.Message);
         }
@@ -1412,10 +1442,9 @@ public partial class BMSLibrary
                         detail: "shutdown_interrupted",
                         DateTime.UtcNow));
             }
-            catch
+            catch (Exception statusFailure)
             {
-                // A remaining Running row is acceptable when status persistence
-                // cannot safely complete during shutdown.
+                BMSLibrary.LogInstallPerformanceWarn("lr2_song_db_sync interrupted_status_write_failed " + statusFailure);
             }
         }
 

@@ -71,7 +71,7 @@ public sealed class Lr2SongDbSyncCommittedInputTests
     }
 
     /// <summary>
-    /// 空・単件・チャンク境界・順序枠超過の確定入力を再解析せず完了・カーソル・件数を保存し、末尾の処理欠落と利用者列の上書きを検出します。
+    /// 空・単件・チャンク境界・順序枠超過の確定入力を再解析せず生成成功・カーソル・件数を保ち、全体の完了保存は要求coordinatorへ残して、末尾の処理欠落と利用者列の上書きを検出します。
     /// </summary>
     /// <remarks>実SQLiteの保存と結果読戻しを観測し、保存・カーソル更新を代替しません。</remarks>
     /// <param name="rowCount">0と1、1000件の境界と末尾1001件、順序枠を超える10001件を分担します。</param>
@@ -169,7 +169,9 @@ public sealed class Lr2SongDbSyncCommittedInputTests
 
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(
             Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed.ToString(), completed.status);
+        Assert.AreEqual(Lr2SongDbSyncStatusKind.Running.ToString(), completed.status);
+        Assert.IsNull(completed.completed_at);
+        Assert.IsFalse(progressEvents.Any(progress => progress.Stage == Lr2SongDbSyncService.CompletedStage));
         Assert.AreEqual(rowCount, completed.total_count);
         Assert.AreEqual(rowCount, completed.processed_cursor);
         LR2SongDB.song[] persisted = [.. songDb.Table<LR2SongDB.song>()];

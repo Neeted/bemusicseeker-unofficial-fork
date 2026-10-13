@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using SQLitePCL;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -87,6 +88,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// </summary>
     public Func<string, ChartFileReadBuffer> ChartFileBufferReader { get; init; }
 
+    /// <summary>確定済み詳細を必須索引へ一度引き渡します。失敗は確定済みDBを保ったまま同期失敗になります。</summary>
     public Action<IReadOnlyList<BeMusicSeeker.Models.ChartDetails>> ChartInfoRowsCommitted { get; init; }
 
     /// <summary>
@@ -96,6 +98,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// </summary>
     public Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> ChartInfoChunkWriter { get; init; }
 
+    /// <summary>確定済み解析失敗の変更を必須投影へ一度引き渡します。失敗しても他の確定事実は引き渡します。</summary>
     public Action<int, int, IReadOnlyList<string>> ChartInfoParseFailuresCommitted { get; init; }
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
@@ -112,6 +115,7 @@ internal sealed class Lr2SongDbSyncRequest
     /// <summary>段階内の実対象件数と保存済みカーソルを区別して通知します。通知失敗は同期結果に影響しません。</summary>
     public Action<Lr2SongDbSyncProgress> ProgressReporter { get; init; }
 
+    /// <summary>確定済み互換性事実を必須投影へ一度引き渡します。任意の進捗通知とは区別します。</summary>
     public Action<IReadOnlyList<ResourceHealthMaintenanceSnapshot>> Lr2CompatibilityFactsCommitted { get; init; }
 
     /// <summary>
@@ -142,6 +146,7 @@ internal sealed class Lr2SongDbSyncResult
 
     public int ProcessedCount { get; set; }
 
+    /// <summary>生成段階の内部結果です。CompletedStageは生成成功だけを示し、必須終端投影と永続Completedは要求coordinatorが確定します。</summary>
     public string FinalStage { get; set; }
 
     public string IncompleteReason { get; set; }
@@ -183,8 +188,12 @@ internal static class Lr2SongDbSyncService
 
     /// <summary>
     /// 完全なfolder投影の一括保存と既存のsong保存を実行し、実処理の段階・件数を通知します。
-    /// 保存済みカーソルは観測用に維持し、準備の進捗や表示排出を同期成功の条件にしません。
+    /// 保存済みカーソルは観測用に維持し、準備の進捗や表示排出を生成成功の条件にしません。
+    /// 戻り値のCompletedStageは内部生成成功であり、永続状態はRunningと確定cursorを残します。終端投影・完了保存は呼出し元の要求coordinatorが担います。
     /// reader/workerの故障は操作内の待機を直ちに停止し、全開始Taskと完了処理の終端後に元原因とstackを返します。
+    /// 実commit後の必須引渡し失敗はDBとcursorを保持し、先着した所有取消に隠しません。実終端を確立できない巻戻しも終了取消へ変換しません。
+    /// 所有終了flagがtoken取消に先行する場合も、全開始処理と巻戻しの実終端後に正規の終了取消を返します。
+    /// 非所有取消例外は元原因を保持した実失敗として返し、呼出し元で後発終了の通常取消へ分類されることを防ぎます。
     /// </summary>
     internal static Lr2SongDbSyncResult Run(
         LR2SongDBExtended songDb,
@@ -370,25 +379,13 @@ internal static class Lr2SongDbSyncService
             LogStage(request, "stage_done", "song_rows", songRows.Count, songRowStartIndex + songRowResult.ProcessedCount, processedCount);
         }
         ReportProgress(request, processedCount, totalCount, "final_validation", 0, 0);
-        string finalStage;
-        string incompleteReason;
-        ReportProgress(request, processedCount, totalCount, "sync_state_saving", 0, 0);
-        Lr2SongDbSyncStatusService.MarkCompleted(
-            songDb,
-            request.Signature,
-            request.RunId,
-            totalCount,
-            nowUtc: DateTime.UtcNow);
-        ReportProgress(request, totalCount, totalCount, CompletedStage, totalCount, totalCount);
-        finalStage = CompletedStage;
-        incompleteReason = null;
         stopwatch.Stop();
         return new Lr2SongDbSyncResult
         {
             TotalCount = totalCount,
             ProcessedCount = processedCount,
-            FinalStage = finalStage,
-            IncompleteReason = incompleteReason,
+            FinalStage = CompletedStage,
+            IncompleteReason = null,
             NormalFolderSyncResult = normalFolderResult,
             Lr2FolderFileSyncResult = lr2FolderFileResult,
             FolderTableReconciliationResult = folderTableResult,
@@ -1094,7 +1091,8 @@ internal static class Lr2SongDbSyncService
         int computedQueueHighWatermark = 0;
         int pendingItemsHighWatermark = 0;
         int writerFailed = 0;
-        Exception pipelineException = null;
+        SongRowSyncPipelineFault pipelineFault = null;
+        Exception unresolvedRollbackFailure = null;
         CancellationToken cancellationToken = request?.CancellationToken ?? CancellationToken.None;
         using var pipelineCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         CancellationToken pipelineToken = pipelineCancellationSource.Token;
@@ -1106,14 +1104,35 @@ internal static class Lr2SongDbSyncService
         void SignalPipelineFault(Exception failure)
         {
             Exception cause = UnwrapPipelineException(failure);
-            bool firstFault = Interlocked.CompareExchange(ref pipelineException, cause, null) == null;
+            // 取消の所有資格は記録時に固定し、後から要求が取消されても実故障を再分類しません。
+            bool ownedCancellation = cause is OperationCanceledException cancellation
+                && (cancellation.CancellationToken == cancellationToken
+                    || cancellation.CancellationToken == pipelineToken)
+                && (cancellationToken.IsCancellationRequested
+                    || request?.IsShutdownRequested?.Invoke() == true);
+            var candidate = new SongRowSyncPipelineFault(cause, ownedCancellation);
+            bool faultSelected = false;
+            while (true)
+            {
+                SongRowSyncPipelineFault previous = Volatile.Read(ref pipelineFault);
+                // 実故障の先着原因は保持し、所有取消だけを後続の実故障で置き換えます。
+                if (previous != null && (!previous.IsOwnedCancellation || candidate.IsOwnedCancellation))
+                {
+                    break;
+                }
+                if (Interlocked.CompareExchange(ref pipelineFault, candidate, previous) == previous)
+                {
+                    faultSelected = true;
+                    break;
+                }
+            }
             // 欠番の発生時点で全待機を起こします。順序回収から故障を発見するまで待つと、
             // ordering windowを使い切った後続とreader/workerが循環待ちになります。
             Volatile.Write(ref writerFailed, 1);
             pipelineCancellationSource.Cancel();
             TryCompleteAdding(readQueue);
             TryCompleteAdding(computedQueue);
-            if (firstFault)
+            if (faultSelected)
             {
                 LogSync(request, "lr2_song_db_sync pipeline_failed stage=song_rows exception="
                     + cause.GetType().Name + " message=" + cause.Message);
@@ -1254,6 +1273,8 @@ internal static class Lr2SongDbSyncService
             long statusCursorMs = 0L;
             Lr2GeneratedSongWriteResult songWriteResult = default;
             Lr2CompatibilityFactsWriteResult compatibilityWriteResult = Lr2CompatibilityFactsWriteResult.Empty;
+            bool chunkCommitted = false;
+            int processedCursor = baseProcessedCursor + offset + chunk.Count;
             songDb.BeginTransaction();
             try
             {
@@ -1290,29 +1311,7 @@ internal static class Lr2SongDbSyncService
                 stageStopwatch.Stop();
                 compatibilityStageMs = stageStopwatch.ElapsedMilliseconds;
 
-                ThrowIfShutdownRequested(request);
-                stageStopwatch.Restart();
-                songDb.Commit();
-                stageStopwatch.Stop();
-                sqliteCommitMs = stageStopwatch.ElapsedMilliseconds;
-                stopwatchCommit.Stop();
-                ReportCommittedChartInfoRows(request, chunkChartInfoRows);
-                ReportCommittedChartInfoParseFailures(
-                    request,
-                    chunkChartInfoParseFailures.Count,
-                    chunkChartInfoParseFailureDeleteMd5s.Count,
-                    [.. chunkChartInfoParseFailures.Select(value => value.md5).Concat(chunkChartInfoParseFailureDeleteMd5s)]);
-                ReportCommittedLr2CompatibilityFacts(request, chunkCompatibilityInfos);
-                chartInfoGeneratedCount += chunkChartInfoRows.Count;
-                chartInfoParseFailurePersistedCount += chunkChartInfoParseFailures.Count;
-                chartInfoParseFailureClearedCount += chunkChartInfoParseFailureDeleteMd5s.Count;
-                chartInfoParseFailureSkippedCount += chunk.Count(item => item.ChartInfoParseFailureSkipped);
-                compatibilityApplied += chunkCompatibilityInfos.Count;
-                parseFailureCount += chunkParseFailureCount;
-                chartInfoAppliedCount += chunkChartInfoAppliedCount;
-                committedPathSkipped += chunkCommittedPathSkippedCount;
-                processed += chunk.Count;
-                int processedCursor = baseProcessedCursor + offset + chunk.Count;
+                // 保存位置も同じtransactionへ入れ、commit後の必須投影が失敗しても後退させません。
                 stageStopwatch.Restart();
                 Lr2SongDbSyncStatusService.UpdateCursor(
                     songDb,
@@ -1324,6 +1323,14 @@ internal static class Lr2SongDbSyncService
                     nowUtc: DateTime.UtcNow);
                 stageStopwatch.Stop();
                 statusCursorMs = stageStopwatch.ElapsedMilliseconds;
+                ThrowIfShutdownRequested(request);
+                stageStopwatch.Restart();
+                songDb.Commit();
+                chunkCommitted = true;
+                stageStopwatch.Stop();
+                sqliteCommitMs = stageStopwatch.ElapsedMilliseconds;
+                stopwatchCommit.Stop();
+                processed += chunk.Count;
                 Volatile.Write(ref committedProcessedCursor, processedCursor);
                 ReportProgress(
                     request,
@@ -1332,6 +1339,16 @@ internal static class Lr2SongDbSyncService
                     "song_rows",
                     Math.Max(Volatile.Read(ref evaluatedStageProcessedCount), offset + chunk.Count),
                     targetRows.Count);
+                ApplyCommittedSongRowFacts(request, chunkChartInfoRows, chunkChartInfoParseFailures,
+                    chunkChartInfoParseFailureDeleteMd5s, chunkCompatibilityInfos);
+                chartInfoGeneratedCount += chunkChartInfoRows.Count;
+                chartInfoParseFailurePersistedCount += chunkChartInfoParseFailures.Count;
+                chartInfoParseFailureClearedCount += chunkChartInfoParseFailureDeleteMd5s.Count;
+                chartInfoParseFailureSkippedCount += chunk.Count(item => item.ChartInfoParseFailureSkipped);
+                compatibilityApplied += chunkCompatibilityInfos.Count;
+                parseFailureCount += chunkParseFailureCount;
+                chartInfoAppliedCount += chunkChartInfoAppliedCount;
+                committedPathSkipped += chunkCommittedPathSkippedCount;
                 LogSync(request, "lr2_song_db_sync chunk_done"
                     + " stage=song_rows"
                     + " offset=" + offset
@@ -1374,22 +1391,19 @@ internal static class Lr2SongDbSyncService
             catch (Exception ex)
             {
                 stopwatchCommit.Stop();
-                Exception rollbackException = TryRollbackSongRowChunk(songDb);
-                if (ex is OperationCanceledException)
+                if (!chunkCommitted)
                 {
-                    throw;
+                    Exception rollbackFailure = TryRollbackSongRowChunk(songDb, request);
+                    if (rollbackFailure != null)
+                    {
+                        // 未解決transactionへ状態保存を重ねず、所有接続の解放まで実失敗として伝えます。
+                        unresolvedRollbackFailure = new InvalidOperationException(
+                            "LR2 song-row transaction rollback could not establish a safe state.",
+                            new AggregateException(ex, rollbackFailure));
+                        LogSync(request, "lr2_song_db_sync rollback_unresolved " + unresolvedRollbackFailure);
+                        throw unresolvedRollbackFailure;
+                    }
                 }
-                Lr2SongDbSyncStatusService.MarkFailed(
-                    songDb,
-                    signature,
-                    runId,
-                    processedCursor: baseProcessedCursor + offset,
-                    totalCount,
-                    stage: "song_rows",
-                    error: rollbackException == null
-                        ? ex.Message
-                        : ex.Message + " rollback=" + rollbackException.Message,
-                    nowUtc: DateTime.UtcNow);
                 throw;
             }
         }
@@ -1545,9 +1559,15 @@ internal static class Lr2SongDbSyncService
             }
         }
 
-        if (pipelineException != null)
+        if (unresolvedRollbackFailure != null)
         {
-            if (pipelineException is OperationCanceledException)
+            ExceptionDispatchInfo.Capture(unresolvedRollbackFailure).Throw();
+        }
+
+        if (pipelineFault != null)
+        {
+            Exception pipelineException = pipelineFault.Cause;
+            if (pipelineFault.IsOwnedCancellation)
             {
                 ThrowIfCancellationRequested(
                     songDb,
@@ -1555,16 +1575,39 @@ internal static class Lr2SongDbSyncService
                     baseProcessedCursor + safeStartIndex + processed,
                     totalCount,
                     "song_rows");
+                // 全join後の確定位置を最後に引き渡し、古いworker進捗がIncomplete保存位置を戻すことを防ぎます。
+                ReportProgress(
+                    request,
+                    baseProcessedCursor + safeStartIndex + processed,
+                    totalCount,
+                    "song_rows",
+                    0,
+                    0);
+                // shutdown flagがtoken取消に先行する間も、既に観測した正規終了をFailedへ落としません。
+                ExceptionDispatchInfo.Capture(pipelineException).Throw();
             }
-            Lr2SongDbSyncStatusService.MarkFailed(
-                songDb,
-                signature,
-                runId,
-                processedCursor: baseProcessedCursor + safeStartIndex + processed,
-                totalCount,
-                stage: "song_rows",
-                error: pipelineException.Message,
-                nowUtc: DateTime.UtcNow);
+            try
+            {
+                Lr2SongDbSyncStatusService.MarkFailed(
+                    songDb,
+                    signature,
+                    runId,
+                    processedCursor: baseProcessedCursor + safeStartIndex + processed,
+                    totalCount,
+                    stage: "song_rows",
+                    error: pipelineException.Message,
+                    nowUtc: DateTime.UtcNow);
+            }
+            catch (Exception statusFailure)
+            {
+                LogSync(request, "lr2_song_db_sync failure_status_write_failed " + statusFailure
+                    + " original=" + pipelineException);
+            }
+            if (!pipelineFault.IsOwnedCancellation && pipelineException is OperationCanceledException)
+            {
+                // 要求coordinatorへ記録時の実失敗分類を渡し、後発shutdownの取消catchへ入れません。
+                throw new InvalidOperationException(pipelineException.Message, pipelineException);
+            }
             ExceptionDispatchInfo.Capture(pipelineException).Throw();
         }
 
@@ -1591,74 +1634,50 @@ internal static class Lr2SongDbSyncService
         return new SongRowSyncResult(processed, committedPathSkipped, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
-    private static void ReportCommittedLr2CompatibilityFacts(
+    private static void ApplyCommittedSongRowFacts(
         Lr2SongDbSyncRequest request,
+        IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows,
+        IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> parseFailures,
+        IReadOnlyList<string> clearedFailureMd5s,
         IReadOnlyList<ResourceHealthMaintenanceSnapshot> compatibilityInfos)
     {
-        if (request?.Lr2CompatibilityFactsCommitted == null
-            || compatibilityInfos == null
-            || compatibilityInfos.Count == 0)
+        Exception firstFailure = null;
+        void ApplyRequiredFact(Action callback, string fact)
         {
-            return;
+            try
+            {
+                callback();
+            }
+            catch (Exception ex)
+            {
+                firstFailure ??= ex;
+                LogSync(request, "lr2_song_db_sync committed_fact_projection_failed fact=" + fact + " " + ex);
+            }
         }
 
-        try
+        if (chartInfoRows.Count > 0 && request.ChartInfoRowsCommitted != null)
         {
-            request.Lr2CompatibilityFactsCommitted(compatibilityInfos);
+            ApplyRequiredFact(() => request.ChartInfoRowsCommitted(chartInfoRows), "chart_info");
         }
-        catch (Exception ex)
+        if ((parseFailures.Count > 0 || clearedFailureMd5s.Count > 0)
+            && request.ChartInfoParseFailuresCommitted != null)
         {
-            LogSync(request, "lr2_song_db_sync compatibility_projection_callback_failed"
-                + " count=" + compatibilityInfos.Count
-                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
+            ApplyRequiredFact(() => request.ChartInfoParseFailuresCommitted(
+                parseFailures.Count, clearedFailureMd5s.Count,
+                [.. parseFailures.Select(value => value.md5).Concat(clearedFailureMd5s)]), "chart_info_parse_failures");
         }
-    }
-
-    private static void ReportCommittedChartInfoRows(
-        Lr2SongDbSyncRequest request,
-        IReadOnlyList<BeMusicSeeker.Models.ChartDetails> chartInfoRows)
-    {
-        if (request?.ChartInfoRowsCommitted == null
-            || chartInfoRows == null
-            || chartInfoRows.Count == 0)
+        if (compatibilityInfos.Count > 0 && request.Lr2CompatibilityFactsCommitted != null)
         {
-            return;
+            ApplyRequiredFact(() => request.Lr2CompatibilityFactsCommitted(compatibilityInfos), "lr2_compatibility");
         }
-
-        try
+        if (firstFailure is OperationCanceledException)
         {
-            request.ChartInfoRowsCommitted(chartInfoRows);
+            // callbackの内部取消は同期所有tokenの取消を観測した境界ではありません。
+            throw new InvalidOperationException("A required committed-fact projection failed.", firstFailure);
         }
-        catch (Exception ex)
+        if (firstFailure != null)
         {
-            LogSync(request, "lr2_song_db_sync chart_info_callback_failed"
-                + " count=" + chartInfoRows.Count
-                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
-        }
-    }
-
-    private static void ReportCommittedChartInfoParseFailures(
-        Lr2SongDbSyncRequest request,
-        int persistedCount,
-        int clearedCount,
-        IReadOnlyList<string> changedMd5s)
-    {
-        if (request?.ChartInfoParseFailuresCommitted == null
-            || (persistedCount <= 0 && clearedCount <= 0))
-        {
-            return;
-        }
-
-        try
-        {
-            request.ChartInfoParseFailuresCommitted(persistedCount, clearedCount, changedMd5s);
-        }
-        catch (Exception ex)
-        {
-            LogSync(request, "lr2_song_db_sync chart_info_failure_callback_failed"
-                + " persisted=" + persistedCount
-                + " cleared=" + clearedCount
-                + " reason=" + QuoteLogValue(ex.Message ?? ex.GetType().Name));
+            ExceptionDispatchInfo.Capture(firstFailure).Throw();
         }
     }
 
@@ -1719,24 +1738,40 @@ internal static class Lr2SongDbSyncService
             : ex;
     }
 
-    private static Exception TryRollbackSongRowChunk(LR2SongDBExtended songDb)
+    private static Exception TryRollbackSongRowChunk(LR2SongDBExtended songDb, Lr2SongDbSyncRequest request)
     {
+        Exception managedRollbackFailure;
         try
         {
             songDb.Rollback();
-            return null;
+            if (raw.sqlite3_get_autocommit(songDb.Handle) != 0)
+            {
+                return null;
+            }
+            // commit失敗でsqlite-netの内部状態だけ解除された場合、managed rollbackは無処理です。
+            managedRollbackFailure = new InvalidOperationException("Managed rollback left the SQLite transaction active.");
         }
         catch (Exception rollbackEx)
         {
-            try
+            managedRollbackFailure = rollbackEx;
+            if (raw.sqlite3_get_autocommit(songDb.Handle) != 0)
             {
-                songDb.Execute("ROLLBACK;");
-                return rollbackEx;
+                // RAISE(ROLLBACK)等でSQLiteが既に取消済みなら、失効transactionのエラーを危険へ格上げしません。
+                LogSync(request, "lr2_song_db_sync managed_rollback_failed fallback=already_ended " + rollbackEx);
+                return null;
             }
-            catch (Exception directRollbackEx)
-            {
-                return new AggregateException(rollbackEx, directRollbackEx);
-            }
+        }
+        try
+        {
+            songDb.Execute("ROLLBACK;");
+            LogSync(request, "lr2_song_db_sync managed_rollback_failed fallback=completed " + managedRollbackFailure);
+            return null;
+        }
+        catch (Exception directRollbackEx)
+        {
+            LogSync(request, "lr2_song_db_sync managed_rollback_failed fallback=failed " + managedRollbackFailure);
+            LogSync(request, "lr2_song_db_sync direct_rollback_failed " + directRollbackEx);
+            return new AggregateException(managedRollbackFailure, directRollbackEx);
         }
     }
 
@@ -2200,6 +2235,14 @@ internal static class Lr2SongDbSyncService
     private static int? ToNullableInteger(bool? value)
     {
         return value.HasValue ? (value.Value ? 1 : 0) : null;
+    }
+
+    /// <summary>原因と記録時の所有取消資格を一体で選び、後発取消による実故障の再分類を防ぎます。</summary>
+    private sealed class SongRowSyncPipelineFault(Exception cause, bool isOwnedCancellation)
+    {
+        public Exception Cause { get; } = cause;
+
+        public bool IsOwnedCancellation { get; } = isOwnedCancellation;
     }
 
     private sealed class SongRowSyncReadCandidate(

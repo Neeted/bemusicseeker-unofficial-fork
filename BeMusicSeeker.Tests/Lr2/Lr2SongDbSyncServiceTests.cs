@@ -13,6 +13,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLitePCL;
 using static BeMusicSeeker.Tests.Lr2SongDbSyncTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -22,7 +23,7 @@ public sealed class Lr2SongDbSyncServiceTests
 {
 
     /// <summary>
-    /// 通常・folderinfo・カスタム・楽曲の実対象数で進捗を報告し、準備完了時には旧保存行とカーソルを保持して反映後だけ完了を保存する。
+    /// 通常・folderinfo・カスタム・楽曲の実対象数で進捗を報告し、準備完了時には旧保存行とカーソルを保持し、生成反映後も全体の完了保存は要求coordinatorへ残す。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -138,7 +139,7 @@ public sealed class Lr2SongDbSyncServiceTests
             Assert.IsTrue(notifications.Any(progress => progress.StageProcessedCount == total), stage);
         }
         foreach (string stage in new[] { "input_preparation", "folder_projection_preparation", "folder_projection_validation",
-            "folder_existing_rows", "folder_saving", "song_rows_preparation", "final_validation", "sync_state_saving" })
+            "folder_existing_rows", "folder_saving", "song_rows_preparation", "final_validation" })
         {
             Assert.IsTrue(progressEvents.Any(progress => progress.Stage == stage && progress.StageTotalCount == 0), stage);
         }
@@ -146,10 +147,13 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsTrue(Array.FindIndex(events, progress => progress.Stage == "song_rows_preparation")
             < Array.FindIndex(events, progress => progress.Stage == "song_rows"));
         Assert.IsFalse(events.Any(progress => progress.Stage == "song_rows_saving"));
+        Assert.IsFalse(events.Any(progress => progress.Stage == Lr2SongDbSyncService.CompletedStage
+            || progress.Stage == "sync_state_saving"), "生成処理だけで全体の完了を通知しない。");
         Assert.AreEqual("First folder", songDb.Find<LR2SongDB.folder>(ToFolderPath(firstDirectory)).title);
         Assert.AreEqual("Second custom", songDb.Find<LR2SongDB.folder>(secondCustomFolder).title);
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual("Running", completed.status);
+        Assert.IsNull(completed.completed_at);
         Assert.AreEqual(completed.total_count, completed.processed_cursor);
         Assert.AreEqual(9, completed.total_count, "保存カーソルは通常3・folderinfo2・カスタム2・楽曲2の入力位置を保つ。");
     }
@@ -238,7 +242,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 進捗購読先が例外を投げてもフォルダ反映と完了保存を成立させ、通知失敗で確定結果を失敗へ変える誤りを防ぐ。
+    /// 進捗購読先が例外を投げてもフォルダ反映と生成成功・確定cursorを保ち、全体の完了保存を先取りしたり通知失敗で確定結果を失敗へ変えたりしない。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -269,12 +273,13 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.IsNotNull(result.FolderTableReconciliationResult);
         Assert.AreEqual(result.FolderTableReconciliationResult.GeneratedCount, songDb.Table<LR2SongDB.folder>().Count());
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual("Running", completed.status);
+        Assert.IsNull(completed.completed_at);
         Assert.AreEqual(completed.total_count, completed.processed_cursor);
     }
 
     /// <summary>
-    /// 空入力は完了しても有件数の段階通知を出さず、存在しない作業量を表示する誤りを検出する。
+    /// 空入力の生成に成功しても有件数の段階通知を出さず、存在しない作業量を表示する誤りを検出する。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -562,7 +567,7 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// エポック直前の譜面更新時刻を-1として保存して完了し、負値時刻の補正や失敗扱いを防ぐ。
+    /// エポック直前の譜面更新時刻を-1として保存して生成に成功し、負値時刻の補正や失敗扱いを防ぐ。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -596,11 +601,12 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.AreEqual(-1, songDb.ExecuteScalar<int>("SELECT date FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual("Running", row.status);
+        Assert.IsNull(row.completed_at);
     }
 
     /// <summary>
-    /// スナップショット未取得時のnull更新時刻を保存して完了し、未取得値の推測補完を防ぐ。
+    /// スナップショット未取得時のnull更新時刻を保存して生成に成功し、未取得値の推測補完を防ぐ。
     /// </summary>
     /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
     [TestMethod]
@@ -634,7 +640,8 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         Assert.IsNull(songDb.ExecuteScalar<int?>("SELECT date FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual("Running", row.status);
+        Assert.IsNull(row.completed_at);
     }
 
     /// <summary>
@@ -670,7 +677,8 @@ public sealed class Lr2SongDbSyncServiceTests
 
         Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
         LR2SongDBExtended.lr2_song_db_sync_status row = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", row.status);
+        Assert.AreEqual("Running", row.status);
+        Assert.IsNull(row.completed_at);
         string legacyFolderPath = ToFolderPath(legacyDirectory);
         Assert.AreEqual(0, songDb.Table<LR2SongDB.folder>().ToList().Count(folder => folder.path == legacyFolderPath));
     }
@@ -741,7 +749,8 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual("first rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", firstPath));
         Assert.AreEqual("second rollback", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", secondPath));
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual("Running", completed.status);
+        Assert.IsNull(completed.completed_at);
         Assert.AreEqual(4, completed.processed_cursor);
     }
 
@@ -1059,11 +1068,13 @@ public sealed class Lr2SongDbSyncServiceTests
     }
 
     /// <summary>
-    /// 解析保存窓口で終了取消が入るとチャンクのタイトル・作者更新を元へ戻し、終了時の部分保存を防ぐ。
+    /// 解析保存後の終了flagとtoken取消の順にかかわらず、チャンクを巻き戻して正規の終了取消を返し、終了時の部分保存とFailed保存を防ぐ。
     /// </summary>
-    /// <remarks>実SQLiteへの同期と状態保存を観測し、入力準備・解析・確定通知と保存結果の接続を確認する。</remarks>
-    [TestMethod]
-    public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk()
+    /// <remarks>起動時と同じ既設スキーマ、同じ1譜面と実SQLite writerで、保存後のflag＋即時token取消／flagのみを分担する。flagのみではservice終端までtokenを取消せず、実transaction終端と必須確定callback不在を確認する。</remarks>
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SyncService_ShutdownCancellationAtSongCommitRollsBackWholeChunk(bool cancelTokenImmediately)
     {
         using var scope = TestDatabaseScope.Create();
         string songDirectory = Path.Combine(scope.DirectoryPath, "SongCommitBarrier");
@@ -1076,12 +1087,15 @@ public sealed class Lr2SongDbSyncServiceTests
         file = file with { Artist = "Stale artist before shutdown", RawArtist = "Stale artist before shutdown" };
         using var songDb = new LR2SongDBExtended(scope.SongDbPath);
         songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
 
         using var cancellation = new CancellationTokenSource();
         bool shutdownRequested = false;
         int chartInfoWriterCallCount = 0;
-        Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+        int chartInfoRowsWrittenBeforeShutdown = 0;
+        int committedCallbackCount = 0;
+        OperationCanceledException failure = Assert.ThrowsException<OperationCanceledException>(() => Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
         {
             Signature = "song-commit-shutdown",
             RunId = "song-commit-shutdown",
@@ -1091,19 +1105,40 @@ public sealed class Lr2SongDbSyncServiceTests
             ChartInfoChunkWriter = request =>
             {
                 chartInfoWriterCallCount++;
+                CatalogChartInfoWriteReceipt receipt = CreateDirectChartInfoWriter(songDb)(request);
+                chartInfoRowsWrittenBeforeShutdown = songDb.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", snapshot.Sha256);
                 shutdownRequested = true;
-                cancellation.Cancel();
-                return CreateDirectChartInfoWriter(songDb)(request);
+                if (cancelTokenImmediately)
+                {
+                    cancellation.Cancel();
+                }
+                return receipt;
             },
+            ChartInfoRowsCommitted = _ => Interlocked.Increment(ref committedCallbackCount),
+            ChartInfoParseFailuresCommitted = (_, _, _) => Interlocked.Increment(ref committedCallbackCount),
+            Lr2CompatibilityFactsCommitted = _ => Interlocked.Increment(ref committedCallbackCount),
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
 
         Assert.IsTrue(shutdownRequested);
+        Assert.AreEqual(cancellation.Token, failure.CancellationToken);
+        Assert.AreEqual(cancelTokenImmediately, cancellation.IsCancellationRequested,
+            "flagのみの正規終了は、要求tokenが未取消のままserviceから返る。");
         Assert.AreEqual(1, chartInfoWriterCallCount);
+        Assert.AreEqual(1, chartInfoRowsWrittenBeforeShutdown);
+        Assert.AreEqual(0, committedCallbackCount);
+        Assert.AreEqual(1, raw.sqlite3_get_autocommit(songDb.Handle));
         Assert.AreEqual("Durable song before shutdown", songDb.ExecuteScalar<string>(
             "SELECT title FROM song WHERE path = ?;", chartPath));
         Assert.AreEqual("Stale artist before shutdown", songDb.ExecuteScalar<string>(
             "SELECT artist FROM song WHERE path = ?;", chartPath));
+        Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", snapshot.Sha256));
+        LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual(0, status.processed_cursor);
+        Assert.IsNull(status.completed_at);
+        Assert.AreNotEqual("Failed", status.status);
+        Assert.AreNotEqual("Completed", status.status);
     }
 
     /// <summary>
@@ -1182,7 +1217,8 @@ public sealed class Lr2SongDbSyncServiceTests
         Assert.AreEqual(1, retried.SongRowProcessedCount);
         Assert.AreEqual("cancel retry", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", chartPath));
         LR2SongDBExtended.lr2_song_db_sync_status completed = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
-        Assert.AreEqual("Completed", completed.status);
+        Assert.AreEqual("Running", completed.status);
+        Assert.IsNull(completed.completed_at);
         Assert.AreEqual(3, completed.processed_cursor);
         Assert.AreEqual(3, completed.total_count);
     }
@@ -1737,6 +1773,541 @@ public sealed class Lr2SongDbSyncServiceTests
     private static ChartFileReadBuffer ThrowLr2ReaderFault()
     {
         throw new InvalidOperationException("injected LR2 reader fault");
+    }
+
+    /// <summary>必須詳細/互換性callbackの失敗を元stack付きで返し、任意進捗・ログも故障している条件でもcommit済み行・利用者列・実cursorを保持する。</summary>
+    /// <remarks>正常譜面の実詳細解析・SQLite書込みを通し、callback内の別readonly接続でcommit完了を観測する。callback内で表明しない。</remarks>
+    [DataTestMethod]
+    [DataRow("chart_info")]
+    [DataRow("compatibility")]
+    public void SyncService_RequiredCommittedCallbackFailureKeepsDurableFactsAndCursor(string failedFact)
+    {
+        using var scope = TestDatabaseScope.Create();
+        string path = Path.Combine(scope.DirectoryPath, "required-callback.bms");
+        WriteBasicBms(path, "committed callback title", CreateLr2TooLongResourcePath());
+        File.AppendAllText(path, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        ChartFile file = CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path)) with
+        {
+            Title = "old",
+            RawTitle = "old",
+            Favorite = 5,
+            Tag = "keep",
+            AddDate = 123
+        };
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+        int rowsCalls = 0;
+        int compatibilityCalls = 0;
+        int rollbackCalls = 0;
+        int? callbackCursor = null;
+        string? callbackTitle = null;
+        int callbackChartInfoCount = 0;
+        int callbackCompatibilityFlags = 0;
+        strdelegate_authorizer authorizer = (_, code, transaction, _, _, _) =>
+        {
+            if (code == raw.SQLITE_TRANSACTION && transaction == "ROLLBACK") { rollbackCalls++; }
+            return raw.SQLITE_OK;
+        };
+        Assert.AreEqual(raw.SQLITE_OK, raw.sqlite3_set_authorizer(songDb.Handle, authorizer, null));
+        void ObserveCommit()
+        {
+            using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+            callbackTitle = readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", path);
+            callbackCursor = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).processed_cursor;
+            callbackChartInfoCount = readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", file.Sha256);
+            callbackCompatibilityFlags = readback.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", path);
+        }
+        try
+        {
+            InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() =>
+                Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+                {
+                    Signature = "required-callback",
+                    RunId = "required-callback",
+                    SongRows = [file],
+                    ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+                    ChartInfoRowsCommitted = _ =>
+                    {
+                        rowsCalls++;
+                        if (failedFact == "chart_info") { ObserveCommit(); ThrowRequiredCommittedCallbackFault(failedFact); }
+                    },
+                    Lr2CompatibilityFactsCommitted = _ =>
+                    {
+                        compatibilityCalls++;
+                        if (failedFact == "compatibility") { ObserveCommit(); ThrowRequiredCommittedCallbackFault(failedFact); }
+                    },
+                    ProgressReporter = _ => throw new InvalidOperationException("optional progress fault"),
+                    LogInstallPerformance = _ => throw new InvalidOperationException("optional performance fault")
+                }));
+            Assert.AreEqual("required committed callback fault: " + failedFact, failure.Message);
+            StringAssert.Contains(failure.StackTrace ?? string.Empty, nameof(ThrowRequiredCommittedCallbackFault));
+            Assert.AreEqual(1, rowsCalls);
+            Assert.AreEqual(1, compatibilityCalls, "別の必須callbackの失敗でも確定互換性事実を引き渡す。");
+            Assert.AreEqual(0, rollbackCalls, "commit後の必須反映失敗をrollbackへ送らない。");
+            Assert.AreEqual("committed callback title", callbackTitle);
+            Assert.AreEqual(1, callbackCursor);
+            Assert.AreEqual(1, callbackChartInfoCount);
+            Assert.IsTrue(callbackCompatibilityFlags > 0);
+            LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.AreEqual("Failed", status.status);
+            Assert.AreEqual(1, status.processed_cursor);
+            Assert.AreEqual("committed callback title", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", path));
+            Assert.AreEqual(1, songDb.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", file.Sha256));
+            Assert.AreEqual(callbackCompatibilityFlags, songDb.ExecuteScalar<int>("SELECT lr2_warning_flags FROM maintenance WHERE path = ?;", path));
+            Assert.AreEqual(5, songDb.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", path));
+            Assert.AreEqual("keep", songDb.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", path));
+            Assert.AreEqual(123, songDb.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", path));
+        }
+        finally
+        {
+            raw.sqlite3_set_authorizer(songDb.Handle, (strdelegate_authorizer?)null, null);
+        }
+    }
+
+    /// <summary>先着した所有取消は必須callback実故障を隠さず、先着した非所有取消は後発shutdownやcallback故障で置換せず、実確定prefixと利用者列を保持する。</summary>
+    /// <remarks>実1001行・二つの正常譜面入力と別reader/callback gateを使い、prefixの実詳細解析・確定を通す。詳細／互換性の2条件はCPU1でも所有取消の先着とreader joinを観測し、第3条件はowner未取消時のreader OCE分類を終端まで保持する。非UIの同期fixtureでdefault接続の生成・解放threadとprocess lock所有を維持し、全Task回収とauthorizer解除後に同threadで接続を解放する。</remarks>
+    [DataTestMethod]
+    [DataRow("chart_info", false)]
+    [DataRow("compatibility", false)]
+    [DataRow("chart_info", true)]
+    public void SyncService_PipelineCancellationRacePreservesGenuineCauseAndCommittedPrefix(
+        string failedFact, bool readerCancelsBeforeOwner)
+    {
+        string callbackFailureMessage = "required committed callback fault: " + failedFact;
+        string expectedFailureMessage = readerCancelsBeforeOwner
+            ? "injected LR2 reader cancellation before owner cancellation"
+            : callbackFailureMessage;
+        using var scope = TestDatabaseScope.Create();
+        using var cancellation = new CancellationTokenSource();
+        using var releaseTailReader = new ManualResetEventSlim();
+        using var releaseCommittedCallback = new ManualResetEventSlim();
+        var tailReaderEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var committedCallbackEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstPipelineFault = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var committedProjectionFailed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var compatibilityCallbackExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        string prefixPath = Path.Combine(scope.DirectoryPath, "prefix-template.bms");
+        WriteBasicBms(prefixPath, "prefix committed", CreateLr2TooLongResourcePath());
+        File.AppendAllText(prefixPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        ChartFileReadBuffer prefix = ChartFileContentReader.ReadBuffer(prefixPath);
+        ChartFileSnapshot prefixSnapshot = ChartFileContentReader.ReadSnapshot(prefixPath);
+        string tailPath = Path.Combine(scope.DirectoryPath, "tail-template.bms");
+        WriteBasicBms(tailPath, "tail must remain old");
+        File.AppendAllText(tailPath, "#PLAYER 1\r\n#BPM 120\r\n#00111:01\r\n");
+        ChartFileReadBuffer tail = ChartFileContentReader.ReadBuffer(tailPath);
+        string tailSha256 = ChartFileContentReader.ReadSnapshot(tailPath).Sha256;
+        List<ChartFile> files = [.. Enumerable.Range(0, 1001).Select(index => ChartTestValues.Empty() with
+        {
+            Path = Path.Combine(scope.DirectoryPath, index.ToString("D4") + ".bms"),
+            Title = "old",
+            RawTitle = "old",
+            Favorite = 7,
+            Tag = "keep",
+            AddDate = 321
+        })];
+        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        int songDbThreadId = Environment.CurrentManagedThreadId;
+        using (var songDb = new LR2SongDBExtended(scope.SongDbPath))
+        {
+            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.RunInTransaction(() =>
+            {
+                foreach (ChartFile file in files)
+                {
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                }
+            });
+            int shutdownRequested = 0;
+            int activeReaders = 0;
+            int activeCallbacks = 0;
+            int tailReaderEntries = 0;
+            int tailReaderExits = 0;
+            int rowsCalls = 0;
+            int parseFailureCalls = 0;
+            int clearedParseFailures = 0;
+            int compatibilityCalls = 0;
+            int rollbackCalls = 0;
+            var progress = new ConcurrentQueue<Lr2SongDbSyncProgress>();
+            var diagnostics = new ConcurrentQueue<string>();
+            strdelegate_authorizer authorizer = (_, code, transaction, _, _, _) =>
+            {
+                if (code == raw.SQLITE_TRANSACTION && transaction == "ROLLBACK")
+                {
+                    Interlocked.Increment(ref rollbackCalls);
+                }
+                return raw.SQLITE_OK;
+            };
+            void ApplyCommittedFact(string fact)
+            {
+                Interlocked.Increment(ref activeCallbacks);
+                try
+                {
+                    if (fact == failedFact)
+                    {
+                        committedCallbackEntered.TrySetResult(true);
+                        releaseCommittedCallback.Wait();
+                        ThrowRequiredCommittedCallbackFault(fact);
+                    }
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref activeCallbacks);
+                    if (fact == "compatibility")
+                    {
+                        compatibilityCallbackExited.TrySetResult(true);
+                    }
+                }
+            }
+            void AssertDurablePrefix(string expectedStatus)
+            {
+                using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+                LR2SongDBExtended.lr2_song_db_sync_status status = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+                Assert.AreEqual(expectedStatus, status.status);
+                Assert.AreEqual("song_rows", status.stage);
+                Assert.AreEqual(1000, status.processed_cursor);
+                Assert.AreEqual(1001, status.total_count);
+                Assert.IsNull(status.completed_at);
+                Assert.AreEqual(1000, readback.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM song WHERE title = ? AND hash = ?;", "prefix committed", prefixSnapshot.Md5));
+                Assert.AreEqual(1001, readback.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM song WHERE favorite = 7 AND tag = 'keep' AND adddate = 321;"));
+                Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", prefixSnapshot.Sha256));
+                Assert.AreEqual(1000, readback.ExecuteScalar<int>(
+                    "SELECT COUNT(*) FROM maintenance WHERE hash = ? AND lr2_warning_flags > 0;", prefixSnapshot.Md5));
+                Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[^1].Path));
+                Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", tailSha256));
+                Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", files[^1].Path));
+                Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info_parse_failure;"));
+                if (expectedStatus == "Failed")
+                {
+                    Assert.AreEqual(expectedFailureMessage, status.last_error);
+                }
+            }
+            var request = new Lr2SongDbSyncRequest
+            {
+                Signature = "committed-fault-after-cancel-" + failedFact + readerCancelsBeforeOwner,
+                RunId = "committed-fault-after-cancel",
+                SongRows = files,
+                CancellationToken = cancellation.Token,
+                IsShutdownRequested = () => Volatile.Read(ref shutdownRequested) != 0,
+                ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+                ChartFileBufferReader = path =>
+                {
+                    Interlocked.Increment(ref activeReaders);
+                    bool isTail = path == files[^1].Path;
+                    try
+                    {
+                        if (isTail)
+                        {
+                            Interlocked.Increment(ref tailReaderEntries);
+                            tailReaderEntered.TrySetResult(true);
+                            // 所有tokenを観測しない開始済みreaderの終端も、操作が実際にjoinする必要があります。
+                            releaseTailReader.Wait();
+                            if (readerCancelsBeforeOwner)
+                            {
+                                return ThrowLr2UnownedReaderCancellation(cancellation.Token);
+                            }
+                        }
+                        ChartFileReadBuffer template = isTail ? tail : prefix;
+                        return new ChartFileReadBuffer(path, template.Bytes, template.LastWriteTimeUtc);
+                    }
+                    finally
+                    {
+                        if (isTail)
+                        {
+                            Interlocked.Increment(ref tailReaderExits);
+                        }
+                        Interlocked.Decrement(ref activeReaders);
+                    }
+                },
+                ChartInfoRowsCommitted = _ =>
+                {
+                    Interlocked.Increment(ref rowsCalls);
+                    ApplyCommittedFact("chart_info");
+                },
+                ChartInfoParseFailuresCommitted = (_, cleared, _) =>
+                {
+                    Interlocked.Increment(ref parseFailureCalls);
+                    Interlocked.Add(ref clearedParseFailures, cleared);
+                    ApplyCommittedFact("parse_failures");
+                },
+                Lr2CompatibilityFactsCommitted = _ =>
+                {
+                    Interlocked.Increment(ref compatibilityCalls);
+                    ApplyCommittedFact("compatibility");
+                },
+                ProgressReporter = progress.Enqueue,
+                LogInstallPerformance = message =>
+                {
+                    diagnostics.Enqueue(message);
+                    if (message.StartsWith("lr2_song_db_sync pipeline_failed", StringComparison.Ordinal))
+                    {
+                        firstPipelineFault.TrySetResult(message);
+                    }
+                    if (message.StartsWith("lr2_song_db_sync committed_fact_projection_failed", StringComparison.Ordinal))
+                    {
+                        committedProjectionFailed.TrySetResult(true);
+                    }
+                }
+            };
+            Task<Lr2SongDbSyncResult>? operation = null;
+            try
+            {
+                Assert.AreEqual(raw.SQLITE_OK, raw.sqlite3_set_authorizer(songDb.Handle, authorizer, null));
+                operation = Task.Run(() => Lr2SongDbSyncService.Run(songDb, request));
+                WaitForLr2FaultStage(tailReaderEntered.Task, operation);
+                WaitForLr2FaultStage(committedCallbackEntered.Task, operation);
+                AssertDurablePrefix("Running");
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.AreEqual(1, Volatile.Read(ref tailReaderEntries));
+                Assert.AreEqual(0, Volatile.Read(ref tailReaderExits));
+                Assert.AreEqual(1, Volatile.Read(ref activeCallbacks));
+
+                if (readerCancelsBeforeOwner)
+                {
+                    // 同じ要求token付きでも、要求未取消時のOCEを後発shutdownで所有取消へ再分類しません。
+                    releaseTailReader.Set();
+                    WaitForLr2FaultStage(firstPipelineFault.Task, operation);
+                    Assert.IsFalse(cancellation.IsCancellationRequested);
+                    Assert.AreEqual(0, Volatile.Read(ref shutdownRequested));
+                    StringAssert.Contains(firstPipelineFault.Task.GetAwaiter().GetResult(), expectedFailureMessage);
+                }
+                Volatile.Write(ref shutdownRequested, 1);
+                cancellation.Cancel();
+                if (!readerCancelsBeforeOwner)
+                {
+                    WaitForLr2FaultStage(firstPipelineFault.Task, operation);
+                }
+                StringAssert.Contains(firstPipelineFault.Task.GetAwaiter().GetResult(), "exception=OperationCanceledException");
+                releaseCommittedCallback.Set();
+                WaitForLr2FaultStage(committedProjectionFailed.Task, operation);
+                WaitForLr2FaultStage(compatibilityCallbackExited.Task, operation);
+                Assert.AreEqual(1, Volatile.Read(ref rowsCalls));
+                Assert.AreEqual(1, Volatile.Read(ref parseFailureCalls));
+                Assert.IsTrue(Volatile.Read(ref clearedParseFailures) > 0);
+                Assert.AreEqual(1, Volatile.Read(ref compatibilityCalls));
+                Assert.AreEqual(0, Volatile.Read(ref activeCallbacks));
+                Assert.AreEqual(0, Volatile.Read(ref rollbackCalls));
+                if (!readerCancelsBeforeOwner)
+                {
+                    Assert.IsFalse(operation.IsCompleted, "必須反映の実故障後も、保持中の開始済みreaderの終端を待つ。");
+                    Assert.AreEqual(0, Volatile.Read(ref tailReaderExits));
+                    AssertDurablePrefix("Running");
+                }
+
+                releaseTailReader.Set();
+                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => operation.GetAwaiter().GetResult());
+                Assert.AreEqual(expectedFailureMessage, failure.Message);
+                if (readerCancelsBeforeOwner)
+                {
+                    Exception originalCause = failure.GetBaseException();
+                    Assert.IsInstanceOfType<OperationCanceledException>(originalCause);
+                    var originalCancellation = (OperationCanceledException)originalCause;
+                    Assert.AreEqual(cancellation.Token, originalCancellation.CancellationToken);
+                    Assert.AreEqual(expectedFailureMessage, originalCancellation.Message);
+                    StringAssert.Contains(originalCancellation.StackTrace ?? string.Empty, nameof(ThrowLr2UnownedReaderCancellation));
+                }
+                else
+                {
+                    StringAssert.Contains(failure.StackTrace ?? string.Empty, nameof(ThrowRequiredCommittedCallbackFault));
+                }
+                AssertDurablePrefix("Failed");
+                Assert.IsFalse(progress.Any(value => value.Stage == Lr2SongDbSyncService.CompletedStage));
+                Assert.IsTrue(diagnostics.Any(message => message.StartsWith(
+                    "lr2_song_db_sync committed_fact_projection_failed", StringComparison.Ordinal)
+                    && message.Contains(callbackFailureMessage, StringComparison.Ordinal)));
+                Assert.AreEqual(0, Volatile.Read(ref rollbackCalls));
+                Assert.AreEqual(0, Volatile.Read(ref activeReaders));
+                Assert.AreEqual(0, Volatile.Read(ref activeCallbacks));
+                Assert.AreEqual(1, Volatile.Read(ref tailReaderExits));
+            }
+            finally
+            {
+                releaseCommittedCallback.Set();
+                releaseTailReader.Set();
+                cancellation.Cancel();
+                try
+                {
+                    if (operation != null)
+                    {
+                        try
+                        {
+                            operation.GetAwaiter().GetResult();
+                        }
+                        catch (Exception)
+                        {
+                            /* 一次表明を保持し、全開始処理の終端後にだけ所有接続を解放します。 */
+                        }
+                    }
+                }
+                finally
+                {
+                    raw.sqlite3_set_authorizer(songDb.Handle, (strdelegate_authorizer?)null, null);
+                }
+            }
+            Assert.AreEqual(songDbThreadId, Environment.CurrentManagedThreadId);
+            Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+        }
+        Assert.IsFalse(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+    }
+
+    /// <summary>終了取消後のmanaged rollback故障は直接SQLの成功なら通常取消を保ち、両故障なら未解決transactionを実失敗として返して確定prefix/cursorを保持する。</summary>
+    /// <remarks>authorizerでROLLBACKコンパイルだけ一回／二回拒否する。安全rollbackの即時token取消／flagのみでは全worker join後の末尾writerから終端進捗を観測し、flagのみの通知故障でも元OCEと確定prefixを保持する。</remarks>
+    [DataTestMethod]
+    [DataRow(1, true)]
+    [DataRow(2, true)]
+    [DataRow(1, false)]
+    public void SyncService_ShutdownRollbackDistinguishesSafeFallbackFromUnresolvedTransaction(
+        int deniedRollbacks, bool cancelTokenImmediately)
+    {
+        using var scope = TestDatabaseScope.Create();
+        string templatePath = Path.Combine(scope.DirectoryPath, "prefix.bms");
+        WriteBasicBms(templatePath, "prefix committed");
+        ChartFileReadBuffer prefix = ChartFileContentReader.ReadBuffer(templatePath);
+        string tailPath = Path.Combine(scope.DirectoryPath, "tail.bms");
+        WriteBasicBms(tailPath, "tail must rollback");
+        ChartFileReadBuffer tail = ChartFileContentReader.ReadBuffer(tailPath);
+        string tailSha256 = ChartFileContentReader.ReadSnapshot(tailPath).Sha256;
+        List<ChartFile> files = [.. Enumerable.Range(0, 1001).Select(index => ChartTestValues.Empty() with
+        {
+            Path = Path.Combine(scope.DirectoryPath, index.ToString("D4") + ".bms"),
+            Title = "old", RawTitle = "old", Favorite = 7, Tag = "keep", AddDate = 321
+        })];
+        var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        using var cancellation = new CancellationTokenSource();
+        bool shutdown = false;
+        int writerCalls = 0;
+        int rollbackCalls = 0;
+        var diagnostics = new ConcurrentQueue<string>();
+        var shutdownProgress = new ConcurrentQueue<(Lr2SongDbSyncProgress Progress, int Autocommit)>();
+        strdelegate_authorizer authorizer = (_, code, transaction, _, _, _) =>
+        {
+            if (code == raw.SQLITE_TRANSACTION && transaction == "ROLLBACK")
+            {
+                rollbackCalls++;
+                if (rollbackCalls <= deniedRollbacks) { return raw.SQLITE_DENY; }
+            }
+            return raw.SQLITE_OK;
+        };
+        try
+        {
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.RunInTransaction(() =>
+            {
+                foreach (ChartFile file in files) { songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song)); }
+            });
+            Assert.AreEqual(raw.SQLITE_OK, raw.sqlite3_set_authorizer(songDb.Handle, authorizer, null));
+            Exception? failure = null;
+            try
+            {
+                Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+                {
+                    Signature = "rollback-authorizer",
+                    RunId = "rollback-authorizer",
+                    SongRows = files,
+                    CancellationToken = cancellation.Token,
+                    IsShutdownRequested = () => shutdown,
+                    ChartFileBufferReader = path =>
+                    {
+                        ChartFileReadBuffer template = path == files[^1].Path ? tail : prefix;
+                        return new ChartFileReadBuffer(path, template.Bytes, template.LastWriteTimeUtc);
+                    },
+                    ChartInfoChunkWriter = request =>
+                    {
+                        CatalogChartInfoWriteReceipt receipt = CreateDirectChartInfoWriter(songDb)(request);
+                        if (++writerCalls == 2)
+                        {
+                            shutdown = true;
+                            if (cancelTokenImmediately)
+                            {
+                                cancellation.Cancel();
+                            }
+                        }
+                        return receipt;
+                    },
+                    ProgressReporter = value =>
+                    {
+                        if (!shutdown)
+                        {
+                            return;
+                        }
+                        // flagを立てる末尾Flushは全worker join後なので、所有接続の安全な終端を同時に観測できます。
+                        shutdownProgress.Enqueue((value, raw.sqlite3_get_autocommit(songDb.Handle)));
+                        if (!cancelTokenImmediately)
+                        {
+                            throw new InvalidOperationException("optional shutdown progress fault");
+                        }
+                    },
+                    LogInstallPerformance = diagnostics.Enqueue
+                });
+            }
+            catch (Exception exception) { failure = exception; }
+            Assert.IsNotNull(failure);
+            Assert.AreEqual(2, writerCalls);
+            Assert.AreEqual(2, rollbackCalls);
+            Assert.AreEqual(deniedRollbacks == 1 ? 1 : 0, raw.sqlite3_get_autocommit(songDb.Handle));
+            Assert.AreEqual(cancelTokenImmediately, cancellation.IsCancellationRequested);
+            if (deniedRollbacks == 1)
+            {
+                Assert.IsInstanceOfType<OperationCanceledException>(failure);
+                Assert.AreEqual(cancellation.Token, ((OperationCanceledException)failure).CancellationToken);
+                Assert.IsFalse(shutdownProgress.IsEmpty);
+                (Lr2SongDbSyncProgress Progress, int Autocommit) finalProgress = shutdownProgress.ToArray()[^1];
+                Assert.AreEqual(1000, finalProgress.Progress.ProcessedCursor);
+                Assert.AreEqual(1001, finalProgress.Progress.TotalCount);
+                Assert.AreEqual("song_rows", finalProgress.Progress.Stage);
+                Assert.AreEqual(0, finalProgress.Progress.StageProcessedCount);
+                Assert.AreEqual(0, finalProgress.Progress.StageTotalCount);
+                Assert.AreEqual(1, finalProgress.Autocommit);
+                Assert.IsTrue(diagnostics.Any(message => message.Contains("managed_rollback_failed fallback=completed", StringComparison.Ordinal)));
+            }
+            else
+            {
+                Assert.IsFalse(failure is OperationCanceledException, "未解決transactionを正常終了取消へ読み替えない。");
+                StringAssert.Contains(failure.ToString(), "OperationCanceledException");
+                Assert.IsTrue(diagnostics.Any(message => message.Contains("rollback_unresolved", StringComparison.Ordinal)
+                    && message.Contains("OperationCanceledException", StringComparison.Ordinal)));
+                Assert.IsTrue(diagnostics.Any(message => message.Contains("managed_rollback_failed fallback=failed", StringComparison.Ordinal)
+                    && message.Contains("not authorized", StringComparison.OrdinalIgnoreCase)));
+                Assert.IsTrue(diagnostics.Any(message => message.Contains("direct_rollback_failed", StringComparison.Ordinal)
+                    && message.Contains("not authorized", StringComparison.OrdinalIgnoreCase)));
+            }
+        }
+        finally
+        {
+            try
+            {
+                raw.sqlite3_set_authorizer(songDb.Handle, (strdelegate_authorizer?)null, null);
+                if (raw.sqlite3_get_autocommit(songDb.Handle) == 0) { songDb.Execute("ROLLBACK;"); }
+            }
+            finally { songDb.Dispose(); }
+        }
+        using LR2SongDBExtended readback = new BmsLibraryDbGateway(scope.SongDbPath).OpenSongDbReadOnly();
+        Assert.AreEqual("prefix committed", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[0].Path));
+        Assert.AreEqual("old", readback.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", files[^1].Path));
+        Assert.AreEqual(7, readback.ExecuteScalar<int>("SELECT favorite FROM song WHERE path = ?;", files[0].Path));
+        Assert.AreEqual("keep", readback.ExecuteScalar<string>("SELECT tag FROM song WHERE path = ?;", files[0].Path));
+        Assert.AreEqual(321, readback.ExecuteScalar<int>("SELECT adddate FROM song WHERE path = ?;", files[0].Path));
+        Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM chart_info WHERE sha256 = ?;", tailSha256));
+        Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(*) FROM maintenance WHERE path = ?;", files[^1].Path));
+        LR2SongDBExtended.lr2_song_db_sync_status durable = readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+        Assert.AreEqual(1000, durable.processed_cursor);
+        Assert.IsNull(durable.completed_at);
+        Assert.AreNotEqual("Completed", durable.status);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ChartFileReadBuffer ThrowLr2UnownedReaderCancellation(CancellationToken requestToken)
+    {
+        throw new OperationCanceledException("injected LR2 reader cancellation before owner cancellation", requestToken);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowRequiredCommittedCallbackFault(string fact)
+    {
+        throw new InvalidOperationException("required committed callback fault: " + fact);
     }
 
     private static Func<CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> CreateDirectChartInfoWriter(

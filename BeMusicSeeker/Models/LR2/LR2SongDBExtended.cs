@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using Ribbit.Logging;
 using SQLite;
 using SQLitePCL;
 
@@ -1194,8 +1195,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     public class SQLiteCommandExtended : SQLiteCommand
     {
-        private const string FinalizeExceptionDataKey = "SQLiteCommandExtended.FinalizeException";
-
         private readonly SQLiteConnection connection;
 
         internal SQLiteCommandExtended(SQLiteConnection conn)
@@ -1238,41 +1237,21 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         private void FinalizeRawStatement(sqlite3_stmt statement, Exception primaryException)
         {
-            try
-            {
-                int result = raw.sqlite3_finalize(statement);
-                if (result == raw.SQLITE_OK)
-                {
-                    return;
-                }
-
-                SQLiteException finalizeException = CreateFinalizeException(result);
-                if (primaryException == null)
-                {
-                    throw finalizeException;
-                }
-                AttachFinalizeException(primaryException, finalizeException);
-            }
+            int result;
+            try { result = raw.sqlite3_finalize(statement); }
             catch (Exception cleanupException)
             {
-                if (primaryException == null)
-                {
-                    throw;
-                }
-                AttachFinalizeException(primaryException, cleanupException);
+                if (primaryException == null) { throw; }
+                // 呼出し自体が失敗して解放を確認できない場合は、残状態を診断扱いにしません。
+                throw new AggregateException(primaryException, cleanupException);
             }
-        }
+            if (result == raw.SQLITE_OK) { return; }
+            if (primaryException == null) { throw CreateFinalizeException(result); }
 
-        private static void AttachFinalizeException(Exception primaryException, Exception cleanupException)
-        {
-            try
-            {
-                primaryException.Data[FinalizeExceptionDataKey] = cleanupException;
-            }
-            catch
-            {
-                // A cleanup diagnostic must never replace the operation's primary exception.
-            }
+            // finalizeの戻り値は直前のstep失敗も返します。文は破棄済みなので、
+            // 二次診断をDataへ蓄積せず、元の実行失敗をそのまま返します。
+            try { NLogWrapper.FileLogger?.Warn(CreateFinalizeException(result), "sqlite_statement_finalize_failed"); }
+            catch (Exception) { }
         }
 
         public List<string[]> GetRawValuesAsString()
