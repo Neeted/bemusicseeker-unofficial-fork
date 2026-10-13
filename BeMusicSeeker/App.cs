@@ -3,7 +3,6 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -77,31 +76,44 @@ public partial class App : System.Windows.Application
             normalizeSettings: PreparePortableSettings, warnSaveFailure: ShowSettingsSaveWarning);
         this.applicationRestartGateway = applicationRestartGateway
             ?? throw new ArgumentNullException(nameof(applicationRestartGateway));
-        try
-        {
-            Application_Initialization();
-        }
-        catch (Exception ex)
-        {
-            ExceptionLogger(ex);
-        }
     }
 
-    private void Application_Initialization()
+    /// <summary>独立した任意診断を設定します。一つの故障で必須起動準備や他の診断を飛ばしません。</summary>
+    private void InitializeStartupDiagnostics()
     {
-        applicationPathSnapshot = ApplicationPathPolicy.Current;
-        LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
-        NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory, defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
-        Net10PerformanceLog.Start();
-        NLogWrapper.AddTarget(new NetworkTarget
+        TryInitializeDiagnostic(() =>
+        {
+            LogLevel defaultFileLogLevel = ConvertToNLogLevel(CommandLineSwitches.LogLevel);
+            NLogWrapper.ConfigureApplicationFileLogging(applicationPathSnapshot.BaseDirectory,
+                defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
+        }, "startup_file_logging_failed");
+        TryInitializeDiagnostic(Net10PerformanceLog.Start, "startup_performance_logging_failed");
+        TryInitializeDiagnostic(() => NLogWrapper.AddTarget(new NetworkTarget
         {
             Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
-        }, LogLevel.Error, asDefault: false);
-        if (CommandLineSwitches.HasInvalidLogLevelValue)
+        }, LogLevel.Error, asDefault: false), "startup_network_logging_failed");
+        TryInitializeDiagnostic(() =>
         {
-            NLogWrapper.FileLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
+            if (CommandLineSwitches.HasInvalidLogLevelValue)
+            {
+                NLogWrapper.FileLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
+            }
+        }, "startup_log_level_warning_failed");
+    }
+
+    private static void TryInitializeDiagnostic(Action initialize, string diagnostic)
+    {
+        try { initialize(); }
+        catch (Exception exception) { LogFailureBestEffort(exception, diagnostic); }
+    }
+
+    private static void LogFailureBestEffort(Exception exception, string diagnostic)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, diagnostic); }
+        catch (Exception)
+        {
+            // 診断先の故障を新しい起動・終了失敗にしません。
         }
-        InitializeAvailableCultures();
     }
 
     private static LogLevel ConvertToNLogLevel(NormalLogLevel level)
@@ -173,7 +185,7 @@ public partial class App : System.Windows.Application
 
     private static void ShowSettingsSaveWarning(Exception exception)
     {
-        NLogWrapper.FileLogger?.Warn(exception, "startup_settings_save_failed");
+        LogFailureBestEffort(exception, "startup_settings_save_failed");
         string path = exception is PortableSettingsException failure ? failure.FilePath : PortableSettingsPath.UserConfigPath;
         EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.PortableSettingsStartupSaveFailed,
             path, exception.GetBaseException().Message), BeMusicSeeker.Properties.Resources.Warning,
@@ -182,6 +194,10 @@ public partial class App : System.Windows.Application
 
     private void InitializeOwnedSettings()
     {
+        // 必須準備の故障は既存の起動ownerが受け止め、未構成のまま終了します。
+        applicationPathSnapshot = ApplicationPathPolicy.Current;
+        InitializeStartupDiagnostics();
+        InitializeAvailableCultures();
         applicationSettingsLifecycle.Initialize(
             AvailableCultures.Values,
             () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),
@@ -204,7 +220,8 @@ public partial class App : System.Windows.Application
             {
                 if (exception is PortableSettingsException settingsFailure)
                 {
-                    NLogWrapper.FileLogger?.Error(exception, "startup_settings_failed");
+                    try { NLogWrapper.FileLogger?.Error(exception, "startup_settings_failed"); }
+                    catch (Exception) { /* 元の起動失敗の通知と終了を妨げません。 */ }
                     EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.PortableSettingsStartupFailed,
                         settingsFailure.FilePath, settingsFailure.GetBaseException().Message),
                         BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Error);
@@ -222,8 +239,8 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            ReleaseSingleInstanceMutex();
-            Shutdown(1);
+            try { ReleaseSingleInstanceMutex(); }
+            finally { Shutdown(1); }
         }
     }
 
@@ -240,11 +257,12 @@ public partial class App : System.Windows.Application
         }
         catch (Exception exception)
         {
-            NLogWrapper.FileLogger?.Warn(
-                exception,
-                "performance_diagnostics_stop_failed reason=application_exit");
+            LogFailureBestEffort(exception, "performance_diagnostics_stop_failed reason=application_exit");
         }
-        ReleaseSingleInstanceMutex();
+        finally
+        {
+            ReleaseSingleInstanceMutex();
+        }
     }
 
     /// <summary>
@@ -294,17 +312,24 @@ public partial class App : System.Windows.Application
 
     private static async Task StopPerformanceDiagnosticsBeforeTerminalActionAsync(string reason)
     {
-        Task stopTask = Net10PerformanceLog.StopAsync();
-        if (await Task.WhenAny(
-                stopTask,
-                Task.Delay(PerformanceDiagnosticsDrainLimit)).ConfigureAwait(false) != stopTask)
+        try
         {
-            NLogWrapper.FileLogger?.Warn(
-                "performance_diagnostics_stop_timed_out reason=" + reason);
-            return;
-        }
+            Task stopTask = Net10PerformanceLog.StopAsync();
+            if (await Task.WhenAny(
+                    stopTask,
+                    Task.Delay(PerformanceDiagnosticsDrainLimit)).ConfigureAwait(false) != stopTask)
+            {
+                NLogWrapper.FileLogger?.Warn(
+                    "performance_diagnostics_stop_timed_out reason=" + reason);
+                return;
+            }
 
-        await stopTask.ConfigureAwait(false);
+            await stopTask.ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            LogFailureBestEffort(exception, "performance_diagnostics_stop_failed reason=" + reason);
+        }
     }
 
     private static void ReleaseSingleInstanceMutex()
@@ -334,42 +359,18 @@ public partial class App : System.Windows.Application
     private void Application_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
         Exception exception = e.Exception;
-        bool showMessage = true;
+        bool suppressed = false;
         e.Handled = true;
-        if (TrySuppressShutdownSqliteCloseException(exception, "dispatcher"))
-        {
-            return;
-        }
-        if ((exception is COMException && ((COMException)exception).ErrorCode == -2147221040) || (exception is COMException && ((COMException)exception).ErrorCode == -2147467259))
-        {
-            return;
-        }
-        if (exception is NullReferenceException)
-        {
-            return;
-        }
-        if (exception is InvalidOperationException)
-        {
-            return;
-        }
         try
         {
-            ExceptionLogger(exception, showMessage);
+            suppressed = TrySuppressShutdownSqliteCloseException(exception, "dispatcher");
+            if (!suppressed) { ExceptionLogger(exception); }
         }
         finally
         {
-            if (!Debugger.IsAttached)
+            if (!suppressed && !Debugger.IsAttached)
             {
-                Thread.Sleep(1000);
-                EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
-                try
-                {
-                    System.Windows.Application.Current.MainWindow.Close();
-                }
-                finally
-                {
-                    Environment.Exit(1);
-                }
+                ExitAfterUnhandledException();
             }
         }
     }
@@ -384,7 +385,8 @@ public partial class App : System.Windows.Application
         try
         {
             var ex = (Exception)e.ExceptionObject;
-            suppressed = TrySuppressShutdownSqliteCloseException(ex, "current_domain");
+            // CLRが既に終了を決めた例外を、統制終了の記録だけで回復扱いにしません。
+            suppressed = !e.IsTerminating && TrySuppressShutdownSqliteCloseException(ex, "current_domain");
             if (!suppressed)
             {
                 ExceptionLogger(ex);
@@ -394,41 +396,53 @@ public partial class App : System.Windows.Application
         {
             if (!suppressed)
             {
-                Thread.Sleep(1000);
-                EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.Yes);
-                try
-                {
-                    System.Windows.Application.Current.MainWindow.Close();
-                }
-                finally
-                {
-                    Environment.Exit(1);
-                }
+                ExitAfterUnhandledException();
             }
         }
     }
 
-    private void ExceptionLogger(Exception ex, bool showMessage = true)
+    /// <summary>非常時の案内・窓閉鎖が失敗しても既存の最終終了へ到達します。通常終了の整合性待ちは代替しません。</summary>
+    private static void ExitAfterUnhandledException()
     {
-        Logger fileLogger = NLogWrapper.FileLogger;
-        Logger networkLogger = NLogWrapper.NetworkLogger;
-        string empty = Assembly.GetEntryAssembly().GetName().Version.ToString();
-        Logger logger;
-        if (showMessage)
-        {
-            EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.Error_UnhandledExceptionFormat, ex.Message), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            logger = networkLogger;
-        }
-        else
-        {
-            logger = networkLogger;
-        }
         try
         {
-            logger?.Error(ex, empty + " - UNKNOWN" + ((!showMessage) ? " IGNORED" : string.Empty) + Environment.NewLine + ex.ToString());
+            Thread.Sleep(1000);
+            try
+            {
+                EmergencyDialog.Show(BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit,
+                    BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK,
+                    MessageBoxImage.Asterisk, MessageBoxResult.Yes);
+            }
+            catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_exit_notification_failed"); }
+            try { System.Windows.Application.Current?.MainWindow?.Close(); }
+            catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_window_close_failed"); }
         }
-        catch
+        finally
         {
+            Environment.Exit(1);
+        }
+    }
+
+    /// <summary>元原因のファイル診断・既存network診断・案内を個別に試し、診断や表示の故障で終端を変えません。</summary>
+    private void ExceptionLogger(Exception ex, bool showMessage = true)
+    {
+        try { NLogWrapper.FileLogger?.Error(ex, "unhandled_exception"); }
+        catch (Exception) { /* 他の診断と必要終了を妨げません。 */ }
+        try
+        {
+            string version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
+            NLogWrapper.NetworkLogger?.Error(ex, version + " - UNKNOWN" + ((!showMessage) ? " IGNORED" : string.Empty)
+                + Environment.NewLine + ex);
+        }
+        catch (Exception) { /* logger取得や元例外の文字列化も任意診断の境界です。 */ }
+        if (showMessage)
+        {
+            try
+            {
+                EmergencyDialog.Show(string.Format(BeMusicSeeker.Properties.Resources.Error_UnhandledExceptionFormat, ex.Message),
+                    BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            catch (Exception) { /* 表示失敗から再通知や例外輸送を始めません。 */ }
         }
     }
 

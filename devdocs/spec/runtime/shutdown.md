@@ -112,7 +112,9 @@ sequenceDiagram
 
 終端でのLR2楽曲・スコアDBのロック確認は取得後に必ず解除します。未取得なら遅延警告後も待ちます。これは通常の終了準備後の最終確認であり、先行処理の追跡を代替しません。
 
-統制された終了中に限り、未解放の文・未完了バックアップを理由にしたSQLite接続終了エラーは非常用ダイアログを出さず記録します。通常動作中の同じエラーは抑止しません。
+統制された終了中に限り、未解放の文・未完了バックアップを理由にしたSQLite接続終了エラーは非常用ダイアログを出さず記録します。通常動作中の同じエラーは抑止しません。CLRが終了を決定済みのAppDomain例外も、この条件で回復扱いにしません。
+
+未処理例外の最終防壁では、NRE・InvalidOperation・COMの型やHRESULTだけを理由に無記録で継続しません。元原因のファイル診断、既存network診断、非常用案内を個別に試します。案内、MainWindowの不在・Close失敗にかかわらず、非デバッグ時は既存の最終終了へ到達します。通常終了では性能診断の失敗がmutex解放を飛ばさず、起動失敗ではmutex解放の失敗がShutdownの呼出しを飛ばしません。
 
 ### 保証の範囲
 
@@ -126,6 +128,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| Appの起動失敗・最終防壁・診断と終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備の終端は`ApplicationStartupCompositionOwnerTests`、通常終了は`ShellShutdownWorkflowOwnerTests`で分担する。Appの診断先ごとの捕捉、限定SQLite抑止、CLR終端、通知と窓閉鎖の失敗後もExitへ到達するfinally、mutex解放の配線は静的レビューで確認する。テストプロセスから致命的Exitを実行した保証ではない。 |
 | 局所プレイリスト通知の実終端drain | `ShellShutdownWorkflowOwner` | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 通常・更新時の終了、再入、UI応答、順序とTask共有 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs)。`MainWindowShutdownCapturePrecedesShellCompletion` は終了受付後の即時表示要求と、受付前に予約した遅延表示要求の抑止も確認する。`TerminalAsyncPlayerCloseRunsOnWorkerBeforeUiSettingsSave` は非同期player停止の同期部分も作業スレッドで実行し、解放後の設定保存はUI上で行うことを確認する。 |
 | 実導入・player・保存・終了の順序 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の `MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`: 通常Closeでは実導入実処理の終端前にplayer停止・終端保存・最終終了へ進まず、導入とplayerの全Task終端後に保存と終了を行う。 |
