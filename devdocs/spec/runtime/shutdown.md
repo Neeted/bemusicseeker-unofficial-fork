@@ -112,9 +112,9 @@ sequenceDiagram
 
 終端でのLR2楽曲・スコアDBのロック確認は取得後に必ず解除します。未取得なら遅延警告後も待ちます。これは通常の終了準備後の最終確認であり、先行処理の追跡を代替しません。
 
-統制された終了中に限り、未解放の文・未完了バックアップを理由にしたSQLite接続終了エラーは非常用ダイアログを出さず記録します。通常動作中の同じエラーは抑止しません。CLRが終了を決定済みのAppDomain例外も、この条件で回復扱いにしません。
+統制された終了中に限り、未解放の文・未完了バックアップを理由にしたSQLite接続終了エラーは非常用ダイアログを出さず記録します。通常動作中の同じエラーは抑止しません。CLRが終了を決定済みの`AppDomain`例外も、この条件で回復扱いにしません。
 
-未処理例外の最終防壁では、NRE・InvalidOperation・COMの型やHRESULTだけを理由に無記録で継続しません。元原因のファイル診断、既存network診断、非常用案内を個別に試します。案内、MainWindowの不在・Close失敗にかかわらず、非デバッグ時は既存の最終終了へ到達します。通常終了では性能診断の失敗がmutex解放を飛ばさず、起動失敗ではmutex解放の失敗がShutdownの呼出しを飛ばしません。
+未処理例外の最終防壁では、`NullReferenceException`・`InvalidOperationException`・`COMException`の型やHRESULTだけを理由に無記録で継続しません。元原因のファイル診断、既存ネットワーク診断、非常用案内を個別に試します。案内、`MainWindow`の不在・`Close`失敗にかかわらず、非デバッグ時は既存の最終終了へ到達します。通常終了では性能診断の失敗がミューテックス解放を飛ばさず、起動失敗ではミューテックス解放の失敗が`Shutdown`の呼出しを飛ばしません。
 
 ### 保証の範囲
 
@@ -128,8 +128,8 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| Appの起動失敗・最終防壁・診断と終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備の終端は`ApplicationStartupCompositionOwnerTests`、通常終了は`ShellShutdownWorkflowOwnerTests`で分担する。Appの診断先ごとの捕捉、限定SQLite抑止、CLR終端、通知と窓閉鎖の失敗後もExitへ到達するfinally、mutex解放の配線は静的レビューで確認する。テストプロセスから致命的Exitを実行した保証ではない。 |
-| 局所プレイリストの空の通知結果の配送終端を待つ終了 | `ShellShutdownWorkflowOwner` | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)はドロップの空の通知結果を記録し、購読処理の保持中は受理`Task`未完了・P生存・競合拒否・終了要求未完了を確認する。解放後はドロップと`RequestWindowCloseAsync`の両`Task`が終端し、L/Pを解放する。実ダイアログ表示の待機ではなく、任意配送の実終端を保証し、`finally`でも保持点の解放、全開始`Task`の回収、終了処理、編集画面の破棄を終えてから一時ファイルを削除する。 |
+| アプリの起動失敗・最終防壁と、診断・終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備の終端は [`ApplicationStartupCompositionOwnerTests`](../../../BeMusicSeeker.Tests/Startup/ApplicationStartupCompositionOwnerTests.cs)、通常終了は [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs) が分担する。診断先ごとの捕捉、限定したSQLite抑止、CLR終端、通知・窓閉鎖の失敗後も最終終了へ進む制御とミューテックス解放は静的に確認する。致命的な終了の実行は自動テストでは未確認。 |
+| 局所プレイリストの空の結果記録の配送終端を待つ終了 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) は、ドロップの空の結果記録の購読処理中も受理Task・Pを保持し、競合拒否と終了要求の待機を確認する。配送後はドロップと `RequestWindowCloseAsync` が終端し、L/Pを解放する。実ダイアログの表示待ちを確認するケースではない。 |
 | 通常・更新時の終了、再入、UI応答、順序とTask共有 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs)。`MainWindowShutdownCapturePrecedesShellCompletion` は終了受付後の即時表示要求と、受付前に予約した遅延表示要求の抑止も確認する。`TerminalAsyncPlayerCloseRunsOnWorkerBeforeUiSettingsSave` は非同期player停止の同期部分も作業スレッドで実行し、解放後の設定保存はUI上で行うことを確認する。 |
 | 実導入・player・保存・終了の順序 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の `MainWindowPlayerDrainKeepsDispatcherResponsiveAndDefersTerminalClose`: 通常Closeでは実導入実処理の終端前にplayer停止・終端保存・最終終了へ進まず、導入とplayerの全Task終端後に保存と終了を行う。 |
 | idleのmode変更と最小保存、実Closeとの接続 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs) の `MainWindowOperationModeRestartDrainsPlayerBeforeStartAndShutdown`、`MainWindowCloseDuringModeConfirmationPreservesEarlierCloseWithoutModeSave`、`MainWindowOperationModeRestartSaveFailureRetainsSettingsWithoutShutdown` は実Close、player終端、実XMLの最小保存、保存失敗時の編集再開・終了抑止を確認する。Busyの保存拒否は設定仕様の実導入caseに分担する。 |

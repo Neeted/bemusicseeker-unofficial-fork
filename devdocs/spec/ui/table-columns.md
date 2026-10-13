@@ -334,7 +334,7 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
 | 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
-| 主一覧・サマリーの初期化確認と所有イベント終端 | `MainWindowColumnResetTerminal`、`MainWindow` | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) の `MainColumnResetClickUsesActualCompiledMenuRoute` が対象とコールバックの接続を確認する。明示的なOK限定と呼出し前・await失敗の所有catchは静的配線点検に分担する。 |
+| 主一覧・サマリーの初期化確認と所有イベント終端 | [`MainWindowColumnResetTerminal`](../../../BeMusicSeeker/Views/MainWindow/MainWindowFeatureTerminals.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) の `MainColumnResetClickUsesActualCompiledMenuRoute` が対象とコールバックの接続を確認する。明示的なOK限定と呼出し前・`await`失敗の所有`catch`は静的配線点検に分担する。 |
 
 ## 関連資料
 

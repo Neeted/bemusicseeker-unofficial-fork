@@ -14,7 +14,7 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
 
-JSON解析と整数tokenの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールprotocolの検証は維持します。`UpdateCheckServiceTests.ParseManifest_MalformedJsonRetainsValidationCause` が不正JSONの分類と原因保持を、既存の有効・無効マニフェスト群が資産検証を確認します。
+JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールプロトコルの検証は維持します。
 
 ```text
 https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json
@@ -24,13 +24,13 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 | フィールド | 契約 |
 | --- | --- |
-| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。Int32内の非対応版は従来の意味検証で拒否し、Int32範囲外は原因を保持する変換失敗とする。 |
+| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。`Int32`内の非対応版は従来の意味検証で拒否し、`Int32`範囲外は原因を保持する変換失敗とする。 |
 | `version` / `releaseTag` | 更新先の版と `v{version}`。 |
 | `releasePageUrl` | GitHub Releaseのページ。 |
 | `minimumUpdaterVersion` | 更新ツールのプロトコル版。対応版は1。 |
 | `assets` | 1件以上。通常版の `kind=app` を必須とし、メタデータ同梱版 `app-with-metadata` より先に並べる。 |
 
-各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を持ちます。`sizeBytes` は正のInt64を受理し、`long.MaxValue` も有効です。Int64範囲外だけを型付き変換失敗とし、非正数の意味検証を維持します。新たな入力上限は設けません。`label` は識別用の英語で、画面の名前と説明は `kind` に対応する多言語リソースを使います。
+各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を持ちます。`sizeBytes` は正の`Int64`を受理し、`long.MaxValue` も有効です。`Int64`範囲外だけを型付き変換失敗とし、非正数の意味検証を維持します。新たな入力上限は設けません。`label` は識別用の英語で、画面の名前と説明は `kind` に対応する多言語リソースを使います。
 
 `--update-manifest-url=` で検証用URLを指定できます。ローカル検証は `scripts/prepare-local-update-test.ps1 -StartServer` を使い、`dist/` にある通常版・同梱版から更新情報を作ってHTTP配信します。
 
@@ -106,7 +106,7 @@ sequenceDiagram
 
 再起動先の起動成功が更新の確定点です。ZIP・展開領域の後片付けは再起動前に試み、失敗は警告として次回起動へ引き継ぎます。再起動後に更新ツールが同じ一時領域を並行して掃除しません。
 
-ZIPと展開先の一時物回収は独立して試み、一方の削除失敗で他方を放棄しません。これは一時物に限る扱いであり、復元用backup・ジャーナル・回復登録の退役順序を変更しません。再起動直後は属性取得でZIP・展開先の欠損を確認した場合だけ、backup・ジャーナル・回復登録を既存順序で退役します。親終了を監視するwatchdogも同じ条件に従います。Restartingでも再起動PIDまたは既存の実行ファイル一致で起動を証明できれば、先にCommittedを保存します。残存、型違い、読取り不能では確定済みジャーナル・backup・回復登録を保持し、後日の回復所有者が一時物から整理します。削除原因と対象pathを診断しますが、stderr出力や原因の文字列化の失敗を、更新・再起動・実復元の成否へ加えません。終了コードと失敗receiptの保存試行も診断の成否から独立させます。
+ZIPと展開先の一時物回収は独立して試み、一方の削除失敗で他方を放棄しません。これは一時物に限る扱いであり、復元用バックアップ・ジャーナル・回復登録の退役順序を変更しません。再起動直後は属性取得でZIP・展開先の欠損を確認した場合だけ、バックアップ・ジャーナル・回復登録を既存順序で退役します。親プロセスの終了監視も同じ条件に従います。`Restarting`でも再起動PIDまたは既存の実行ファイル一致で起動を証明できれば、先に`Committed`を保存します。残存、型違い、読取り不能では確定済みジャーナル・バックアップ・回復登録を保持し、後日の回復所有者が一時物から整理します。削除原因と対象パスを診断しますが、標準エラー出力や原因の文字列化の失敗を、更新・再起動・実復元の成否へ加えません。終了コードと失敗結果記録の保存試行も診断の成否から独立させます。
 
 #### 更新の確定点と復元
 
@@ -139,7 +139,7 @@ flowchart TB
 update_work/current/BeMusicSeeker.Updater.exe --recover --app-dir <app-dir>
 ```
 
-`RunOnce` 名は `!` と再試行世代を含みます。回復開始時に次の世代を登録し、排他の競合、復元失敗、回復自体の中断後も次回ログオンで要求を受け取れるようにします。取消または回復完了時、更新確定後に所有する一時物・backup・ジャーナルの退役が完了した時だけ、そのアプリディレクトリのハッシュに対応する登録をすべて解除します。
+`RunOnce` 名は `!` と再試行世代を含みます。回復開始時に次の世代を登録し、排他の競合、復元失敗、回復自体の中断後も次回ログオンで要求を受け取れるようにします。取消または回復完了時、更新確定後に所有する一時物・バックアップ・ジャーナルの退役が完了した時だけ、そのアプリディレクトリのハッシュに対応する登録をすべて解除します。
 
 復元完了は `rolled-back` として保存し、旧アプリの起動成功後に退避・ジャーナルを整理します。後片付け中断で復元を繰り返しません。起動成功後に `Restarting` へ記録された正のPIDは確定の証拠として扱い、PIDがない未確定区間だけ実行ファイルの同一性で判定します。同じアプリが生存している場合は本体を変更せず、終了コード2と回復要求を残します。回復開始時に登録した次世代の要求をそのまま保持し、生存による延期だけでは重ねて登録しません。
 
@@ -153,11 +153,12 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| マニフェスト整数のInt32/Int64上下範囲外とBigInteger、表現可能な非対応版・非正数、最大sizeの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
+| 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
+| マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../BeMusicSeeker.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`](../../../BeMusicSeeker.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 配布境界・管理ファイル・巻き戻し | [更新ツール](../../../BeMusicSeeker.Updater) | [`UpdaterDeploymentBoundaryTests`](../../../BeMusicSeeker.Tests/Update/UpdaterDeploymentBoundaryTests.cs)、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) |
-| 一時物回収・任意診断の分離 | `Program.ApplyUpdate`、`TryCleanupTemporaryUpdateArtifacts`、`WriteDiagnosticBestEffort` | `UpdaterPackageSyncTests.ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure` が再起動前の回収順と元起動失敗・旧版復元を、`ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication` が実再起動と新版・残留journalの保持、削除可能なZIPをwatchdogが保持して後続の明示回復だけが退役することを確認します。既存の配布プロセス検証とrollback二次故障の回復材料保持は継続します。 |
+| 一時物回収・任意診断の分離 | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `ApplyUpdate` / `TryCleanupTemporaryUpdateArtifacts` / `WriteDiagnosticBestEffort` | [`UpdaterPackageSyncTests.ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) が再起動前の回収順と元起動失敗・旧版復元を、`ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication` が実再起動と新版・残留ジャーナルの保持、削除可能なZIPを監視処理が保持して後続の明示回復だけが退役することを確認します。既存の配布プロセス検証と巻戻し二次故障の回復材料保持は継続します。 |
 
 ## 関連資料
 

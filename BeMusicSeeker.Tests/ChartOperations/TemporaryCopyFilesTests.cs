@@ -127,7 +127,7 @@ public sealed class TemporaryCopyFilesTests
     /// 保証：Windowsの削除共有を許可しないowned fileだけを残し、他のowned fileと空ディレクトリを最後まで回収します。
     /// 借用・既存・第三者の素材を保ち、解放後の再Disposeでも残留物を再試行しません。
     /// </summary>
-    /// <remarks>実WindowsのFileShare.Readで削除失敗を作り、画面基盤を用いずDisposeの終端と実FSの残存を観測します。Linuxの共有規則では代用しません。</remarks>
+    /// <remarks>実WindowsのFileShare.Readで削除失敗を作り、画面基盤を用いずDisposeの終端と実FSの残存を観測します。</remarks>
     [TestMethod]
     public void Dispose_DeleteShareDeniedLeavesOnlyOwnedResidueAndDoesNotRetry()
     {

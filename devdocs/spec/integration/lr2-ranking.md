@@ -26,9 +26,9 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 ### ランキング情報JSONの部分応答
 
-`BmsLibraryIrClient.ParseRankingInfoResponse` は有効な行のMD5・size・時刻を保持します。非object、必須項目欠落、不正MD5、数値・日付形式や範囲の不正は行単位で省略します。内部故障・資源不足は不正行として隠しません。省略時は応答ごとの件数と最大5件の行番号・理由を一度だけ診断し、診断先の例外は返す一覧を変更しません。
+`BmsLibraryIrClient.ParseRankingInfoResponse` は有効な行のMD5・サイズ・時刻を保持します。JSONオブジェクト以外の値、必須項目欠落、不正MD5、数値・日付形式や範囲の不正は行単位で省略します。内部故障・資源不足は不正行として隠しません。省略時は応答ごとの件数と最大5件の行番号・理由を一度だけ診断し、診断先の例外は返す一覧を変更しません。
 
-空・全不正・一部不正の応答はいずれも部分一覧です。返らないMD5を既存cacheの削除根拠にせず、有効行だけから取得・更新の候補を選びます。文書全体の不正JSONや後続JSONは応答解析失敗とします。
+空・全不正・一部不正の応答はいずれも部分一覧です。返らないMD5を既存キャッシュの削除根拠にせず、有効行だけから取得・更新の候補を選びます。文書全体の不正JSONや後続JSONは応答解析失敗とします。
 
 ### 順位キャッシュの解析
 
@@ -53,7 +53,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 予約条件、UI後の本人スコア取得、通信中のL受付と退役後の非保存 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
-| 情報JSONの型維持、不正行の上限付き診断、部分応答とcache保持 | `BmsLibraryIrClient.ParseRankingInfoResponse`、`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo` | `BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
+| 情報JSONの型維持、不正行の上限付き診断、部分応答とキャッシュ保持 | [`BmsLibraryIrClient.ParseRankingInfoResponse`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrClient.cs)、[`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |
 | キャッシュの取得要求、確認、取消、成功・失敗件数の通知 | [`RankingCacheDownloadWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) | [`RankingCacheDownloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/RankingCacheDownloadWorkflowOwnerTests.cs) |
 

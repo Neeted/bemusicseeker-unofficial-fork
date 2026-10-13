@@ -136,12 +136,6 @@ playableはsound_channelsの配列順で登録し、channel内は `y` 昇順のs
 | 非空voiceだけの音声終端、通常ロード・準備結果採用・Writerの一致 | `BmsAudioFrameSchedule.Create`、`BMSAutoPlayer`、`BMSAutoPlayWriter` | `BMSAutoPlayWriterTests.BmsonAudioEndUsesOnlyNonemptyVoicesAcrossLoadPreparationAndWriter` は後方欠落・正常0frame・空source窓で480frame/10ms、後方再開・別チャンネルで24480frame/510ms、非空voiceなしで0frame/0msを確認し、表示終端・ノート情報と既存BMSの長さ検査を維持する。 |
 | 初期線保持・小節数・量子化された正線・音声時計不変 | `BmsonPlaybackParser` / `PlaybackControlKind.InitialBarLine` / `BMSPlayer` | [`BmsonPlaybackParserTests`](../../../BeMusicSeeker.Tests/Chart/BmsonPlaybackParserTests.cs) の `GlobalPulseAndDisplayLinesDoNotChangeAudioClock` は初期線0・1・2本、LastMeasureと全音声区間を確認する。[`BMSPlayerControlTests`](../../../BeMusicSeeker.Tests/Playback/BMSPlayerControlTests.cs) の `BmsonInitialLinesDoNotAdvanceMeasureButQuantizedPositiveLinesDo` は実Start前進と公開CurrentTimeの戻りseekを分け、通常BPMと巨大BPMを確認する。 |
 
-### 実譜面確認の範囲
-
-音源なしで実DLLの再生用解析器を呼ぶ開発確認では、TestDataの1,045件すべてが解析と音声区間計画を完了しています。条件・入力識別・解析全体の性能は[設計判断](../../decisions/bmson-playback-boundaries.md#再生用解析器全体の実譜面確認)に記載します。全件の時刻を別の厳密時計と照合した検査ではありません。
-
-このLinuxでの確認は、音源復号、ネイティブミキサー・Writer・シーク、WPF、混在キュー、資源寿命の実行確認を含みません。上表のテストの責務と、その測定で実際に実行した範囲を区別します。Windowsでの音声・画面検証は[テスト検証](../development/testing.md)の実行条件に従います。
-
 ## 関連資料
 
 - [bmson再生の設計判断](../../decisions/bmson-playback-boundaries.md)

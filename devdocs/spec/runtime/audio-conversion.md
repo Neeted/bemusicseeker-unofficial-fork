@@ -38,7 +38,7 @@ Float32 WAVは有限の±1超過を保存します。整数入力を必要とす
 
 ### 失敗理由と再実行の案内
 
-Busyと完了の通知は任意案内です。表示結果が `Failed` / 表示不可であったり通知呼出し・待機が失敗しても、元原因を局所診断して実際のBusy、バッチ状態、成功・失敗・未処理件数と各ファイル結果を保持します。Busyでは再生停止やwriterを開始しません。必要な進捗routeの故障による取消・実workerのdrain、converter故障、native解放未確認時の安全停止、実operation tokenと受付寿命は同じままです。実cleanupが失敗した場合の完了通知抑止も維持します。
+`Busy`と完了の通知は任意案内です。表示結果が `Failed` / 表示不可であったり通知呼出し・待機が失敗しても、元原因を局所診断して実際の`Busy`、バッチ状態、成功・失敗・未処理件数と各ファイル結果を保持します。`Busy`では再生停止や書込み処理を開始しません。必要な進捗処理経路の故障による取消・全ワーカーの終端待機、変換処理故障、ネイティブ解放未確認時の安全停止、操作トークンと受付寿命は同じままです。実後片付けが失敗した場合の完了通知抑止も維持します。
 
 ファイル結果は成功・失敗だけでなく対象と主原因を完了通知へ渡します。省略音源があった成功結果には譜面名と一意path数を保持し、完了通知に警告として表示します。バッチの完了ダイアログは一回とし、成功・失敗・未処理の件数を維持します。整数範囲超過は件数、代表対象、最大の最終ピークをまとめて案内し、その他の原因は対象名と理由を最大3件、残りは件数を示します。全件の詳細はログで確認できます。音声環境、OOM、worker、session/device、native解放未確認など入力以外のfatalは、後片付け後にバッチを中止し、単なる譜面失敗として次のファイルへ継続しません。解放未確認による停止や取消でも、それまでの失敗理由を捨てません。
 
@@ -122,7 +122,7 @@ flowchart TB
 | 別途用意した実エンコーダーとの接続 | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
 | 一回render・全体RMS・絶対frame・有限音源の最終フレーム・従来の末尾無音・空変換拒否・再生設定不変 | [`BMSAutoPlayWriter`](../../../BeMusicSeeker/Ribbit/BMS/BMSAutoPlayWriter.cs)、[`BmsAudioFrameSchedule`](../../../BeMusicSeeker/Ribbit/BMS/BmsAudioFrameSchedule.cs)、[`BmsScheduledAudioMixer`](../../../BeMusicSeeker/Ribbit/BMS/BmsScheduledAudioMixer.cs)、[`AudioPcmRenderer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcmRenderer.cs) | [`BMSAutoPlayWriterTests`](../../../BeMusicSeeker.Tests/Playback/BMSAutoPlayWriterTests.cs) は固定入力から独立に求めた出力長・非零の最終音frame・開始時刻の丸め・再発音・末尾無音をWAVで確認する。[`BmsRealtimeAudioSchedulerTests`](../../../BeMusicSeeker.Tests/Playback/BmsRealtimeAudioSchedulerTests.cs) はBPM・EXBPM・STOP・小節長・aliasを含む譜面の固定expected frame、Writer PCM、Realtime PCMを照合し、[`AudioPcmRendererTests`](../../../BeMusicSeeker.Tests/Playback/AudioPcmRendererTests.cs) はframe取得・測定の契約を確認する。 |
 | 最終整数変換・float過大値保存・24bitの正確な格子 | [`AudioPcm24Quantizer`](../../../BeMusicSeeker/Ribbit/Media/Audio/AudioPcm24Quantizer.cs)、`AudioEncoderSession` | [`AudioOutputNativeTests`](../../../BeMusicSeeker.Tests/Playback/AudioOutputNativeTests.cs) は正負0.25LSBと無音を各2^20 sample、平均誤差≤0.02LSB、最大誤差≤2LSBで検査する。24bit無音の−1/0/+1頻度は1/8・3/4・1/8に各0.005以内。 |
-| 任意Busy・完了通知の失敗と実変換結果の保持 | `SelectedChartAudioConversionWorkflowOwner` | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `RunAsync_CompletionNotificationFailurePreservesConversionResult` が表示不可・Failed・throwでも正確な成功結果を保持する。`RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion` はBusy通知故障時の未開始と既存worker終端後の次受付を確認する。既存の進捗route・native cleanup故障試験が実失敗と安全停止を担う。 |
+| 任意`Busy`・完了通知の失敗と実変換結果の保持 | [`SelectedChartAudioConversionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs) | [`SelectedChartAudioConversionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartAudioConversionWorkflowOwnerTests.cs) の `RunAsync_CompletionNotificationFailurePreservesConversionResult` が表示不可・`Failed`・例外でも正確な成功結果を保持する。`RunAsync_AcceptedWorkerRejectsConcurrentRequestAndGateReopensAfterCompletion` は`Busy`通知故障時の未開始と既存ワーカー終端後の次受付を確認する。既存の進捗処理経路・ネイティブ資源の後片付け故障試験が実失敗と安全停止を担う。 |
 
 ## 関連資料
 

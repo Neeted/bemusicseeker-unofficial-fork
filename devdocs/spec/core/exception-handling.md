@@ -100,7 +100,7 @@ Taskの失敗を観測・記録しただけで終了処理へ接続したこと�
 
 全体例外ハンドラーは、通常の操作結果を表示する経路に使わない。特定の例外型をログなしに無視する条件や、AggregateExceptionに包まれたかどうかで継続可否を変える条件を追加しない。既存の抑止条件は、通常の操作境界を修復する前に機械的に削除しない。
 
-Appの最終防壁は、元原因のファイル診断・既存network診断・非常用案内を独立して試し、診断や表示の故障で必要な終了を飛ばさない。統制終了中の限定的なSQLite close抑止と、CLRが決定した終了を区別する。致命的な最終終了は、通常終了の資源回収・整合性待ちを保証する経路ではない。具体的な責務は[起動](../runtime/startup.md)と[終了](../runtime/shutdown.md)に従う。
+`App` の最終防壁では、診断や非常用案内の失敗で必要な終了を妨げない。現行の通常終了の資源回収・整合性待ちと、致命的な最終終了の保証は[終了](../runtime/shutdown.md#保証の範囲)に従う。これは、本書で求める条件外の失敗から管理された終了への接続が完了したという意味ではない。
 
 ### 実装・レビュー・検証
 
@@ -132,7 +132,11 @@ Appの最終防壁は、元原因のファイル診断・既存network診断・�
 | 手動再取得の失敗表示と診断の分担 | `BmsPlaylistExternalReloadTests.PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle` / `PlaylistExternalFailureBoundaryTests.ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus` | 取得境界で元例外・取得元を記録し、WorkspaceはSTATUS・現在参照・保存済み内容・進捗終端を保つ。診断先の失敗は元原因を置き換えない。 |
 | 必要な確定状態と取消しの保持 | `BmsPlaylistExternalReloadTests` の出力失敗・部分取消し | 保存後の参照と全体取消しを失わず、開始済み処理の終端まで待つ。 |
 | 通知失敗の局所診断 | `FileDbMutationReport.ShowAsync`、`NotifyBestEffort` | 通知の失敗を元の変更結果へ加えない。 |
-| その他の領域 | 変更する実入口、結果利用先、既存の機能テスト | 方針への適用は領域ごとに確認する。上の例だけで全機能の実装済み・検証済みを宣言しない。 |
+| 入力不良と内部故障の区別 | [譜面情報](../library/chart-info.md)、[解析互換性](../library/parser-compatibility.md)、[パスとI/O](path-length-and-io.md)、[LR2ランキング](../integration/lr2-ranking.md)の実装・テスト対応 | 入力として扱える失敗だけを対象内へ閉じ、内部故障や診断失敗を解析不能・不存在へ読み替えない。 |
+| 保存・必要反映と任意通知 | [プレイリストの保存・出力](../playlist/storage-and-export.md)、[ライブラリ変更](../library/mutations.md)の実装・テスト対応 | 保存済み参照と必要な未完了処理を保持し、処理後の案内や診断の失敗で元結果を変えない。 |
+| 開始済み処理と中断位置 | [譜面ファイル読取り](../library/chart-file-reading.md)、[LR2楽曲DB同期](../integration/lr2-song-db.md)の実装・テスト対応 | 準備・解析・保存の開始済みTaskを終端まで待ち、実確定位置と必須反映の結果を引き継ぐ。 |
+| 補償・解放と残状態 | [ファイルとDBの整合性](../library/file-db-consistency.md)、[音声](../runtime/audio.md)、[LR2バックアップ](../integration/lr2-backup.md)、[ポータブル更新](../integration/portable-update.md)の実装・テスト対応 | 元失敗を保ちながら独立した必要回収を試み、未解決の補償や共有資源を任意診断へ格下げしない。 |
+| 起動・設定・最終終了 | [起動](../runtime/startup.md)、[設定](../runtime/settings.md)、[終了](../runtime/shutdown.md)の実装・テスト対応 | 必須準備と任意診断を分離し、実操作の終端と必要な終了を通知故障で飛ばさない。 |
 
 ### 適合確認が残る要件
 
@@ -147,3 +151,5 @@ Appの最終防壁は、元原因のファイル診断・既存network診断・�
 ## 関連資料
 
 [例外処理の簡素化と停止境界の修復](../../plan/exception-handling-simplification-plan.md)に未完了の実装・検証範囲を置く。
+
+各機能の入力条件・実装・恒久テストは、上記の機能仕様を正本とする。対応表は全例外を実行再現したという意味ではなく、変更時には実入口から結果利用先までを確認する。診断と表示の役割は[ログ](logging.md)、既存の終了手順は[終了](../runtime/shutdown.md)を参照する。

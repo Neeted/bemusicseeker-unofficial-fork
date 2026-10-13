@@ -29,13 +29,13 @@
 
 カスタムフォルダはLR2用です。エントリがフォルダ単位ならレベル別の出力を無効にし、フォルダ内のソート候補からレベル順と追加日時順を除きます。外部同期の設定に応じてURLやフォルダの編集可否を切り替え、自動整列中は手動整列を無効にします。編集欄は双方向、管理主体から受け取る一覧は一方向に接続します。
 
-画面右下の更新表示は `Update: yyyy/MM/dd` とします。通常の閉じる操作は一回の復元と完了通知を通し、閉じる要求を再発行しません。不正な入力や処理失敗がある場合は画面を閉じず、親画面と同じcoordinatorで所有者を解決して通知します。保存操作のTaskは保存・復元、通知の試行、実閉鎖と再有効化まで待ちます。通知失敗はその場で診断し、保存結果へ合成したり、次の操作までTaskへ保持したりしません。実閉鎖や再有効化の失敗は画面寿命の失敗として返し、再有効化に失敗しても操作中の受付フラグは解除します。保存前の確認が失敗した場合は承認・利用者取消しに置き換えず、対象の変更を止めます。
+画面右下の更新表示は `Update: yyyy/MM/dd` とします。通常の閉じる操作は一回の復元と完了通知を通し、閉じる要求を再発行しません。不正な入力や処理失敗がある場合は画面を閉じず、親画面と同じ調整処理で所有者を解決して通知します。保存操作のTaskは保存・復元、通知の試行、実閉鎖と再有効化まで待ちます。通知失敗はその場で診断し、保存結果へ合成したり、次の操作までTaskへ保持したりしません。実閉鎖や再有効化の失敗は画面寿命の失敗として返し、再有効化に失敗しても操作中の受付フラグは解除します。保存前の確認が失敗した場合は承認・利用者取消しに置き換えず、対象の変更を止めます。
 
-保存サービスは一つの保存結果に確定参照、最新の保存値、未完了の必要出力と今回の実処理失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は最新保存値、現行参照、項目の版に基づき、同じ保存の確定を古い編集snapshotとの差として拒否しません。新規draftは作成経路と実登録結果で判定し、旧参照が集合から外れたことを新規作成に読み替えません。
+保存サービスは一つの保存結果に確定参照、最新の保存値、未完了の必要出力と今回の実処理失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は最新保存値、現行参照、項目の版に基づき、同じ保存の確定を古い編集スナップショットとの差として拒否しません。新規作成中の表は作成経路と実登録結果で判定し、旧参照が集合から外れたことを新規作成に読み替えません。
 
 外部再取得でDB・正本が確定した場合も、その保存で必要になった旧出力先の整理とBMT出力を保持します。同じ属性を重ねてDB保存せず、後続の実出力処理が失敗しても次の明示保存へ渡します。参照に依存するフォルダ選択変換と項目変更通知は、新参照を採用してから行います。
 
-A→BのDB保存後に出力だけ失敗した場合、同じ画面の次の明示保存は未完了のA→Bを先に完了します。さらにCへ編集していても、その成功後だけCをDBへ保存します。継続中の失敗ではDBはBのまま、画面のCを保持します。復元・取消の基準はBです。未完了は編集セッション内の一つに限り、成功した出力と公開済みsnapshotを解放します。継続に必要な保存値・参照receipt・出力ごとのフラグを保持し、過去の失敗例外は次の失敗へ加えません。索引・現行参照の必要な公開が失敗した場合は、その未完了を残します。画面終了・再起動を跨ぐ台帳、自動再試行、旧保存全体の再実行は行いません。
+A→BのDB保存後に出力だけ失敗した場合、同じ画面の次の明示保存は未完了のA→Bを先に完了します。さらにCへ編集していても、その成功後だけCをDBへ保存します。継続中の失敗ではDBはBのまま、画面のCを保持します。復元・取消の基準はBです。未完了は編集セッション内の一つに限り、成功した出力と公開済みスナップショットを解放します。継続に必要な保存値・参照結果記録・出力ごとのフラグを保持し、過去の失敗例外は次の失敗へ加えません。索引・現行参照の必要な公開が失敗した場合は、その未完了を残します。画面終了・再起動を跨ぐ台帳、自動再試行、旧保存全体の再実行は行いません。
 
 ### サマリーからの一括編集
 
@@ -66,7 +66,7 @@ A→BのDB保存後に出力だけ失敗した場合、同じ画面の次の明�
 | 実folder編集controlから保存・LR2出力順への接続 | `PlaylistPropertyDialog`、`PlaylistPropertyDialogViewModel`、`PlaylistPropertySaveService` | [`MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyFolderControls_SaveDraftOrderToDatabaseAndRealLr2Output`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実Up・Down・NaturalSortのdraftを独立順と比較する。共通Save後は新readonly DBの手動保存列、またはheaderと実entryから再構成した自然順、実LR2採番順・folder行を確認し、新propertyのAutoオンと上下移動無効化も観測する。未保存正本・未編集属性・別表の値と出力を保ち、所有モーダル・保存Task・native閉鎖を待つ。出力種別の条件表は既存custom-folder系列へ分担する。 |
 | 保存後の未完了出力先行、Cの保持、最新保存基準と外部取得・接頭辞非再実行 | `PlaylistPropertySaveService`、`PlaylistPropertyDialogViewModel` | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)の`PlaylistPropertyDialog_*`。実DB・FS・config・BMTとP/Task終端を下位から確認する。 |
 | 外部再取得確定後の追加DB失敗とA→B継続、参照採用後の接頭辞選択・詳細更新 | `PlaylistPropertySaveService`、`PlaylistWorkspaceViewModel.PropertyEditing` | [`BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalReloadCommitRetainsOutputMigrationAfterLaterDatabaseFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)で実置換後の移行DB故障と、元JSONを外した明示再保存を確認する。[`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_ExternalReplacementRemapsSelectedFolderAndRefreshesDetail`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)で実workspaceの通知時の新参照・選択・ツリー・実詳細Folder列・DBを確認する。 |
-| 同じ所有画面の実保存ボタン、外部置換後BMT失敗の通知・維持・再保存・Close | `PlaylistPropertyDialog`、`PlaylistWorkspaceViewModel.PropertyEditing` | [`MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)。実Binding、通知owner、通知二次失敗後も終端するTaskと画面維持、次の明示Save成功後の旧失敗非混入、同IDの保存行と実出力を確認する。 |
+| 同じ所有画面の実保存ボタン、外部置換後BMT失敗の通知・維持・再保存・`Close` | [`PlaylistPropertyDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistPropertyDialog.cs)、[`PlaylistWorkspaceViewModel.PropertyEditing`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PropertyEditing.cs) | [`MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)。実データ連結、通知の所有画面、通知二次失敗後も終端するTaskと画面維持、次の明示保存成功後の旧失敗非混入、同IDの保存行と実出力を確認する。 |
 | 選択集合、三状態フラグ、外部初期化、出力の集約 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) |
 | 表示と更新日時、件数 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryCountAndPresentationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryCountAndPresentationTests.cs) |
 | カテゴリ操作と所有者付き画面 | [プロパティ画面](../../../BeMusicSeeker/Views/Playlist/PlaylistPropertyDialog.xaml) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) |

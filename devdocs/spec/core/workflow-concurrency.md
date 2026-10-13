@@ -74,11 +74,11 @@
 
 ### 実ロック状態と表示通知
 
-`ReaderWriterLockSlimWrapper` の実 `Enter` / `Exit` とcount更新は必須です。Library・Playlistが操作可否を判断するcountの値は、表示通知より先に確定します。既存のcount計上区分は維持し、昇格可能読取りは書込み相当として扱います。3つのcount setterの `PropertyChanged` は表示への転送であり、その購読者の失敗で実取得・解放を失敗へ変えません。`ObservableObject` 全体の通知契約は変更しません。
+`ReaderWriterLockSlimWrapper` の実 `Enter` / `Exit` と保持数更新は必須です。ライブラリ・プレイリストが操作可否を判断する保持数の値は、表示通知より先に確定します。既存の保持数計上区分は維持し、昇格可能読取りは書込み相当として扱います。3つの保持数の設定処理の `PropertyChanged` は表示への転送であり、その購読者の失敗で実取得・解放を失敗へ変えません。`ObservableObject` 全体の通知契約は変更しません。
 
-表示通知の失敗はwrapperごとに最初の一回だけ任意診断し、通常のlock遷移にはログを追加しません。通知の例外履歴は保管せず、診断自体の失敗を再診断しません。実 `Exit` の失敗は任意通知として抑止しません。
+表示通知の失敗はラッパーごとに最初の一回だけ任意診断し、通常のロック遷移にはログを追加しません。通知の例外履歴は保管せず、診断自体の失敗を再診断しません。実 `Exit` の失敗は任意通知として抑止しません。
 
-ファイル操作の複合snapshot scopeは、取得済みscopeを逆順に全て解放し、最初の実解放失敗を元stackを保って伝えます。取得途中の失敗でも既に取得した全scopeの解放を試し、二次的な解放失敗は局所診断に留めて元の取得原因を保持します。現在の同期 `using` 所有経路にないwrong-threadや二重解放を、通常の利用フローの保証へ追加しません。
+ファイル操作の複数のスナップショットのロック範囲は、取得済みのロックを逆順に全て解放し、最初の実解放失敗を元スタックを保って伝えます。取得途中の失敗でも既に取得した全ロックの解放を試し、二次的な解放失敗は局所診断に留めて元の取得原因を保持します。現在の同期 `using` 所有経路にない所有スレッド外からの操作や二重解放を、通常の利用フローの保証へ追加しません。
 
 ### 完了と複雑性の確認
 
@@ -94,9 +94,9 @@
 | 変更受付から終端までの責任 | [ライブラリ変更](../library/mutations.md)の各管理主体 | 同仕様の実入口テストで、競合拒否、受理済み処理、部分成功、公開時機を確認する。 |
 | 起動・再読込みの区別 | [起動](../runtime/startup.md)、[進捗](../runtime/progress.md) | 各仕様の管理主体テストと`StartupRequiredInitializationTests`で、実モデル・実DB/FSの必須終端と受付解放を確認する。 |
 | 導入受付と自動推定 | [ドロップ導入](../library/drop-install.md)、[導入先推定](../library/install-estimation.md) | 各仕様の導入受付・取り込みと推定の連続した受付・全Task終端・先行成功依存のテスト。 |
-| raw lockの実状態・既存count区分と表示通知故障の独立性 | [`ReaderWriterLockSlimWrapper`](../../../BeMusicSeeker/Models/Utils/ReaderWriterLockSlimWrapper.cs) | [`PlaylistConcurrencyArchitectureTests.ReaderWriterLockSlimWrapper_RawLockApiUpdatesObservableCounts`](../../../BeMusicSeeker.Tests/Playlist/PlaylistConcurrencyArchitectureTests.cs) は正常・throwing購読者の条件でread/write/raw upgradeableの実保持と全解放後の0を確認する。既存の正常通知ケースも保持する。 |
-| 複合snapshot scopeの取得・解放通知故障とbody結果の保全 | [`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`Lr2SynchronizationArchitectureTests.FolderMoveSnapshotScope_ThrowingDisplayObserversPreserveBodyOutcomeAndReleaseAllLocks`](../../../BeMusicSeeker.Tests/Lr2/Lr2SynchronizationArchitectureTests.cs) は実3lockの取得・解放通知を失敗させ、body成功と元失敗の型・message・stack、全count0・未保持と次の明示scopeを確認する。通常の取得・逆順解放は既存ケースへ分担する。 |
-| 実解放失敗の全解放試行・元stack、取得時の二次故障と診断の隔離 | `CompositeDisposable`、count setterの局所通知guard | 逆順の全scope解放試行・`ExceptionDispatchInfo`による最初の実解放失敗・取得時catchの再送出と局所診断を静的確認する。本番で到達しないwrong-thread・double-disposeだけを作るruntime fixtureは設けない。未使用のupgradeable guard helperの作り直しも含めない。 |
+| ロックの直接取得・解放、保持数区分と表示通知の独立性 | [`ReaderWriterLockSlimWrapper`](../../../BeMusicSeeker/Models/Utils/ReaderWriterLockSlimWrapper.cs) | [`PlaylistConcurrencyArchitectureTests.ReaderWriterLockSlimWrapper_RawLockApiUpdatesObservableCounts`](../../../BeMusicSeeker.Tests/Playlist/PlaylistConcurrencyArchitectureTests.cs) は購読者の成功・例外の両条件で、読取り・書込み・昇格可能読取りの実保持と、全解放後の保持数0・未保持を確認する。通常の通知は同クラスの既存ケースも分担する。 |
+| 複合ロックの取得・解放通知の故障と処理本体の結果保全 | [`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`Lr2SynchronizationArchitectureTests.FolderMoveSnapshotScope_ThrowingDisplayObserversPreserveBodyOutcomeAndReleaseAllLocks`](../../../BeMusicSeeker.Tests/Lr2/Lr2SynchronizationArchitectureTests.cs) は3つの実ロックの表示通知を失敗させ、処理本体の成功・失敗の両条件で元の結果・型・メッセージ・スタックを保ち、全解放と次の明示取得を確認する。通常の取得・逆順解放は同クラスの既存ケースが分担する。 |
+| 実解放失敗での全解放試行・元のスタック、取得時の二次故障と診断の分離 | [`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) の `CompositeDisposable`、[`ReaderWriterLockSlimWrapper`](../../../BeMusicSeeker/Models/Utils/ReaderWriterLockSlimWrapper.cs) の通知処理 | 逆順の全解放試行、`ExceptionDispatchInfo` による最初の実解放失敗の保持、取得失敗の再送出と二次診断の分離を静的に確認する。実解放失敗と取得時の二次故障は自動テストでは未確認。 |
 | 設定・試聴・終了 | [設定](../runtime/settings.md)、[音声](../runtime/audio.md)、[終了](../runtime/shutdown.md) | 各仕様で、実際の完了と後片付けまでの経路を確認する。 |
 | 世代番号と新しい状態の採用 | 対象機能の要求・結果・管理主体 | 自動テストで規定全体を固定せず、設計と差分を点検する。機能テストでは本番で成立する時系列を確認し、[対象契約に合う検証境界](../development/test-authoring.md#検証境界と保証の分担)から結果を観測する。排他・スレッド制約が対象なら、その制御を担う実装を動かす。 |
 
