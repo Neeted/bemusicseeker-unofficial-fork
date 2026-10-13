@@ -169,9 +169,10 @@ public sealed class RegularChartViewBuildAndOrderingTests
         };
         using RegularChartListOwner owner = CreateOwner(table, workspace);
 
-        Assert.ThrowsException<RegularChartListTerminalPublishException>(
-            () => owner.ApplyRegularView(CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected)));
+        RegularChartListEntryResult result = owner.ApplyRegularView(
+            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
 
+        Assert.IsTrue(result.WasCommitted, "任意の退役ログ失敗で実適用を失敗へ変換しません。");
         CollectionAssert.AreEqual(
             new[] { "mode", "retirement-log", "retirement-log" },
             publicationOrder);

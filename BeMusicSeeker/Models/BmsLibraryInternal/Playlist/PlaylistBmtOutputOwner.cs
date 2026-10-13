@@ -20,6 +20,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class PlaylistBmtOutputOwner
 {
+    /// <summary>並列投影の進捗順序を整え、任意通知の故障後も後続の進捗を試みます。</summary>
     internal sealed class OrderedProjectionProgressPublisher
     {
         private readonly object syncRoot = new();
@@ -34,25 +35,19 @@ internal sealed class PlaylistBmtOutputOwner
 
         private bool draining;
 
-        private Exception publicationFailure;
-
+        /// <summary>通知数と任意の進捗配送先を固定し、配送を直列化します。</summary>
         internal OrderedProjectionProgressPublisher(int total, Action<int, int, string> publish)
         {
             this.total = total;
             this.publish = publish ?? throw new ArgumentNullException(nameof(publish));
         }
 
+        /// <summary>次の完了事実を順番に配送し、通知故障は実投影の失敗へ変換しません。</summary>
         internal void PublishNext(string tableName)
         {
             bool shouldDrain;
             lock (syncRoot)
             {
-                if (publicationFailure != null)
-                {
-                    throw new InvalidOperationException(
-                        "Playlist BMT projection progress publication previously failed.",
-                        publicationFailure);
-                }
                 pending.Enqueue((++completed, total, tableName));
                 shouldDrain = !draining;
                 if (shouldDrain)
@@ -77,20 +72,7 @@ internal sealed class PlaylistBmtOutputOwner
                     }
                     fact = pending.Dequeue();
                 }
-                try
-                {
-                    publish(fact.Completed, fact.Total, fact.TableName);
-                }
-                catch (Exception exception)
-                {
-                    lock (syncRoot)
-                    {
-                        publicationFailure = exception;
-                        pending.Clear();
-                        draining = false;
-                    }
-                    throw;
-                }
+                NotifyBestEffort(() => publish(fact.Completed, fact.Total, fact.TableName), "projection_progress");
             }
         }
     }
@@ -129,15 +111,16 @@ internal sealed class PlaylistBmtOutputOwner
         this.mutationAdmission = mutationAdmission ?? throw new ArgumentNullException(nameof(mutationAdmission));
     }
 
-    /// <summary>専用件数通知へ渡す実行中要求を捕捉します。</summary>
+    /// <summary>専用件数通知へ渡す実行中要求を捕捉します。失敗時は既定要求で実出力を続けます。</summary>
     internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
 
-    /// <summary>同じ実行周のBMT要求の開始と終端を通知します。</summary>
+    /// <summary>同じ実行周のBMT要求の開始と終端を任意通知し、通知失敗は局所診断に留めます。</summary>
     internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
 
+    /// <summary>実出力とは独立した進捗通知。失敗しても出力結果や未完了状態を変えません。</summary>
     internal Action<PlaylistSyncProgressSnapshot> ExportProgressReporter { get; set; }
 
-    /// <summary>元の操作 session に依存せず、ファイル操作 lock の外で失敗事実を配送します。</summary>
+    /// <summary>ファイル操作lockの外で実失敗を通知します。通知失敗は実出力の失敗原因へ加えません。</summary>
     internal Action<IReadOnlyList<BmtTableExportService.FileOperationFailure>> FailureReporter { get; set; }
 
     internal bool IsShutdownRequested => isShutdownRequested();
@@ -229,8 +212,8 @@ internal sealed class PlaylistBmtOutputOwner
             {
                 List<BmtTableExportService.FileOperationFailure> failures = [];
                 AddFailure(failures, outputPath, exception);
-                try { ReportFailures(failures); }
-                catch (Exception notificationFailure) { throw new PlaylistMutationPostCommitException(reason, new AggregateException(exception, notificationFailure)); }
+                ReportFailures(failures);
+                if (exception is OperationCanceledException) { throw; }
                 throw new PlaylistMutationPostCommitException(reason, exception);
             }
         }).ConfigureAwait(false);
@@ -248,31 +231,21 @@ internal sealed class PlaylistBmtOutputOwner
             : [.. (tables ?? []).Where(table => table != null).Distinct()];
         IReadOnlyList<BMSTable> removed = [.. removedTables.Where(table => table != null).Distinct()];
         long requestVersion = Interlocked.Increment(ref exportProgressOperationSeed);
-        OperationProgressRequest request = ProgressRequestFactory?.Invoke("playlist_bmt_output", requestVersion)
-            ?? new OperationProgressRequest(0, 0, "playlist_bmt_output", requestVersion);
+        OperationProgressRequest request = null;
+        NotifyBestEffort(() => request = ProgressRequestFactory?.Invoke("playlist_bmt_output", requestVersion), "request_factory");
+        request ??= new OperationProgressRequest(0, 0, "playlist_bmt_output", requestVersion);
         if (request != null && originatingRequest != null)
         {
             request = request with { Generation = originatingRequest.Generation, OperationToken = originatingRequest.OperationToken };
         }
-        Exception executionFailure = null;
         try
         {
-            RequestProgressReporter?.Invoke(request, true);
+            NotifyBestEffort(() => RequestProgressReporter?.Invoke(request, true), "request_started");
             await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request)).ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            executionFailure = exception;
-            throw;
         }
         finally
         {
-            try { RequestProgressReporter?.Invoke(request, false); }
-            catch (Exception exception)
-            {
-                throw new PlaylistMutationPostCommitException(reason,
-                    executionFailure == null ? exception : new AggregateException(executionFailure, exception));
-            }
+            NotifyBestEffort(() => RequestProgressReporter?.Invoke(request, false), "request_finished");
         }
     }
 
@@ -288,7 +261,6 @@ internal sealed class PlaylistBmtOutputOwner
         long operationId = Interlocked.Increment(ref exportProgressOperationSeed);
         bool progressStarted = false;
         Exception primaryFailure = null;
-        Exception notificationFailure = null;
         try
         {
             outputPath = GetTablePath(options);
@@ -356,25 +328,18 @@ internal sealed class PlaylistBmtOutputOwner
         }
         finally
         {
-            try
-            {
-                if (progressStarted) { ReportProgress(operationId, false, 0, 0, string.Empty, request); }
-            }
-            catch (Exception exception) { notificationFailure = exception; }
-            try { ReportFailures(failures); }
-            catch (Exception exception) { notificationFailure = notificationFailure == null ? exception : new AggregateException(notificationFailure, exception); }
+            if (progressStarted) { ReportProgress(operationId, false, 0, 0, string.Empty, request); }
+            ReportFailures(failures);
         }
-        if (primaryFailure is OperationCanceledException && notificationFailure == null)
+        if (primaryFailure is OperationCanceledException)
         {
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(primaryFailure).Throw();
         }
-        if (failures.Count > 0 || notificationFailure != null)
+        if (failures.Count > 0)
         {
-            List<Exception> causes = [];
-            if (primaryFailure != null) { causes.Add(primaryFailure); }
-            else { causes.AddRange(failures.Select(failure => new System.IO.IOException(failure.Path + ": " + failure.Cause))); }
-            if (notificationFailure != null) { causes.Add(notificationFailure); }
-            throw new PlaylistMutationPostCommitException(reason, causes.Count == 1 ? causes[0] : new AggregateException(causes));
+            Exception cause = primaryFailure ?? new AggregateException(failures.Select(
+                failure => new System.IO.IOException(failure.Path + ": " + failure.Cause)));
+            throw new PlaylistMutationPostCommitException(reason, cause);
         }
     }
 
@@ -585,7 +550,7 @@ internal sealed class PlaylistBmtOutputOwner
 
     private void ReportProgress(long operationId, bool isActive, int totalCount, int completedCount, string currentTableName, OperationProgressRequest request = null)
     {
-        ExportProgressReporter?.Invoke(new PlaylistSyncProgressSnapshot
+        NotifyBestEffort(() => ExportProgressReporter?.Invoke(new PlaylistSyncProgressSnapshot
         {
             IsActive = isActive,
             OperationId = operationId,
@@ -596,7 +561,7 @@ internal sealed class PlaylistBmtOutputOwner
             CurrentTableName = currentTableName ?? string.Empty,
             LabelFormat = Resources.Beatoraja_bmt_export_progress_label_format,
             SingleLabel = Resources.Beatoraja_bmt_export_progress_single_label
-        });
+        }), "export_progress");
     }
 
     private static bool IsBeatorajaBmtOutputTarget(BMSTable table)
@@ -637,7 +602,7 @@ internal sealed class PlaylistBmtOutputOwner
 
     private void Log(string message)
     {
-        logPerformance?.Invoke(message);
+        NotifyBestEffort(() => logPerformance?.Invoke(message), "performance_log");
     }
 
     private static void AddFailure(List<BmtTableExportService.FileOperationFailure> failures, string path, Exception exception)
@@ -660,10 +625,21 @@ internal sealed class PlaylistBmtOutputOwner
 
         foreach (BmtTableExportService.FileOperationFailure failure in failures)
         {
-            logWarning?.Invoke(new System.IO.IOException(failure.Cause), "beatoraja_bmt_failed path=" + FormatTextForLog(failure.Path));
+            NotifyBestEffort(() => logWarning?.Invoke(new System.IO.IOException(failure.Cause),
+                "beatoraja_bmt_failed path=" + FormatTextForLog(failure.Path)), "failure_log");
         }
 
-        FailureReporter?.Invoke(Array.AsReadOnly(failures.ToArray()));
+        NotifyBestEffort(() => FailureReporter?.Invoke(Array.AsReadOnly(failures.ToArray())), "failure_report");
+    }
+
+    private static void NotifyBestEffort(Action notification, string stage)
+    {
+        try { notification(); }
+        catch (Exception failure)
+        {
+            try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "beatoraja_bmt_notification_failed stage=" + stage); }
+            catch { /* 任意診断の失敗を実出力の結果へ加えない。 */ }
+        }
     }
 
     private sealed class BeatorajaBmtSongHashResolver(Func<BmtSongHashResolveRequest, Tuple<string, string>> resolve)

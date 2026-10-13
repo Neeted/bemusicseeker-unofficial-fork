@@ -1,10 +1,10 @@
 using System;
-using System.Collections.Generic;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlayHistoryWorkflowOwner
 {
+    /// <summary>確定済みsource退役を公開し、任意診断の失敗とは分離して所有権移譲を伝えます。</summary>
     internal void PublishTerminalShellState(
         PlayHistoryTerminalCommitResult terminalCommit,
         PlaylistWorkspaceViewModel playlistWorkspace)
@@ -21,22 +21,21 @@ public sealed partial class PlayHistoryWorkflowOwner
         {
             return;
         }
-        List<Exception> publishExceptions = [];
-        TryPublish(
-            () => playlistWorkspace.PublishPlayHistorySourceClear(terminalCommit.PlaylistSourceClear),
-            publishExceptions);
-        TryPublish(
-            () => playlistWorkspace.LogPlayHistorySourceClear(terminalCommit.PlaylistSourceClear),
-            publishExceptions);
-        if (publishExceptions.Count > 0)
+        try
         {
-            throw new PlayHistoryTerminalPublishException(
-                new AggregateException(publishExceptions),
-                ownershipTransferred: true,
-                terminalCommit);
+            playlistWorkspace.PublishPlayHistorySourceClear(terminalCommit.PlaylistSourceClear);
+        }
+        catch (Exception failure)
+        {
+            throw new PlayHistoryTerminalPublishException(failure, ownershipTransferred: true, terminalCommit);
+        }
+        finally
+        {
+            playlistWorkspace.LogPlayHistorySourceClear(terminalCommit.PlaylistSourceClear);
         }
     }
 
+    /// <summary>行の公開失敗後もsource退役を公開し、実公開失敗だけを所有権移譲済みの結果へ残します。</summary>
     internal void PublishTerminalShellStateAfterTablePublishFailure(
         PlayHistoryTerminalPublishException tablePublishException,
         PlaylistWorkspaceViewModel playlistWorkspace)
@@ -53,7 +52,8 @@ public sealed partial class PlayHistoryWorkflowOwner
         catch (PlayHistoryTerminalPublishException shellPublishException)
         {
             throw new PlayHistoryTerminalPublishException(
-                new AggregateException(tablePublishException, shellPublishException),
+                new AggregateException(tablePublishException.InnerException ?? tablePublishException,
+                    shellPublishException.InnerException ?? shellPublishException),
                 ownershipTransferred: true,
                 tablePublishException.TerminalCommitResult);
         }

@@ -480,11 +480,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     /// <summary>
     /// 同じ所有プロパティ画面の実Bindingと保存ボタンから、外部置換後の実BMT失敗、
-    /// 採用後の所有通知、終端後の再取得Taskにも残る両失敗、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
+    /// 採用後の所有通知、通知失敗後も正常終了する待機Task、画面維持、旧失敗を含まない再保存成功とCloseを確認します。出力失敗点の組合せは保存サービス群へ分担します。
     /// </summary>
     [DataTestMethod]
     [DataRow(false)] // 出力失敗の通知が正常に終了。
-    [DataRow(true)] // 通知も失敗し、保存失敗と両方をTaskへ保持。
+    [DataRow(true)] // 通知も失敗するが、保存済み状態と次の明示操作を妨げない。
     public void PlaylistPropertyDialog_ExternalReplacementBmtFailureKeepsOwnedDialogAndResavesSameId(bool failNotification)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -493,6 +493,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             string output = string.Empty;
             PlaylistPropertyDialog? shown = null;
             int failureNotices = 0;
+            Exception? notificationObservationFailure = null;
             var notificationFailure = new IOException("property failure notification failed");
             ActualMainWindowFixture? fixture = null;
             FileStream? blocker = null;
@@ -504,17 +505,25 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         if (request.Icon == MessageBoxImage.Hand)
                         {
                             failureNotices++;
-                            PlaylistPropertyDialog visible = shown ?? throw new AssertFailedException("Failure notification preceded dialog ownership.");
-                            ActualMainWindowFixture active = fixture ?? throw new AssertFailedException("Failure notification preceded fixture initialization.");
-                            Assert.AreSame(visible, owner);
-                            Assert.AreSame(visible, request.Owner);
-                            Assert.IsTrue(visible.IsVisible);
-                            Assert.AreEqual(1, active.Playlist.BMSTables.Count);
-                            Assert.AreNotSame(active.Table, active.Playlist.BMSTables.Single());
-                            var draft = (PlaylistPropertyDialogViewModel)visible.DataContext;
-                            CollectionAssert.AreEqual(active.Playlist.BMSTables.Single().folder_list.ToArray(), draft.folder_order.ToArray());
-                            Assert.AreEqual(active.Playlist.BMSTables.Single().last_update, draft.last_update,
-                                "失敗通知より先にダイアログも確定参照を採用します。");
+                            try
+                            {
+                                PlaylistPropertyDialog visible = shown ?? throw new AssertFailedException("Failure notification preceded dialog ownership.");
+                                ActualMainWindowFixture active = fixture ?? throw new AssertFailedException("Failure notification preceded fixture initialization.");
+                                Assert.AreSame(visible, owner);
+                                Assert.AreSame(visible, request.Owner);
+                                Assert.IsTrue(visible.IsVisible);
+                                Assert.AreEqual(1, active.Playlist.BMSTables.Count);
+                                Assert.AreNotSame(active.Table, active.Playlist.BMSTables.Single());
+                                var draft = (PlaylistPropertyDialogViewModel)visible.DataContext;
+                                CollectionAssert.AreEqual(active.Playlist.BMSTables.Single().folder_list.ToArray(), draft.folder_order.ToArray());
+                                Assert.AreEqual(active.Playlist.BMSTables.Single().last_update, draft.last_update,
+                                    "失敗通知より先にダイアログも確定参照を採用します。");
+                            }
+                            catch (Exception observationFailure)
+                            {
+                                // 本番の任意通知境界が表明失敗を捕捉しても、操作Taskの終端後に必ず検出する。
+                                notificationObservationFailure = observationFailure;
+                            }
                             if (failNotification) { throw notificationFailure; }
                         }
                         return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
@@ -557,21 +566,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreEqual(new Uri(header), ((PlaylistPropertyDialogViewModel)dialog.DataContext).Page_url);
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
                         Task firstSave = dialog.WaitForOperationCompletionAsync();
-                        if (failNotification)
-                        {
-                            AggregateException failures = Assert.ThrowsException<AggregateException>(() =>
-                                TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-notification"));
-                            Assert.IsTrue(failures.InnerExceptions.Any(failure => failure is PlaylistMutationPostCommitException));
-                            Assert.IsTrue(failures.InnerExceptions.Any(failure => ReferenceEquals(failure.InnerException, notificationFailure)));
-                            Assert.IsTrue(firstSave.IsFaulted);
-                            Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();
-                            Assert.AreSame(firstSave, ownerWaitAfterCompletion);
-                            AggregateException retainedFailures = Assert.ThrowsException<AggregateException>(() =>
-                                TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-failure"));
-                            Assert.IsTrue(retainedFailures.InnerExceptions.Any(failure => failure is PlaylistMutationPostCommitException));
-                            Assert.IsTrue(retainedFailures.InnerExceptions.Any(failure => ReferenceEquals(failure.InnerException, notificationFailure)));
-                        }
-                        else { TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save"); }
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save");
+                        Assert.IsTrue(firstSave.IsCompletedSuccessfully);
+                        Assert.IsNull(notificationObservationFailure,
+                            "通知時の所有者・可視状態・確定参照採用の観測が失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                        Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();
+                        Assert.AreSame(firstSave, ownerWaitAfterCompletion);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-notification");
                         Assert.IsTrue(dialog.IsEnabled);
                         Assert.AreEqual(1, failureNotices);
                         Assert.IsTrue(dialog.IsVisible);
@@ -609,12 +610,18 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             }
             finally
             {
-                if (shown != null)
+                try
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(shown.WaitForOperationCompletionAsync(), "property-output-test-cleanup");
+                    if (shown != null)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shown.WaitForOperationCompletionAsync(), "property-output-test-cleanup");
+                    }
                 }
-                blocker?.Dispose();
-                fixture?.Close();
+                finally
+                {
+                    blocker?.Dispose();
+                    fixture?.Close();
+                }
             }
         });
     }

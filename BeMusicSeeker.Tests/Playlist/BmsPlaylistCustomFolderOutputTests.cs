@@ -670,6 +670,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
             {
                 if (holdNotification && failurePoint != "bmt") { entered.TrySetResult(); release.Wait(); }
+                throw new IOException("optional continuation notification failed");
             };
             dialog = await workspace.OpenPropertyDialogAsync(table)
                 ?? throw new AssertFailedException("Edit dialog was not created.");
@@ -713,7 +714,11 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.AreEqual("B", db.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).Output_dir);
             }
             release.Set();
-            await Assert.ThrowsExceptionAsync<AggregateException>(async () => await saving);
+            if (failurePoint == "bmt")
+            {
+                await Assert.ThrowsExceptionAsync<PlaylistMutationPostCommitException>(async () => await saving);
+            }
+            else { await Assert.ThrowsExceptionAsync<IOException>(async () => await saving); }
             Assert.AreEqual(editAgain ? "C" : "B", dialog.output_dir);
             blocker?.Dispose();
             blocker = null;
@@ -1110,7 +1115,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>外部取得の確定後に完了表示が失敗しても、取得元を削除した後の次保存で再取得を繰り返さず同期設定と行を保持します。確定済み取得の再実行と開始・終端の不均衡を検出します。</summary>
+    /// <summary>確認の失敗では同期を有効にせず、承認後の完了表示・BMT進捗の失敗は保存成功を変えません。次保存で確定済み取得・出力を繰り返さず同期設定と行を保持します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
     public async Task PlaylistPropertyDialog_FreshSaveAfterPublicationFailureDoesNotReplayExternalReload()
@@ -1157,7 +1162,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => library,
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
-            service.ExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+            bool failConfirmation = true;
+            service.ExternalSyncConfirmationRequested += (_, request) =>
+            {
+                if (failConfirmation) { throw new IOException("confirmation unavailable"); }
+                request.Confirmed = true;
+            };
+            int bmtNotifications = 0;
+            playlist.BmtOutput.RequestProgressReporter = (_, _) =>
+            {
+                Interlocked.Increment(ref bmtNotifications);
+                throw new IOException("BMT progress unavailable");
+            };
             int activeSyncOperationCount = 0;
             service.PlaylistPropertySyncStarted += (_, _) =>
                 Interlocked.Increment(ref activeSyncOperationCount);
@@ -1191,15 +1207,14 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session)
-            {
-                is_external_sync = true
-            };
+            dialog = new PlaylistPropertyDialogViewModel(service, session);
+            Assert.ThrowsException<IOException>(() => dialog.is_external_sync = true);
+            Assert.IsFalse(dialog.is_external_sync);
+            Assert.IsFalse(table.is_external_sync);
+            failConfirmation = false;
+            dialog.is_external_sync = true;
 
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                async () => await dialog.SaveAndApplyAsync());
-
-            Assert.AreEqual("test post-reload completion presentation failure", failure.Message);
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
             Assert.AreEqual(0, activeSyncOperationCount);
             File.Delete(headerJsonPath);
             File.Delete(scoreJsonPath);
@@ -1210,6 +1225,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(1, completionProgressCount);
             Assert.AreEqual(0, activeSyncOperationCount);
             Assert.AreEqual(1, summaryRefreshCount);
+            Assert.AreEqual(2, bmtNotifications, "通知故障だけでBMTの未完了を作り、次保存で再出力しません。");
             Assert.IsTrue(dialog.is_external_sync);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
             Assert.IsTrue(

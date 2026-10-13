@@ -1265,9 +1265,11 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
     }
 
-    /// <summary>関連公開失敗でも確定済み仮想行の所有を移譲し、表示済み行を失敗の取消で破棄する誤りを検出します。</summary>
-    [TestMethod]
-    public void PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure()
+    /// <summary>source退役ログが失敗しても実履歴行・旧行回収・後続公開を保ち、必須公開失敗だけを所有権移譲済みで返します。</summary>
+    [DataTestMethod]
+    [DataRow(false)] // 任意ログだけの故障は適用成功。
+    [DataRow(true)] // 必須の列公開も故障しても確定行は保持。
+    public void PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure(bool failPublication)
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
         PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
@@ -1275,15 +1277,27 @@ public sealed class ChartListVirtualViewTests
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
             displayTargetRevision: 0);
-        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
-        var table = new MainChartListViewModel { Rows = new List<object>() };
+        IReadOnlyList<PlayHistoryRow> rows = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(PlayHistorySourceProfile.Lr2("fixed-history.db"),
+                [new Lr2PlayHistoryRecord { history_id = 1, hash = new string('a', 32), new_playcount = 1 }],
+                [], default), PlayHistoryProjectionIndex.Empty).Rows;
+        var state = new PlayHistoryViewState(activeRequest.RequestId, PlayHistoryPeriodRequest.All(),
+            rows, rows, rows, [], PlayHistoryProvider.Lr2, default, rows.Count,
+            new SortSnapshot(null, null, revision: 0L), string.Empty, 0, PlayHistoryDisplayTargetItem.All, 0);
+        var oldRow = new CountingDisposable();
+        var table = new MainChartListViewModel { Rows = new List<object> { oldRow } };
+        var detailState = new PlaylistDetailViewState();
+        detailState.Source.CurrentTable = new BMSTable { name = "retired source" };
+        int diagnosticAttempts = 0;
+        var notifications = new List<string>();
+        table.PropertyChanged += (_, change) => notifications.Add(change.PropertyName!);
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
             new MainChartListViewModel(action => action()),
             new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
+            detailState,
             _ => { },
-            _ => { },
+            _ => { diagnosticAttempts++; throw new IOException("source-clear diagnostic failed"); },
             () => new CustomFolderOutputSettingsSnapshot(),
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
@@ -1314,19 +1328,18 @@ public sealed class ChartListVirtualViewTests
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         workspace.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+            if (failPublication && e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
             {
                 throw new InvalidOperationException("workspace publish failed");
             }
         };
 
-        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(() =>
-            workflowOwner.ApplySortedRows(
+        PlayHistorySortedRowsApplyResult Apply() => workflowOwner.ApplySortedRows(
                 new PlayHistorySortedRowsApplyRequest(
                     MainViewUpdateMode.PlayHistorySelected,
                     MainViewUpdateMode.PlayHistorySelected,
                     state,
-                    sortedRows: [],
+                    sortedRows: rows,
                     sortSucceeded: true,
                     sortProfile: "default",
                     currentKeywordFilter: string.Empty,
@@ -1335,9 +1348,20 @@ public sealed class ChartListVirtualViewTests
                     workspace.PrepareDetailSourceRetirementWithoutPublishing()),
                 Stopwatch.StartNew(),
                 table,
-                workspace));
+                workspace);
 
-        Assert.IsTrue(exception.OwnershipTransferred);
+        if (failPublication)
+        {
+            PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(() => Apply());
+            Assert.IsTrue(exception.OwnershipTransferred);
+        }
+        else { Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, Apply().Status); }
+        Assert.AreEqual(2, diagnosticAttempts, "片方の診断故障でも残りの保持診断を試みます。");
+        Assert.AreEqual(1, oldRow.DisposeCount);
+        Assert.AreSame(rows[0], table.Rows[0]);
+        Assert.IsNull(detailState.Source.CurrentTable);
+        CollectionAssert.Contains(notifications, nameof(MainChartListViewModel.Rows));
+        CollectionAssert.Contains(notifications, nameof(MainChartListViewModel.SummaryText));
         Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
         Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
     }

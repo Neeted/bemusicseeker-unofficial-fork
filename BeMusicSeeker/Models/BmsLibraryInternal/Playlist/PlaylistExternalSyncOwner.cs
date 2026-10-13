@@ -1139,11 +1139,14 @@ internal sealed class PlaylistExternalSyncOwner
             newEntriesSnapshot = null;
             persistenceDecision = null;
             updated = false;
-            logWarning?.Invoke(
-                ex,
-                "playlist_reload_target_failed reason=" + FormatTextForLog(reason)
-                + " table=" + FormatTextForLog(table?.name)
-                + " uri=" + FormatUriForLog(uri));
+            if (!expectedExternalLoadFailure)
+            {
+                logWarning?.Invoke(
+                    ex,
+                    "playlist_reload_target_failed reason=" + FormatTextForLog(reason)
+                    + " table=" + FormatTextForLog(table?.name)
+                    + " uri=" + FormatUriForLog(uri));
+            }
         }
         PlaylistTableUpdateReceipt updateReceipt = null;
         if (!applySkipped)

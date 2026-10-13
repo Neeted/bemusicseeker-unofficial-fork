@@ -1917,7 +1917,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
 
     /// <summary>実登録のDB確定からBMT・台帳まで同じPを保持し、後処理失敗でも確定した表・譜面を残します。</summary>
     [DataTestMethod]
-    // false: BMT・台帳まで成功、true: 実台帳の読取り拒否による確定後出力失敗。
+    // 両条件で進捗・失敗通知を故障させる。false: 実BMT・台帳・config成功、true: 実台帳の読取り拒否。
     [DataRow(false)]
     [DataRow(true)]
     public async Task RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure(bool outputFails)
@@ -1937,17 +1937,28 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string manifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
             File.WriteAllText(manifest, "{\"files\":[],\"playlists\":{}}");
             if (outputFails) { fileBlocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None); }
+            string config = Path.Combine(root, BeatorajaConfigService.ConfigFileName);
+            Directory.CreateDirectory(Path.Combine(root, "player"));
+            File.WriteAllText(Path.Combine(root, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(config, "{\"tablepath\":\"table\",\"playerpath\":\"player\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
             var playlist = new TestBmsPlaylist(db, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () =>
                 {
                     entered.TrySetResult();
                     release.Task.GetAwaiter().GetResult();
-                    return new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output };
+                    return new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = output, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true };
                 },
                 () => new CustomFolderOutputSettingsSnapshot(),
                 CreateDeterministicLr2PlaylistFolderSynchronizationPort(db, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings)
             { BMSTables = [] };
+            int requestNotifications = 0;
+            int exportNotifications = 0;
+            int failureNotifications = 0;
+            playlist.BmtOutput.ProgressRequestFactory = (_, _) => throw new IOException("progress request unavailable");
+            playlist.BmtOutput.RequestProgressReporter = (_, _) => { requestNotifications++; throw new IOException("request notification unavailable"); };
+            playlist.BmtOutput.ExportProgressReporter = _ => { exportNotifications++; throw new IOException("export notification unavailable"); };
+            playlist.BmtOutput.FailureReporter = _ => { failureNotifications++; throw new IOException("failure notification unavailable"); };
             BMSTable[] inputs = [new() { name = "first", Output_dir = "first", entries = [new() { md5 = new string('a', 32), title = "A", folder = "1" }] },
                 new() { name = "second", Output_dir = "second", entries = [new() { md5 = new string('b', 32), title = "B", folder = "2" }] }];
             registration = Task.Run(() => playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(inputs, false, "register_batch"));
@@ -1971,7 +1982,12 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 Assert.AreEqual(2, (await registration).RegisteredTables.Count);
                 Assert.AreEqual(2, Directory.GetFiles(output, "*.bmt").Length);
                 Assert.AreEqual(2, ((JObject)JObject.Parse(File.ReadAllText(manifest))["playlists"]!).Count);
+                Assert.AreEqual(3, BeatorajaConfigService.ReadTableUrls(root).Count);
+                Assert.IsTrue(exportNotifications > 0);
+                Assert.AreEqual(0, failureNotifications);
             }
+            Assert.AreEqual(2, requestNotifications);
+            if (outputFails) { Assert.AreEqual(1, failureNotifications); }
             Assert.AreEqual(2, playlist.BMSTables.Count);
             using (LR2SongDBExtended read = new BmsLibraryDbGateway(db).OpenSongDbReadOnly())
             { Assert.AreEqual(2, read.Table<BMSTableEntry>().Count()); }

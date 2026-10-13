@@ -93,6 +93,8 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 診断は取得元、段階、重大度、コード、説明、パスを持ち、集約テキストとログへ出します。`play_history_lr2_schema_*` と `play_history_projection_*` を区別し、未導入や失敗をスコア・回数から代用しません。最終プレイ順の固定SQL出力は[LR2出力](lr2-custom-folders.md)に従います。
 
+履歴行の終端適用後は、確定した行の所有権を呼出元へ戻しません。必要な行・source退役の公開が失敗しても、旧行の回収と独立した後続公開を続け、確定済み行を失敗時の取消処理で破棄しません。source退役後の保持状況ログは任意診断であり、ログの失敗を適用失敗へ加えず、残りの診断も試みます。source退役そのものや行の公開の失敗は任意診断へ格下げしません。
+
 ## 実装とテストの対応
 
 `PlayHistoryReadModelTests.BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle` は実DBの3履歴を冷読込みし、既定の時刻降順・同時刻ID降順を独立期待で確認する。DB削除後の暖まった期間検索で再読取りしないこと、失効して新時刻の1履歴を追加した後の再読込み、昇順の異時刻関係を確認する。同時刻の昇順副キーは固定せず、失効・取消拒否の既存保証を維持する。
@@ -102,6 +104,7 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadSourceSelectorTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadSourceSelectorTests.cs) |
 | 検索構文・日時範囲・表示フィルター | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs) | [`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs) |
 | 実画面の期間・明示メニュー操作・対象変更 | [`PlayHistoryWorkflowOwner`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.cs) | [`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs)、[`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)で実WPFの期間・明示メニュー操作・対象変更を自動検証する。実入力とフォーカスは[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
+| 終端適用・source退役診断・行所有権 | `PlayHistoryWorkflowOwner.TerminalShell`、`PlaylistWorkspaceViewModel.DetailTerminal` | `ChartListVirtualViewTests.PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure`で実履歴行、旧行の一回の回収、source解除、後続公開とログ故障時の成功を確認する。必須公開の失敗・取消・stale拒否は同テスト群の既存終端ケースで確認する。 |
 | プリセットの検索・選択保持・有界表示 | [`PlayHistoryFolderDisplayPresetEditor`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryFolderDisplayPresetEditor.cs) | [`DialogPresentationTests`](../../../BeMusicSeeker.Tests/Dialogs/DialogPresentationTests.cs)、[`SettingDialogCustomFolderOutputBaseTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs) |
 
 ## 関連資料

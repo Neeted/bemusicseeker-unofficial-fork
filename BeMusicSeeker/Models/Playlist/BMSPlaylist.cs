@@ -4306,7 +4306,7 @@ public partial class BMSPlaylist : ObservableObject
                 }
                 if (failures.Count == 1)
                 {
-                    throw failures[0];
+                    ExceptionDispatchInfo.Capture(failures[0]).Throw();
                 }
                 if (failures.Count > 1)
                 {

@@ -222,7 +222,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
             if (!target.IsExpectedExternalLoadFailure)
             {
-                CapturePlaylistWorkflowFailure(() => LogPlaylistSyncFailure(sync), failures);
+                try { LogPlaylistSyncFailure(sync); }
+                catch (Exception diagnosticFailure)
+                {
+                    try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(diagnosticFailure, "playlist_manual_resync_diagnostic_failed"); }
+                    catch { /* 診断の再通知で元の再取得結果を変えない。 */ }
+                }
             }
         }
         return failures.Count switch { 0 => null, 1 => failures[0], _ => new AggregateException(failures).Flatten() };

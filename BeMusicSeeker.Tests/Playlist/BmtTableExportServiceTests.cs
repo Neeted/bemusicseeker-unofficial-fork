@@ -198,8 +198,10 @@ public sealed class BmtTableExportServiceTests
     }
 
     /// <summary>一つ目の進捗 callback 保留中に二つ目の publish が完了しても callback は同時実行せず、保留解除後に 1→2 を配送することを実 Task で確認します。</summary>
-    [TestMethod]
-    public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)] // 先行通知が失敗しても次の完了通知を順序どおり試みる。
+    public void OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder(bool failFirstNotification)
     {
         using var firstEntered = new ManualResetEventSlim(false);
         using var releaseFirst = new ManualResetEventSlim(false);
@@ -223,6 +225,7 @@ public sealed class BmtTableExportServiceTests
                     {
                         observed.Add(completed);
                     }
+                    if (failFirstNotification && completed == 1) { throw new IOException("projection progress unavailable"); }
                 }
                 finally
                 {
@@ -250,8 +253,8 @@ public sealed class BmtTableExportServiceTests
         finally
         {
             releaseFirst.Set();
-            first?.Wait();
-            second?.Wait();
+            try { first?.Wait(); }
+            finally { second?.Wait(); }
         }
         Task completedFirst = first!;
         Task completedSecond = second!;

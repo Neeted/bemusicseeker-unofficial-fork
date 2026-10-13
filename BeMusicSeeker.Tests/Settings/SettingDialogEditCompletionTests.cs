@@ -1329,12 +1329,13 @@ public sealed partial class SettingDialogEditCompletionTests
             var presentation = new RecordingSettingsDialogPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             int completedOutputs = 0;
+            var startedOutputs = new List<(bool CloseRequested, int SaveCount)>();
             playlist.BmtOutput.RequestProgressReporter = (_, running) =>
             {
                 if (running)
                 {
-                    CollectionAssert.Contains(presentation.Requests, "close", "再読込み不要の実出力も保存とClose後に開始します。");
-                    Assert.AreEqual(1, settingsSession.SaveCount);
+                    // 任意通知境界に表明を置かず、開始時の事実を保存して実Applyの終端後に検証する。
+                    startedOutputs.Add((presentation.Requests.Contains("close"), settingsSession.SaveCount));
                 }
                 else { completedOutputs++; }
             };
@@ -1344,6 +1345,9 @@ public sealed partial class SettingDialogEditCompletionTests
 
             await dialog.ApplySettingsAsync();
 
+            Assert.AreEqual(1, startedOutputs.Count);
+            Assert.IsTrue(startedOutputs[0].CloseRequested, "再読込み不要の実出力も保存とClose後に開始します。");
+            Assert.AreEqual(1, startedOutputs[0].SaveCount);
             CollectionAssert.AreEqual(new[] { "playlist_url_completion:SettingDialog.SaveSettings" }, scheduled);
             Assert.AreEqual(1, completedOutputs, "必要BMT出力は外部schedulerへ予約せず、Save/Applyの実Taskが終端まで待ちます。");
             Assert.AreEqual(1, runtime.NotifyCount);
@@ -3125,6 +3129,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>欠落ルートの再初期化が、受付解放後の警告と元例外を保ち、再入可能な失敗へ終端することを確認します。</summary>
+    /// <remarks>起動後処理全体の実終端を次の明示操作の前提とし、取得済み設定受付を借用する実差分処理と元失敗の回収を確認します。</remarks>
     [TestMethod]
     public void ReinitializeLibraryAsync_LateDirectoryFailureWarnsAfterCleanupAndRethrows()
     {
@@ -3135,7 +3140,6 @@ public sealed partial class SettingDialogEditCompletionTests
         string applicationRoot = Path.Combine(root, "application");
         MainWindowViewModel? viewModel = null;
         ChartFileOperationSynchronizer? admission = null;
-        var startupBackfillTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Exception? primaryFailure = null;
         Directory.CreateDirectory(rootA);
         Directory.CreateDirectory(rootB);
@@ -3184,16 +3188,6 @@ public sealed partial class SettingDialogEditCompletionTests
                     chartFileScanner: scanner,
                     operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission);
-                // 必須完了後にも動く実補完の終端を開始前に捕捉し、次の明示要求の前提だけを整える。
-                library.PropertyChanged += (_, _) =>
-                {
-                    if (library.ChartInfoBackfillRequestedVersion > 0
-                        && library.ChartInfoBackfillCompletedVersion == library.ChartInfoBackfillRequestedVersion
-                        && !library.ChartInfoBackfillRunning)
-                    {
-                        startupBackfillTerminal.TrySetResult();
-                    }
-                };
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(database.SongDbPath, settings, library: library);
                 viewModel = new MainWindowViewModel(
                     composition,
@@ -3212,11 +3206,33 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.IsTrue(initialized);
             TestUiDispatcherHost.Invoke(() =>
             {
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(startupBackfillTerminal.Task, "late-directory-startup-backfill-terminal");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission!.WaitForIdleAsync(), "late-directory-startup-library-terminal");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowViewModelTestFactory.GetComposition(viewModel!).PlaylistOperationAdmission.WaitForIdleAsync(), "late-directory-startup-playlist-terminal");
                 Assert.IsNotNull(admission);
                 Assert.IsNotNull(viewModel);
+                // 一つの補完や現在のleaseだけでは、後からLを取得する受理済み保守の終端を保証しません。
+                // 必須起動成功の条件は変えず、次の明示操作の前提として全後続の終端を待ちます。
+                StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
+                    .GetField("startupBackgroundTaskScheduler", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel)
+                    as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
+                var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                void BackgroundChanged(object? sender, PropertyChangedEventArgs args)
+                {
+                    if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle)
+                    {
+                        backgroundTerminal.TrySetResult();
+                    }
+                }
+                viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
+                try
+                {
+                    if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(backgroundTerminal.Task, "late-directory-startup-background-terminal");
+                    }
+                }
+                finally
+                {
+                    viewModel.ProgressHub.PropertyChanged -= BackgroundChanged;
+                }
                 var acceptedReload = new TestSettingsDialogStatePort(viewModel,
                     () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(null),
                     reloadFileDiff: capability => ((ISettingsDialogStatePort)viewModel).ReloadFileDiffAsync(capability));
@@ -3224,8 +3240,12 @@ public sealed partial class SettingDialogEditCompletionTests
                 using (reloadLease)
                 {
                     using LibraryFileMutationCapability reloadCapability = admission.CreateMutationCapability(reloadLease);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(acceptedReload.ReloadFileDiffAsync(reloadCapability),
-                        "settings-real-accepted-file-diff-continuation");
+                    Task<StartupInitializationResult> reload = acceptedReload.ReloadFileDiffAsync(reloadCapability);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "settings-real-accepted-file-diff-continuation");
+                    StartupInitializationResult reloadResult = reload.GetAwaiter().GetResult();
+                    Assert.AreEqual(StartupInitializationOutcome.Succeeded, reloadResult.Outcome);
+                    Assert.IsNull(reloadResult.Failure);
+                    Assert.IsNotNull(reloadResult.RequiredResult?.FileResult);
                     Assert.IsTrue(admission.IsActive, "実差分継続の借用は外側の設定受付を解放しません。");
                     reloadCapability.Validate(admission);
                 }

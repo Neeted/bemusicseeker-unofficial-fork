@@ -34,6 +34,8 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private bool terminalCloseScheduled;
 
+    private bool terminalCloseEntered;
+
     private bool ownerShutdownCloseRequested;
 
     private bool terminalOutcome;
@@ -63,7 +65,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
     /// <summary>Gets whether the owner forced this window closed as part of application shutdown.</summary>
     internal bool IsOwnerShutdownClose => ownerShutdownCloseRequested;
 
-    /// <summary>実保存・必要通知・再有効化の終端までを返します。通知失敗時は元保存失敗と二次失敗も、終端後を含め次の明示操作まで同じTaskへ保持します。</summary>
+    /// <summary>保存・リセット・通知の試行・閉鎖・再有効化の終端までを返します。任意通知の失敗は次の操作へ持ち越しません。</summary>
     internal Task WaitForOperationCompletionAsync() => operationTask;
 
     /// <summary>
@@ -127,6 +129,7 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
     {
         if (allowClose || ownerShutdownCloseRequested)
         {
+            terminalCloseEntered = true;
             base.OnClosing(e);
             return;
         }
@@ -171,7 +174,6 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
             return;
         }
 
-        IsEnabled = false;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         operationTask = completion.Task;
         _ = RunTerminalOperationAsync(viewModel, save, completion);
@@ -185,105 +187,88 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
         Exception failure = null;
         try
         {
-            PlaylistPropertyDialogOperationResult result = save
-                ? await viewModel.SaveAndApplyAsync()
-                : await viewModel.ResetPropertiesAsync();
-
-            if (ownerShutdownCloseRequested)
+            IsEnabled = false;
+            PlaylistPropertyDialogOperationResult result;
+            try
             {
+                result = save
+                    ? await viewModel.SaveAndApplyAsync()
+                    : await viewModel.ResetPropertiesAsync();
+            }
+            catch (Exception operationFailure)
+            {
+                LogTerminalFailure(operationFailure, "operation");
+                await NotifyBestEffortAsync(() => ShowOperationFailureAsync(operationFailure));
                 return;
             }
 
+            if (ownerShutdownCloseRequested) { return; }
             if (result == PlaylistPropertyDialogOperationResult.Completed)
             {
+                await CloseWithResultAsync(save);
                 terminalOutcome = true;
-                // DialogResult is the coordinator's accepted/cancelled result and closes
-                // the native window only after the operation has completed.
-                CloseWithResult(save);
             }
             else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
             {
-                try { await ShowValidationErrorAsync(); }
-                catch (Exception notificationFailure) { failure = notificationFailure; }
+                await NotifyBestEffortAsync(ShowValidationErrorAsync);
             }
         }
-        catch (Exception saveFailure)
+        catch (Exception terminalFailure)
         {
-            try { await ShowOperationFailureAsync(saveFailure); }
-            catch (Exception notificationFailure) { failure = new AggregateException(saveFailure, notificationFailure).Flatten(); }
+            // 閉鎖・操作受付の失敗は通知だけの失敗ではなく、画面寿命の未完了として返す。
+            failure = terminalFailure;
+            LogTerminalFailure(terminalFailure, "terminal");
+            await NotifyBestEffortAsync(() => ShowOperationFailureAsync(terminalFailure));
         }
         finally
         {
-            try
+            try { IsEnabled = true; }
+            catch (Exception cleanupFailure)
             {
-                IsEnabled = true;
-                Interlocked.Exchange(ref operationInProgress, 0);
+                failure = failure == null ? cleanupFailure : new AggregateException(failure, cleanupFailure);
             }
-            catch (Exception cleanupFailure) { failure = failure == null ? cleanupFailure : new AggregateException(failure, cleanupFailure).Flatten(); }
+            finally { Interlocked.Exchange(ref operationInProgress, 0); }
             if (failure is OperationCanceledException cancelled) { completion.TrySetCanceled(cancelled.CancellationToken); }
             else if (failure != null) { completion.TrySetException(failure); }
             else { completion.TrySetResult(true); }
         }
     }
 
-    private void CloseWithResult(bool result)
+    private async Task CloseWithResultAsync(bool result)
     {
-        if (closed)
-        {
-            return;
-        }
-
+        if (closed) { return; }
         if (closeRequestInProgress)
         {
-            // Window.Close raises Closing synchronously. A reset for an existing table
-            // can complete inline, so defer DialogResult until the canceled Closing
-            // event has returned and WPF can accept the terminal close request.
-            if (!terminalCloseScheduled)
-            {
-                terminalCloseScheduled = true;
-                Dispatcher.BeginInvoke(
-                    System.Windows.Threading.DispatcherPriority.Normal,
-                    new Action(() =>
-                    {
-                        terminalCloseScheduled = false;
-                        if (!closed)
-                        {
-                            CloseWithResult(result);
-                        }
-                    }));
-            }
-            return;
+            // 同期リセットからの閉鎖は元のClosingを抜けてから行い、その完了も操作Taskで待つ。
+            terminalCloseScheduled = true;
+            try { await System.Windows.Threading.Dispatcher.Yield(System.Windows.Threading.DispatcherPriority.Normal); }
+            finally { terminalCloseScheduled = false; }
+            if (closed) { return; }
         }
-
         allowClose = true;
-        try
+        terminalCloseEntered = false;
+        try { DialogResult = result; }
+        catch (InvalidOperationException) when (!terminalCloseEntered)
         {
-            DialogResult = result;
+            // Show()で開いた非モーダル画面にはDialogResultがない。実Closeの失敗は呼出元へ返す。
+            Close();
         }
-        catch (InvalidOperationException)
+        if (!closed)
         {
-            // Presentation fixtures may use Show() to inspect the native window.  Such
-            // windows have no modal DialogResult slot, but still close after completion.
-            try
-            {
-                Close();
-            }
-            catch (InvalidOperationException)
-            {
-                // Keep the modeless fallback deferred if WPF rejects a nested close
-                // request while another terminal close is being raised.
-                Dispatcher.BeginInvoke(
-                    System.Windows.Threading.DispatcherPriority.Normal,
-                    new Action(() =>
-                    {
-                        if (!closed)
-                        {
-                            allowClose = true;
-                            Close();
-                        }
-                    }));
-            }
+            throw new InvalidOperationException("Playlist property terminal close did not complete.");
         }
+    }
+
+    private static async Task NotifyBestEffortAsync(Func<Task> notification)
+    {
+        try { await notification(); }
+        catch (Exception failure) { LogTerminalFailure(failure, "notification"); }
+    }
+
+    private static void LogTerminalFailure(Exception failure, string stage)
+    {
+        try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "playlist_property_dialog_failed stage=" + stage); }
+        catch { /* 任意診断を保存結果や次の操作へ持ち越さない。 */ }
     }
 
     private async Task ShowValidationErrorAsync()

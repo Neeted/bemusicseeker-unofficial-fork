@@ -306,41 +306,36 @@ public sealed partial class PlaylistWorkspaceViewModel
         DetailBuildState.PublishSourceClear(commit);
     }
 
+    /// <summary>source退役後の保持状況を任意診断し、診断失敗を確定済み行の結果へ加えません。</summary>
     internal void LogPlayHistorySourceClear(PlaylistSourceClearCommitResult commit)
     {
         if (commit == null)
         {
             throw new ArgumentNullException(nameof(commit));
         }
-        LogDetailWeakReferenceStatus("before_source_clear");
-        detailRetentionLog("playlist_source_replace action=clear generationId="
+        DiagnoseSourceClearBestEffort(() => LogDetailWeakReferenceStatus("before_source_clear"));
+        DiagnoseSourceClearBestEffort(() => detailRetentionLog("playlist_source_replace action=clear generationId="
             + commit.PreviousGenerationId
             + " sourceCount=0 disposedCount="
             + (commit.SourceRows?.Count ?? 0)
             + " playlistSourceRowCount=0 playlistViewRowCount="
-            + CountDetailRows(commit.ViewRows));
+            + CountDetailRows(commit.ViewRows)));
     }
 
     private void PublishSourceClear(PlaylistSourceClearCommitResult commit)
     {
-        if (commit == null)
+        if (commit == null) { throw new ArgumentNullException(nameof(commit)); }
+        try { DetailBuildState.PublishSourceClear(commit); }
+        finally { LogPlayHistorySourceClear(commit); }
+    }
+
+    private static void DiagnoseSourceClearBestEffort(Action diagnostic)
+    {
+        try { diagnostic(); }
+        catch (Exception failure)
         {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        var publishExceptions = new List<Exception>();
-        TryPublish(() => DetailBuildState.PublishSourceClear(commit), publishExceptions);
-        TryPublish(() => LogDetailWeakReferenceStatus("before_source_clear"), publishExceptions);
-        TryPublish(
-            () => detailRetentionLog("playlist_source_replace action=clear generationId="
-                + commit.PreviousGenerationId
-                + " sourceCount=0 disposedCount="
-                + (commit.SourceRows?.Count ?? 0)
-                + " playlistSourceRowCount=0 playlistViewRowCount="
-                + CountDetailRows(commit.ViewRows)),
-            publishExceptions);
-        if (publishExceptions.Count > 0)
-        {
-            throw new AggregateException(publishExceptions);
+            try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "playlist_source_clear_diagnostic_failed"); }
+            catch { /* 診断失敗は確定済み行の所有やsource公開結果を変更しない。 */ }
         }
     }
 

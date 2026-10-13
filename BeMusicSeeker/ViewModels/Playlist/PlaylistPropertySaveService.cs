@@ -160,13 +160,14 @@ internal sealed class PlaylistPropertySaveService
                 StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>入力不備を任意通知します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
     internal void NotifyValidationError(PlaylistPropertyValidationError error)
     {
-        EventHandler<PlaylistPropertyValidationErrorEventArgs> handler = ValidationError
-            ?? throw new InvalidOperationException("Playlist property validation presentation is not configured.");
-        handler(this, new PlaylistPropertyValidationErrorEventArgs(error));
+        NotifyBestEffort(() => RaiseRequiredEvent(ValidationError,
+            new PlaylistPropertyValidationErrorEventArgs(error), "Playlist property validation presentation"));
     }
 
+    /// <summary>外部同期の変更承認を取得します。確認に失敗した場合は承認・取消しへ変換せず停止します。</summary>
     internal bool ConfirmExternalSyncChange(bool enable)
     {
         EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> handler = ExternalSyncConfirmationRequested
@@ -178,9 +179,8 @@ internal sealed class PlaylistPropertySaveService
 
     private void RaiseInvalidOutputDirectoryRequested()
     {
-        EventHandler handler = InvalidOutputDirectoryRequested
-            ?? throw new InvalidOperationException("Playlist property output-directory presentation is not configured.");
-        handler(this, EventArgs.Empty);
+        NotifyBestEffort(() => RaiseRequiredEvent(InvalidOutputDirectoryRequested,
+            EventArgs.Empty, "Playlist property output-directory presentation"));
     }
 
     private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string contractName)
@@ -227,10 +227,6 @@ internal sealed class PlaylistPropertySaveService
                 List<Exception> continuationFailures = [];
                 CompleteReferencePublication(continuation.PendingOutput, continuationFailures);
                 await CompletePendingOutputsAsync(session.Store, continuation, authority, continuationFailures).ConfigureAwait(false);
-                if (continuationFailures.Count > 0 && session.PendingOutput.OriginalFailure != null)
-                {
-                    continuationFailures.Insert(0, session.PendingOutput.OriginalFailure);
-                }
                 continuation.Exception = CombineFailures(continuationFailures.Distinct());
                 if (continuation.Exception != null) { return continuation; }
                 session.PendingOutput = null;
@@ -520,11 +516,11 @@ internal sealed class PlaylistPropertySaveService
                 Exception syncWorkflowFailure = null;
                 try
                 {
-                    CapturePresentationFailure(() => RaiseRequiredEvent(
+                    NotifyBestEffort(() => RaiseRequiredEvent(
                         PlaylistPropertySyncStarted,
                         EventArgs.Empty,
-                        "Playlist property sync-start presentation"), failures);
-                    CapturePresentationFailure(() => RaiseRequiredEvent(
+                        "Playlist property sync-start presentation"));
+                    NotifyBestEffort(() => RaiseRequiredEvent(
                         PlaylistPropertySyncProgressChanged,
                         new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
                         {
@@ -534,7 +530,7 @@ internal sealed class PlaylistPropertySaveService
                             CurrentTableName = table.name,
                             CurrentUri = uri
                         }),
-                        "Playlist property sync-progress presentation"), failures);
+                        "Playlist property sync-progress presentation"));
                     try
                     {
                         store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
@@ -573,22 +569,22 @@ internal sealed class PlaylistPropertySaveService
                             NeedsReferenceIndex = true,
                             NeedsReferencePresentation = true
                         };
-                        CapturePresentationFailure(() => RaiseRequiredEvent(
+                        NotifyBestEffort(() => RaiseRequiredEvent(
                             PlaylistPropertySyncResultReported,
                             new PlaylistSyncResultReportedEventArgs(PlaylistSyncAttemptResult.CreateSuccess(
                                 sourceTable,
                                 table,
                                 uri,
                                 externalLastUpdateChanged)),
-                            "Playlist property sync-result presentation"), failures);
+                            "Playlist property sync-result presentation"));
                     }
                 }
                 catch (Exception ex)
                 {
                     syncWorkflowFailure = ex;
                 }
-                CapturePresentationFailure(() => CompletePlaylistPropertySyncPresentation(
-                    table, uri, notificationSession, syncWorkflowFailure), failures);
+                if (syncWorkflowFailure != null) { failures.Add(syncWorkflowFailure); }
+                CompletePlaylistPropertySyncPresentation(table, uri, notificationSession);
                 CapturePresentationFailure(() => RaiseRequiredEvent(
                     PlaylistPropertySummaryDataRefreshRequested,
                     new PlaylistSummaryDataRefreshRequestedEventArgs(
@@ -819,26 +815,22 @@ internal sealed class PlaylistPropertySaveService
         PlaylistOperationNotificationOwner.OperationNotificationReceipt notificationReceipt = notifications.TakeReceipt();
         if (hasLr2Continuation || !notificationReceipt.IsEmpty)
         {
-            CapturePresentationFailure(() => RaiseRequiredEvent(PlaylistOperationNotificationPresentationRequested,
+            NotifyBestEffort(() => RaiseRequiredEvent(PlaylistOperationNotificationPresentationRequested,
                 new PlaylistOperationNotificationPresentationRequestedEventArgs(notificationReceipt,
-                    "playlist property custom folder notification"), "Playlist property notification flushing"), failures);
+                    "playlist property custom folder notification"), "Playlist property notification flushing"));
         }
         if (!pending.HasPendingWork) { commit.PendingOutput = null; }
-        else { pending.OriginalFailure ??= CombineFailures(failures); }
     }
 
-    /// <summary>画面が確定参照・最新保存値・未完了を採用してから、既存の失敗通知へ渡します。</summary>
+    /// <summary>確定参照と保存値の採用後に任意の失敗通知を試み、今回の実処理失敗だけを呼出元へ返します。</summary>
     internal void PublishSaveFailure(PlaylistPropertySaveCommit commit)
     {
-        List<Exception> failures = [];
-        if (commit.Exception != null) { failures.Add(commit.Exception); }
         if (commit.ExternalSyncFailure != null)
         {
-            CapturePresentationFailure(() => RaiseRequiredEvent(PlaylistPropertyExternalSyncFailed,
-                commit.ExternalSyncFailure, "Playlist property sync-failure presentation"), failures);
+            NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertyExternalSyncFailed,
+                commit.ExternalSyncFailure, "Playlist property sync-failure presentation"));
         }
-        Exception failure = CombineFailures(failures);
-        if (failure != null) { ExceptionDispatchInfo.Capture(failure).Throw(); }
+        if (commit.Exception != null) { ExceptionDispatchInfo.Capture(commit.Exception).Throw(); }
     }
 
     private static Exception CombineFailures(IEnumerable<Exception> failures)
@@ -850,48 +842,32 @@ internal sealed class PlaylistPropertySaveService
     private void CompletePlaylistPropertySyncPresentation(
         BMSTable table,
         Uri uri,
-        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession,
-        Exception workflowFailure)
+        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession)
     {
-        var failures = new List<Exception>();
-        if (workflowFailure != null)
+        NotifyBestEffort(() => RaiseRequiredEvent(
+            PlaylistPropertySyncProgressChanged,
+            new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = 1,
+                CompletedTableCount = 1,
+                CurrentTableName = table.name,
+                CurrentUri = uri
+            }), "Playlist property sync-progress presentation"));
+        NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertySyncFinished,
+            EventArgs.Empty, "Playlist property sync-finish presentation"));
+        NotifyBestEffort(() => RaiseRequiredEvent(PlaylistOperationNotificationPresentationRequested,
+            new PlaylistOperationNotificationPresentationRequestedEventArgs(notificationSession.TakeReceipt(),
+                "playlist property external sync notification"), "Playlist property notification flushing"));
+    }
+
+    private static void NotifyBestEffort(Action notification)
+    {
+        try { notification(); }
+        catch (Exception failure)
         {
-            failures.Add(workflowFailure);
-        }
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistPropertySyncProgressChanged,
-                new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
-                {
-                    IsActive = true,
-                    TotalTableCount = 1,
-                    CompletedTableCount = 1,
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                }),
-                "Playlist property sync-progress presentation"),
-            failures);
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistPropertySyncFinished,
-                EventArgs.Empty,
-                "Playlist property sync-finish presentation"),
-            failures);
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    notificationSession.TakeReceipt(),
-                    "playlist property external sync notification"),
-                "Playlist property notification flushing"),
-            failures);
-        if (failures.Count == 1)
-        {
-            ExceptionDispatchInfo.Capture(failures[0]).Throw();
-        }
-        if (failures.Count > 1)
-        {
-            throw new AggregateException(failures).Flatten();
+            try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "playlist_property_notification_failed"); }
+            catch { /* 診断失敗で保存結果を変えず、再通知もしない。 */ }
         }
     }
 
@@ -1357,8 +1333,6 @@ internal sealed class PlaylistPropertyPendingOutput
     internal bool NeedsReferenceIndex { get; set; }
     /// <summary>現行画面参照の公開が未完了か。</summary>
     internal bool NeedsReferencePresentation { get; set; }
-    /// <summary>未完了を生じた元失敗。継続失敗時にも失敗分類を保ちます。</summary>
-    internal Exception OriginalFailure { get; set; }
     /// <summary>次の保存が先に処理する必要出力または置換公開が残るか。</summary>
     internal bool HasPendingWork => NeedsLr2Migration || NeedsSearchPathSave || NeedsBmtExport || ReferenceReceipt != null;
 }
