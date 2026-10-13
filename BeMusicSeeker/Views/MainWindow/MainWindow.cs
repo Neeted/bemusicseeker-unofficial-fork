@@ -187,10 +187,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async Task NotifyMainWindowOperationFailureAsync(Exception exception, string routeName)
     {
-        if (exception is OperationCanceledException)
-        {
-            return;
-        }
         Task.FromException(exception).ObserveFault(routeName);
         try
         {
@@ -4767,14 +4763,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewPlaylistRootContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel || sender is not MenuItem)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
         {
             return;
         }
         e.Handled = true;
-        await playlistWorkspaceTerminals.TablesReload
-            .ReloadAsync()
-            .LoggingAndPropagate("treeViewPlaylistRootContextMenuItemReloadClick");
+        try
+        {
+            await playlistWorkspaceTerminals.TablesReload.ReloadAsync();
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            // 管理主体が後片付け後に専用警告を表示済みです。
+        }
+        catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemReloadClick");
+        }
     }
 
     /// <summary>
@@ -5357,32 +5365,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewLibraryFolderContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel && sender is MenuItem)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
         {
             try
             {
-                await libraryReloadMenuTerminal.ReloadFileDiffAsync()
-                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReloadClick");
+                await libraryReloadMenuTerminal.ReloadFileDiffAsync();
             }
             catch (LibraryDirectoryPreflightException)
             {
-                // owner が cleanup 後に localized warning を表示済み。
+                // 管理主体が後片付け後に専用警告を表示済みです。
+            }
+            catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemReloadClick");
             }
         }
     }
 
     private async void treeViewLibraryFolderContextMenuItemReinitializeClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel && sender is MenuItem)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
         {
             try
             {
-                await libraryReloadMenuTerminal.ReinitializeLibraryAsync()
-                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReinitializeClick");
+                await libraryReloadMenuTerminal.ReinitializeLibraryAsync();
             }
             catch (LibraryDirectoryPreflightException)
             {
-                // owner が cleanup 後に localized warning を表示済み。
+                // 管理主体が後片付け後に専用警告を表示済みです。
+            }
+            catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemReinitializeClick");
             }
         }
     }

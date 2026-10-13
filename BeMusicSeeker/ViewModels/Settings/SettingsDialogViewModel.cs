@@ -367,9 +367,10 @@ public partial class SettingsDialogViewModel : ViewModel
         if (operationFailure != null)
         {
             reportApplyFailure(operationFailure);
-            if (initialSetup && initializationResult != null && !statePort.HasActiveLibraryProfile) { reopenAfterTermination = true; }
+            if (initialSetup && initializationResult?.Outcome == StartupInitializationOutcome.SettingsRequired
+                && !statePort.HasActiveLibraryProfile) { reopenAfterTermination = true; }
         }
-        // 再編集は外側受付の解放と失敗通知の後に戻し、終了・旧成功結果を再表示へ読み替えません。
+        // 型付き処理失敗は設定修復へ読み替えません。結果取得前の既存案内は保ち、再編集は外側受付の解放と通知後に戻します。
         if (reopenAfterTermination && !operationAdmission.IsAdmissionClosed)
         {
             try { RequestOpen(deferPresentation: true); }

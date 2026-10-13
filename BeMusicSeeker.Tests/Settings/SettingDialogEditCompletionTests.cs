@@ -2445,7 +2445,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 LibraryDirectoryPreflightFailureCause.NotFound, "missing");
             viewModel = CreateViewModel(settingsSession, firstStartup: false,
                 reloadFileDiff: _ => Task.FromResult(++reloadCount == 1
-                    ? new StartupInitializationResult(StartupInitializationOutcome.SettingsRequired, Failure: directoryFailure, OperationKind: StartupProgressOperationKind.ReloadFileDiff)
+                    ? new StartupInitializationResult(StartupInitializationOutcome.OperationFailed, Failure: directoryFailure, OperationKind: StartupProgressOperationKind.ReloadFileDiff)
                     : new StartupInitializationResult(StartupInitializationOutcome.Succeeded, OperationKind: StartupProgressOperationKind.ReloadFileDiff)),
                 reportSettingsApplyFailure: failures.Add, dialogs: dialogs);
             SetActiveLibraryProfile(viewModel, true);
@@ -2507,7 +2507,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     return Task.FromResult(initializeCount > 1);
                 },
                 reloadScoresOnly: _ => Task.FromResult(++reloadCount == 1
-                    ? new StartupInitializationResult(StartupInitializationOutcome.SettingsRequired, Failure: new InvalidOperationException("score reload failed"), OperationKind: StartupProgressOperationKind.ScoreOnly)
+                    ? new StartupInitializationResult(StartupInitializationOutcome.OperationFailed, Failure: new InvalidOperationException("score reload failed"), OperationKind: StartupProgressOperationKind.ScoreOnly)
                     : new StartupInitializationResult(StartupInitializationOutcome.Succeeded, OperationKind: StartupProgressOperationKind.ScoreOnly)),
                 reportSettingsApplyFailure: _ => { });
             SetActiveLibraryProfile(viewModel, true);
@@ -2604,6 +2604,125 @@ public sealed partial class SettingDialogEditCompletionTests
         {
             Directory.Delete(root, recursive: true);
         }
+    }
+
+    /// <summary>実LR2設定不備に対する任意警告が失敗しても設定修復の結果・呼出元の案内を保ち、再帰通知・構築・元XML/DBの変更を始めません。</summary>
+    [DataTestMethod]
+    [DataRow("startup", false)] // 通常起動の警告Task失敗でも設定を案内します。
+    [DataRow("startup", true)] // 通常起動のFailed結果でも設定を案内します。
+    [DataRow("typed", false)] // 型付き終端は警告Task失敗を設定検証結果へ混ぜません。
+    [DataRow("typed", true)] // 型付き終端はFailed結果でもSettingsRequiredを維持します。
+    [DataRow("apply", false)] // 実Applyの保存・Close後に設定不備が判明し、警告失敗後も再編集へ戻ります。
+    [DataRow("apply", true)] // 実ApplyのFailed結果でもcleanup・元ファイルと再編集を保持します。
+    public void InvalidLr2Settings_OptionalWarningFailureRetainsSettingsOutcomeAndGuidance(string entry, bool failedResult)
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidCustomFolderSettings(Path.Combine(root, "lr2"), []);
+            string configPath = settings.LR2ConfigXmlPath;
+            string songDbPath = settings.LR2SongDBPath;
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(songDbPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDbPath);
+            byte[] invalidConfigBefore = [];
+            void InvalidateConfig()
+            {
+                File.WriteAllText(configPath, "<config>");
+                invalidConfigBefore = File.ReadAllBytes(configPath);
+            }
+            if (entry != "apply") { InvalidateConfig(); }
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var session = new CountingSettingsEditSession(settings);
+                var notificationFailure = new IOException("settings validation warning failed");
+                var dialogs = new RecordingRootDialogService();
+                if (failedResult) { dialogs.MessageResult = UiDialogResult.Failed(notificationFailure); }
+                else { dialogs.MessageObservedAsync = () => Task.FromException(notificationFailure); }
+                var sequence = new List<string>();
+                var applyFailures = new List<Exception>();
+                var constructionCalls = new List<string>();
+                var failurePresenter = new MainWindowViewModelStartupProgressTests.RecordingStartupLibraryInitializationFailurePresenter();
+                var composition = new ApplicationComposition(settingsEditSession: session,
+                    reportSettingsApplyFailure: applyFailures.Add,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe")),
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, constructionCalls);
+                var owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failurePresenter);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                var cleanupObservations = new List<(string Phase, string Message, bool LibraryActive, bool PlaylistActive, bool UiBlocked, bool OperationInProgress, bool Editing)>();
+                void ObserveCleanup(string phase, string message)
+                    => cleanupObservations.Add((phase, message, composition.OperationAdmission.IsActive, composition.PlaylistOperationAdmission.IsActive,
+                        owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, owner.IsLibraryOperationInProgress, dialog.IsEditCompletionInProgress));
+                dialogs.MessageObserved = () =>
+                {
+                    ObserveCleanup("warning", dialogs.LastMessageText);
+                    sequence.Add("warning");
+                };
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    sequence.Add(request);
+                    if (request == "close" && entry == "apply") { InvalidateConfig(); }
+                    if (request == "open") { ObserveCleanup("open", string.Empty); }
+                }));
+                try
+                {
+                    if (entry == "apply")
+                    {
+                        Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
+                        dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+                        Task operation = dialog.ApplySettingsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-apply");
+                        Assert.AreEqual(1, session.SaveCount);
+                    }
+                    else if (entry == "typed")
+                    {
+                        Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-typed");
+                        StartupInitializationResult result = operation.GetAwaiter().GetResult();
+                        Assert.AreEqual(StartupInitializationOutcome.SettingsRequired, result.Outcome);
+                        Assert.IsNotNull(result.ValidationFailure);
+                        Assert.IsNull(result.Failure);
+                        Assert.IsFalse(result.CompletionPublished);
+                    }
+                    else
+                    {
+                        Task<bool> operation = owner.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-startup");
+                        Assert.IsFalse(operation.GetAwaiter().GetResult());
+                    }
+                    ObserveCleanup("terminal", string.Empty);
+                    Assert.AreEqual(entry == "typed" ? 2 : 3, cleanupObservations.Count);
+                    Assert.AreEqual(Resources.Msg_init_settings_check, cleanupObservations.Single(value => value.Phase == "warning").Message);
+                    foreach ((string Phase, string Message, bool LibraryActive, bool PlaylistActive, bool UiBlocked, bool OperationInProgress, bool Editing) observation in cleanupObservations)
+                    {
+                        Assert.IsFalse(observation.LibraryActive, observation.Phase);
+                        Assert.IsFalse(observation.PlaylistActive, observation.Phase);
+                        Assert.IsFalse(observation.UiBlocked, observation.Phase);
+                        Assert.IsFalse(observation.OperationInProgress, observation.Phase);
+                        Assert.IsFalse(observation.Editing, observation.Phase);
+                    }
+                    Assert.IsFalse(owner.IsInitializationCompleted);
+                    Assert.IsFalse(owner.HasActiveLibraryProfile);
+                    Assert.AreEqual(1, dialogs.MessageCount);
+                    Assert.AreEqual(0, applyFailures.Count);
+                    Assert.AreEqual(0, failurePresenter.Presentations.Count);
+                    Assert.AreEqual(0, constructionCalls.Count);
+                    CollectionAssert.AreEqual(entry == "apply" ? new[] { "close", "warning", "open" }
+                        : entry == "startup" ? new[] { "warning", "open" } : new[] { "warning" }, sequence);
+                }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "invalid-lr2-warning-failed-shutdown");
+                    dialog.Dispose();
+                }
+            });
+            CollectionAssert.AreEqual(invalidConfigBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDbPath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     /// <summary>有効な DB／config がある LR2 root 未設定は通常起動だけ警告し、設定経由は警告を重ねず、どちらも実初期化を成功できることを確認します。</summary>
@@ -3180,9 +3299,12 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>実構成入口の失敗通知中にL/Pと進捗が解放され、元の構成失敗と設定案内を維持することを確認します。</summary>
-    [TestMethod]
-    public void InitializeAsync_ConstructionFailurePresentsAfterBothAdmissionsAndProgressCleanup()
+    /// <summary>実構成入口の失敗通知中にL/Pと進捗が解放され、元の構成失敗を保持して設定を自動再表示しないことを確認します。</summary>
+    [DataTestMethod]
+    [DataRow("startup")] // 通常起動も実構成失敗で設定を自動再表示しません。
+    [DataRow("typed")] // 型付き入口は元失敗とOperationFailedを返し、設定検証結果へ読み替えません。
+    [DataRow("apply")] // 実設定適用も型付き処理失敗を設定修復へ読み替えず、保存・Close・cleanupを維持します。
+    public void InitializeAsync_ConstructionFailurePresentsAfterBothAdmissionsAndProgressCleanup(string entry)
     {
         string root = CreateTemporaryRoot();
         string songsRoot = Path.Combine(root, "Songs");
@@ -3201,10 +3323,17 @@ public sealed partial class SettingDialogEditCompletionTests
             var dialogs = new RecordingRootDialogService();
             var sequence = new List<string>();
             var failure = new InvalidOperationException("controlled startup construction failure");
+            var applyFailures = new List<Exception>();
             TestUiDispatcherHost.Invoke(() =>
             {
                 var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
-                var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(settings),
+                var session = new CountingSettingsEditSession(settings);
+                var composition = new ApplicationComposition(settingsEditSession: session,
+                    reportSettingsApplyFailure: exception =>
+                    {
+                        applyFailures.Add(exception);
+                        dialogs.MessageObserved?.Invoke();
+                    },
                     uiScheduler: scheduler, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: applicationPath,
                     fileDbMutationDialogService: dialogs);
@@ -3216,26 +3345,74 @@ public sealed partial class SettingDialogEditCompletionTests
                 var owner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(library, playlist, () => throw failure));
                 viewModel = owner;
                 owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+                var notificationObservations = new List<(bool LibraryAvailable, bool PlaylistAvailable, bool OperationInProgress, bool UiBlocked, bool Retryable)>();
+                var observationFailures = new List<Exception>();
                 dialogs.MessageObserved = () =>
                 {
                     sequence.Add("error");
-                    Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable libraryLease));
-                    using (libraryLease)
+                    try
                     {
-                        Assert.IsTrue(composition.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));
-                        playlistLease.Dispose();
+                        bool libraryAvailable = composition.OperationAdmission.TryEnter(out IDisposable libraryLease);
+                        bool playlistAvailable;
+                        using (libraryLease)
+                        {
+                            playlistAvailable = composition.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease);
+                            playlistLease?.Dispose();
+                        }
+                        notificationObservations.Add((libraryAvailable, playlistAvailable, owner.IsLibraryOperationInProgress,
+                            owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, owner.ProgressHub.StartupProgress.IsRetryableFailure));
                     }
-                    Assert.IsFalse(owner.IsLibraryOperationInProgress);
-                    Assert.IsFalse(owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-                    Assert.IsTrue(owner.ProgressHub.StartupProgress.IsRetryableFailure);
+                    catch (Exception observationFailure) { observationFailures.Add(observationFailure); }
                 };
-                Task<bool> operation = owner.InitializeAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure");
-                Assert.IsFalse(operation.GetAwaiter().GetResult());
+                if (entry == "apply")
+                {
+                    SettingsDialogViewModel dialog = owner.SettingDialog;
+                    session.SaveObserved = () => sequence.Add("save");
+                    dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
+                    bool savedValue = dialog.ShowRecommUpdatedMsg;
+                    Assert.IsTrue(dialog.CheckValidation(out string validationError), validationError);
+                    Task operation = dialog.ApplySettingsAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure-apply");
+                    Assert.AreEqual(1, session.SaveCount);
+                    Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
+                    Assert.IsFalse(dialog.HasPendingSettingChanges());
+                    Assert.IsTrue(dialog.IsEditCompletionEnabled);
+                    Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                    Assert.IsFalse(dialog.IsEditCompletionInProgress);
+                    Assert.IsFalse(owner.HasActiveLibraryProfile);
+                    Assert.IsFalse(owner.IsInitializationCompleted);
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.AreSame(failure, applyFailures.Single());
+                }
+                else if (entry == "typed")
+                {
+                    Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure-typed");
+                    StartupInitializationResult result = operation.GetAwaiter().GetResult();
+                    Assert.AreEqual(StartupInitializationOutcome.OperationFailed, result.Outcome);
+                    Assert.AreSame(failure, result.Failure);
+                    Assert.IsNull(result.ValidationFailure);
+                    Assert.IsFalse(result.CompletionPublished);
+                }
+                else
+                {
+                    Task<bool> operation = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure");
+                    Assert.IsFalse(operation.GetAwaiter().GetResult());
+                }
+                Assert.AreEqual(0, observationFailures.Count, string.Join(Environment.NewLine, observationFailures));
+                Assert.AreEqual(1, notificationObservations.Count);
+                (bool LibraryAvailable, bool PlaylistAvailable, bool OperationInProgress, bool UiBlocked, bool Retryable) observation = notificationObservations.Single();
+                Assert.IsTrue(observation.LibraryAvailable);
+                Assert.IsTrue(observation.PlaylistAvailable);
+                Assert.IsFalse(observation.OperationInProgress);
+                Assert.IsFalse(observation.UiBlocked);
+                Assert.IsTrue(observation.Retryable);
             });
-            Assert.AreEqual(1, dialogs.MessageCount);
-            StringAssert.Contains(dialogs.LastMessageText, failure.Message);
-            CollectionAssert.AreEqual(new[] { "error", "open" }, sequence);
+            Assert.AreEqual(entry == "apply" ? 0 : 1, dialogs.MessageCount);
+            if (entry != "apply") { StringAssert.Contains(dialogs.LastMessageText, failure.Message); }
+            CollectionAssert.AreEqual(entry == "apply" ? new[] { "save", "close", "error" } : new[] { "error" }, sequence);
         }
         finally
         {
@@ -4605,7 +4782,9 @@ public sealed partial class SettingDialogEditCompletionTests
                     settingsDialogService: dialogs,
                     fileDbMutationDialogService: dialogs)
                     .CreateMainWindowViewModelForTest();
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
                 SettingsDialogViewModel settings = viewModel.SettingDialog;
+                var reopenObservations = new List<(bool EditEnabled, bool CancellationEnabled, bool OperationInProgress, bool UiBlocked, bool PendingChanges, bool LibraryActive, bool PlaylistActive)>();
                 try
                 {
                     settings.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
@@ -4618,11 +4797,9 @@ public sealed partial class SettingDialogEditCompletionTests
                         }
                         else if (request == "open")
                         {
-                            Assert.IsTrue(settings.IsEditCompletionEnabled);
-                            Assert.IsTrue(settings.IsEditCancellationEnabled);
-                            Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
-                            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-                            Assert.IsFalse(settings.HasPendingSettingChanges());
+                            reopenObservations.Add((settings.IsEditCompletionEnabled, settings.IsEditCancellationEnabled,
+                                viewModel.IsLibraryOperationInProgress, viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked,
+                                settings.HasPendingSettingChanges(), composition.OperationAdmission.IsActive, composition.PlaylistOperationAdmission.IsActive));
                             // 再編集に戻った利用者が接続を復旧し、次の保存で再試行する。
                             Directory.Move(unavailableRoot, musicRoot);
                         }
@@ -4632,6 +4809,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     for (int attempt = 0; attempt < 2; attempt++)
                     {
                         sequence.Clear();
+                        reopenObservations.Clear();
                         Assert.IsTrue(settings.CheckValidation(out string validationError), validationError);
                         Task apply = settings.ApplySettingsAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "initial-settings-directory-failure");
@@ -4650,10 +4828,22 @@ public sealed partial class SettingDialogEditCompletionTests
                         expected.Add("open");
                         CollectionAssert.AreEqual(expected, sequence, $"attempt={attempt}; actual={string.Join(",", sequence)}");
                         Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                        Assert.AreEqual(1, reopenObservations.Count);
+                        (bool EditEnabled, bool CancellationEnabled, bool OperationInProgress, bool UiBlocked, bool PendingChanges, bool LibraryActive, bool PlaylistActive) observation = reopenObservations.Single();
+                        Assert.IsTrue(observation.EditEnabled);
+                        Assert.IsTrue(observation.CancellationEnabled);
+                        Assert.IsFalse(observation.OperationInProgress);
+                        Assert.IsFalse(observation.UiBlocked);
+                        Assert.IsFalse(observation.PendingChanges);
+                        Assert.IsFalse(observation.LibraryActive);
+                        Assert.IsFalse(observation.PlaylistActive);
                         Assert.AreEqual(1, session.SaveCount);
                         Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
                         Assert.IsFalse(viewModel.HasActiveLibraryProfile);
                         Assert.IsFalse(viewModel.IsInitializationCompleted);
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        Assert.IsFalse(settings.IsEditCompletionInProgress);
                         StringAssert.Contains(dialogs.LastMessageText, musicRoot);
                         StringAssert.Contains(dialogs.LastMessageText, Resources.LibraryDirectoryPreflightBmsRootRole);
                     }
@@ -5887,18 +6077,22 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>修復失敗通知と警告の実Taskで、既知終了と表示終了だけを取消にし、同時の実表示障害・null・未知の表示終了は保持します。</summary>
+    /// <summary>修復後の通知は表示失敗を局所処理し、終了要求がある場合だけ取消しを伝播します。通知結果だけで終了したことにはしません。</summary>
     [DataTestMethod]
-    // warningは修復警告/修復失敗を区別。0:既知終了、1:Failed、2:owner不在、3:null、4:元例外throw、5:OK後終了、6:未知AppClosing。
-    [DataRow(true, 0)]
-    [DataRow(false, 0)]
-    [DataRow(true, 1)]
-    [DataRow(false, 2)]
-    [DataRow(true, 3)]
-    [DataRow(false, 4)]
-    [DataRow(true, 5)]
-    [DataRow(true, 6)]
-    public async Task LeapYearNotification_ShutdownDistinguishesClosingAndPreservesActualDialogFailure(bool warning, int resultKind)
+    // warningは修復警告/修復失敗を区別。0:AppClosing、1:Failed、2:owner不在、3:null、4:元例外throw、5:OK、6:終了要求のないAppClosing。
+    [DataRow(true, 0, true)]
+    [DataRow(false, 0, true)]
+    [DataRow(true, 1, false)]
+    [DataRow(true, 1, true)]
+    [DataRow(false, 2, false)]
+    [DataRow(false, 2, true)]
+    [DataRow(true, 3, false)]
+    [DataRow(true, 3, true)]
+    [DataRow(false, 4, false)]
+    [DataRow(false, 4, true)]
+    [DataRow(true, 5, true)]
+    [DataRow(true, 6, false)]
+    public async Task LeapYearNotification_OnlyShutdownCancelsAndDisplayFailuresStayLocal(bool warning, int resultKind, bool shutdownAfterDisplay)
     {
         var original = new IOException("actual repair notification failure");
         bool shutdown = false;
@@ -5914,7 +6108,7 @@ public sealed partial class SettingDialogEditCompletionTests
             },
             MessageObserved = () =>
             {
-                shutdown = resultKind != 6;
+                shutdown = shutdownAfterDisplay;
                 if (resultKind == 4) { throw original; }
             }
         };
@@ -5922,14 +6116,8 @@ public sealed partial class SettingDialogEditCompletionTests
         var owner = new StartupLibraryInitializationWorkflowOwner(gate);
         var notification = new LeapYearFolderRepairNotification(warning, warning ? [] : [("original folder", new IOException("timestamp repair failed"))]);
         Task operation = owner.PresentLeapYearFolderRepairAsync(notification, dialogs, () => shutdown);
-        if (resultKind is 0 or 5) { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
-        else if (resultKind == 4) { Assert.AreSame(original, await Assert.ThrowsExceptionAsync<IOException>(() => operation)); }
-        else
-        {
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => operation);
-            if (resultKind == 1) { Assert.AreSame(original, failure.InnerException); }
-            else { StringAssert.Contains(failure.Message, resultKind == 2 ? nameof(UiDialogStatus.OwnerUnavailable) : resultKind == 3 ? "no result" : nameof(UiDialogStatus.AppClosing)); }
-        }
+        if (shutdownAfterDisplay) { await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => operation); }
+        else { await operation; }
         Assert.AreEqual(1, dialogs.MessageCount);
         Assert.AreEqual(0, dialogs.ConfirmationCount);
     }

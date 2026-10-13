@@ -1308,51 +1308,85 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
-    /// <summary>compiled表再読込みクリックは終端を一回呼び、返したTaskが未完了でもイベントを処理済みにします。</summary>
-    [TestMethod]
-    public void PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion()
+    /// <summary>compiled表再読込みクリックは未完了Taskでも処理済みにし、通常失敗と所有されない取消を一回通知し、終了取消・既通知警告を静穏に終えます。</summary>
+    [DataTestMethod]
+    [DataRow("success")] // 成功の既存接続と即時Handledを維持します。
+    [DataRow("failure")] // 非同期の普通の失敗は既存通知へ一回渡します。
+    [DataRow("cancellation")] // 終了要求のない取消を実失敗として通知します。
+    [DataRow("shutdown-cancellation")] // 実Window終了で所有された取消だけを通知しません。
+    [DataRow("preflight")] // 管理主体が通知済みの専用警告を重ねません。
+    public void PlaylistRootReload_UsesOneTypedTerminalAndHandlesBeforeAsyncCompletion(string terminalOutcome)
     {
+        bool shutdown = terminalOutcome == "shutdown-cancellation";
+        int expectedNotifications = terminalOutcome is "failure" or "cancellation" ? 1 : 0;
         TaskCompletionSource<object?> completion = NewCompletion();
+        var dialogs = new RecordingPlaylistWorkspaceDialogService();
         int callCount = 0;
         MainWindowPlaylistTablesReloadTerminal reloadTerminal =
-            new(() =>
+            new(() => ++callCount == 1 ? completion.Task : Task.CompletedTask);
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
             {
-                callCount++;
-                return completion.Task;
-            });
-
-        try
-        {
-            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
-                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (_, window) =>
+                Task reloadEvent = Task.CompletedTask;
+                try
                 {
-                    try
+                    var menu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
+                    MenuItem reload = menu.Items.OfType<MenuItem>().Last();
+                    RoutedEventArgs? args = null;
+                    reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => args = RaiseMenuClick(reload));
+                    Assert.IsNotNull(args);
+                    Assert.IsTrue(args.Handled);
+                    Assert.AreEqual(1, callCount);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+                    if (shutdown)
                     {
-
-                        var menu = (ContextMenu)window.FindResource("treeViewPlaylistRootContextMenu");
-                        MenuItem reload = menu.Items.OfType<MenuItem>().Last();
-
-                        RoutedEventArgs args = RaiseMenuClick(reload);
-
-                        Assert.IsTrue(args.Handled);
-                        Assert.AreEqual(1, callCount);
-                        Assert.IsFalse(completion.Task.IsCompleted);
-
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-playlist-reload-owned-shutdown");
+                        Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
                     }
-                    finally
+                    switch (terminalOutcome)
                     {
-                        completion.TrySetResult(null);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "compiled-playlist-terminal-delegate");
+                        case "failure": completion.TrySetException(new IOException("playlist root reload failed")); break;
+                        case "cancellation":
+                        case "shutdown-cancellation": completion.TrySetCanceled(); break;
+                        case "preflight":
+                            completion.TrySetException(new LibraryDirectoryPreflightException(
+                            LibraryDirectoryPreflightUse.BmsRoot, @"C:\missing-root", LibraryDirectoryPreflightFailureCause.NotFound, "missing")); break;
+                        default: completion.TrySetResult(null); break;
                     }
-
-                },
-                playlistWorkspaceTerminals: CreateTerminals(tablesReload: reloadTerminal));
-        }
-        finally
-        {
-            completion.TrySetResult(null);
-        }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "compiled-playlist-reload-event-terminal");
+                    Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count);
+                    if (terminalOutcome == "failure")
+                    {
+                        Assert.IsTrue(dialogs.MessageShown.Task.IsCompletedSuccessfully);
+                        StringAssert.Contains(dialogs.MessageRequests.Single().MessageBoxText, "playlist root reload failed");
+                    }
+                    if (expectedNotifications != 0)
+                    {
+                        StringAssert.StartsWith(dialogs.MessageRequests.Single().MessageBoxText, Resources.Msg_error_unexpected);
+                    }
+                    if (!shutdown)
+                    {
+                        Assert.IsTrue(RaiseMenuClick(reload).Handled);
+                        Assert.AreEqual(2, callCount);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(expectedNotifications, dialogs.MessageRequests.Count);
+                    }
+                }
+                finally
+                {
+                    completion.TrySetResult(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "compiled-playlist-reload-event-cleanup");
+                    if (shutdown)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "compiled-playlist-reload-close-cleanup");
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+            },
+            playlistWorkspaceTerminals: CreateTerminals(tablesReload: reloadTerminal),
+            playlistWorkspaceDialogService: dialogs);
     }
 
     /// <summary>compiled表一覧のgroupとleafでクリック後の開閉を分け、leafの元表と組込みURIタグを取り込み終端へ一度ずつ渡します。</summary>

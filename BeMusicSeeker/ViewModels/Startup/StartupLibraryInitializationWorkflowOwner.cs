@@ -7,6 +7,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.ViewModels;
@@ -90,42 +91,26 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         return new(songDbPath, candidates.Count > 0, approved, unreadable);
     }
 
-    /// <summary>親受付とDB/writer保護の解放後、実補正の元対象・原因と既存警告条件を通知します。既知の終了とAppClosingだけを取消に分類し、実表示失敗は保持します。</summary>
+    /// <summary>親受付とDB/writer保護の解放後、実補正の対象と既存警告を通知します。表示失敗は修復結果に合成せず、残りの通知も試みます。</summary>
     /// <param name="notification">この要求で確定した実修復の結果。nullなら通知せず終端します。</param>
     /// <param name="dialogs">親受付外の実通知Taskを所有する既存の表示先。</param>
-    /// <param name="isShutdownRequested">呼出元の既存終了寿命。表示成功後にも確認し、実失敗を事後の終了で隠しません。</param>
-    /// <param name="isCurrent">捕捉した要求の一致確認。各通知前と成功後に確認し、旧通知から新要求へ作用しません。</param>
+    /// <param name="isShutdownRequested">呼出元の終了寿命。要求済みなら後続の通知を開始しません。</param>
+    /// <param name="isCurrent">捕捉した要求の一致確認。旧要求から新しい通知を開始しません。</param>
     internal async Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification notification, IUiDialogService dialogs, Func<bool> isShutdownRequested = null, Func<bool> isCurrent = null)
     {
         if (notification == null) { return; }
-        void ThrowIfShutdownRequested()
-        {
-            if (isShutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
-        }
-        void ValidateResult(UiDialogResult result, string route)
-        {
-            if (result?.Status == UiDialogStatus.AppClosing && isShutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
-            UiDialogRoute.ThrowIfNotShown(result, route);
-            if (isShutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
-        }
         foreach ((string path, Exception failure) in notification.Failures)
         {
-            if (isCurrent?.Invoke() == false) { return; }
-            ThrowIfShutdownRequested();
-            UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
+            await PresentNotificationAsync(new UiMessageRequest(
                 string.Format(BeMusicSeeker.Properties.Resources.Error_FailedToChangeDate, DisplayedExceptionMessage.Format(failure)) + Environment.NewLine + path,
-                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Error, UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK));
-            ValidateResult(result, "Startup leap-year folder repair failure notification");
-            if (isCurrent?.Invoke() == false) { return; }
+                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Error, UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK),
+                dialogs, isShutdownRequested, isCurrent, "Startup leap-year folder repair failure notification").ConfigureAwait(false);
         }
         if (notification.ShowWarning)
         {
-            if (isCurrent?.Invoke() == false) { return; }
-            ThrowIfShutdownRequested();
-            UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected,
-                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
-            ValidateResult(result, "Startup leap-year warning notification");
-            if (isCurrent?.Invoke() == false) { return; }
+            await PresentNotificationAsync(new UiMessageRequest(BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected,
+                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK),
+                dialogs, isShutdownRequested, isCurrent, "Startup leap-year warning notification").ConfigureAwait(false);
         }
     }
 
@@ -267,54 +252,47 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         => admission.IsAdmissionClosed ? new OperationCanceledException()
             : new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
 
-    /// <summary>成功公開後の警告と初回案内を受付外で待ちます。新規通知前と成功後に寿命を確認し、実障害は後発の終了で置き換えません。</summary>
-    internal async Task<Exception> PresentCompletionNotificationsAsync(LeapYearFolderRepairNotification repair, bool showRootWarning,
+    /// <summary>成功公開後の警告と初回案内を受付外で待ちます。通知だけの失敗を初期化結果へ返さず、終了と要求の鮮度は維持します。</summary>
+    internal async Task PresentCompletionNotificationsAsync(LeapYearFolderRepairNotification repair, bool showRootWarning,
         bool firstStartup, IUiDialogService dialogs, Func<bool> shutdownRequested, Func<bool> isCurrent, IReadOnlyList<UiMessageRequest> backupNotifications = null, Exception lr2Failure = null)
     {
-        Exception failure = null;
-        async Task Present(Func<Task> notification)
-        {
-            if (!isCurrent()) { return; }
-            if (shutdownRequested())
-            {
-                if (failure == null) { throw new OperationCanceledException(); }
-                return;
-            }
-            try { await notification().ConfigureAwait(false); }
-            catch (OperationCanceledException) when (shutdownRequested() && failure == null) { throw; }
-            catch (Exception exception)
-            {
-                if (failure == null) { failure = exception; }
-                else { Task.FromException(exception).ObserveFault("Startup completion notification"); }
-            }
-            if (failure == null && shutdownRequested()) { throw new OperationCanceledException(); }
-            if (!isCurrent()) { return; }
-        }
         foreach (UiMessageRequest request in backupNotifications ?? [])
         {
-            await Present(async () =>
-            {
-                UiDialogResult result = await dialogs.ShowMessageAsync(request).ConfigureAwait(false);
-                if (result?.Status == UiDialogStatus.AppClosing && shutdownRequested()) { throw new OperationCanceledException(); }
-                UiDialogRoute.ThrowIfNotShown(result, "Startup backup notification");
-            }).ConfigureAwait(false);
+            await PresentNotificationAsync(request, dialogs, shutdownRequested, isCurrent, "Startup backup notification").ConfigureAwait(false);
         }
-        await Present(() => PresentLeapYearFolderRepairAsync(repair, dialogs, shutdownRequested, isCurrent)).ConfigureAwait(false);
-        if (showRootWarning) { await Present(() => Show(BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet, BeMusicSeeker.Properties.Resources.Warning, UiDialogIcon.Exclamation)).ConfigureAwait(false); }
+        await PresentLeapYearFolderRepairAsync(repair, dialogs, shutdownRequested, isCurrent).ConfigureAwait(false);
+        if (showRootWarning) { await Show(BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet, BeMusicSeeker.Properties.Resources.Warning, UiDialogIcon.Exclamation).ConfigureAwait(false); }
         if (lr2Failure != null)
         {
-            await Present(() => Show(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync
-                + Environment.NewLine + DisplayedExceptionMessage.Format(lr2Failure), BeMusicSeeker.Properties.Resources.Error, UiDialogIcon.Hand)).ConfigureAwait(false);
+            await Show(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync
+                + Environment.NewLine + DisplayedExceptionMessage.Format(lr2Failure), BeMusicSeeker.Properties.Resources.Error, UiDialogIcon.Hand).ConfigureAwait(false);
         }
-        if (firstStartup) { await Present(() => Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, UiDialogIcon.Asterisk)).ConfigureAwait(false); }
-        return failure;
+        if (firstStartup) { await Show(BeMusicSeeker.Properties.Resources.Msg_init_completed, BeMusicSeeker.Properties.Resources.Information, UiDialogIcon.Asterisk).ConfigureAwait(false); }
 
-        async Task Show(string message, string title, UiDialogIcon image)
+        Task Show(string message, string title, UiDialogIcon image)
+            => PresentNotificationAsync(new UiMessageRequest(message, title, UiDialogButton.OK, image, UiDialogDefaultResult.OK),
+                dialogs, shutdownRequested, isCurrent, "Startup completion notification");
+    }
+
+    // 起動後の案内だけを扱います。事前のConfirmAsyncには適用しません。
+    private static async Task PresentNotificationAsync(UiMessageRequest request, IUiDialogService dialogs,
+        Func<bool> shutdownRequested, Func<bool> isCurrent, string route)
+    {
+        if (isCurrent?.Invoke() == false) { return; }
+        if (shutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
+        try
         {
-            UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(message, title, UiDialogButton.OK, image, UiDialogDefaultResult.OK)).ConfigureAwait(false);
-            if (result?.Status == UiDialogStatus.AppClosing && shutdownRequested()) { throw new OperationCanceledException(); }
-            UiDialogRoute.ThrowIfNotShown(result, "Startup completion notification");
+            UiDialogResult result = await dialogs.ShowMessageAsync(request).ConfigureAwait(false);
+            if (result?.Status == UiDialogStatus.AppClosing && shutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
+            UiDialogRoute.ThrowIfNotShown(result, route);
         }
+        catch (OperationCanceledException) when (shutdownRequested?.Invoke() == true) { throw; }
+        catch (Exception failure)
+        {
+            try { NLogWrapper.FileLogger?.Warn(failure, "startup_notification_failed route=" + route); }
+            catch { }
+        }
+        if (shutdownRequested?.Invoke() == true) { throw new OperationCanceledException(); }
     }
 
     /// <summary>モデルの既存走査警告結果を、受付外の既存表示要求へ変換します。</summary>

@@ -13,6 +13,10 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Tests;
 
@@ -183,6 +187,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.IsFalse(initialization.GetAwaiter().GetResult());
             Assert.AreEqual(1, recorded.Count);
             Assert.AreSame(failure, recorded[0].Exception);
+            Assert.AreEqual(0, fixture.Presentation.Requests.Count);
             Assert.IsTrue(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
             Assert.IsTrue(fixture.Owner.ProgressHub.StartupProgress.IsRetryableFailure);
             StringAssert.Contains(fixture.Owner.ProgressHub.StartupProgress.SubLabel, failure.Message);
@@ -200,47 +205,187 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
-    /// <summary>解禁後の初回案内が失敗してもlocal/UI成功・初回完了を維持し、元の実通知失敗を一回報告し、登録を閉鎖した実後続も終端します。</summary>
+    /// <summary>実Score処理・親解放後の必須UIの失敗をOperationFailedで返し、設定不備や成功にせず、元原因・解放・次の明示要求を保持します。</summary>
+    [DataTestMethod]
+    [DataRow(false)] // 実モデルへ渡した設定snapshot読取りが処理段階で失敗します。
+    [DataRow(true)] // ローカル処理成功後の必須UI Taskが失敗します。
+    [DoNotParallelize]
+    public void LimitedInitialization_ActualScoreFailureUsesOperationFailedWithoutSettingsGuidance(bool uiFails)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var fixture = new CompletionFixture(lifetime: new TestApplicationLifetime(firstStartup: false));
+            fixture.OptionalRelease.TrySetResult();
+            Task<bool> startup = fixture.Start();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "limited-score-initial");
+            Assert.IsTrue(startup.GetAwaiter().GetResult());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "limited-score-prior-background");
+            var failure = new IOException("required score operation failed");
+            ISettingsDialogStatePort port = fixture.Owner;
+            StartupInitializationResult result;
+            Assert.IsTrue(fixture.Composition.OperationAdmission.TryEnter(out IDisposable admission));
+            using (admission)
+            using (LibraryFileMutationCapability capability = fixture.Composition.OperationAdmission.CreateMutationCapability(admission))
+            {
+                if (!uiFails) { fixture.OptionsFailure = failure; }
+                Task<StartupInitializationResult> core = port.ReloadScoresOnlyAsync(capability);
+                fixture.Track(core);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(core, "limited-score-core");
+                result = core.GetAwaiter().GetResult();
+                Assert.AreEqual(uiFails ? StartupInitializationOutcome.Succeeded : StartupInitializationOutcome.OperationFailed, result.Outcome);
+                Assert.IsNull(result.ValidationFailure);
+                Assert.IsFalse(result.CompletionPublished);
+                if (!uiFails) { Assert.AreSame(failure, result.Failure); }
+            }
+            fixture.OptionsFailure = null;
+            fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.OperationAdmission.IsActive && !fixture.Composition.PlaylistOperationAdmission.IsActive;
+            if (uiFails) { fixture.Ui.Arm(); }
+            Task<StartupInitializationResult> completion = port.CompleteRequiredInitializationAfterAdmissionAsync(result);
+            fixture.Track(completion);
+            if (uiFails)
+            {
+                AwaitArrival(fixture.Ui.Entered.Task, completion, "limited-score-required-ui");
+                Assert.IsFalse(completion.IsCompleted);
+                fixture.Ui.Release.TrySetException(failure);
+            }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(completion, "limited-score-failure-terminal");
+            result = completion.GetAwaiter().GetResult();
+            Assert.AreEqual(StartupInitializationOutcome.OperationFailed, result.Outcome);
+            Assert.AreSame(failure, result.Failure);
+            Assert.IsNull(result.ValidationFailure);
+            Assert.IsFalse(result.CompletionPublished);
+            Assert.AreEqual(0, fixture.Presentation.Requests.Count);
+            Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress);
+            Assert.IsFalse(fixture.Composition.OperationAdmission.IsActive);
+            Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
+            Task retry = fixture.Owner.ReloadScoresOnlyAsync();
+            fixture.Track(retry);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(retry, "limited-score-next-explicit");
+            Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
+            Assert.AreEqual(0, fixture.Presentation.Requests.Count);
+        });
+    }
+
+    /// <summary>実表再読込みの必須UIが失敗した場合は成功を公開せず元原因を返し、Pを解放しても安全性未確認の進捗を再試行可へ読み替えません。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ReloadTables_RequiredPublicationFailureRetainsExistingSafetyStop()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var fixture = new CompletionFixture(lifetime: new TestApplicationLifetime(firstStartup: false));
+            fixture.OptionalRelease.TrySetResult();
+            Task<bool> startup = fixture.Start();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "reload-tables-safety-initial");
+            Assert.IsTrue(startup.GetAwaiter().GetResult());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "reload-tables-safety-prior-background");
+            var failure = new IOException("required playlist publication failed");
+            fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.PlaylistOperationAdmission.IsActive && fixture.Owner.IsLibraryOperationInProgress;
+            fixture.Ui.Arm();
+            Task reload = fixture.Owner.ReloadTablesAsync();
+            try
+            {
+                AwaitArrival(fixture.Ui.Entered.Task, reload, "reload-tables-safety-required-ui");
+                Assert.IsFalse(reload.IsCompleted);
+                Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
+                fixture.Ui.Release.TrySetException(failure);
+                IOException actual = Assert.ThrowsException<IOException>(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "reload-tables-safety-terminal"));
+                Assert.AreSame(failure, actual);
+                Assert.IsTrue(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsRetryableFailure);
+                Assert.IsTrue(fixture.Owner.IsLibraryOperationInProgress);
+                Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
+                Assert.AreEqual(0, fixture.Presentation.Requests.Count);
+            }
+            finally
+            {
+                fixture.Ui.Release.TrySetResult();
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "reload-tables-safety-cleanup"); }
+                catch (IOException actual) when (ReferenceEquals(actual, failure))
+                {
+                    // 期待する元失敗は主表明で検査し、cleanupは実Taskの回収だけを担当します。
+                }
+            }
+        });
+    }
+
+    /// <summary>解禁後の初回案内が失敗してもAPI・必須進捗・初回完了を成功のまま保ち、通知の実終端と局所診断を待ってから任意workを開始します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void StartupCompletionNotice_FailureKeepsPublishedSuccessAndUnblockedOperations()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        string directory = Path.Combine(Path.GetTempPath(), "startup-notification-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var log = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+        LoggingConfiguration? previousConfiguration = LogManager.Configuration;
+        try
         {
-            var failure = new IOException("initial completion notice failed");
-            var recorded = new List<StartupLibraryInitializationFailurePresentation>();
-            using var fixture = new CompletionFixture(new CallbackFailurePresenter(recorded.Add));
-            fixture.Dialogs.MessageObservedAsync = request =>
+            NLogWrapper.ConfigureApplicationFileLogging(directory, LogLevel.Info, enableInstallPerformanceLogging: false);
+            var configuration = new LoggingConfiguration();
+            configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, log);
+            LogManager.Configuration = configuration;
+            TestUiDispatcherHost.Invoke(() =>
             {
-                Assert.AreEqual(Resources.Msg_init_completed, request.MessageBoxText);
-                Assert.IsFalse(fixture.Composition.OperationAdmission.IsActive);
-                Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
-                Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
-                Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
-                Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
-                Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-                return Task.FromException(failure);
-            };
-            Task optionalWork = fixture.OptionalWork;
-            Task optionalEntered = fixture.OptionalEntered.Task;
-            Task<bool> initialization = fixture.Start();
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-initial-completion-notice-failure");
-            Assert.IsFalse(initialization.GetAwaiter().GetResult(), "案内の実失敗をAPIの通常成功に読み替えません。");
-            Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
-            Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
-            Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
-            Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
-            Assert.AreEqual(1, fixture.CompletionNotifications);
-            Assert.AreEqual(1, recorded.Count);
-            Assert.AreSame(failure, recorded[0].Exception);
-            Assert.IsTrue(fixture.Scheduler.IsStarted);
-            Assert.IsTrue(fixture.Scheduler.IsPostInitializationSchedulingComplete);
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(optionalEntered, optionalWork,
-                "startup-notice-failure-optional-entered"), "startup-notice-failure-optional-arrival");
-            Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
-            fixture.OptionalRelease.TrySetResult();
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(optionalWork, "startup-notice-failure-optional-terminal");
-        });
+                var failure = new IOException("initial completion notice failed");
+                var recorded = new List<StartupLibraryInitializationFailurePresentation>();
+                using var fixture = new CompletionFixture(new CallbackFailurePresenter(recorded.Add));
+                var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var observed = new List<(string Message, bool LibraryBusy, bool PlaylistBusy, bool Initialized, bool ActiveProfile, bool FirstStartup, bool UiBlocked)>();
+                fixture.Dialogs.MessageObservedAsync = request =>
+                {
+                    observed.Add((request.MessageBoxText, fixture.Composition.OperationAdmission.IsActive,
+                        fixture.Composition.PlaylistOperationAdmission.IsActive, fixture.Owner.IsInitializationCompleted,
+                        fixture.Owner.HasActiveLibraryProfile, fixture.Lifetime.IsFirstStartup,
+                        fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked));
+                    entered.TrySetResult();
+                    return release.Task;
+                };
+                Task optionalWork = fixture.OptionalWork;
+                Task optionalEntered = fixture.OptionalEntered.Task;
+                Task<bool> initialization = fixture.Start();
+                try
+                {
+                    AwaitArrival(entered.Task, initialization, "startup-completion-notice-entered");
+                    Assert.IsFalse(initialization.IsCompleted, "表示の成否を分離しても実通知Taskの待機は省略しません。");
+                    Assert.IsFalse(optionalEntered.IsCompleted);
+                    release.TrySetException(failure);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-initial-completion-notice-failure");
+                    Assert.IsTrue(initialization.GetAwaiter().GetResult(), "完了案内だけの失敗を必須初期化の失敗にしません。");
+                    Assert.AreEqual(1, observed.Count);
+                    Assert.AreEqual((Resources.Msg_init_completed, false, false, true, true, false, false), observed[0]);
+                    Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+                    Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
+                    Assert.IsFalse(fixture.Lifetime.IsFirstStartup);
+                    Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                    Assert.IsFalse(fixture.Owner.ProgressHub.StartupProgress.IsFailed);
+                    Assert.AreEqual(1, fixture.CompletionNotifications);
+                    Assert.AreEqual(0, recorded.Count, "案内の失敗から初期化失敗の再通知を始めません。");
+                    LogManager.Flush();
+                    string diagnostic = log.Logs.Single(line => line.StartsWith("startup_notification_failed ", StringComparison.Ordinal));
+                    StringAssert.Contains(diagnostic, failure.Message);
+                    StringAssert.Contains(diagnostic, nameof(IOException));
+                    Assert.IsTrue(fixture.Scheduler.IsStarted);
+                    Assert.IsTrue(fixture.Scheduler.IsPostInitializationSchedulingComplete);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(optionalEntered, optionalWork,
+                        "startup-notice-failure-optional-entered"), "startup-notice-failure-optional-arrival");
+                    Assert.IsTrue(fixture.OptionalStartedAfterCompletion);
+                    fixture.OptionalRelease.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(optionalWork, "startup-notice-failure-optional-terminal");
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-notice-cleanup");
+                }
+            });
+        }
+        finally
+        {
+            LogManager.Flush();
+            LogManager.Configuration = previousConfiguration;
+            Directory.Delete(directory, recursive: true);
+        }
     }
 
     /// <summary>親解放後のUI待機で終了が先着した場合だけ取消へ分類し、同時に発生した実UI障害は保持します。</summary>
@@ -1137,6 +1282,8 @@ public sealed class MainWindowViewModelStartupProgressTests
         internal TestBmsPlaylist Playlist { get; }
         internal CompletionUiScheduler Ui { get; } = new(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
         internal CompletionDialogs Dialogs { get; } = new();
+        internal RecordingSettingsDialogPresentationPort Presentation { get; } = new();
+        internal Exception? OptionsFailure { get; set; }
         internal StartupBackgroundTaskSchedulerOwner Scheduler => GetPrivateField<StartupBackgroundTaskSchedulerOwner>(Owner, "startupBackgroundTaskScheduler");
         internal TaskCompletionSource OptionalEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource OptionalRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1212,7 +1359,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 getLr2Config: lr2Mode ? () => new LR2Config(lr2Config) : null, library: Library);
             Owner = new MainWindowViewModel(Composition, new CompletionLibraryFactory(Library, Playlist),
                 startupLibraryInitializationFailurePresenter: failurePresenter ?? new CallbackFailurePresenter(_ => { }));
-            Owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
+            Owner.SettingDialog.AttachPresentationPort(Presentation);
             Owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             Owner.PropertyChanged += (_, args) =>
             {
@@ -1223,6 +1370,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
         private BmsLibraryOptionsSnapshot CaptureOptions()
         {
+            if (OptionsFailure != null) { throw OptionsFailure; }
             if (Library?.StartupBackgroundTaskScheduler is { } scheduler && scheduler != wrappedScheduler)
             {
                 wrappedScheduler = (name, reason, dependency, work) => scheduler(name, reason, dependency,
@@ -1283,6 +1431,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
         public void Dispose()
         {
+            OptionsFailure = null;
             Ui.Release.TrySetResult();
             OptionalRelease.TrySetResult();
             try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(tasks), "startup-completion-fixture-accepted-tasks"); }

@@ -7,19 +7,21 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
-/// <summary>初期化の成功、設定修復が必要な失敗、既に要求した終了を区別します。</summary>
+/// <summary>初期化の成功、設定修復、処理・必須公開の失敗、既に要求した終了を区別します。</summary>
 internal enum StartupInitializationOutcome
 {
     /// <summary>必須ローカル準備の成功経路です。親解放後のUIと完了公開はCompletionPublishedで区別し、解禁後の通知失敗は結果へ併記します。</summary>
     Succeeded,
     /// <summary>初期化を継続できず、設定の再編集が必要です。</summary>
     SettingsRequired,
+    /// <summary>処理または必須公開が失敗しました。設定修復の必要性や次操作の安全性はこの分類だけで判断しません。</summary>
+    OperationFailed,
     /// <summary>終了を要求済みです。設定画面へは戻りません。</summary>
     ShutdownRequested
 }
 
 /// <summary>必須処理の実終端と、親受付解放後の完了公開を同じ局所結果で受け渡します。共有の保留状態は持ちません。</summary>
-/// <param name="Outcome">設定不備・終了・必須処理成功の分類。</param>
+/// <param name="Outcome">設定不備・処理失敗・終了・必須処理成功の分類。</param>
 /// <param name="Settings">この初期化で捕捉した設定。実完了へ進む本番の成功結果は必ず保持します。</param>
 /// <param name="OperationToken">既存の操作識別。警告等から新操作へ移った旧結果はその操作を完了しません。</param>
 /// <param name="ValidationFailure">想定済み設定不備の診断。設定借用でも親解放後の既存案内に使います。</param>
@@ -48,7 +50,7 @@ internal interface ISettingsDialogStatePort
     /// 保存済み設定の必須Taskとcleanupの実終端を待ちます。借用時は元の失敗も局所結果へ載せ、外側親解放後の共通終端へ渡します。
     /// 設定画面の再表示は呼出元が担当します。
     /// </summary>
-    /// <returns>初期化の結果。終了要求を設定修復が必要な失敗へ読み替えません。</returns>
+    /// <returns>初期化の結果。処理失敗と終了要求を設定修復が必要な失敗へ読み替えません。</returns>
     Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability capability,
         LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null);
 
@@ -61,10 +63,10 @@ internal interface ISettingsDialogStatePort
     /// <summary>親受付解放後に必須UI・hostの実Taskを待ち、同じ結果の初回完了・解禁・任意登録と開始を終えます。</summary>
     Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result);
 
-    /// <summary>外側の同owner生存権限でスコアだけを更新し、実公開と後片付けの終端を待ちます。元失敗・取消を伝播します。</summary>
+    /// <summary>外側の同owner生存権限でスコアだけを更新し、処理と後片付けの実終端を待ちます。処理失敗は元原因を伴うOperationFailed、終了による取消はShutdownRequestedで返します。</summary>
     Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability);
 
-    /// <summary>呼出元の共通受付内で差分再読込みと後片付けを終え、失敗は通知せず元例外で伝播します。</summary>
+    /// <summary>呼出元の共通受付内で差分再読込みと後片付けを終え、処理失敗は通知せず元原因を伴うOperationFailedで返します。専用警告も親解放後に呼出元が通知します。</summary>
     Task<StartupInitializationResult> ReloadFileDiffAsync(LibraryFileMutationCapability capability);
 
     /// <summary>呼出元の後片付けと共通受付解放後に、再試行可能なディレクトリ失敗を一度通知します。</summary>

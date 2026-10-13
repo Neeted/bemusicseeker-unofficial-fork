@@ -3149,8 +3149,11 @@ public partial class MainWindowViewModel : ViewModel,
         if (result.Failure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(result.Failure).Throw(); }
     }
 
+    /// <summary>限定操作の実失敗を設定不備と区別します。終了による取消だけは終了結果へ返し、継続可否は既存の管理状態へ委ねます。</summary>
     private StartupInitializationResult CreateLimitedInitializationFailure(long operationToken, StartupProgressOperationKind kind, Exception failure)
-        => new(StartupInitializationOutcome.SettingsRequired, GetStartupSettingsSnapshot(), operationToken, Failure: failure, OperationKind: kind);
+        => failure is OperationCanceledException && IsRequiredInitializationShutdownRequested
+            ? new(StartupInitializationOutcome.ShutdownRequested, GetStartupSettingsSnapshot(), operationToken, OperationKind: kind)
+            : new(StartupInitializationOutcome.OperationFailed, GetStartupSettingsSnapshot(), operationToken, Failure: failure, OperationKind: kind);
 
     /// <summary>同じL/Pで差分と必要LR2・保存済み表参照を終え、実表示前の結果を返します。</summary>
     private async Task<StartupInitializationResult> ReloadFileDiffUnderAdmissionAsync(LibraryFileMutationCapability capability)
@@ -3293,7 +3296,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>
     /// 起動処理を直列化し、設定画面への案内は排他とUI抑止の解放後に行います。
     /// </summary>
-    /// <returns>必須処理とその終端通知に成功し、この操作の完了を公開した場合だけ true。</returns>
+    /// <returns>必須処理とUIの適用に成功し、この操作の完了を公開した場合だけ true。任意の案内の表示成否は含みません。</returns>
     internal async Task<bool> InitializeAsync()
     {
         StartupInitializationResult result = await InitializeLibraryAsync(isNormalStartup: true);
@@ -3319,10 +3322,9 @@ public partial class MainWindowViewModel : ViewModel,
                     try
                     {
                         await startupLibraryInitializationWorkflowOwner.PresentLeapYearFolderRepairAsync(result.RepairNotification, FileDbMutationDialogs,
-                        () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(result.OperationToken));
-                        Exception warningFailure = await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(null, false, false,
+                            () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(result.OperationToken));
+                        await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(null, false, false,
                             FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(result.OperationToken), result.BackupNotifications);
-                        if (warningFailure != null) { ReportStartupLibraryInitializationFailurePresentationFailure(result.Failure, warningFailure); }
                     }
                     catch (Exception secondaryNotificationFailure) { ReportStartupLibraryInitializationFailurePresentationFailure(result.Failure, secondaryNotificationFailure); }
                 }
@@ -3336,16 +3338,22 @@ public partial class MainWindowViewModel : ViewModel,
                     startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
                     if (result.ValidationFailure != null)
                     {
-                        NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + result.ValidationFailure.Replace(Environment.NewLine, " | "));
-                        if (isNormalStartup && applicationLifetime.IsFirstStartup) { SettingDialog?.RequestInitialSetupLanguageDialog(); }
-                        else
+                        try { NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + result.ValidationFailure.Replace(Environment.NewLine, " | ")); }
+                        catch (Exception diagnosticFailure) { ReportStartupSettingsValidationNotificationFailure(diagnosticFailure); }
+                        try
                         {
-                            UiDialogResult warning = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                                BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning,
-                                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK));
-                            if (warning?.Status == UiDialogStatus.AppClosing && IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
-                            UiDialogRoute.ThrowIfNotShown(warning, "Startup settings validation notification");
+                            if (isNormalStartup && applicationLifetime.IsFirstStartup) { SettingDialog?.RequestInitialSetupLanguageDialog(); }
+                            else
+                            {
+                                UiDialogResult warning = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
+                                    BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning,
+                                    MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK));
+                                if (warning?.Status == UiDialogStatus.AppClosing && IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
+                                UiDialogRoute.ThrowIfNotShown(warning, "Startup settings validation notification");
+                            }
                         }
+                        catch (OperationCanceledException) when (IsRequiredInitializationShutdownRequested) { throw; }
+                        catch (Exception validationNotificationFailure) { ReportStartupSettingsValidationNotificationFailure(validationNotificationFailure); }
                     }
                 }
                 return result;
@@ -3399,14 +3407,9 @@ public partial class MainWindowViewModel : ViewModel,
             if (IsRequiredInitializationShutdownRequested) { return result; }
             if (!IsStartupCompletionTokenCurrent(operationToken)) { return result; }
             TryLogStartupReadyOperable(operationToken);
-            Exception notificationFailure = await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(
+            await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(
                 result.RepairNotification, result.ShowRootWarning, firstStartup, FileDbMutationDialogs,
                 () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(operationToken), result.BackupNotifications, result.RequiredResult?.Lr2Failure);
-            if (notificationFailure != null)
-            {
-                result = result with { Failure = notificationFailure };
-                CompleteStartupFailureAfterAdmission(operationToken, notificationFailure);
-            }
             if (IsRequiredInitializationShutdownRequested)
             {
                 if (result.Failure != null) { return result; }
@@ -3448,7 +3451,7 @@ public partial class MainWindowViewModel : ViewModel,
             Exception primaryFailure = result.Failure ?? failure;
             if (result.Failure != null) { ReportStartupLibraryInitializationFailurePresentationFailure(primaryFailure, failure); }
             CompleteStartupFailureAfterAdmission(result.OperationToken, primaryFailure);
-            return result with { Outcome = result.CompletionPublished ? result.Outcome : StartupInitializationOutcome.SettingsRequired, Failure = primaryFailure };
+            return result with { Outcome = result.CompletionPublished ? result.Outcome : StartupInitializationOutcome.OperationFailed, Failure = primaryFailure };
         }
     }
 
@@ -3517,7 +3520,7 @@ public partial class MainWindowViewModel : ViewModel,
         catch (Exception failure)
         {
             initializationFailure = failure;
-            outcome = StartupInitializationOutcome.SettingsRequired;
+            outcome = StartupInitializationOutcome.OperationFailed;
         }
         initializationResult ??= new(outcome, initializedSettings, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
         initializationResult = initializationResult with { Failure = constructionFailure ?? initializationFailure ?? initializationResult.Failure };
@@ -3650,7 +3653,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
             recordLibraryConstructionFailure(ex);
-            return new(StartupInitializationOutcome.SettingsRequired, OperationToken: operationToken);
+            return new(StartupInitializationOutcome.OperationFailed, OperationToken: operationToken);
         }
         recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Late);
         try
@@ -3667,7 +3670,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
             recordLibraryConstructionFailure(ex);
-            return new(StartupInitializationOutcome.SettingsRequired, OperationToken: operationToken);
+            return new(StartupInitializationOutcome.OperationFailed, OperationToken: operationToken);
         }
         if (capability == null)
         {
@@ -3716,7 +3719,7 @@ public partial class MainWindowViewModel : ViewModel,
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.Startup);
             // 構成失敗も親受付と開始済み処理の解放後に通知する。通知先からの明示再試行を妨げない。
             recordLibraryConstructionFailure(ex);
-            return new(StartupInitializationOutcome.SettingsRequired, startupSettings, operationToken);
+            return new(StartupInitializationOutcome.OperationFailed, startupSettings, operationToken);
         }
         regularChartListOwner.InitializeColumnPresentation(treeViewFilterTypeSelected);
         listenerForBMSLibrary?.Dispose();
@@ -3905,6 +3908,16 @@ public partial class MainWindowViewModel : ViewModel,
         Logger currentClassLogger = NLogWrapper.GetLogger(typeof(MainWindowViewModel));
         string version = Assembly.GetEntryAssembly().GetName().Version.ToString();
         currentClassLogger.Error(ex, version + " - " + Environment.NewLine + ex.ToString(), null);
+    }
+
+    /// <summary>設定不備が確定した後の任意案内・診断の失敗を局所記録し、設定修復の必要性と元の結果を変更しません。</summary>
+    private static void ReportStartupSettingsValidationNotificationFailure(Exception failure)
+    {
+        try { NLogWrapper.FileLogger?.Warn(failure, "startup_setting_validation_notification_failed"); }
+        catch
+        {
+            // 任意の診断失敗で設定修復の事実を変えたり、再帰的な通知を開始したりしません。
+        }
     }
 
     private static void ReportStartupLibraryInitializationFailurePresentationFailure(

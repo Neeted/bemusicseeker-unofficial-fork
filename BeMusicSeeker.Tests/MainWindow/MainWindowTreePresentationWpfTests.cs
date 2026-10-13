@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,6 +12,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -66,40 +68,82 @@ public sealed class MainWindowTreePresentationWpfTests
         });
     }
 
-    /// <summary>通常フォルダとrootの実メニュークリックが再読込・再初期化を各一回だけ届けることを確認し、compiledイベントから別の操作入口へ配送する誤りを検出します。</summary>
-    [TestMethod]
-    public void LibraryContextMenusRouteReloadAndReinitializeThroughTypedTerminal()
+    /// <summary>通常フォルダとrootのcompiled再読込・再初期化を各一回届け、通常失敗と所有されない取消を一回通知し、終了要求による取消だけを静穏に終えます。</summary>
+    [DataTestMethod]
+    [DataRow(false, false)] // 普通の失敗は一回ずつ通知し、次の要求へ過去の失敗を持ち越しません。
+    [DataRow(true, false)] // 終了要求のない取消は実失敗として通知します。
+    [DataRow(true, true)] // 実Window終了で所有された取消だけを通知しません。
+    public void LibraryContextMenusRouteReloadAndReinitializeThroughTypedTerminal(bool cancel, bool shutdown)
     {
         List<string> calls = [];
+        List<UiMessageRequest> messages = [];
+        var dialogs = new MainWindowViewModelStartupProgressTests.CompletionDialogs
+        {
+            MessageObservedAsync = request => { messages.Add(request); return Task.CompletedTask; }
+        };
+        TaskCompletionSource reloadCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource reinitializeCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
         var terminal = new MainWindowLibraryReloadMenuTerminal(
-            () =>
-            {
-                calls.Add("reload");
-                return Task.CompletedTask;
-            },
-            () =>
-            {
-                calls.Add("reinitialize");
-                return Task.CompletedTask;
-            });
-
+            () => { calls.Add("reload"); return calls.Count == 1 ? reloadCompletion.Task : Task.CompletedTask; },
+            () => { calls.Add("reinitialize"); return calls.Count == 2 ? reinitializeCompletion.Task : Task.CompletedTask; });
         MainWindowPresentationTestHarness.RunConstructorOnly(
             MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-            (_, window) =>
+            (viewModel, window) =>
             {
-                var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
-                var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
-
-                RaiseMenuClick(normalMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
-                RaiseMenuClick(normalMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
-                RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
-                RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
-
-                CollectionAssert.AreEqual(
-                    new[] { "reload", "reinitialize", "reload", "reinitialize" },
-                    calls);
+                Task reloadEvent = Task.CompletedTask;
+                Task reinitializeEvent = Task.CompletedTask;
+                try
+                {
+                    var normalMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderContextMenu");
+                    var rootMenu = (ContextMenu)window.FindResource("treeViewLibraryFolderRootContextMenu");
+                    MenuItem[] normal = normalMenu.Items.OfType<MenuItem>().Take(2).ToArray();
+                    reloadEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[0]));
+                    reinitializeEvent = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(normal[1]));
+                    Assert.IsFalse(reloadCompletion.Task.IsCompleted);
+                    Assert.IsFalse(reinitializeCompletion.Task.IsCompleted);
+                    if (shutdown)
+                    {
+                        window.Close();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "compiled-library-reload-owned-shutdown");
+                        Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsShutdownRequested);
+                    }
+                    if (cancel) { reloadCompletion.TrySetCanceled(); reinitializeCompletion.TrySetCanceled(); }
+                    else
+                    {
+                        reloadCompletion.TrySetException(new InvalidOperationException("library diff reload failed"));
+                        reinitializeCompletion.TrySetException(new InvalidOperationException("library reinitialize failed"));
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-terminal");
+                    Assert.AreEqual(shutdown ? 0 : 2, messages.Count);
+                    if (!cancel)
+                    {
+                        Assert.IsTrue(messages.Any(request => request.MessageBoxText.Contains("library diff reload failed", StringComparison.Ordinal)));
+                        Assert.IsTrue(messages.Any(request => request.MessageBoxText.Contains("library reinitialize failed", StringComparison.Ordinal)));
+                    }
+                    if (!shutdown)
+                    {
+                        Assert.IsTrue(messages.All(request => request.MessageBoxText.StartsWith(BeMusicSeeker.Properties.Resources.Msg_error_unexpected, StringComparison.Ordinal)));
+                        RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[0]);
+                        RaiseMenuClick(rootMenu.Items.OfType<MenuItem>().Take(2).ToArray()[1]);
+                        CollectionAssert.AreEqual(new[] { "reload", "reinitialize", "reload", "reinitialize" }, calls);
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(2, messages.Count);
+                    }
+                }
+                finally
+                {
+                    reloadCompletion.TrySetResult();
+                    reinitializeCompletion.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(reloadEvent, reinitializeEvent), "compiled-library-reload-events-cleanup");
+                    if (shutdown)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "compiled-library-reload-close-cleanup");
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
             },
-            libraryReloadMenuTerminal: terminal);
+            libraryReloadMenuTerminal: terminal,
+            playlistWorkspaceDialogService: dialogs);
     }
 
     /// <summary>実ライブラリroot選択が通常一覧の主体へ無条件フィルターの更新要求を一回届けることを確認し、tree選択と一覧表示の接続漏れを検出します。</summary>
@@ -421,6 +465,34 @@ public sealed class MainWindowTreePresentationWpfTests
 
 internal static class MainWindowPresentationTestHarness
 {
+    /// <summary>compiledイベントのasync void寿命を現在のDispatcherへ接続し、Taskや通知の完了から推測せず実ハンドラー終端を返します。</summary>
+    internal static Task CaptureAsyncEventCompletion(Action raiseEvent)
+    {
+        SynchronizationContext original = SynchronizationContext.Current
+            ?? throw new InvalidOperationException("The event fixture requires the WPF synchronization context.");
+        var context = new EventCompletionContext(original);
+        SynchronizationContext.SetSynchronizationContext(context);
+        try { raiseEvent(); }
+        finally { SynchronizationContext.SetSynchronizationContext(original); }
+        return context.Completion.Task;
+    }
+
+    /// <summary>async voidの開始・終端通知だけを観測し、処理・例外の配送は実Dispatcherへ委譲します。</summary>
+    private sealed class EventCompletionContext(SynchronizationContext original) : SynchronizationContext
+    {
+        internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int activeOperations;
+        public override void OperationStarted() { Interlocked.Increment(ref activeOperations); original.OperationStarted(); }
+        public override void OperationCompleted()
+        {
+            original.OperationCompleted();
+            if (Interlocked.Decrement(ref activeOperations) == 0) { Completion.TrySetResult(); }
+        }
+        public override void Post(SendOrPostCallback callback, object? state) => original.Post(callback, state);
+        public override void Send(SendOrPostCallback callback, object? state) => original.Send(callback, state);
+        public override SynchronizationContext CreateCopy() => this;
+    }
+
     /// <summary>constructor-onlyの表示保証に不要な実起動を、既存のactivation境界で抑止します。</summary>
     /// <remarks>実起動はMainWindowViewHostTestsとPlaylistのActualMainWindowFixtureが本番経路を検証します。</remarks>
     internal static void PrepareConstructorOnlyShell(MainWindowViewModel viewModel)
@@ -444,13 +516,14 @@ internal static class MainWindowPresentationTestHarness
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
         MainWindowColumnResetTerminal? columnResetTerminal = null,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null)
+        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         ArgumentNullException.ThrowIfNull(test);
         RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
             allowStartupUiInteraction, libraryReloadMenuTerminal, regularLibraryTreeTerminal,
             maintenanceTreeTerminal, installTreeTerminal, zeroNoteRecheckTerminal,
-            columnResetTerminal, rootFolderUnregisterTerminal);
+            columnResetTerminal, rootFolderUnregisterTerminal, playlistWorkspaceDialogService);
     }
 
     /// <summary>表示する実親Windowを、終了処理を所有する同じscopeで追跡します。</summary>
@@ -464,7 +537,8 @@ internal static class MainWindowPresentationTestHarness
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
         MainWindowColumnResetTerminal? columnResetTerminal = null,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null)
+        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(test);
@@ -476,7 +550,8 @@ internal static class MainWindowPresentationTestHarness
                 settingsEditSession: new NoOpSettingsEditSession(settings),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                playlistWorkspaceDialogService: playlistWorkspaceDialogService)
                 .CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
             ownership.Run(() =>
@@ -493,7 +568,17 @@ internal static class MainWindowPresentationTestHarness
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: zeroNoteRecheckTerminal,
                     columnResetTerminal: columnResetTerminal,
-                    rootFolderUnregisterTerminal: rootFolderUnregisterTerminal));
+                    rootFolderUnregisterTerminal: rootFolderUnregisterTerminal,
+                    folderAutoRenameTerminal: null,
+                    duplicateMaintenanceTerminal: null,
+                    maintenanceRescanTerminal: null,
+                    packageCatalogTerminal: null,
+                    pendingInstallEstimationTerminal: null,
+                    pendingInstallationTerminal: null,
+                    installedLocationRepairTerminal: null,
+                    pendingBulkMaintenanceTerminal: null,
+                    mainChartCellEditTerminal: null,
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 test(windowTest, viewModel, window);
             });
