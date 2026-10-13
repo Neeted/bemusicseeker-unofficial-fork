@@ -4,12 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -20,19 +15,23 @@ internal sealed class temporarilyCopyFiles : IDisposable
     private readonly List<string> copiedFilesDst = [];
     private readonly List<string> createdDirectories = [];
     private int disposed;
+    private int cleanupFailed;
 
-    /// <summary>開始境界後の既存保持時間を待ち、所有物の回収を一回行います。</summary>
-    public void Dispose()
+    /// <summary>回収終端後、所有した一時物を回収できなかったかを返します。詳細はログに残し、操作所有者が一度だけ通知します。</summary>
+    internal bool HasCleanupFailure => Volatile.Read(ref cleanupFailed) != 0;
+
+    /// <summary>コピー前に回収の所有者を作成します。コピー失敗時にも呼出元が回収結果を参照できます。</summary>
+    /// <param name="wait">開始境界後に回収まで保持する既存の時間（ミリ秒）。</param>
+    internal temporarilyCopyFiles(int wait = 0)
     {
-        Dispose(disposing: true);
-        GC.SuppressFinalize(this);
+        sleep = Math.Max(0, wait);
     }
 
-    private void Dispose(bool disposing)
+    /// <summary>開始境界後の既存保持時間を待ち、所有物の回収を一回行います。回収できない一時物は元原因とpathを診断し、他の回収を続けます。</summary>
+    public void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { return; }
         if (sleep > 0) { Thread.Sleep(sleep); }
-        var failures = new List<(string Path, Exception Failure)>();
         copiedFilesDst.AsParallel().ForAll(dstFile =>
         {
             try
@@ -41,7 +40,7 @@ internal sealed class temporarilyCopyFiles : IDisposable
             }
             catch (Exception exception)
             {
-                lock (failures) { failures.Add((dstFile, exception)); }
+                RecordCleanupFailure(exception, dstFile);
             }
         });
         // コピー完了とファイル回収の後、子から親へ空の所有ディレクトリだけを除去します。
@@ -56,72 +55,50 @@ internal sealed class temporarilyCopyFiles : IDisposable
                     LongPathFileSystem.DeleteDirectory(directory, recursive: false);
                 }
             }
-            catch (Exception exception) { failures.Add((directory, exception)); }
+            catch (Exception exception) { RecordCleanupFailure(exception, directory); }
         }
-        var errors = new List<Exception>();
-        foreach ((string path, Exception failure) in failures)
-        {
-            errors.Add(failure);
-            try
-            {
-                if (disposing)
-                {
-                    string message = Resources.Msg_error_preview + Environment.NewLine + Environment.NewLine
-                        + Resources.File + ": " + path + Environment.NewLine + failure.Message;
-                    UiDialogRoute.ShowMessageBox(message, Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                }
-                else { NLogWrapper.FileLogger?.Warn(failure, "temporary_preview_cleanup_failed path=" + path); }
-            }
-            catch (Exception notificationFailure)
-            {
-                if (disposing) { errors.Add(notificationFailure); }
-            }
-        }
-        if (disposing && errors.Count > 0) { throw new AggregateException(errors); }
     }
 
-    /// <summary>入力元ルート内のファイルを相対配置のまま並列コピーします。既存宛先は上書き・回収せず、構築失敗時も開始済みコピーの終端後に所有物を回収します。</summary>
+    private void RecordCleanupFailure(Exception failure, string path)
+    {
+        Interlocked.Exchange(ref cleanupFailed, 1);
+        try { NLogWrapper.FileLogger?.Warn(failure, "temporary_preview_cleanup_failed path=" + path); }
+        catch { /* 任意の診断失敗で、残る回収や元のコピー・再生結果を変更しません。 */ }
+    }
+
+    /// <summary>入力元ルート内のファイルを相対配置のまま並列コピーします。必ずusing内で呼び、成功分の所有物を失敗時も回収します。</summary>
     /// <param name="srcFiles">パッケージ内の対応譜面・音源・画像のファイル。</param>
     /// <param name="sourceRoot">相対配置の基準となるパッケージルート。</param>
     /// <param name="dstDir">既存の試聴先ディレクトリ。</param>
-    /// <param name="wait">開始境界後に回収まで保持する既存の時間（ミリ秒）。</param>
-    public temporarilyCopyFiles(IEnumerable<string> srcFiles, string sourceRoot, string dstDir, int wait = 0)
+    /// <exception cref="ObjectDisposedException">既に回収を終えた場合。</exception>
+    internal void CopyFiles(IEnumerable<string> srcFiles, string sourceRoot, string dstDir)
     {
+        if (Volatile.Read(ref disposed) != 0) { throw new ObjectDisposedException(nameof(temporarilyCopyFiles)); }
         ArgumentNullException.ThrowIfNull(srcFiles);
         ArgumentNullException.ThrowIfNull(sourceRoot);
         ArgumentNullException.ThrowIfNull(dstDir);
         string[] sources = srcFiles.ToArray();
         if (!sources.All(LongPathFileSystem.FileExists)) { throw new ArgumentException(nameof(srcFiles)); }
         if (!LongPathFileSystem.DirectoryExists(dstDir)) { throw new DirectoryNotFoundException(dstDir); }
-        sleep = Math.Max(0, wait);
-        try
+        var copies = new List<(string Source, string Destination)>();
+        foreach (string source in sources)
         {
-            var copies = new List<(string Source, string Destination)>();
-            foreach (string source in sources)
+            string relative = Path.GetRelativePath(sourceRoot, source);
+            if (Path.IsPathRooted(relative) || relative == ".."
+                || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             {
-                string relative = Path.GetRelativePath(sourceRoot, source);
-                if (Path.IsPathRooted(relative) || relative == ".."
-                    || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                {
-                    throw new ArgumentException(nameof(srcFiles));
-                }
-                string destination = Path.Combine(dstDir, relative);
-                if (LongPathFileSystem.EntryExists(destination)) { continue; }
-                EnsureDestinationDirectory(Path.GetDirectoryName(destination));
-                copies.Add((source, destination));
+                throw new ArgumentException(nameof(srcFiles));
             }
-            copies.AsParallel().ForAll(copy =>
-            {
-                LongPathFileSystem.CopyFile(copy.Source, copy.Destination, overwrite: false);
-                lock (copiedFilesDst) { copiedFilesDst.Add(copy.Destination); }
-            });
+            string destination = Path.Combine(dstDir, relative);
+            if (LongPathFileSystem.EntryExists(destination)) { continue; }
+            EnsureDestinationDirectory(Path.GetDirectoryName(destination));
+            copies.Add((source, destination));
         }
-        catch (Exception copyFailure)
+        copies.AsParallel().ForAll(copy =>
         {
-            try { Dispose(); }
-            catch (Exception cleanupFailure) { throw new AggregateException(copyFailure, cleanupFailure); }
-            throw;
-        }
+            LongPathFileSystem.CopyFile(copy.Source, copy.Destination, overwrite: false);
+            lock (copiedFilesDst) { copiedFilesDst.Add(copy.Destination); }
+        });
     }
 
     private void EnsureDestinationDirectory(string directory)
@@ -138,6 +115,4 @@ internal sealed class temporarilyCopyFiles : IDisposable
             createdDirectories.Add(path);
         }
     }
-
-    ~temporarilyCopyFiles() { Dispose(disposing: false); }
 }

@@ -1577,7 +1577,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         NotifyPlaybackStarted(generation);
     }
 
-    /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。</summary>
+    /// <summary>パッケージ内の相対配置を保った一時素材で開始し、既存のReadyまたは外部開始境界と保持時間の後に所有物を回収して元の譜面名を復元します。残留は受付解放後に一度だけ通知します。</summary>
     private async Task StartTemporarilyInstalledChart(
         ChartFile playbackChart,
         ChartFile bmsFile,
@@ -1593,104 +1593,121 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             return;
         }
 
-        using (operationGate)
+        var temporaryFiles = new temporarilyCopyFiles(wait: 2000);
+        try
         {
-            ChartPackage chartPackage = library.ChartPackagesPending
-            .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
-            if (chartPackage == null)
+            using (operationGate)
             {
-                if (playbackSettings.UsesLr2Body
-                    && playbackSettings.UsesLr2Database
-                    && !playbackDialogs.ConfirmTemporaryInstallPlayback())
+                ChartPackage chartPackage = library.ChartPackagesPending
+                .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
+                if (chartPackage == null)
                 {
-                    await TryStopPlaybackForGeneration(generation, bmsFile).ConfigureAwait(false);
-                    return;
-                }
-                chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
-                chartPackage.delete_parent = false;
-            }
-
-            string originalPath = bmsFile.Path;
-            string workingPath = originalPath;
-            bool directoryPackage = LongPathFileSystem.DirectoryExists(chartPackage.path);
-            string sourceRoot = directoryPackage ? chartPackage.path : Path.GetDirectoryName(originalPath);
-            Task<bool> playbackStartTask = null;
-            PlaybackStartObservation playbackStartObservation = null;
-            try
-            {
-                while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath))))
-                {
-                    string temporaryName = Path.GetFileNameWithoutExtension(workingPath) + "_" + Path.GetExtension(workingPath);
-                    LongPathFileSystem.MoveFile(
-                        workingPath,
-                        Path.Combine(Path.GetDirectoryName(workingPath), temporaryName),
-                        overwrite: false);
-                    workingPath = Path.Combine(Path.GetDirectoryName(workingPath), temporaryName);
-                }
-
-                List<string> sourceFiles = [];
-                if (directoryPackage)
-                {
-                    string[] permittedExtensions =
-                    [
-                        .. ChartFileKindResolver.BmsExtensions,
-                        ".bmson",
-                    .. ChartResourceExtensions.AudioExtensions,
-                    .. ChartResourceExtensions.ImageExtensions,
-                ];
-                    sourceFiles = [.. LongPathFileSystem.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
-                    .Where(file => permittedExtensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))];
-                }
-                else
-                {
-                    sourceFiles.Add(workingPath);
-                }
-
-                using (new temporarilyCopyFiles(sourceFiles, sourceRoot, installDestination, 2000))
-                {
-                    string playbackPath = Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath));
-                    try
+                    if (playbackSettings.UsesLr2Body
+                        && playbackSettings.UsesLr2Database
+                        && !playbackDialogs.ConfirmTemporaryInstallPlayback())
                     {
-                        playbackStartTask = TryPlayStart(
-                            generation,
-                            playbackPath,
-                            OnNaturalPlaybackExit,
-                            out playbackStartObservation,
-                            allowPreload: false);
-                        if (!await playbackStartTask.ConfigureAwait(false))
+                        await TryStopPlaybackForGeneration(generation, bmsFile).ConfigureAwait(false);
+                        return;
+                    }
+                    chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
+                    chartPackage.delete_parent = false;
+                }
+
+                string originalPath = bmsFile.Path;
+                string workingPath = originalPath;
+                bool directoryPackage = LongPathFileSystem.DirectoryExists(chartPackage.path);
+                string sourceRoot = directoryPackage ? chartPackage.path : Path.GetDirectoryName(originalPath);
+                Task<bool> playbackStartTask = null;
+                PlaybackStartObservation playbackStartObservation = null;
+                try
+                {
+                    while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath))))
+                    {
+                        string temporaryName = Path.GetFileNameWithoutExtension(workingPath) + "_" + Path.GetExtension(workingPath);
+                        LongPathFileSystem.MoveFile(
+                            workingPath,
+                            Path.Combine(Path.GetDirectoryName(workingPath), temporaryName),
+                            overwrite: false);
+                        workingPath = Path.Combine(Path.GetDirectoryName(workingPath), temporaryName);
+                    }
+
+                    List<string> sourceFiles = [];
+                    if (directoryPackage)
+                    {
+                        string[] permittedExtensions =
+                        [
+                            .. ChartFileKindResolver.BmsExtensions,
+                            ".bmson",
+                        .. ChartResourceExtensions.AudioExtensions,
+                        .. ChartResourceExtensions.ImageExtensions,
+                    ];
+                        sourceFiles = [.. LongPathFileSystem.EnumerateFiles(sourceRoot, "*", SearchOption.AllDirectories)
+                        .Where(file => permittedExtensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))];
+                    }
+                    else
+                    {
+                        sourceFiles.Add(workingPath);
+                    }
+
+                    using (temporaryFiles)
+                    {
+                        temporaryFiles.CopyFiles(sourceFiles, sourceRoot, installDestination);
+                        string playbackPath = Path.Combine(installDestination, Path.GetRelativePath(sourceRoot, workingPath));
+                        try
                         {
+                            playbackStartTask = TryPlayStart(
+                                generation,
+                                playbackPath,
+                                OnNaturalPlaybackExit,
+                                out playbackStartObservation,
+                                allowPreload: false);
+                            if (!await playbackStartTask.ConfigureAwait(false))
+                            {
+                                return;
+                            }
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
+                            {
+                                TryClearPlaybackForStartObservation(playbackStartObservation);
+                            }
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            StopAfterPlaybackStartFailure(playbackStartObservation, ex);
                             return;
                         }
                     }
-                    catch (OperationCanceledException)
-                    {
-                        if (!IsPlaybackStartObservationCompleted(playbackStartObservation))
-                        {
-                            TryClearPlaybackForStartObservation(playbackStartObservation);
-                        }
-                        return;
-                    }
-                    catch (Exception ex)
-                    {
-                        StopAfterPlaybackStartFailure(playbackStartObservation, ex);
-                        return;
-                    }
                 }
-            }
-            finally
-            {
-                if (!string.Equals(originalPath, workingPath, StringComparison.OrdinalIgnoreCase))
+                finally
                 {
-                    LongPathFileSystem.MoveFile(
-                        workingPath,
-                        originalPath,
-                        overwrite: false);
-                    workingPath = originalPath;
+                    if (!string.Equals(originalPath, workingPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LongPathFileSystem.MoveFile(
+                            workingPath,
+                            originalPath,
+                            overwrite: false);
+                        workingPath = originalPath;
+                    }
+                }
+                if (playbackStartTask != null)
+                {
+                    NotifyPlaybackStarted(generation);
                 }
             }
-            if (playbackStartTask != null)
+        }
+        finally
+        {
+            // usingによる全回収、元名復元の試行、変更受付の解放後に操作単位で一度だけ案内します。
+            if (temporaryFiles.HasCleanupFailure)
             {
-                NotifyPlaybackStarted(generation);
+                try { await playbackDialogs.NotifyTemporaryFilesRemainAsync(installDestination).ConfigureAwait(false); }
+                catch (Exception notificationFailure)
+                {
+                    Task.FromException(notificationFailure).ObserveFault("PlaybackPanel.TemporaryFilesRemainNotification");
+                }
             }
         }
     }

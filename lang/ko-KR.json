@@ -1,5 +1,6 @@
 {
   "_language_name": "한국어",
+  "Msg_warn_preview_temporary_files_remain": "미리듣기용 임시 파일을 삭제하지 못해 파일이 남아 있습니다.\n저장 위치: {0}\n자세한 내용은 로그를 확인하세요.",
   "PlaylistProp_sync_description": "원본 URI를 설정합니다. 외부 동기화 중에는 원본과 충돌하는 항목을 편집할 수 없습니다.",
   "PlaylistProp_sort_description": "각 폴더 안의 채보 정렬 기준과 방향을 설정합니다.",
   "PlaylistProp_folder_order_description": "자동 자연 정렬을 사용하거나 선택한 폴더를 수동으로 정렬합니다.",

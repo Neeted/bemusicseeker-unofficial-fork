@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -37,6 +38,20 @@ internal sealed class WpfPlaybackDialogService : IPlaybackDialogService
             return false;
         }
         throw result.Exception ?? new InvalidOperationException("Temporary install playback confirmation was not shown: " + result.Status);
+    }
+
+    /// <inheritdoc />
+    public async Task NotifyTemporaryFilesRemainAsync(string directory)
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
+            string.Format(Resources.Msg_warn_preview_temporary_files_remain, directory),
+            Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK))
+            .ConfigureAwait(false);
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw result.Exception ?? new InvalidOperationException("Temporary playback cleanup notification was not shown: " + result.Status);
     }
 
     public void NotifyPlaybackFailure(Exception exception)

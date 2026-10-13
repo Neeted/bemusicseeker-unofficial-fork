@@ -1,5 +1,6 @@
 {
   "_language_name": "Français",
+  "Msg_warn_preview_temporary_files_remain": "Des fichiers temporaires de préécoute n’ont pas pu être supprimés et restent sur le disque.\nEmplacement : {0}\nConsultez le journal pour plus de détails.",
   "PlaylistProp_sync_description": "Définissez les URI source. Les éléments en conflit avec la source ne sont pas modifiables pendant la synchronisation externe.",
   "PlaylistProp_sort_description": "Choisissez les critères et le sens du tri des charts dans chaque dossier.",
   "PlaylistProp_folder_order_description": "Utilisez le tri naturel automatique ou réorganisez manuellement les dossiers sélectionnés.",

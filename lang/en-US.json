@@ -1,5 +1,6 @@
 {
   "_language_name": "English",
+  "Msg_warn_preview_temporary_files_remain": "Temporary preview files could not be removed and remain on disk.\nLocation: {0}\nSee the log for details.",
   "PlaylistProp_sync_description": "Set the source URIs. Items that conflict with the source cannot be edited while external synchronization is enabled.",
   "PlaylistProp_sort_description": "Choose the criteria and order for sorting charts within each folder.",
   "PlaylistProp_folder_order_description": "Use automatic natural sorting or arrange selected folders manually.",

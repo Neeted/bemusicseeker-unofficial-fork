@@ -1,5 +1,6 @@
 {
   "_language_name": "繁體中文",
+  "Msg_warn_preview_temporary_files_remain": "試聽用的暫存檔案未能刪除，仍保留在磁碟上。\n位置：{0}\n詳細資訊請查看記錄。",
   "PlaylistProp_sync_description": "設定來源 URI。外部同步期間無法編輯與來源資料衝突的項目。",
   "PlaylistProp_sort_description": "設定各資料夾內譜面的排序依據和方向。",
   "PlaylistProp_folder_order_description": "使用自動自然排序，或手動調整所選資料夾的順序。",

@@ -43,6 +43,8 @@ public class Resources
         }
     }
 
+    public static string Msg_warn_preview_temporary_files_remain => ResourceManager.GetString("Msg_warn_preview_temporary_files_remain", resourceCulture);
+
     public static string Lr2_song_db_sync_stage_queued => ResourceManager.GetString("Lr2_song_db_sync_stage_queued", resourceCulture);
 
     public static string Lr2_song_db_sync_stage_chart_info_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_saving", resourceCulture);

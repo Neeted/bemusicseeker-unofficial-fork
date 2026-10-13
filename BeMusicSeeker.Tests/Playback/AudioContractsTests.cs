@@ -2281,6 +2281,7 @@ public sealed class AudioContractsTests
         internal TaskCompletionSource<Exception> Failure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal int Notifications { get; private set; }
         public bool ConfirmTemporaryInstallPlayback() => throw new AssertFailedException("Temporary copy is outside this input.");
+        public Task NotifyTemporaryFilesRemainAsync(string directory) => throw new AssertFailedException("一時コピーの残留通知は対象外です。");
         public void NotifyPlaybackFailure(Exception exception)
         {
             Notifications++;

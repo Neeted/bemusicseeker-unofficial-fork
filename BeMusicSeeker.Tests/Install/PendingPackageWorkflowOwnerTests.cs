@@ -918,9 +918,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
-    /// <summary>activity終了が失敗しても収集したモデル案内の同期表示を止め、UI案内として配送して元の必須失敗を伝える。</summary>
+    /// <summary>activity終了の表示購読者が失敗しても推定は成功し、抑制・受付と実dialog scopeを解放してからモデル案内だけをUIへ配送する。</summary>
     [TestMethod]
-    public async Task SearchPackagesAsync_EndActivityFailureStillDetachesAndDispatchesDialogScope()
+    public async Task SearchPackagesAsync_ActivityNotificationFailureKeepsSuccessAndDetachesDialogScope()
     {
 
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
@@ -935,29 +935,53 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             }
             var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectory = Path.Combine(tempDirectory, "missing");
+            int mutationThreadId = 0;
+            int notificationThreadId = 0;
+            int synchronousCallsDuringMutation = -1;
             var store = new RecordingStore(events)
             {
-                SearchPackagesAction = activeLibrary => activeLibrary.RenameChartFolder(missingDirectory, "renamed")
+                SearchPackagesAction = activeLibrary =>
+                {
+                    mutationThreadId = Environment.CurrentManagedThreadId;
+                    activeLibrary.RenameChartFolder(missingDirectory, "renamed");
+                    synchronousCallsDuringMutation = dialogService.CallCount;
+                }
             };
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
-            FakeUiDialogService dialogs = AcceptedDialogs();
+            var gate = new ChartFileOperationSynchronizer();
+            bool dispatchedAfterCleanup = false;
+            var dialogs = new FileDbReportRecordingDialogs
+            {
+                OnMessage = () =>
+                {
+                    notificationThreadId = Environment.CurrentManagedThreadId;
+                    bool acquired = gate.TryEnter(out IDisposable lease);
+                    dispatchedAfterCleanup = acquired && events.Contains("suppression-end") && events.Contains("activity-end");
+                    lease?.Dispose();
+                    // 同じworker上の次のモデル案内が同期portへ届けば、実ThreadStatic scopeが外れています。
+                    library.RenameChartFolder(missingDirectory, "after-search");
+                }
+            };
             PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
                 store,
                 dialogs,
                 presentation: presentation,
-                playback: new NoOpChartMutationPlaybackPort());
+                playback: new NoOpChartMutationPlaybackPort(),
+                chartFileOperations: gate);
 
-            InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => owner.SearchPackagesAsync(
-                    PendingInstallDestinationSearchKind.InstallDestination,
-                    [new ChartPackage()]));
+            await owner.SearchPackagesAsync(
+                PendingInstallDestinationSearchKind.InstallDestination,
+                [new ChartPackage()]);
 
-            Assert.AreSame(failure, exception);
-            Assert.AreEqual(0, dialogService.CallCount, "worker から同期 dialog port を呼ばない。");
-            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.IsTrue(dispatchedAfterCleanup);
+            Assert.AreEqual(mutationThreadId, notificationThreadId);
+            Assert.AreEqual(0, synchronousCallsDuringMutation, "変更scope内のモデル案内は同期dialog portへ渡しません。");
+            Assert.AreEqual(1, dialogService.CallCount, "scope解放後の同じworkerではモデル案内を再収集しません。");
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.IsFalse(dialogs.Messages.Single().MessageBoxText.Contains(failure.Message, StringComparison.Ordinal));
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -965,7 +989,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                     "suppression-start",
                     "store-search-packages",
                     "suppression-end",
-                    "activity-end"
+                    "activity-end",
+                    "invalidate",
+                    "identity-refresh"
                 },
                 events);
         }
@@ -975,7 +1001,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>変更・抑制終了・activity終了の必須失敗を順序付きで集約し、案内表示の任意失敗を必須失敗へ昇格させない。</summary>
+    /// <summary>変更と必須の抑制終了の失敗を保持し、activity表示・案内表示の任意失敗は追加しない。残る受付・実dialog scopeの解放と案内配送を続ける。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure()
     {
@@ -990,23 +1016,43 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             var notificationFailure = new InvalidOperationException("dialog notification failed");
             var events = new List<string>();
             var dialogService = new RecordingLibraryDialogService();
-            FakeUiDialogService dialogs = AcceptedDialogs();
-            dialogs.MessageResult = UiDialogResult.Failed(notificationFailure);
+            var dialogs = new FileDbReportRecordingDialogs
+            {
+                MessageHandler = _ => Task.FromResult(UiDialogResult.Failed(notificationFailure))
+            };
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
             var library = new TestBmsLibrary(songDbPath, null!, null, null!, dialogService);
             string missingDirectory = Path.Combine(tempDirectory, "missing");
+            int mutationThreadId = 0;
+            int notificationThreadId = 0;
+            int synchronousCallsDuringMutation = -1;
             var store = new RecordingStore(events)
             {
                 Failure = mutationFailure,
-                SearchPackagesAction = activeLibrary => activeLibrary.RenameChartFolder(missingDirectory, "renamed")
+                SearchPackagesAction = activeLibrary =>
+                {
+                    mutationThreadId = Environment.CurrentManagedThreadId;
+                    activeLibrary.RenameChartFolder(missingDirectory, "renamed");
+                    synchronousCallsDuringMutation = dialogService.CallCount;
+                }
             };
             var presentation = new RecordingPresentation(events)
             {
                 EndRefreshSuppressionFailure = suppressionFailure,
                 EndActivityFailure = activityFailure
+            };
+            var gate = new ChartFileOperationSynchronizer();
+            bool dispatchedAfterCleanup = false;
+            dialogs.OnMessage = () =>
+            {
+                notificationThreadId = Environment.CurrentManagedThreadId;
+                bool acquired = gate.TryEnter(out IDisposable lease);
+                dispatchedAfterCleanup = acquired && events.Contains("suppression-end") && events.Contains("activity-end");
+                lease?.Dispose();
+                library.RenameChartFolder(missingDirectory, "after-search");
             };
             PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
@@ -1014,7 +1060,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 store,
                 dialogs,
                 presentation: presentation,
-                playback: new NoOpChartMutationPlaybackPort());
+                playback: new NoOpChartMutationPlaybackPort(),
+                chartFileOperations: gate);
 
             AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
                 () => owner.SearchPackagesAsync(
@@ -1022,10 +1069,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                     [new ChartPackage()]));
 
             CollectionAssert.AreEqual(
-                new Exception[] { mutationFailure, suppressionFailure, activityFailure },
+                new Exception[] { mutationFailure, suppressionFailure },
                 exception.InnerExceptions);
-            Assert.AreEqual(0, dialogService.CallCount);
-            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.IsTrue(dispatchedAfterCleanup);
+            Assert.AreEqual(mutationThreadId, notificationThreadId);
+            Assert.AreEqual(0, synchronousCallsDuringMutation);
+            Assert.AreEqual(1, dialogService.CallCount, "必須失敗後も実dialog scopeを外して案内を配送します。");
+            Assert.AreEqual(1, dialogs.Messages.Count);
             CollectionAssert.AreEqual(
                 new[]
                 {

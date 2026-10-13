@@ -25,6 +25,108 @@ public sealed class PlaybackPanelViewModelTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>
+    /// 実一時コピーを二件残留させ、元名復元と変更受付の解放後に一度だけ通知します。
+    /// 通知Taskの終端を待ち、通知が失敗しても成立した再生または開始失敗の結果を変更しません。
+    /// </summary>
+    /// <remarks>Windowsの削除共有拒否だけを実FSで作り、playerのReadyと通知の寿命は既存の代替実装で制御します。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, true)]
+    public async Task TemporaryCopy_ResidueNotifiesOnceAfterCleanupWithoutChangingPlayback(bool failStart, bool failNotification)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Assert.Inconclusive("Windowsの削除共有規則を使う実FSケースです。");
+        }
+        string directory = Path.Combine(Path.GetTempPath(), "bms-temporary-residue-" + Guid.NewGuid().ToString("N"));
+        string source = Path.Combine(directory, "source");
+        string destination = Path.Combine(directory, "destination");
+        Directory.CreateDirectory(source);
+        Directory.CreateDirectory(destination);
+        string chartPath = Path.Combine(source, "chart.bms");
+        string audioPath = Path.Combine(destination, "kick.wav");
+        File.WriteAllText(chartPath, "#WAV01 kick.wav");
+        File.WriteAllText(Path.Combine(source, "kick.wav"), "audio");
+        File.WriteAllText(Path.Combine(destination, "chart.bms"), "existing chart");
+        string songDb = Path.Combine(directory, "song.db");
+        File.WriteAllBytes(songDb, []);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseNotification = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
+        var operations = new ChartFileOperationSynchronizer();
+        bool gateActiveAtNotification = true;
+        bool sourceRestoredAtNotification = false;
+        string? notifiedDirectory = null;
+        var dialogs = new FakePlaybackDialogService
+        {
+            TemporaryFilesRemainNotification = path =>
+            {
+                notifiedDirectory = path;
+                gateActiveAtNotification = operations.IsActive;
+                sourceRestoredAtNotification = File.Exists(chartPath) && !File.Exists(Path.Combine(source, "chart_.bms"));
+                notified.TrySetResult();
+                return failNotification
+                    ? Task.FromException(new InvalidOperationException("残留通知の表示失敗"))
+                    : releaseNotification.Task;
+            }
+        };
+        PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(chartPath, destination, songDb,
+            player, dialogs, out _, operations, packageRoot: source);
+        Task start = panel.StartAtIndex(0);
+        FileStream? heldChart = null;
+        FileStream? heldAudio = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(player.StartObserved.Task, start, "temporary-residue-start");
+            string copiedPath = await player.StartObserved.Task;
+            heldChart = new FileStream(copiedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            heldAudio = new FileStream(audioPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (failStart) { ready.SetException(new InvalidDataException("一時試聴の開始失敗")); }
+            else { ready.SetResult(); }
+            await TestUiDispatcherHost.AwaitNotificationAsync(notified.Task, start, "temporary-residue-notification");
+            if (!failNotification) { Assert.IsFalse(start.IsCompleted, "通知の表示終端を待ちます。"); }
+            releaseNotification.TrySetResult();
+            await start;
+
+            Assert.AreEqual(1, dialogs.TemporaryFilesRemainNotificationCount);
+            Assert.AreEqual(destination, notifiedDirectory);
+            Assert.IsFalse(gateActiveAtNotification);
+            Assert.IsTrue(sourceRestoredAtNotification);
+            Assert.AreEqual(!failStart, panel.IsPlaying);
+            Assert.AreEqual(failStart ? 1 : 0, dialogs.PlaybackFailureNotificationCount);
+            Assert.AreEqual("existing chart", File.ReadAllText(Path.Combine(destination, "chart.bms")));
+            Assert.IsTrue(File.Exists(copiedPath));
+            Assert.IsTrue(File.Exists(audioPath));
+            heldChart.Dispose();
+            heldAudio.Dispose();
+            await panel.StopPlayback(closeProcess: true);
+            Assert.IsTrue(File.Exists(copiedPath), "停止時に回収を再試行しません。");
+            Assert.IsTrue(File.Exists(audioPath));
+            Assert.AreEqual(1, dialogs.TemporaryFilesRemainNotificationCount);
+        }
+        finally
+        {
+            releaseNotification.TrySetResult();
+            ready.TrySetCanceled();
+            completion.TrySetResult();
+            try { await start; }
+            finally
+            {
+                try { await panel.StopPlayback(closeProcess: true); }
+                finally
+                {
+                    heldChart?.Dispose();
+                    heldAudio?.Dispose();
+                    Directory.Delete(directory, recursive: true);
+                }
+            }
+        }
+    }
+
     /// <summary>曲の途中に一覧・再生モード・位置を変えても先読み候補を差し替えず、次の実選曲は最新一覧へ従って一回準備することを確認します。</summary>
     [TestMethod]
     public async Task SongStart_PreparesOnceAndUsesLiveTargetAfterListAndModeChanges()
@@ -3729,6 +3831,15 @@ public sealed class PlaybackPanelViewModelTests
 
     private sealed class FakePlaybackDialogService : IPlaybackDialogService
     {
+        internal Func<string, Task>? TemporaryFilesRemainNotification { get; set; }
+        internal int TemporaryFilesRemainNotificationCount { get; private set; }
+
+        public Task NotifyTemporaryFilesRemainAsync(string directory)
+        {
+            TemporaryFilesRemainNotificationCount++;
+            return TemporaryFilesRemainNotification?.Invoke(directory) ?? Task.CompletedTask;
+        }
+
         internal bool TemporaryInstallConfirmationResult { get; set; } = true;
 
         internal Exception? TemporaryInstallConfirmationException { get; set; }

@@ -117,6 +117,34 @@ public sealed class PlaybackDialogServiceTests
             Assert.ThrowsException<InvalidOperationException>(() => service.NotifyPlaybackFailure(playbackFailure)));
     }
 
+    /// <summary>残留通知は配置先とログ案内を含む翻訳リソースを使い、表示不能を成功や取消しへ置き換えません。通知失敗と元の再生結果の分離は再生所有者のテストが確認します。</summary>
+    [TestMethod]
+    public async Task NotifyTemporaryFilesRemain_PreservesSummaryAndDialogOutcome()
+    {
+        const string directory = @"C:\preview\temporary";
+        var dialogs = new FakeUiDialogService
+        {
+            MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        var service = new WpfPlaybackDialogService(dialogs);
+
+        await service.NotifyTemporaryFilesRemainAsync(directory);
+
+        UiMessageRequest request = dialogs.MessageRequest ?? throw new AssertFailedException("残留通知が要求されませんでした。");
+        Assert.AreEqual(string.Format(Resources.Msg_warn_preview_temporary_files_remain, directory), request.MessageBoxText);
+        Assert.AreEqual(Resources.Warning, request.Caption);
+        Assert.AreEqual(MessageBoxButton.OK, request.Button);
+        Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+        Assert.AreEqual(MessageBoxResult.OK, request.DefaultResult);
+
+        dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => service.NotifyTemporaryFilesRemainAsync(directory));
+        var failure = new InvalidOperationException("通知の表示失敗");
+        dialogs.MessageResult = UiDialogResult.Failed(failure);
+        Assert.AreSame(failure, await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => service.NotifyTemporaryFilesRemainAsync(directory)));
+    }
+
     private sealed class FakeUiDialogService : IUiDialogService
     {
         internal UiDialogResult? MessageResult { get; set; }

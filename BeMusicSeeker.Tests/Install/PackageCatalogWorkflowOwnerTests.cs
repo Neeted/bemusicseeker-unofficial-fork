@@ -265,19 +265,19 @@ public sealed class PackageCatalogWorkflowOwnerTests
         CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
-    /// <summary>package解除と活動解放が両方失敗しても元変更原因を先に集約し、空区画の反映やcleanup原因が失われる誤りを検出します。</summary>
+    /// <summary>package解除の元失敗と空区画の反映を保持し、活動終了の表示購読者の失敗を変更結果へ追加せず他の後片付けを終えます。</summary>
     [TestMethod]
-    public async Task RemovePackageAsync_PreservesMutationAndCleanupFailures()
+    public async Task RemovePackageAsync_PreservesMutationDespiteActivityNotificationFailure()
     {
         var events = new List<string>();
         var mutationFailure = new InvalidOperationException("remove failed");
-        var cleanupFailure = new InvalidOperationException("cleanup failed");
+        var activityFailure = new InvalidOperationException("activity notification failed");
         var store = new RecordingStore(events)
         {
             Failure = mutationFailure,
             EmptySection = PackageCatalogSection.Installed
         };
-        var phaseObserver = new RecordingPhaseObserver(events) { EndActivityFailure = cleanupFailure };
+        var phaseObserver = new RecordingPhaseObserver(events) { EndActivityFailure = activityFailure };
         PackageCatalogWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, AcceptedDialogs(), phaseObserver);
 
         PackageCatalogMutationResult result = await owner.RemovePackageAsync(
@@ -287,10 +287,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.IsFalse(result.Succeeded);
         Assert.IsTrue(result.ShouldApplyView);
         Assert.AreEqual(PackageCatalogSection.Installed, result.EmptySection);
-        Assert.IsInstanceOfType<AggregateException>(result.Failure);
-        var exception = (AggregateException)result.Failure;
-        Assert.AreSame(mutationFailure, exception.InnerExceptions[0]);
-        Assert.AreSame(cleanupFailure, exception.InnerExceptions[1]);
+        Assert.AreSame(mutationFailure, result.Failure);
         CollectionAssert.AreEqual(
             new[] { "activity-start", "suppression-start", "store-remove-packages", "suppression-end", "activity-end" },
             events);
