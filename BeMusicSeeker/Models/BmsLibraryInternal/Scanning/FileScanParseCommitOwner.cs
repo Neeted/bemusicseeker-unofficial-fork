@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -37,6 +38,10 @@ internal sealed class FileScanParseCommitOwner
     }
 
 
+    /// <summary>
+    /// 走査差分を並列解析して確定し、開始済み処理の終端後に失敗を返します。
+    /// post-parseの最初の原因はqueue閉鎖前に保持し、後続出力の失敗で置換せず、既存のcollector終端Flushを維持します。
+    /// </summary>
     internal void ApplyFileDiff(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
@@ -418,7 +423,7 @@ internal sealed class FileScanParseCommitOwner
                 }
                 catch (Exception ex)
                 {
-                    Volatile.Write(ref postParseException, ex);
+                    Interlocked.CompareExchange(ref postParseException, pipelineException.Get() ?? ex, null);
                     CompleteAddingSilently(postParseQueue);
                     CompleteAddingSilently(postParseResultQueue);
                     throw;
@@ -466,8 +471,8 @@ internal sealed class FileScanParseCommitOwner
             }
             catch (Exception ex)
             {
-                Volatile.Write(ref postParseException, ex);
-                pipelineException.Set(ex);
+                Interlocked.CompareExchange(ref postParseException, pipelineException.Get() ?? ex, null);
+                pipelineException.Set(Volatile.Read(ref postParseException));
                 CompleteAddingSilently(postParseQueue);
                 CompleteAddingSilently(postParseResultQueue);
                 throw;
@@ -564,7 +569,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         finally
         {
@@ -583,7 +588,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -591,7 +596,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -599,7 +604,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -607,7 +612,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -615,7 +620,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -623,7 +628,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -631,7 +636,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         try
         {
@@ -639,7 +644,7 @@ internal sealed class FileScanParseCommitOwner
         }
         catch (Exception ex)
         {
-            CapturePipelineException(ex, pipelineException, ref pipelineFailure);
+            CapturePipelineException(ex, pipelineException, ref pipelineFailure, Volatile.Read(ref postParseException));
         }
         if (pipelineFailure != null)
         {
@@ -902,7 +907,7 @@ internal sealed class FileScanParseCommitOwner
             Interlocked.Add(ref bmsonParseTicks, stopwatch.ElapsedTicks);
             return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song));
         }
-        catch (Exception ex)
+        catch (JsonException ex) when (BmsonJsonParser.IsInputFailure(ex))
         {
             return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, ex, "parse"));
         }
@@ -1730,14 +1735,17 @@ internal sealed class FileScanParseCommitOwner
     private static void CapturePipelineException(
         Exception exception,
         PipelineExceptionSignal exceptionSignal,
-        ref Exception pipelineFailure)
+        ref Exception pipelineFailure,
+        Exception postParseFailure)
     {
         if (exception == null)
         {
             return;
         }
-        pipelineFailure ??= exception;
-        exceptionSignal?.Set(exception);
+        // post-parseがqueue閉鎖前に確定した原因を優先し、後続のAdd失敗で上書きしません。
+        // commit用signalは従来どおり集約側で設定し、成功済み結果の最終Flushを妨げません。
+        pipelineFailure ??= postParseFailure ?? exceptionSignal?.Get() ?? exception;
+        exceptionSignal?.Set(pipelineFailure);
     }
 
     private static void CompleteAddingSilently<T>(BlockingCollection<T> queue)

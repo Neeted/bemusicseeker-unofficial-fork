@@ -14,6 +14,8 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
 
+JSON解析の失敗だけを `UpdateManifestValidationException` へ変換し、元のJSON例外を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールprotocolの検証は維持します。`UpdateCheckServiceTests.ParseManifest_MalformedJsonRetainsValidationCause` が不正JSONの分類と原因保持を、既存の有効・無効マニフェスト群が資産検証を確認します。
+
 ```text
 https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json
 ```

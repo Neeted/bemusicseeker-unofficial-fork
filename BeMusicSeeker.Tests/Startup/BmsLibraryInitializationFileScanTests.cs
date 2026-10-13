@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1433,6 +1435,189 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
+    /// <summary>実scanの主解析故障がqueue閉鎖後の健全worker出力で置換されず、collector最終Flushの確定factsとwriter待機を保持する。</summary>
+    /// <remarks>異なる実4譜面・実DB・2post-parse worker・4件を越えるchunkを使う。最初の2件は実詳細解析、3/4件はgateで故障/遅延させ、finallyで全gate解放と操作終端を待つ。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplyFileScanDiff_PrimaryParserFaultSurvivesClosedQueueRace(bool resourceFailure)
+    {
+        using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
+        string chartDirectory = Path.Combine(scope.DirectoryPath, "ScanFault");
+        Directory.CreateDirectory(chartDirectory);
+        List<string> paths = [];
+        for (int index = 0; index < 4; index++)
+        {
+            string path = Path.Combine(chartDirectory, index + ".bms");
+            File.WriteAllText(path, "#TITLE scan" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            paths.Add(path);
+        }
+        using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+        {
+            setup.CreateTable<LR2SongDB.song>();
+        }
+        using var firstTwoStarted = new ManualResetEventSlim();
+        using var releaseFault = new ManualResetEventSlim();
+        using var releaseHealthy = new ManualResetEventSlim();
+        using var releaseWriter = new ManualResetEventSlim();
+        var faultEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var healthyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var healthyExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writerEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ConcurrentBag<string> successfulPaths = [];
+        ConcurrentBag<BeMusicSeeker.Models.ChartDetails> publishedRows = [];
+        ConcurrentBag<int> progress = [];
+        int parseCalls = 0;
+        int activeCallbacks = 0;
+        var parser = new ChartInfoBuildService(null, parseBytes: (bytes, path, md5, sha256, timeout) =>
+        {
+            int call = Interlocked.Increment(ref parseCalls);
+            Interlocked.Increment(ref activeCallbacks);
+            try
+            {
+                // 最初の2callbackは双方の開始まで保持し、先頭2work itemを実成功にします。
+                // 一方だけが次項目へ進むと、callback順とcollectorの順序がずれるためです。
+                if (call <= 2)
+                {
+                    if (call == 2)
+                    {
+                        firstTwoStarted.Set();
+                    }
+                    firstTwoStarted.Wait();
+                }
+                if (call == 3)
+                {
+                    faultEntered.TrySetResult(true);
+                    releaseFault.Wait();
+                    return ThrowFileScanParserFault(resourceFailure);
+                }
+                if (call == 4)
+                {
+                    healthyEntered.TrySetResult(true);
+                    releaseHealthy.Wait();
+                }
+                ChartInfoParser.ChartInfoParseResult parsed = ChartInfoParser.ParseBytesDetailed(
+                    bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
+                if (call <= 2)
+                {
+                    successfulPaths.Add(path);
+                }
+                return parsed;
+            }
+            finally
+            {
+                Interlocked.Decrement(ref activeCallbacks);
+                if (call == 4)
+                {
+                    healthyExited.TrySetResult(true);
+                }
+            }
+        });
+        var owner = new FileScanParseCommitOwner(2, parser, inlineChartInfoBatchSizeOverride: 1, fileDiffCommitChunkSizeOverride: 8);
+        var result = new SongTableFileCheckResult();
+        var operation = Task.Run(() => owner.ApplyFileDiff(
+            new BmsLibraryDbGateway(scope.SongDbPath), new BmsLibraryOptionsSnapshot(), [], [],
+            CreateScanResult(paths, new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                [chartDirectory] = []
+            }), true, result, new RecordingDialogService(), null,
+            (_, processed, _) => progress.Add(processed), null, null,
+            rows =>
+            {
+                Interlocked.Increment(ref activeCallbacks);
+                try
+                {
+                    foreach (BeMusicSeeker.Models.ChartDetails row in rows)
+                    {
+                        publishedRows.Add(row);
+                    }
+                    writerEntered.TrySetResult(true);
+                    releaseWriter.Wait();
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref activeCallbacks);
+                }
+            }, false, null));
+        try
+        {
+            await AwaitFileScanFaultStage(faultEntered.Task, operation);
+            await AwaitFileScanFaultStage(healthyEntered.Task, operation);
+            releaseFault.Set();
+            // 最終Flushの公開は、故障workerが結果queueを閉じた後の観測点です。
+            await AwaitFileScanFaultStage(writerEntered.Task, operation);
+            releaseHealthy.Set();
+            await AwaitFileScanFaultStage(healthyExited.Task, operation);
+            Assert.IsFalse(operation.IsCompleted, "開始済みwriterの公開callbackを待つ必要があります。");
+            releaseWriter.Set();
+            Exception? failure = null;
+            try
+            {
+                await operation;
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            Assert.IsNotNull(failure);
+            Exception cause = failure.GetBaseException();
+            Assert.AreEqual(resourceFailure ? typeof(OutOfMemoryException) : typeof(InvalidOperationException), cause.GetType());
+            Assert.AreEqual("injected file-scan parser fault", cause.Message);
+            Assert.IsNotNull(cause.StackTrace);
+            StringAssert.Contains(cause.StackTrace, nameof(ThrowFileScanParserFault));
+            Assert.AreEqual(4, parseCalls);
+            Assert.AreEqual(0, activeCallbacks);
+            Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
+            Assert.AreEqual(1, result.DbCommitChunks);
+            Assert.AreEqual(2, result.InlineChartInfoIndexPublishedCount);
+            Assert.AreEqual(0, result.InlineChartInfoParseFailedCount);
+            Assert.AreEqual(0, result.InlineChartInfoFailurePersistedCount);
+            Assert.AreEqual(2, publishedRows.Count);
+            CollectionAssert.AreEquivalent(successfulPaths.ToArray(), result.CommittedLr2SongDbSyncBmsPaths.ToArray());
+            Assert.IsFalse(progress.Contains(4));
+            using var verify = new LR2SongDBExtended(scope.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            CollectionAssert.AreEquivalent(successfulPaths.ToArray(), verify.Query<LR2SongDB.song>("SELECT * FROM song;").Select(row => row.path).ToArray());
+            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+        }
+        finally
+        {
+            firstTwoStarted.Set();
+            releaseFault.Set();
+            releaseHealthy.Set();
+            releaseWriter.Set();
+            try
+            {
+                await operation;
+            }
+            catch (Exception)
+            {
+                /* 一次表明を隠さず全開始Taskの終端後にfixtureを破棄します。 */
+            }
+        }
+    }
+
+    private static async Task AwaitFileScanFaultStage(Task stage, Task operation)
+    {
+        Task completed = await Task.WhenAny(stage, operation).WaitAsync(TimeSpan.FromSeconds(60));
+        if (completed == operation)
+        {
+            await operation;
+            Assert.Fail("必要なgate観測前に操作が完了しました。");
+        }
+        await stage;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ChartInfoParser.ChartInfoParseResult ThrowFileScanParserFault(bool resourceFailure)
+    {
+        if (resourceFailure)
+        {
+            throw new OutOfMemoryException("injected file-scan parser fault");
+        }
+        throw new InvalidOperationException("injected file-scan parser fault");
+    }
+
     /// <summary>
     /// 新規BMSをscanで追加するとLR2 folder・parent hashを現在投影とDBへ反映し、互換pathへ誤警告を出さない。
     /// </summary>
@@ -1591,10 +1776,14 @@ public sealed class BmsLibraryInitializationFileScanTests
     }
 
     /// <summary>
-    /// 壊れた新規bmsonは登録せずparse失敗を診断へ記録し、その対象も進捗の処理済み数へ含める。
+    /// 壊れた新規bmsonは登録せずparse失敗を診断へ記録し、同じ走査の正常譜面は登録して両対象を進捗の処理済み数へ含める。
     /// </summary>
-    [TestMethod]
-    public void ApplyFileScanDiff_InvalidBmsonLogsAndReportsProgress()
+    [DataTestMethod]
+    [DataRow("{\"version\":\"1.0.0\",\"info\":")]
+    [DataRow("{\"info\":{\"level\":9223372036854775807}}")]
+    [DataRow("{\"info\":{\"init_bpm\":120},\"bpm_events\":[null]}")]
+    [DataRow("{\"info\":42}")]
+    public void ApplyFileScanDiff_InvalidBmsonLogsAndReportsProgress(string invalidJson)
     {
 
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
@@ -1602,7 +1791,9 @@ public sealed class BmsLibraryInitializationFileScanTests
             string chartDirectoryPath = Path.Combine(lr2RootPath, "InvalidBmson");
             Directory.CreateDirectory(chartDirectoryPath);
             string bmsonPath = Path.Combine(chartDirectoryPath, "invalid.bmson");
-            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":");
+            File.WriteAllText(bmsonPath, invalidJson);
+            string validBmsonPath = Path.Combine(chartDirectoryPath, "valid.bmson");
+            File.WriteAllText(validBmsonPath, "{\"info\":{\"title\":\"Valid\",\"init_bpm\":120},\"sound_channels\":[]}");
 
             ExecuteSongDbFixtureTransaction(songDbPath, songDbConnection =>
             {
@@ -1623,7 +1814,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 {
                     Success = true,
                     Result = CreateScanResult(
-                        [bmsonPath],
+                        [bmsonPath, validBmsonPath],
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
                         {
                             { chartDirectoryPath, Array.Empty<string>() }
@@ -1643,14 +1834,17 @@ public sealed class BmsLibraryInitializationFileScanTests
                 });
 
             Assert.AreEqual(0, result.AddedFiles.Count);
-            Assert.AreEqual(0, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(1, result.AddedBmsonSongs.Count);
+            Assert.AreEqual(validBmsonPath, result.AddedBmsonSongs.Single().Path);
+            Assert.AreEqual("Valid", result.AddedBmsonSongs.Single().RawTitle);
             Assert.AreEqual(0, result.BmsAddedTargetCount);
-            Assert.AreEqual(1, result.BmsonUpsertTargetCount);
+            Assert.AreEqual(2, result.BmsonUpsertTargetCount);
             Assert.AreEqual(1, result.FileScanFailures.Count);
             Assert.AreEqual("parse", result.FileScanFailures[0].Stage);
-            Assert.AreEqual(new FileInfo(bmsonPath).Length, result.ParseReadBytesEstimate);
-            Assert.IsTrue(progress.Any(item => item.Total == 1 && item.Processed == 0));
-            Assert.IsTrue(progress.Any(item => item.Total == 1 && item.Processed == 1 && string.Equals(item.Path, bmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(new FileInfo(bmsonPath).Length + new FileInfo(validBmsonPath).Length, result.ParseReadBytesEstimate);
+            Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 0));
+            Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed >= 1 && string.Equals(item.Path, bmsonPath, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(progress.Any(item => item.Total == 2 && item.Processed == 2));
             Assert.IsTrue(logs.Any(message => message.Contains("bmson_scan_failed") && message.Contains("stage=parse") && message.Contains("invalid.bmson")));
         });
     }

@@ -94,6 +94,10 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 複数の読み手は、順序回収までの先行数を制限する枠を取得してから対象を採番します。採番済みで未回収の項目は必ず枠を確保済みとし、先頭の不足番号が後続結果で埋まった枠を待つ循環を防ぎます。受渡し前の末尾到達・終了取消・中断・例外では読み手が取得済みの枠だけを返し、受渡し後は書き手が番号順に回収した時点で返します。枠は一度だけ返し、過剰返却の例外を無視しません。
 
+読み手・評価ワーカーの内部故障は、番号順回収が故障を発見するまで待たず、最初の原因を保持して操作内の取消を直ちに通知します。先行処理枠と両待ち行列の待機を起こして残りの投入・生成・回収を停止し、全開始済みreader/workerと待ち行列の完了処理を待機してから、元の型・メッセージ・stackで失敗を返します。閉鎖済み待ち行列への後続出力や内部停止の取消例外で、最初の原因を置換しません。通常の譜面読取り不能は既存の生成列保持へ進み、内部解析・資源故障を解析失敗行へ保存しません。
+
+内部停止用の取消は要求tokenを取消にせず、利用者・終了要求の分類へ読み替えません。実要求tokenが取消された場合は既存の要求token付き例外と状態分類を使い、終了以外の取消は `Failed` / `Unexpected operation cancellation.` を維持します。確定済みチャンク・利用者列・保存カーソルを保持し、全体巻戻しや未確定suffixの新たな確定保証を追加しません。詳細解析依存は要求に指定したサービス、または既存の共通サービスを一操作で一度解決して各評価へ渡します。
+
 最終入力は今回の走査面、確定した行集合、同じ操作で生成・検証した完全な準備面から作ります。後続の途中再走査で新旧入力を混ぜません。走査なしの新規要求は現在の入力を取得します。UI要求世代、読取りcache失効、永続LR2状態・互換署名は維持します。
 
 #### 並列生成と順序回収の所有権
@@ -151,6 +155,7 @@ sequenceDiagram
 | 操作内の確定結果の直接引渡し | [`LibraryFileInitializationResult`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/LibraryFileInitializationResult.cs) | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) |
 | 確定パスのチャンク処理・分母・保存結果の維持 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | [`Lr2SongDbSyncCommittedInputTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2SongDbSyncCommittedInputTests.cs) の `CommittedInputSongRows_CompleteAcrossChunkAndOrderingWindowBoundaries`: 全件が直接確定入力の対象の0・1・1,000・1,001・10,001件で、読取りなしの完了、確定処理位置、保存行と利用者列の保持を確認する。混在入力は既存の `CommittedInputSongRowsSkipReaderAndCurrentnessRead`。 |
 | 採番と順序枠の所有権 | [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の `UpsertSongRows` | 採番より前の枠取得、全退出経路の返却条件、番号順回収時の返却を静的に確認する。境界件数のテストでは本番のCPU別並列度を使い、特定のスレッド切替順を強制しない。 |
+| reader/workerの即時故障停止、元原因と全開始処理の終端、実要求取消の区別 | `Lr2SongDbSyncService.UpsertSongRows` | `Lr2SongDbSyncServiceTests.SyncService_PipelineTerminationPreservesFirstCauseAndCommittedPrefix`。実解析・実SQLite・実1,000件確定を使う1001行の末尾内部/OOM故障と要求取消はCPU1でも確認する。9002行のparser/reader欠番は実policyで必要な並列度がある場合だけ実行し、本番診断のordering window容量、最終枠のreader、保持中の健全parserをgateで観測して、元stack・prefix/利用者列保持・解析失敗非生成・全callback終端を確認する。 |
 | 局所BMS範囲・祖先・完全一致キー | [`Lr2NormalFolderSyncScopeBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderSyncScopeBuilder.cs)、[`Lr2NormalFolderDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderDbSyncService.cs) | [`Lr2NormalFolderSyncScopeBuilderTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2NormalFolderSyncScopeBuilderTests.cs)、[`Lr2NormalFolderDbSyncServiceTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2NormalFolderDbSyncServiceTests.cs)、[`BmsLibraryFolderRenameRefreshTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 
 

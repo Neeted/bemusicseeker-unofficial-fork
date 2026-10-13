@@ -122,10 +122,18 @@ internal static partial class ChartInfoParser
                 timeoutGuard,
                 retainChartString);
         }
-        ChartModel model = ParseBmson(DecodeBmson(bytes), chartName, diagnostics, timeoutGuard);
-        model.Md5 = resolvedMd5;
-        model.Sha256 = resolvedSha256;
-        return BuildParseResult(model, diagnostics, timeoutGuard, retainChartString);
+        try
+        {
+            ChartModel model = ParseBmson(DecodeBmson(bytes), chartName, diagnostics, timeoutGuard);
+            model.Md5 = resolvedMd5;
+            model.Sha256 = resolvedSha256;
+            return BuildParseResult(model, diagnostics, timeoutGuard, retainChartString);
+        }
+        catch (BmsRecoverableParseException ex)
+        {
+            // 共通の時間・統計処理で判定した解析不能を、bmsonでも対象譜面の入力失敗として返します。
+            throw new InvalidDataException(ex.Message, ex);
+        }
     }
 
     private static ChartInfoParseResult ParseBmsBytesDetailed(string text, string chartName, bool isPms, IList<ChartInfoParseDiagnostic> diagnostics, string md5, string sha256, ParseTimeoutGuard timeoutGuard, bool retainChartString)
@@ -367,9 +375,10 @@ internal static partial class ChartInfoParser
         timelinesByY.Add(0, baseTimeline);
 
         double resolution = info.Resolution > 0 ? info.Resolution * 4.0 : 960.0;
-        BmsonBpmEvent[] bpmEvents = [.. (document?.BpmEvents ?? []).OrderBy(item => item.Y)];
-        BmsonStopEvent[] stopEvents = [.. (document?.StopEvents ?? []).OrderBy(item => item.Y)];
-        BmsonScrollEvent[] scrollEvents = [.. (document?.ScrollEvents ?? []).OrderBy(item => item.Y)];
+        // 一要素の配列でも入力検証を省略しないよう、ソートのキー計算ではなく要素の取得時に判定します。
+        BmsonBpmEvent[] bpmEvents = [.. (document?.BpmEvents ?? []).Select(item => item ?? throw new InvalidDataException("bmson bpm_events must not contain null.")).OrderBy(item => item.Y)];
+        BmsonStopEvent[] stopEvents = [.. (document?.StopEvents ?? []).Select(item => item ?? throw new InvalidDataException("bmson stop_events must not contain null.")).OrderBy(item => item.Y)];
+        BmsonScrollEvent[] scrollEvents = [.. (document?.ScrollEvents ?? []).Select(item => item ?? throw new InvalidDataException("bmson scroll_events must not contain null.")).OrderBy(item => item.Y)];
         int bpmPosition = 0;
         int stopPosition = 0;
         int scrollPosition = 0;
@@ -380,12 +389,12 @@ internal static partial class ChartInfoParser
             int bpmY = bpmPosition < bpmEvents.Length ? bpmEvents[bpmPosition].Y : int.MaxValue;
             int stopY = stopPosition < stopEvents.Length ? stopEvents[stopPosition].Y : int.MaxValue;
             int scrollY = scrollPosition < scrollEvents.Length ? scrollEvents[scrollPosition].Y : int.MaxValue;
-            if (scrollY <= stopY && scrollY <= bpmY)
+            if (scrollPosition < scrollEvents.Length && scrollY <= stopY && scrollY <= bpmY)
             {
                 GetBmsonTimeline(timelinesByY, scrollY, resolution, mode).Scroll = scrollEvents[scrollPosition].Rate;
                 scrollPosition++;
             }
-            else if (bpmY <= stopY)
+            else if (bpmPosition < bpmEvents.Length && bpmY <= stopY)
             {
                 BmsonBpmEvent bpmEvent = bpmEvents[bpmPosition];
                 if (bpmEvent.Bpm > 0)
@@ -399,7 +408,7 @@ internal static partial class ChartInfoParser
                 }
                 bpmPosition++;
             }
-            else if (stopY != int.MaxValue)
+            else
             {
                 BmsonStopEvent stopEvent = stopEvents[stopPosition];
                 if (stopEvent.Duration >= 0)
@@ -422,6 +431,10 @@ internal static partial class ChartInfoParser
         foreach (BmsonBarLine line in document?.Lines ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++lineIndex, "bmson_bar_lines");
+            if (line == null)
+            {
+                throw new InvalidDataException("bmson lines must not contain null.");
+            }
             GetBmsonTimeline(timelinesByY, line.Y, resolution, mode).HasSectionLine = true;
         }
 
@@ -451,6 +464,10 @@ internal static partial class ChartInfoParser
         foreach (BmsonBgaNote note in document?.Bga?.BgaEvents ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++bgaIndex, "bmson_bga_events");
+            if (note == null)
+            {
+                throw new InvalidDataException("bmson bga_events must not contain null.");
+            }
             GetBmsonTimeline(timelinesByY, note.Y, resolution, mode).HasBga = true;
         }
 
@@ -531,7 +548,7 @@ internal static partial class ChartInfoParser
 
     private static void AddBmsonSoundChannel(SortedList<int, ChartTimeline> timelinesByY, double resolution, ChartMode mode, int[] keyAssign, List<ChartNote>[] longNotesByLane, IDictionary<string, ChartNote> pendingLongNoteEnds, BmsonSoundChannel channel, int soundId, int modelLnMode, ParseTimeoutGuard timeoutGuard)
     {
-        BmsonSoundNote[] notes = [.. (channel?.Notes ?? []).OrderBy(item => item.Y)];
+        BmsonSoundNote[] notes = [.. (channel?.Notes ?? []).Select(item => item ?? throw new InvalidDataException("bmson sound channel notes must not contain null.")).OrderBy(item => item.Y)];
         long startMicroseconds = 0L;
         int nextDistinctNoteIndex = 0;
         for (int noteIndex = 0; noteIndex < notes.Length; noteIndex++)
@@ -654,6 +671,10 @@ internal static partial class ChartInfoParser
         foreach (BmsonMineNote note in channel?.Notes ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++noteIndex, "bmson_hidden_notes");
+            if (note == null)
+            {
+                throw new InvalidDataException("bmson key channel notes must not contain null.");
+            }
             int lane = note.X > 0 && note.X <= keyAssign.Length ? keyAssign[note.X - 1] : -1;
             if (lane >= 0)
             {
@@ -668,6 +689,10 @@ internal static partial class ChartInfoParser
         foreach (BmsonMineNote note in channel?.Notes ?? [])
         {
             timeoutGuard.ThrowIfTimedOutEvery(++noteIndex, "bmson_mine_notes");
+            if (note == null)
+            {
+                throw new InvalidDataException("bmson mine channel notes must not contain null.");
+            }
             int lane = note.X > 0 && note.X <= keyAssign.Length ? keyAssign[note.X - 1] : -1;
             if (lane < 0)
             {
@@ -745,7 +770,7 @@ internal static partial class ChartInfoParser
         {
             return Encoding.GetEncoding(normalized);
         }
-        catch
+        catch (ArgumentException)
         {
             return Encoding.GetEncoding("shift_jis");
         }
@@ -1607,10 +1632,6 @@ internal static partial class ChartInfoParser
             catch (OverflowException ex)
             {
                 throw new BmsRecoverableParseException("BMS distribution bucket count is too large.", ex);
-            }
-            catch (OutOfMemoryException ex)
-            {
-                throw new BmsRecoverableParseException("BMS distribution bucket allocation failed.", ex);
             }
             int border = (int)(totalNotes * (1.0 - 100.0 / model.Total));
             borderPosition = 0;

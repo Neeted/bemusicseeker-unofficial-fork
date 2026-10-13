@@ -36,6 +36,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
     [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError)]
     [DataRow(200, "entry", true, (int)PlaylistSyncStatusKind.DataParseError)]
     [DataRow(200, "url", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
+    [DataRow(200, "page-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
+    [DataRow(200, "header-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
+    [DataRow(200, "data-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl)]
     [DataRow(200, "missing-file", true, (int)PlaylistSyncStatusKind.UnknownError)]
     [DataRow(200, "header-not-found", true, (int)PlaylistSyncStatusKind.HeaderNotFound)]
     [DataRow(404, "http", false, (int)PlaylistSyncStatusKind.Http404)]
@@ -96,6 +99,9 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 case "header-not-found": File.WriteAllText(badHeader, "<html><body>No table</body></html>"); break;
                 case "entry": File.WriteAllText(badData, "[1]"); break;
                 case "url": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\"}"); break;
+                case "page-scheme": bad.Page_url = new Uri("ftp://example.invalid/table.json"); break;
+                case "header-scheme": File.WriteAllText(badHeader, "<html><head><meta name=\"bmstable\" content=\"ftp://example.invalid/header.json\"></head></html>"); break;
+                case "data-scheme": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"ftp://example.invalid/data.json\"}"); break;
             }
             workspace = CreatePlaylistWorkspace(playlist, library);
             int completedCount = 0;

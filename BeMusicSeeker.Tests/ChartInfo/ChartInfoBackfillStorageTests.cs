@@ -1,8 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -258,10 +262,12 @@ public sealed class ChartInfoBackfillStorageTests
         });
     }
 
-    /// <summary>song行が消えた候補でも詳細・digest対応を確定し、欠落を警告してsongを再挿入しない保証の退行を検出する。</summary>
+    /// <summary>song行が消えた候補でも詳細・digest対応と必須公開を確定し、診断先が失敗してもsongを再挿入せず完了します。</summary>
     /// <remarks>実SQLiteの確定・rollbackと本番補完経路を観測し、保存前の計算結果だけで成功としない。</remarks>
-    [TestMethod]
-    public void BackfillChartInfos_MissingSongRowCommitsFactsWithoutInsertingSong()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BackfillChartInfos_MissingSongRowCommitsFactsWithoutInsertingSong(bool failDiagnostics)
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
@@ -285,7 +291,15 @@ public sealed class ChartInfoBackfillStorageTests
                 gateway,
                 [file],
                 [],
-                logInstallPerformanceWarn: warnings.Add,
+                logInstallPerformance: _ =>
+                {
+                    if (failDiagnostics) { throw new IOException("performance log failed"); }
+                },
+                logInstallPerformanceWarn: message =>
+                {
+                    warnings.Add(message);
+                    if (failDiagnostics) { throw new IOException("warning log failed"); }
+                },
                 storageCommitPublished: publication => { committedRows.AddRange(publication.AppliedRows); committedValues.AddRange(publication.CurrentValues); });
 
             Assert.AreEqual(1, result.BackfilledCount);
@@ -524,6 +538,202 @@ public sealed class ChartInfoBackfillStorageTests
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'song';"));
         });
+    }
+
+    /// <summary>二workerの内部/資源故障でbounded queueを排出し、全Task終端まで操作失敗を待ち、先行成功の確定だけを保持する。</summary>
+    /// <remarks>実BMS・SQLite・CatalogMutationOwnerを使い、解析境界だけで故障を注入する。reader背圧とcollector/writerをgateで観測し、解放順の両行で各段階の寿命を識別する。finallyで全gateを解放して操作を待つ。</remarks>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task BackfillChartInfos_WorkerFaultDrainsInputsAndWaitsForAllStages(bool resourceFailure, bool releaseWriterFirst)
+    {
+        await WithTemporarySongDb(async (tempRootPath, songDbPath) =>
+        {
+            const int workerCount = 2;
+            int readerCount = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 20);
+            int capacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(workerCount, readerCount);
+            int backpressureReadCount = 1 + workerCount + capacity + readerCount;
+            int targetCount = backpressureReadCount + 4;
+            List<ChartFile> charts = [];
+            for (int index = 0; index < targetCount; index++)
+            {
+                string path = Path.Combine(tempRootPath, index + " parse_failed target.bms");
+                File.WriteAllText(path, "#TITLE chart" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+                ChartFile chart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+                charts.Add(chart with { Sha256 = string.Empty, Level = 2 });
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            var mutationOwner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
+            using var successPublished = new ManualResetEventSlim();
+            using var releaseFaults = new ManualResetEventSlim();
+            using var releaseCollector = new ManualResetEventSlim();
+            using var releaseWriter = new ManualResetEventSlim();
+            var faultsEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var backpressureReached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var collectorEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var collectorExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var writerExited = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            List<ChartInfoStorageCommitPublication> publications = [];
+            List<(int Total, int Processed)> progress = [];
+            ConcurrentBag<string> warnings = [];
+            string? successPath = null;
+            int reads = 0;
+            int parseCalls = 0;
+            int faultCalls = 0;
+            int activeCallbacks = 0;
+            var service = new ChartInfoBuildService(
+                path =>
+                {
+                    Interlocked.Increment(ref activeCallbacks);
+                    try
+                    {
+                        int readNumber = Interlocked.Increment(ref reads);
+                        if (readNumber == 1) { Volatile.Write(ref successPath, path); }
+                        else { successPublished.Wait(); }
+                        if (readNumber == backpressureReadCount) { backpressureReached.TrySetResult(true); }
+                        return File.ReadAllBytes(path);
+                    }
+                    finally { Interlocked.Decrement(ref activeCallbacks); }
+                }, workerCountOverride: workerCount, commitChunkSizeOverride: 1,
+                parseBytes: (bytes, path, md5, sha256, timeout) =>
+                {
+                    Interlocked.Increment(ref activeCallbacks);
+                    try
+                    {
+                        Interlocked.Increment(ref parseCalls);
+                        if (string.Equals(path, Volatile.Read(ref successPath), StringComparison.Ordinal))
+                        {
+                            return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256,
+                                timeout: timeout, retainChartString: false);
+                        }
+                        if (Interlocked.Increment(ref faultCalls) == workerCount) { faultsEntered.TrySetResult(true); }
+                        releaseFaults.Wait();
+                        return ThrowBackfillParserFault(resourceFailure);
+                    }
+                    finally { Interlocked.Decrement(ref activeCallbacks); }
+                });
+            Task<ChartInfoBackfillResult> operation = Task.Run(() => service.BackfillChartInfos(
+                gateway, charts,
+                reportProgress: (total, processed, _) => progress.Add((total, processed)),
+                logInstallPerformance: message =>
+                {
+                    if (!message.StartsWith("chart_info_backfill parse_done", StringComparison.Ordinal)) { return; }
+                    Interlocked.Increment(ref activeCallbacks);
+                    try
+                    {
+                        collectorEntered.TrySetResult(true);
+                        releaseCollector.Wait();
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref activeCallbacks);
+                        collectorExited.TrySetResult(true);
+                    }
+                },
+                logInstallPerformanceWarn: warnings.Add,
+                storageCommitPublished: publication =>
+                {
+                    Interlocked.Increment(ref activeCallbacks);
+                    try
+                    {
+                        publications.Add(publication);
+                        successPublished.Set();
+                        releaseWriter.Wait();
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref activeCallbacks);
+                        writerExited.TrySetResult(true);
+                    }
+                },
+                chartInfoChunkWriter: mutationOwner.ApplyChartInfoStorageWrite));
+            try
+            {
+                await AwaitPipelineStage(faultsEntered.Task, operation);
+                await AwaitPipelineStage(backpressureReached.Task, operation);
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.AreEqual(1 + workerCount, Volatile.Read(ref parseCalls));
+                releaseFaults.Set();
+                await AwaitPipelineStage(collectorEntered.Task, operation);
+                Assert.IsFalse(operation.IsCompleted, "collectorの開始済み処理を待つ必要があります。");
+                if (releaseWriterFirst)
+                {
+                    releaseWriter.Set();
+                    await AwaitPipelineStage(writerExited.Task, operation);
+                    Assert.IsFalse(operation.IsCompleted, "writer公開後もcollectorの開始済み処理を待つ必要があります。");
+                    releaseCollector.Set();
+                }
+                else
+                {
+                    releaseCollector.Set();
+                    await AwaitPipelineStage(collectorExited.Task, operation);
+                    Assert.IsFalse(operation.IsCompleted, "collector終端後もwriterの開始済み公開を待つ必要があります。");
+                    releaseWriter.Set();
+                }
+                AggregateException failure = await Assert.ThrowsExceptionAsync<AggregateException>(() => operation);
+                Exception[] causes = failure.Flatten().InnerExceptions.ToArray();
+                Assert.AreEqual(workerCount, causes.Length);
+                foreach (Exception cause in causes)
+                {
+                    Assert.AreEqual(resourceFailure ? typeof(OutOfMemoryException) : typeof(InvalidOperationException), cause.GetType());
+                    Assert.AreEqual("injected parse_failed parser fault", cause.Message);
+                    Assert.IsNotNull(cause.StackTrace);
+                    StringAssert.Contains(cause.StackTrace, nameof(ThrowBackfillParserFault));
+                }
+                Assert.AreEqual(1 + workerCount, parseCalls);
+                Assert.AreEqual(targetCount, reads);
+                Assert.AreEqual(0, activeCallbacks);
+                Assert.AreEqual(1, publications.Count);
+                Assert.AreEqual(successPath, publications.Single().CurrentValues.Single().Path);
+                Assert.AreEqual(2, warnings.Count(message => message.StartsWith("chart_info_backfill internal_failed", StringComparison.Ordinal)
+                    && message.Contains("injected parse_failed parser fault", StringComparison.Ordinal)
+                    && message.Contains(" parse_failed target.bms", StringComparison.Ordinal)));
+                Assert.IsFalse(progress.Any(item => item.Processed == item.Total));
+                Assert.AreEqual(1, progress.Max(item => item.Processed));
+                using var verify = new LR2SongDBExtended(songDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info;"));
+                Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_digest_map;"));
+                Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+                foreach (ChartFile chart in charts)
+                {
+                    Assert.AreEqual(chart.Path == successPath ? 9 : 2,
+                        verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", chart.Path));
+                }
+            }
+            finally
+            {
+                successPublished.Set();
+                releaseFaults.Set();
+                releaseCollector.Set();
+                releaseWriter.Set();
+                try { await operation; }
+                catch (Exception) { /* 操作失敗は本体で検査し、全開始Taskの終端後だけfixtureを解放します。 */ }
+            }
+        });
+    }
+
+    private static async Task AwaitPipelineStage(Task stage, Task operation)
+    {
+        // 期限は故障検出とfinallyの全gate解放を開始するためだけに使います。
+        // 実operationの終端待機は、その解放後もfinallyが所有します。
+        Task completed = await Task.WhenAny(stage, operation).WaitAsync(TimeSpan.FromSeconds(60));
+        if (completed == operation)
+        {
+            await operation;
+            Assert.Fail("必要なpipeline段階の観測前に操作が完了しました。");
+        }
+        await stage;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ChartInfoParser.ChartInfoParseResult ThrowBackfillParserFault(bool resourceFailure)
+    {
+        if (resourceFailure) { throw new OutOfMemoryException("injected parse_failed parser fault"); }
+        throw new InvalidOperationException("injected parse_failed parser fault");
     }
 
     /// <summary>本番保存ownerのtransactionが失敗したとき詳細・digest対応・song更新をrollbackし、未確定の索引通知を公開する誤りを検出する。</summary>

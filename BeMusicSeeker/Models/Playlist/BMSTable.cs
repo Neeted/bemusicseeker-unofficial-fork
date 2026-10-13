@@ -167,6 +167,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
         set
         {
+            List<string> parsedOrder;
             try
             {
                 JArray val = ParseJson(value) as JArray ?? throw new FormatException("folder_order must be an array.");
@@ -174,11 +175,13 @@ public class BMSTable : LR2SongDBExtended.playlist
                 {
                     throw new FormatException("folder_order must contain only strings.");
                 }
-                Folder_order = [.. val.Select(token => token.Value<string>())];
+                parsedOrder = [.. val.Select(token => token.Value<string>())];
             }
-            catch
+            catch (Exception ex) when (ex is JsonException or FormatException or ArgumentNullException)
             {
+                return;
             }
+            Folder_order = parsedOrder;
         }
     }
 
@@ -312,7 +315,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             uri = new Uri(value, uriKind);
             return true;
         }
-        catch (Exception ex)
+        catch (UriFormatException ex)
         {
             exception = ex;
             return false;
@@ -339,7 +342,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return new Uri(rawValue, UriKind.RelativeOrAbsolute);
         }
-        catch (Exception ex)
+        catch (UriFormatException ex)
         {
             throw new InvalidOperationException("Failed to resolve playlist " + context + ". rawValue=" + rawValue, ex);
         }
@@ -720,6 +723,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         return val.ToString(Formatting.Indented);
     }
 
+    /// <summary>表ヘッダーを読み込み、入力形式の失敗だけをヘッダー解析失敗へ変換します。任意の日付・順序の不正値は従来どおり省略します。</summary>
     public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
     {
         if (_header_json == null)
@@ -729,132 +733,131 @@ public class BMSTable : LR2SongDBExtended.playlist
         _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = false;
         _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = false;
         _loadedFolderOrderCompatPrefix = null;
+        JObject val;
         try
         {
-            JObject val = ParseJson(_header_json) as JObject ?? throw new FormatException("playlist header must be an object.");
-            LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
-            base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
-            LoadCourseJsonFromHeader(_header_json);
-            if (TryGetNonNullProperty(val, "name", out JToken nameToken))
-            {
-                string text = (base.org_name = nameToken.ToString());
-                base.name = text;
-            }
-            if (TryGetNonNullProperty(val, "symbol", out JToken symbolToken))
-            {
-                string text = (base.org_symbol = symbolToken.ToString());
-                base.symbol = text;
-            }
-            if (TryGetNonNullProperty(val, "tag", out JToken tagToken))
-            {
-                base.tag = tagToken.ToString();
-            }
-            if (TryGetNonNullProperty(val, "folder_sort_key", out JToken folderSortKeyToken))
-            {
-                base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(folderSortKeyToken.ToString());
-            }
-            if (val.TryGetValue("folder_sort_ascending", out JToken folderSortAscendingToken))
-            {
-                base.folder_sort_ascending = folderSortAscendingToken.Type == JTokenType.Boolean
-                    ? folderSortAscendingToken.Value<bool>()
-                    : true;
-            }
-            if (val.TryGetValue("entry_type", out JToken entryTypeToken))
-            {
-                if (entryTypeToken.Type == JTokenType.Null)
-                {
-                    throw new FormatException("entry_type must not be null.");
-                }
-                base.entry_type = EntryUnitTypeExt.FromStringName(entryTypeToken.ToString());
-            }
-            bool hasExplicitCompatPrefix = TryGetNonNullProperty(val, "compat_prefix", out JToken compatPrefixToken);
-            string explicitCompatPrefix = hasExplicitCompatPrefix ? compatPrefixToken.ToString() : null;
-            if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-            {
-                base.compat_prefix = explicitCompatPrefix;
-            }
-            List<string> headerFolderOrder = null;
-            if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken) && !string.IsNullOrWhiteSpace(lastUpdateToken.ToString()))
-            {
-                try
-                {
-                    base.last_update = DateTime.Parse(lastUpdateToken.ToString());
-                }
-                catch
-                {
-                }
-            }
-            if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
-            {
-                try
-                {
-                    headerFolderOrder = [.. RequireStringArray(folderOrderToken)];
-                    Folder_order = headerFolderOrder;
-                    if (preserveLoadedCompatPrefix
-                        && hasExplicitCompatPrefix
-                        && !string.Equals(explicitCompatPrefix ?? string.Empty, base.compat_prefix ?? string.Empty, StringComparison.Ordinal))
-                    {
-                        _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = true;
-                        _loadedFolderOrderCompatPrefix = explicitCompatPrefix ?? string.Empty;
-                    }
-                }
-                catch
-                {
-                }
-            }
-            if (_page_url_absolute != null && _page_url_absolute.IsAbsoluteUri)
-            {
-                Page_url = _page_url_absolute;
-            }
-            if (__header_url != null)
-            {
-                Header_url = __header_url;
-            }
-            if (TryGetNonNullProperty(val, "data_url", out JToken dataUrlToken))
-            {
-                Data_url = ParsePlaylistUriOrThrow(dataUrlToken.ToString(), "data_url");
-            }
-            if (!hasExplicitCompatPrefix || !val.ContainsKey("folder_sort_key") || !val.ContainsKey("folder_sort_ascending"))
-            {
-                base.ignore_folder_output |= CustomFolderType.LevelFolder;
-                if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-                {
-                    base.compat_prefix = ResolveDefaultCompatibleFolderPrefix(base.tag, base.symbol);
-                }
-                if (val.TryGetValue("level_order", out JToken levelOrderToken))
-                {
-                    try
-                    {
-                        Folder_order = [.. RequireStringArray(levelOrderToken).Select(ConvertCompatibleLevelNameToFolderName)];
-                    }
-                    catch
-                    {
-                    }
-                }
-                else if (headerFolderOrder != null && !hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-                {
-                    _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = true;
-                }
-            }
+            val = ParseJson(_header_json) as JObject ?? throw new FormatException("playlist header must be an object.");
         }
-        catch (InvalidOperationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             throw new PlaylistHeaderParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistHeaderParseFailed, ex);
         }
-        if (_data_json != null)
+        LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
+        base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
+        LoadCourseJsonFromHeader(_header_json);
+        if (TryGetNonNullProperty(val, "name", out JToken nameToken))
+        {
+            string text = (base.org_name = nameToken.ToString());
+            base.name = text;
+        }
+        if (TryGetNonNullProperty(val, "symbol", out JToken symbolToken))
+        {
+            string text = (base.org_symbol = symbolToken.ToString());
+            base.symbol = text;
+        }
+        if (TryGetNonNullProperty(val, "tag", out JToken tagToken))
+        {
+            base.tag = tagToken.ToString();
+        }
+        if (TryGetNonNullProperty(val, "folder_sort_key", out JToken folderSortKeyToken))
+        {
+            base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(folderSortKeyToken.ToString());
+        }
+        if (val.TryGetValue("folder_sort_ascending", out JToken folderSortAscendingToken))
+        {
+            base.folder_sort_ascending = folderSortAscendingToken.Type == JTokenType.Boolean
+                ? folderSortAscendingToken.Value<bool>()
+                : true;
+        }
+        if (val.TryGetValue("entry_type", out JToken entryTypeToken))
+        {
+            if (entryTypeToken.Type == JTokenType.Null)
+            {
+                throw new PlaylistHeaderParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistHeaderParseFailed,
+                    new FormatException("entry_type must not be null."));
+            }
+            base.entry_type = EntryUnitTypeExt.FromStringName(entryTypeToken.ToString());
+        }
+        bool hasExplicitCompatPrefix = TryGetNonNullProperty(val, "compat_prefix", out JToken compatPrefixToken);
+        string explicitCompatPrefix = hasExplicitCompatPrefix ? compatPrefixToken.ToString() : null;
+        if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+        {
+            base.compat_prefix = explicitCompatPrefix;
+        }
+        List<string> headerFolderOrder = null;
+        if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken) && !string.IsNullOrWhiteSpace(lastUpdateToken.ToString()))
         {
             try
             {
-                LoadDataJSON(_data_json);
+                base.last_update = DateTime.Parse(lastUpdateToken.ToString());
             }
-            catch
+            catch (FormatException)
             {
-                throw;
             }
+        }
+        if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
+        {
+            try
+            {
+                headerFolderOrder = [.. RequireStringArray(folderOrderToken)];
+            }
+            catch (FormatException)
+            {
+            }
+            if (headerFolderOrder != null)
+            {
+                Folder_order = headerFolderOrder;
+                if (preserveLoadedCompatPrefix
+                    && hasExplicitCompatPrefix
+                    && !string.Equals(explicitCompatPrefix ?? string.Empty, base.compat_prefix ?? string.Empty, StringComparison.Ordinal))
+                {
+                    _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = true;
+                    _loadedFolderOrderCompatPrefix = explicitCompatPrefix ?? string.Empty;
+                }
+            }
+        }
+        if (_page_url_absolute != null && _page_url_absolute.IsAbsoluteUri)
+        {
+            Page_url = _page_url_absolute;
+        }
+        if (__header_url != null)
+        {
+            Header_url = __header_url;
+        }
+        if (TryGetNonNullProperty(val, "data_url", out JToken dataUrlToken))
+        {
+            Data_url = ParsePlaylistUriOrThrow(dataUrlToken.ToString(), "data_url");
+        }
+        if (!hasExplicitCompatPrefix || !val.ContainsKey("folder_sort_key") || !val.ContainsKey("folder_sort_ascending"))
+        {
+            base.ignore_folder_output |= CustomFolderType.LevelFolder;
+            if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+            {
+                base.compat_prefix = ResolveDefaultCompatibleFolderPrefix(base.tag, base.symbol);
+            }
+            if (val.TryGetValue("level_order", out JToken levelOrderToken))
+            {
+                List<string> levelOrder = null;
+                try
+                {
+                    levelOrder = [.. RequireStringArray(levelOrderToken).Select(ConvertCompatibleLevelNameToFolderName)];
+                }
+                catch (FormatException)
+                {
+                }
+                if (levelOrder != null)
+                {
+                    Folder_order = levelOrder;
+                }
+            }
+            else if (headerFolderOrder != null && !hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+            {
+                _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = true;
+            }
+        }
+        if (_data_json != null)
+        {
+            LoadDataJSON(_data_json);
         }
         EnableExternalSync();
     }
@@ -874,27 +877,30 @@ public class BMSTable : LR2SongDBExtended.playlist
             : Lr2CompatibleFolderFallbackPrefix;
     }
 
+    /// <summary>表データを読み込み、入力形式の失敗だけをデータ解析失敗へ変換します。内部故障・資源不足は呼出元へ伝播します。</summary>
     public void LoadDataJSON(string _data_json)
     {
         if (_data_json == null)
         {
             throw new ArgumentNullException("_data_json");
         }
+        List<BMSTableEntry> parsedEntries;
         try
         {
             JArray val = ParseJson(_data_json) as JArray ?? throw new FormatException("playlist data must be an array.");
             base.data_sha256 = ComputeSha256Hex(_data_json);
-            entries = [.. val
+            parsedEntries = [.. val
                 .Select(token => token as JObject ?? throw new FormatException("playlist entry must be an object"))
                 .Select(json => new BMSTableEntry(json, this))
                 .Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
-            ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
-            RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidCastException or OverflowException)
         {
             throw new PlaylistDataParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
         }
+        entries = parsedEntries;
+        ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
+        RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
     }
 
     private void ResolveDefaultCompatPrefixFolderOrderAfterDataLoad()
@@ -1510,7 +1516,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 });
             }
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             _Courses = [];
         }
@@ -1575,7 +1581,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return ParseJson(json).ToString(Formatting.None);
         }
-        catch
+        catch (JsonException)
         {
             return null;
         }
@@ -1616,7 +1622,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             header.Remove("compat_prefix");
             return ComputeSha256Hex(header.ToString(Formatting.None));
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             return ComputeSha256Hex(headerJson);
         }

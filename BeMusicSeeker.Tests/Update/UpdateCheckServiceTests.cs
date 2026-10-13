@@ -1,11 +1,23 @@
 using BeMusicSeeker.Models.Update;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
 public sealed class UpdateCheckServiceTests
 {
+    /// <summary>壊れたJSONだけをマニフェスト検証失敗へ変換し、取得所有者が診断できる元JSON原因を保持する。</summary>
+    [TestMethod]
+    public void ParseManifest_MalformedJsonRetainsValidationCause()
+    {
+        UpdateManifestValidationException failure = Assert.ThrowsException<UpdateManifestValidationException>(
+            () => UpdateCheckService.ParseManifest("{\"schemaVersion\": ["));
+
+        Assert.IsInstanceOfType<JsonException>(failure.InnerException);
+        StringAssert.StartsWith(failure.Message, "update.json is not valid JSON:");
+    }
+
     /// <summary>
     /// 通常版とメタデータ同梱版の公開manifestを受理して版と資産種別を保持し、既存配布形式を拒否・混同する誤りを検出する。
     /// </summary>

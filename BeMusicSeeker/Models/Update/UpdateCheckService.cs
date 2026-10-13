@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 
@@ -37,6 +38,7 @@ internal sealed class UpdateCheckService
             : UpdateCheckResult.NoUpdate(currentVersionText);
     }
 
+    /// <summary>配信マニフェストの入力形式と更新資産を検証し、JSON失敗の元原因を診断用に保持します。</summary>
     internal static UpdateManifest ParseManifest(string manifestJson)
     {
         if (string.IsNullOrWhiteSpace(manifestJson))
@@ -49,9 +51,9 @@ internal sealed class UpdateCheckService
         {
             root = JObject.Parse(manifestJson);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            throw new UpdateManifestValidationException("update.json is not valid JSON: " + ex.Message);
+            throw new UpdateManifestValidationException("update.json is not valid JSON: " + ex.Message, ex);
         }
 
         int schemaVersion = ReadRequiredInt(root, "schemaVersion");

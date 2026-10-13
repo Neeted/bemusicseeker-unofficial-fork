@@ -375,6 +375,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
+    /// <summary>外部表の行を読み込み、形式不正の任意項目は従来どおり省略します。内部故障・資源不足は隠しません。</summary>
     public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
         : this()
     {
@@ -397,7 +398,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             {
                 md5 = md5Token.ToString();
             }
-            catch
+            catch (FormatException)
             {
             }
         }
@@ -407,7 +408,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             {
                 sha256 = sha256Token.ToString();
             }
-            catch
+            catch (FormatException)
             {
             }
         }
@@ -483,7 +484,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 }
                 base.adddate = DateTime.Parse(text);
             }
-            catch
+            catch (FormatException)
             {
             }
         }
@@ -502,7 +503,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 Org_md5.Add(orgMd5Token.ToString());
             }
         }
-        catch
+        catch (FormatException)
         {
         }
         if (md5 != null)
@@ -768,7 +769,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 }
             }
         }
-        catch
+        catch (UriFormatException)
         {
         }
     }
@@ -802,7 +803,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return [.. array.Select(e => e.ToString())];
         }
-        catch
+        catch (JsonException)
         {
             return [];
         }

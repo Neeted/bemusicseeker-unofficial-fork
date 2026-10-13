@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.LR2;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -42,23 +43,68 @@ internal sealed class BmsLibraryIrClient : IBmsLibraryIrClient
         return body.ToString(Formatting.None);
     }
 
-    internal static List<BMSLibrary.IRDataCacheInfo> ParseRankingInfoResponse(string responseJson)
+    /// <summary>
+    /// ランキング応答の有効行を保持し、既知の入力不正行だけを省略します。
+    /// 応答は部分一覧として扱い、省略件数と最大5件の理由を一度だけ診断します。
+    /// 診断先の失敗は返す一覧を変更しません。
+    /// </summary>
+    internal static List<BMSLibrary.IRDataCacheInfo> ParseRankingInfoResponse(string responseJson, Action<string> reportSkippedRows = null)
     {
         JArray response = ParseJsonArray(responseJson);
-        return [.. response
-            .OfType<JObject>()
-            .Select(item =>
+        List<BMSLibrary.IRDataCacheInfo> result = [];
+        List<string> reasons = [];
+        int skippedCount = 0;
+        for (int index = 0; index < response.Count; index++)
+        {
+            string reason;
+            if (response[index] is not JObject item)
+            {
+                reason = "not_object";
+            }
+            else
             {
                 try
                 {
-                    return new BMSLibrary.IRDataCacheInfo(item);
+                    result.Add(new BMSLibrary.IRDataCacheInfo(item));
+                    continue;
                 }
-                catch
+                catch (ArgumentException ex) when (ex.ParamName is "json" or "json.md5")
                 {
-                    return null;
+                    reason = ex.ParamName == "json.md5" ? "invalid_md5" : "missing_required_field";
                 }
-            })
-            .Where(item => item != null)];
+                catch (Exception ex) when (ex is FormatException or InvalidCastException or OverflowException)
+                {
+                    reason = ex.GetType().Name;
+                }
+            }
+            skippedCount++;
+            if (reasons.Count < 5)
+            {
+                reasons.Add(index + ":" + reason);
+            }
+        }
+        if (skippedCount > 0)
+        {
+            try
+            {
+                string message = "lr2_ranking skipped_rows=" + skippedCount
+                    + " accepted_rows=" + result.Count
+                    + " reasons=" + string.Join("|", reasons);
+                if (reportSkippedRows == null)
+                {
+                    NLogWrapper.FileLogger.Warn(message);
+                }
+                else
+                {
+                    reportSkippedRows(message);
+                }
+            }
+            catch (Exception)
+            {
+                // 行の入力判定は完了済みです。診断先の失敗で部分一覧を失敗へ変えません。
+            }
+        }
+        return result;
     }
 
     internal static JArray ParseJsonArray(string json)

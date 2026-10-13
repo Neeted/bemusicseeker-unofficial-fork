@@ -190,12 +190,12 @@ internal sealed class PlaylistExternalSyncOwner
         BMSTable bmsTable = null;
         try
         {
-            string input = await httpClient.GetStringAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
+            string input = await GetExternalContentAsync(pageUri, cancellationToken).ConfigureAwait(false);
             string headerJson;
             if (TryResolveHeaderUri(input, pageUri, out headerUri))
             {
                 resolvedHeaderUri = !headerUri.IsAbsoluteUri ? new Uri(pageUri, headerUri) : headerUri;
-                headerJson = await httpClient.GetStringAsync(resolvedHeaderUri, null, cancellationToken).ConfigureAwait(false);
+                headerJson = await GetExternalContentAsync(resolvedHeaderUri, cancellationToken).ConfigureAwait(false);
             }
             else if (LooksLikeJsonContent(input))
             {
@@ -243,7 +243,7 @@ internal sealed class PlaylistExternalSyncOwner
                     + " headerUrl=" + FormatUriForLog(bmsTable.Header_url)
                     + " sourcePage=" + FormatUriForLog(originalPageUri));
             }
-            string dataJson = await httpClient.GetStringAsync(resolvedDataUri, null, cancellationToken).ConfigureAwait(false);
+            string dataJson = await GetExternalContentAsync(resolvedDataUri, cancellationToken).ConfigureAwait(false);
             bmsTable.LoadDataJSON(dataJson);
             return bmsTable;
         }
@@ -262,6 +262,17 @@ internal sealed class PlaylistExternalSyncOwner
                 + " baseTable=" + FormatTextForLog(baseTable?.name));
             throw;
         }
+    }
+
+    private Task<string> GetExternalContentAsync(Uri uri, CancellationToken cancellationToken)
+    {
+        // HttpClientが扱う4 schemeとローカルファイルを維持し、未対応の取得元だけを入力失敗にします。
+        // 読取り全体のNotSupportedExceptionを捕捉して内部故障まで隠すことはしません。
+        if (uri.Scheme is not ("http" or "https" or "ws" or "wss" or "file"))
+        {
+            throw new UriFormatException("Unsupported playlist resource URI scheme: " + uri.Scheme);
+        }
+        return httpClient.GetStringAsync(uri, null, cancellationToken);
     }
 
     /// <summary>複数表を取得します。内蔵推薦は一操作内で同じfreshなスコア結果・失敗を共有します。</summary>

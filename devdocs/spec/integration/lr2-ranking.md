@@ -24,6 +24,12 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 本人スコアの通信・XML解析・正規化ハッシュの計算と順位cache読取りは、必須UI・操作解禁後に一つのscheduler work内でLなしで行います。DB置換・更新とメモリ確定はL取得後にモデル停止と既存score contextを確認して行い、旧組の結果を新組へ保存しません。cache準備内のUpsertも確定側へ集約し、通信から確定の実終端までschedulerで追跡します。XMLの譜面側の更新時刻 `lastupdate` はスコア内容の同一性判定から除きます。通信の取消・終了待ち・取得結果の再利用はデータ仕様と終了仕様に従います。
 
+### ランキング情報JSONの部分応答
+
+`BmsLibraryIrClient.ParseRankingInfoResponse` は有効な行のMD5・size・時刻を保持します。非object、必須項目欠落、不正MD5、数値・日付形式や範囲の不正は行単位で省略します。内部故障・資源不足は不正行として隠しません。省略時は応答ごとの件数と最大5件の行番号・理由を一度だけ診断し、診断先の例外は返す一覧を変更しません。
+
+空・全不正・一部不正の応答はいずれも部分一覧です。返らないMD5を既存cacheの削除根拠にせず、有効行だけから取得・更新の候補を選びます。文書全体の不正JSONや後続JSONは応答解析失敗とします。
+
 ### 順位キャッシュの解析
 
 `ir_data.lastcacheupdate` とXML末尾の更新時刻で再読込み対象を判断します。既定の並列数は `max(1, ProcessorCount - 1)` で、処理数を制限します。起動時、手動取得、`LR2IRCache` は共通の解析を使います。
@@ -47,6 +53,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 予約条件、UI後の本人スコア取得、通信中のL受付と退役後の非保存 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
+| 情報JSONの型維持、不正行の上限付き診断、部分応答とcache保持 | `BmsLibraryIrClient.ParseRankingInfoResponse`、`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo` | `BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |
 | キャッシュの取得要求、確認、取消、成功・失敗件数の通知 | [`RankingCacheDownloadWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) | [`RankingCacheDownloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/RankingCacheDownloadWorkflowOwnerTests.cs) |
 

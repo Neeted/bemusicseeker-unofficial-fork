@@ -47,6 +47,8 @@ flowchart TB
 
 現在の情報と現在の失敗が併存する場合は情報を優先します。古い解析器の結果や、現在より短い制限時間で記録した失敗は、再解析を省く根拠にしません。
 
+保存済みの失敗は例外型やメッセージで再分類しません。再解析が必要な場合は、一覧から解析失敗結果を明示的に削除します。
+
 判定の正本は `ChartInfoBuildService.EvaluateSnapshot` です。呼出元が単一の `ChartFileSnapshot`、所持主体の識別条件、事前取得した情報と失敗を渡します。評価処理自身はファイルやDBを読み書きせず、既存情報の適用、失敗による省略、解析の成功・失敗、入力取得不能のいずれかを返します。導入時解析、全件補完、LR2同期で解析器・優先順位・失敗メッセージの整形を分岐しません。
 
 ### 導入後の対象限定検索
@@ -81,7 +83,13 @@ LR2連携と単独動作は、同じ読み取り専用の処理で実在する�
 
 ### 失敗
 
-DBの読込み失敗では「全て最新」を合成しません。解析時間超過、例外、最終的な解析不能には共通の結果分類と長さを制限したメッセージを使います。ハッシュを計算できた失敗は保存候補とし、成功時は同じMD5の失敗を削除する候補とします。保存と削除のトランザクションは呼出元の保存処理が管理します。
+DBの読込み失敗では「全て最新」を合成しません。既知の入力解析失敗（解析器が明示する `InvalidDataException`、JSON形式失敗）と解析時間超過だけに共通の結果分類と長さを制限したメッセージを使います。内部故障・資源不足は解析不能として永続化せず、呼出元へ伝播します。成功診断と失敗警告は解析判定から分離し、診断先の例外は成功行・元の入力失敗・期限切れを変更しません。ハッシュを計算できた失敗は保存候補とし、成功時は同じMD5の失敗を削除する候補とします。保存と削除のトランザクションは呼出元の保存処理が管理します。
+
+bmsonの必要なイベント・ノート要素のnullと、解析器が判定する表現不能な時間は、その譜面の解析失敗に留めます。省略可能な配列・チャンネル自体のnullは従来どおり許容します。イベント統合では実在する候補だけを比較し、最大int位置を他種イベントの枯渇と混同しません。内部故障を一律に入力不良へ変換する捕捉は設けません。
+
+全件補完の内部故障では、故障workerだけが後続解析を止めて開始済み入力queueを排出します。これによりbounded queueのreader投入を取り残さず、reader・worker・結果集約・保存Taskの全終端後に元stackを保って操作失敗を返します。健全workerと既に生成した成功結果の独立対象は引き続き確定でき、全体取消しや確定済み結果の巻戻しは追加しません。故障workerが排出した対象を成功・入力解析失敗へ計上しません。
+
+ファイル差分走査のpost-parse workerは、最初の内部解析原因を結果待ち行列の閉鎖前に保持します。別workerが遅れて正常解析を終え、閉鎖済み待ち行列への出力に失敗しても、worker・collector・終端集約で元原因を置換しません。既存collectorの終端Flushと確定成功のDB・結果・公開を維持し、全開始済み処理とwriterの公開callbackの終端後に元原因とstackを返します。故障対象を解析不能や全件完了へ計上せず、任意の未確定suffixを確定する保証は追加しません。LR2同期の共通評価器を呼ぶreader/workerの停止と要求取消の区別は[LR2楽曲DB同期](../integration/lr2-song-db.md#読込みと確定結果の再利用)に従います。
 
 ## 実装とテストの対応
 
@@ -89,7 +97,11 @@ DBの読込み失敗では「全て最新」を合成しません。解析時間
 | --- | --- | --- |
 | スキーマ、メタデータの入出力、起動時取込み | [`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs)、[`ChartInfoMetadataBundleStartupImporter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoMetadataBundleStartupImporter.cs) | [`ChartInfoMetadataSchemaExportImportTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoMetadataSchemaExportImportTests.cs) の `ImportChartInfoMetadataBundle_ImportsMissingAndStaleRowsAndClearsFailures`（同一bundle再投入を含む）、`StartupImporter_PrefersDatabaseBundleOverArchive`、`StartupImporter_ImportsArchiveBundleAndMovesImportedArchive`（抽出済みcacheの移動・再配置・一回だけの抽出） |
 | 解析結果、時間上限、互換入力 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
+| 内部・資源故障時のworker局所停止と全開始Task終端 | `ChartInfoBuildService` | `ChartInfoBackfillStorageTests.BackfillChartInfos_WorkerFaultDrainsInputsAndWaitsForAllStages`。実解析・SQLite・保存ownerを使い、背圧、collector、writerを順にgateで観測し、先行確定の保持・元stack・失敗行非生成・未処理対象の非成功を確認する。 |
+| ファイル差分走査の解析原因保持、結果queue閉鎖競合と既存終端Flush | `FileScanParseCommitOwner` | `BmsLibraryInitializationFileScanTests.ApplyFileScanDiff_PrimaryParserFaultSurvivesClosedQueueRace`。異なる実4譜面・実SQLite・2post-parse workerを使い、先頭2件の実成功、主内部/OOM故障、閉鎖後の健全worker出力、保持writerをgateで観測して、元stack・確定facts・失敗非生成・全件完了の非表示・全callback終端を確認する。 |
 | 全件補完の9列更新、同じハッシュの複数主体、確定失敗 | [`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs)、[`ChartInfoBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoBuildService.cs) | [`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) の `BackfillChartInfos_ParsesMissingRowsSkipsCurrentRowsAndReparsesStaleRows`、`BackfillChartInfos_UpdatesOnlyChartInfoSongProjectionAndPreservesOtherColumns`、`BackfillChartInfos_ReusedCurrentRowProjectsSongColumnsForMissingDigestCandidate`、`BackfillChartInfos_GroupsDuplicateMissingSha256TargetsByMd5`（同じMD5を一回読取りで反映）、`BackfillChartInfos_TransactionFailureDoesNotPublishCanonicalDigestSongOrIndex`、`BackfillChartInfos_LaterChunkFailureKeepsEarlierPublicationAndDoesNotPublishFailedChunk` |
+| 内部故障の伝播と診断先の故障からの解析結果保護 | `ChartInfoBuildService.EvaluateSnapshot` | `ChartInfoInlineHydrationTests.ChartInfoSnapshotEvaluator_InternalFaultPropagatesWithoutPersistentFailure`、`ChartInfoSnapshotEvaluator_DiagnosticFailurePreservesSuccessfulRow`、`ChartInfoSnapshotEvaluator_WarningFailurePreservesInputFailure`、`ChartInfoSnapshotEvaluator_BmsonNumericInputFailureRemainsPersistent`。実snapshotで内部故障・成功・入力失敗・timeoutを発生させ、内部故障の非永続化と診断先に左右されない解析結果を確認する。 |
+| bmsonの入力失敗と許容入力 | `ChartInfoParser`、`BmsonJsonParser`、`ChartInfoBuildService.EvaluateSnapshot` | `BmsonInputFailureBoundaryTests` は実入力でnull要素・表現不能な時間の解析失敗、任意配列・チャンネルのnullの許容、最大int位置のイベントを確認する。 |
 | 読取り専用の照合、対象MD5の検索、既存情報の適用、公開順序 | [`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`CatalogChartInfoOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) | [`ChartInfoInlineHydrationTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs) |
 | 導入後の実ハッシュ、警告削除、競合と次回の再評価 | [`ChartInfoInlineBuildService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoInlineBuildService.cs)、[`ChartInfoParseFailureRemovalWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/ChartInfoParseFailureRemovalWorkflowOwner.cs) | [`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) の `InstallChartPackages_UsesInstalledSnapshotMd5ForFailureLookup`、`BackfillChartInfos_ParseFailureStillPersistsDigest`、`BackfillChartInfos_SkipsCurrentPersistedParseFailure`、`BackfillChartInfos_ReparsesStalePersistedParseFailureAndUpdatesRecord`、`BackfillChartInfos_ReparsesShorterTimeoutFailure`、`RemoveChartInfoParseFailuresByMd5_RetriesOnNextStartupInBothModes`、`BackfillChartInfos_CommitsInChunksAndLogsPhaseBoundaries`、`RetryIfLockedOrBusy_ExhaustedBudgetPropagatesRealDatabaseContention`。実MD5のBMS解析失敗、確定後の警告、次回起動の再評価を確認する。 |
 

@@ -25,6 +25,24 @@ internal static class BmsonJsonParser
         return Normalize(document);
     }
 
+    /// <summary>基本値と詳細値の解析で、JSONの入力失敗だけを対象単位に留め、包まれた内部故障は操作側へ返します。</summary>
+    internal static bool IsInputFailure(JsonException failure)
+    {
+        for (Exception cause = failure.InnerException; cause != null; cause = cause.InnerException)
+        {
+            // Json.NETは数値・文字列などをDTOへ変換できない場合、引数名のないArgumentExceptionで包みます。
+            // 引数の契約違反やその派生型まで入力不良として隠しません。
+            bool incompatibleJsonValue = cause.GetType() == typeof(ArgumentException)
+                && ((ArgumentException)cause).ParamName == null;
+            if (cause is not (JsonException or FormatException or InvalidCastException or OverflowException)
+                && !incompatibleJsonValue)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private static BmsonDocument Normalize(BmsonDocument document)
     {
         document.Info ??= new BmsonInfo();
@@ -81,6 +99,10 @@ internal static class BmsonJsonParser
             int count = Math.Min(document.BpmEvents.Length, bpmTexts.Count);
             for (int index = 0; index < count; index++)
             {
+                if (document.BpmEvents[index] == null)
+                {
+                    throw new JsonSerializationException("bmson bpm_events must not contain null.");
+                }
                 document.BpmEvents[index].BpmText = NormalizeCanonicalJavaNumberText(bpmTexts[index]);
                 if (TryParseRawJavaDouble(bpmTexts[index], out double bpm))
                 {
@@ -468,6 +490,7 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         return type == typeof(int);
     }
 
+    /// <summary>既存の数値変換を維持し、Token由来の範囲・型失敗だけをJSON入力失敗として返します。</summary>
     public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
     {
         bool nullable = Nullable.GetUnderlyingType(objectType) != null;
@@ -477,11 +500,18 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         }
         if (reader.TokenType == JsonToken.Integer)
         {
-            return Convert.ToInt32(reader.Value, CultureInfo.InvariantCulture);
+            try
+            {
+                return Convert.ToInt32(reader.Value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+            {
+                throw new JsonSerializationException("Cannot convert bmson value to int: " + reader.Value, ex);
+            }
         }
         if (reader.TokenType == JsonToken.Float)
         {
-            return (int)Math.Truncate(Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture));
+            return (int)Math.Truncate(ReadInputDouble(reader));
         }
         if (reader.TokenType == JsonToken.String)
         {
@@ -498,6 +528,18 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         throw new JsonSerializationException("Cannot convert bmson value to int: " + reader.Value);
     }
 
+    private static double ReadInputDouble(JsonReader reader)
+    {
+        try
+        {
+            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+        {
+            throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value, ex);
+        }
+    }
+
     public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
     {
         writer.WriteValue(value);
@@ -512,6 +554,7 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
         return type == typeof(double);
     }
 
+    /// <summary>既存の数値変換を維持し、Token由来の範囲・型失敗だけをJSON入力失敗として返します。</summary>
     public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
     {
         bool nullable = Nullable.GetUnderlyingType(objectType) != null;
@@ -521,7 +564,7 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
         }
         if (reader.TokenType == JsonToken.Integer || reader.TokenType == JsonToken.Float)
         {
-            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+            return ReadInputDouble(reader);
         }
         if (reader.TokenType == JsonToken.String)
         {
@@ -536,6 +579,18 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
             }
         }
         throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value);
+    }
+
+    private static double ReadInputDouble(JsonReader reader)
+    {
+        try
+        {
+            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+        {
+            throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value, ex);
+        }
     }
 
     public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)

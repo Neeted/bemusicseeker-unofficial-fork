@@ -2,12 +2,15 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -24,6 +27,8 @@ internal sealed class ChartInfoBuildService
     private const int MaxPersistedParseFailureMessageLength = 1024;
 
     private readonly Func<string, byte[]> readAllBytes;
+
+    private readonly Func<byte[], string, string, string, TimeSpan, ChartInfoParser.ChartInfoParseResult> parseBytes;
 
     private readonly int? workerCountOverride;
 
@@ -44,9 +49,13 @@ internal sealed class ChartInfoBuildService
     /// <param name="workerCountOverride">解析 worker 数。null の場合は CPU 数から自動決定します。</param>
     /// <param name="commitChunkSizeOverride">DB 保存 chunk サイズ。null の場合は既定値を使います。</param>
     /// <param name="parseTimeoutOverride">1譜面あたりの解析 timeout。null の場合は既定値を使います。</param>
-    internal ChartInfoBuildService(Func<string, byte[]> readAllBytes, int? workerCountOverride = null, int? commitChunkSizeOverride = null, TimeSpan? parseTimeoutOverride = null)
+    /// <param name="parseBytes">実解析境界の関数。nullなら既存の詳細解析器を使い、検証時に内部故障とTask終端を確認できます。</param>
+    internal ChartInfoBuildService(Func<string, byte[]> readAllBytes, int? workerCountOverride = null, int? commitChunkSizeOverride = null, TimeSpan? parseTimeoutOverride = null,
+        Func<byte[], string, string, string, TimeSpan, ChartInfoParser.ChartInfoParseResult> parseBytes = null)
     {
         this.readAllBytes = readAllBytes ?? LongPathFileSystem.ReadAllBytes;
+        this.parseBytes = parseBytes ?? ((bytes, path, md5, sha256, timeout) => ChartInfoParser.ParseBytesDetailed(
+            bytes, path, md5, sha256, encodingName: null, timeout: timeout, retainChartString: false));
         this.workerCountOverride = workerCountOverride;
         this.commitChunkSizeOverride = commitChunkSizeOverride;
         this.parseTimeoutOverride = parseTimeoutOverride;
@@ -87,9 +96,9 @@ internal sealed class ChartInfoBuildService
     }
 
     /// <summary>
-    /// Evaluates one immutable chart snapshot against facts resolved by the orchestration route.
-    /// The evaluator performs no file or database access and gives current chart-info precedence
-    /// over a current parse failure.
+    /// 呼出元が確定した現行情報に対して不変の譜面スナップショットを評価します。
+    /// ファイル・DBへアクセスせず現行解析行を優先し、入力解析失敗・期限切れだけを永続失敗へ変換します。
+    /// 診断先の失敗は成功行や入力失敗の結果を変更しません。
     /// </summary>
     internal ChartInfoSnapshotBuildResult EvaluateSnapshot(
         ChartFileSnapshot snapshot,
@@ -124,27 +133,18 @@ internal sealed class ChartInfoBuildService
         }
 
         var stopwatch = Stopwatch.StartNew();
+        ChartInfoParser.ChartInfoParseResult parseResult;
         try
         {
             // maintenance.encoding is for list/LR2 song display correction. chart_info must use
             // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
-            ChartInfoParser.ChartInfoParseResult parseResult = ChartInfoParser.ParseBytesDetailed(
-                snapshot.Bytes,
-                target.Path,
-                md5,
-                sha256,
-                encodingName: null,
-                timeout: resolvedParseTimeout,
-                retainChartString: false);
-            stopwatch.Stop();
-            LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
-            BeMusicSeeker.Models.ChartDetails row = parseResult.Row;
-            return ChartInfoSnapshotBuildResult.CreateSuccess(row, md5, stopwatch.ElapsedMilliseconds, byteCount);
+            parseResult = parseBytes(snapshot.Bytes, target.Path, md5, sha256, resolvedParseTimeout);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is InvalidDataException or ChartInfoParser.ChartInfoParseTimeoutException
+            || ex is JsonException jsonFailure && BmsonJsonParser.IsInputFailure(jsonFailure))
         {
             stopwatch.Stop();
-            logInstallPerformanceWarn?.Invoke(BuildParseFailureLogMessage(target, md5, sha256, ex));
+            ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildParseFailureLogMessage(target, md5, sha256, ex));
             bool timeoutFailed = ex is ChartInfoParser.ChartInfoParseTimeoutException;
             BeMusicSeeker.Models.ChartParseFailure failureRow = string.IsNullOrWhiteSpace(md5)
                 ? null
@@ -166,6 +166,9 @@ internal sealed class ChartInfoBuildService
                 stopwatch.ElapsedMilliseconds,
                 byteCount);
         }
+        stopwatch.Stop();
+        LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
+        return ChartInfoSnapshotBuildResult.CreateSuccess(parseResult.Row, md5, stopwatch.ElapsedMilliseconds, byteCount);
     }
 
     private ChartInfoBackfillResult BackfillChartInfosCore(
@@ -223,12 +226,12 @@ internal sealed class ChartInfoBuildService
         result.ReaderCount = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
         result.QueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.WorkerCount, result.ReaderCount);
         reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
-        logInstallPerformance?.Invoke(BuildStartLogMessage(result, existingRowsLogValue, existingRowsSource, existingRowsStopwatch.ElapsedMilliseconds, targetBuildStopwatch.ElapsedMilliseconds, commitChunkSize, parseTimeout, mode));
+        ReportDiagnosticBestEffort(logInstallPerformance, () => BuildStartLogMessage(result, existingRowsLogValue, existingRowsSource, existingRowsStopwatch.ElapsedMilliseconds, targetBuildStopwatch.ElapsedMilliseconds, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
         {
             stopwatchTotal.Stop();
             result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
-            logInstallPerformance?.Invoke(BuildLogMessage(result));
+            ReportDiagnosticBestEffort(logInstallPerformance, () => BuildLogMessage(result));
             return result;
         }
 
@@ -274,16 +277,32 @@ internal sealed class ChartInfoBuildService
         List<Task> workers = [.. Enumerable.Range(0, result.WorkerCount)
             .Select(_ => Task.Run(delegate
             {
+                ExceptionDispatchInfo parseFailure = null;
                 foreach (QueuedChartBytes item in queue.GetConsumingEnumerable())
                 {
-                    var parseStopwatch = Stopwatch.StartNew();
-                    ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, currentFailures, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
-                    parseStopwatch.Stop();
-                    Interlocked.Add(ref parseTicks, parseStopwatch.ElapsedTicks);
-                    itemResult.ParseMs = parseStopwatch.ElapsedMilliseconds;
-                    itemResult.ByteCount = item.Bytes.LongLength;
-                    itemResults.Add(itemResult);
+                    if (parseFailure != null)
+                    {
+                        // 全workerが停止してもreaderのbounded queue投入を待たせないよう、開始済み入力を排出します。
+                        continue;
+                    }
+                    try
+                    {
+                        var parseStopwatch = Stopwatch.StartNew();
+                        ChartInfoBuildItemResult itemResult = ParseQueuedItem(item, existingRows, currentFailures, logInstallPerformance, logInstallPerformanceWarn, parseTimeout);
+                        parseStopwatch.Stop();
+                        Interlocked.Add(ref parseTicks, parseStopwatch.ElapsedTicks);
+                        itemResult.ParseMs = parseStopwatch.ElapsedMilliseconds;
+                        itemResult.ByteCount = item.Bytes.LongLength;
+                        itemResults.Add(itemResult);
+                    }
+                    catch (Exception ex)
+                    {
+                        parseFailure = ExceptionDispatchInfo.Capture(ex);
+                        ReportDiagnosticBestEffort(logInstallPerformanceWarn,
+                            () => BuildParseFailureLogMessage(item.Target, item.Target.Md5, item.Target.Sha256, ex, "internal_failed"));
+                    }
                 }
+                parseFailure?.Throw();
             }))];
 
         int nextReadIndex = -1;
@@ -309,10 +328,15 @@ internal sealed class ChartInfoBuildService
                         Interlocked.Add(ref fileReadBytes, bytes?.LongLength ?? 0L);
                         queue.Add(new QueuedChartBytes(target, bytes));
                     }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildReadFailureLogMessage(target, ex));
+                        itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
+                    }
                     catch (Exception ex)
                     {
-                        logInstallPerformanceWarn?.Invoke(BuildReadFailureLogMessage(target, ex));
-                        itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
+                        ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildReadFailureLogMessage(target, ex));
+                        throw;
                     }
                 }
             }))];
@@ -351,6 +375,7 @@ internal sealed class ChartInfoBuildService
         catch (Exception ex)
         {
             pipelineException = ex;
+            ReportPipelineFailuresBestEffort(logInstallPerformanceWarn, "result_collection", ex);
         }
         try
         {
@@ -359,18 +384,19 @@ internal sealed class ChartInfoBuildService
         catch (Exception ex)
         {
             pipelineException ??= ex;
+            ReportPipelineFailuresBestEffort(logInstallPerformanceWarn, "commit_writer", ex);
         }
         if (workerException != null)
         {
-            throw workerException;
+            ExceptionDispatchInfo.Capture(workerException).Throw();
         }
         if (readerException != null)
         {
-            throw readerException;
+            ExceptionDispatchInfo.Capture(readerException).Throw();
         }
         if (pipelineException != null)
         {
-            throw pipelineException;
+            ExceptionDispatchInfo.Capture(pipelineException).Throw();
         }
 
         result.ProcessedCount = Volatile.Read(ref processedCount[0]);
@@ -381,7 +407,7 @@ internal sealed class ChartInfoBuildService
         result.ComputeMs = result.ReadMs + result.ParseMs;
         stopwatchTotal.Stop();
         result.TotalMs = stopwatchTotal.ElapsedMilliseconds;
-        logInstallPerformance?.Invoke(BuildLogMessage(result));
+        ReportDiagnosticBestEffort(logInstallPerformance, () => BuildLogMessage(result));
         return result;
     }
 
@@ -445,7 +471,7 @@ internal sealed class ChartInfoBuildService
         }
         EnqueueCommitBuffer(commitChunks, commitBuffer);
         ApplyParseMetrics(result, parseDurations);
-        logInstallPerformance?.Invoke(BuildParseDoneLogMessage(result, parseSucceededCount));
+        ReportDiagnosticBestEffort(logInstallPerformance, () => BuildParseDoneLogMessage(result, parseSucceededCount));
         LogSlowParseRecords(logInstallPerformance, slowParseRecords);
     }
 
@@ -549,7 +575,7 @@ internal sealed class ChartInfoBuildService
         Func<CatalogChartInfoStorageWriteRequest, CatalogChartInfoStorageWriteReceipt> chartInfoChunkWriter)
     {
         int chunkNumber = result.CommitChunks + 1;
-        logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
+        ReportDiagnosticBestEffort(logInstallPerformance, () => BuildCommitStartLogMessage(chunkNumber, commitChunk));
         var stopwatch = Stopwatch.StartNew();
         CatalogChartInfoStorageWriteReceipt receipt = null;
         try
@@ -577,7 +603,7 @@ internal sealed class ChartInfoBuildService
         catch (Exception ex)
         {
             stopwatch.Stop();
-            logInstallPerformanceWarn?.Invoke(BuildCommitFailureLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds, ex));
+            ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildCommitFailureLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds, ex));
             throw;
         }
         stopwatch.Stop();
@@ -600,7 +626,7 @@ internal sealed class ChartInfoBuildService
         }
         if (songProjectionResult.MissingCount > 0)
         {
-            logInstallPerformanceWarn?.Invoke(BuildSongProjectionMissingLogMessage(chunkNumber, songProjectionResult));
+            ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildSongProjectionMissingLogMessage(chunkNumber, songProjectionResult));
         }
         HashSet<Lr2ChartInfoSongProjectionIdentity> matchedSongProjectionIdentities = [.. songProjectionResult
             .MatchedProjections
@@ -634,7 +660,7 @@ internal sealed class ChartInfoBuildService
         }
         result.FailurePersistedCount += commitChunk.ParseFailureRows.Count;
         result.FailureClearedCount += commitChunk.ParseFailureDeleteMd5s.Count;
-        logInstallPerformance?.Invoke(BuildCommitDoneLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds));
+        ReportDiagnosticBestEffort(logInstallPerformance, () => BuildCommitDoneLogMessage(chunkNumber, commitChunk, stopwatch.ElapsedMilliseconds));
     }
 
     private static void ApplyParseMetrics(ChartInfoBackfillResult result, List<long> parseDurations)
@@ -673,7 +699,7 @@ internal sealed class ChartInfoBuildService
             .ThenBy(item => item.Path, StringComparer.OrdinalIgnoreCase)
             .Take(10))
         {
-            logInstallPerformance("chart_info_backfill slow_parse_top"
+            ReportDiagnosticBestEffort(logInstallPerformance, () => "chart_info_backfill slow_parse_top"
                 + " rank=" + rank
                 + " elapsedMs=" + record.ElapsedMs
                 + " status=" + record.Status
@@ -702,7 +728,36 @@ internal sealed class ChartInfoBuildService
             {
                 continue;
             }
-            logInstallPerformance(BuildParseDiagnosticLogMessage(target, md5, sha256, diagnostic));
+            ReportDiagnosticBestEffort(logInstallPerformance, () => BuildParseDiagnosticLogMessage(target, md5, sha256, diagnostic));
+        }
+    }
+
+    private static void ReportDiagnosticBestEffort(Action<string> report, Func<string> createMessage)
+    {
+        if (report == null)
+        {
+            return;
+        }
+        try
+        {
+            report(createMessage());
+        }
+        catch (Exception)
+        {
+            // 診断だけの失敗は解析結果・保存・必須公開を変更せず、この境界で終えます。
+        }
+    }
+
+    private static void ReportPipelineFailuresBestEffort(Action<string> report, string phase, Exception failure)
+    {
+        IEnumerable<Exception> causes = failure is AggregateException aggregate
+            ? aggregate.Flatten().InnerExceptions
+            : [failure];
+        foreach (Exception cause in causes)
+        {
+            ReportDiagnosticBestEffort(report, () => "chart_info_backfill pipeline_failed phase=" + phase
+                + " exception=" + QuoteLogValue(cause.GetType().Name)
+                + " message=" + QuoteLogValue(cause.Message));
         }
     }
 
@@ -958,9 +1013,9 @@ internal sealed class ChartInfoBuildService
             + " message=" + QuoteLogValue(ex?.Message);
     }
 
-    private static string BuildParseFailureLogMessage(ChartInfoBuildTarget target, string md5, string sha256, Exception ex)
+    private static string BuildParseFailureLogMessage(ChartInfoBuildTarget target, string md5, string sha256, Exception ex, string failureKind = "parse_failed")
     {
-        return "chart_info_backfill parse_failed"
+        return "chart_info_backfill " + failureKind
             + " path=" + QuoteLogValue(target?.Path)
             + " md5=" + QuoteLogValue(md5)
             + " sha256=" + QuoteLogValue(sha256)

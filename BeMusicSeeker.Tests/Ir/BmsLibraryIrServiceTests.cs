@@ -1179,6 +1179,59 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), result[0].lastupdate);
     }
 
+    /// <summary>混在応答の有効行と型を保ち、大量の不正行は一回・最大5理由の診断へ集約する。</summary>
+    [TestMethod]
+    public void ParseRankingInfoResponse_BoundsSkippedRowDiagnostics()
+    {
+        var response = new JArray
+        {
+            new JObject { ["md5"] = new string('a', 32), ["size"] = 1.0, ["lastupdate"] = "2026-04-08 12:00:00" },
+            new JObject { ["md5"] = "bad", ["size"] = 1, ["lastupdate"] = "2026-04-08 12:00:00" },
+            new JObject { ["md5"] = new string('b', 32), ["size"] = "bad", ["lastupdate"] = "2026-04-08 12:00:00" },
+            new JObject { ["md5"] = new string('c', 32), ["size"] = 1, ["lastupdate"] = "bad" },
+            new JObject { ["md5"] = new string('d', 32), ["size"] = long.MaxValue, ["lastupdate"] = "2026-04-08 12:00:00" },
+            new JObject()
+        };
+        for (int index = 0; index < 100; index++) { response.Add(JValue.CreateNull()); }
+        List<string> messages = [];
+
+        List<BMSLibrary.IRDataCacheInfo> rows = BmsLibraryIrClient.ParseRankingInfoResponse(response.ToString(), messages.Add);
+
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreEqual(new string('a', 32), rows[0].md5);
+        Assert.AreEqual(1, rows[0].size);
+        Assert.AreEqual(new DateTime(2026, 4, 8, 12, 0, 0), rows[0].lastupdate);
+        Assert.AreEqual(1, messages.Count);
+        StringAssert.Contains(messages[0], "skipped_rows=105");
+        StringAssert.Contains(messages[0], "accepted_rows=1");
+        Assert.AreEqual(5, messages[0].Split("reasons=")[1].Split('|').Length);
+        Assert.IsTrue(messages[0].Length < 512);
+    }
+
+    /// <summary>空・全不正・部分応答は有効行だけの一覧を返し、診断先の故障でも失敗へ変えず既存cacheを削除しない。</summary>
+    [DataTestMethod]
+    [DataRow("[]", 0)]
+    [DataRow("[null,{}]", 0)]
+    [DataRow("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"size\":1,\"lastupdate\":\"2026-04-08 12:00:00\"},null]", 1)]
+    public void ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache(string response, int expectedCount)
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        string cachedMd5 = new('f', 32);
+        gateway.UpsertIrData([new LR2IRData(cachedMd5) { lr2id = 123, lastupdate = new DateTime(2026, 1, 1) }]);
+        int diagnostics = 0;
+
+        List<BMSLibrary.IRDataCacheInfo> rows = BmsLibraryIrClient.ParseRankingInfoResponse(response,
+            _ => { diagnostics++; throw new InvalidOperationException("diagnostic sink failed"); });
+        List<BMSLibrary.IRDataCacheInfo> updates = new BmsLibraryIrService().GetIRDataNeedUpdatesFromRankingInfo(123, rows, gateway);
+
+        Assert.AreEqual(expectedCount, rows.Count);
+        Assert.AreEqual(expectedCount, updates.Count);
+        Assert.AreEqual(response == "[]" ? 0 : 1, diagnostics);
+        using var verify = new LR2SongDBExtended(env.SongDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+        Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM ir_data WHERE hash = ?;", cachedMd5));
+    }
+
     /// <summary>
     /// 配列の後に別JSON文書が続く入力は解析失敗とし、先頭だけを成功採用しない。
     /// </summary>

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,6 +73,9 @@ internal sealed class Lr2SongDbSyncRequest
     public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> ChartInfoResolver { get; init; }
 
     public bool ChartInfoResolverIsThreadSafe { get; init; }
+
+    /// <summary>この同期要求だけの詳細解析依存です。省略時は既存の共通解析サービスを使い、操作内で一度だけ解決します。</summary>
+    public ChartInfoBuildService ChartInfoBuildService { get; init; }
 
     public TimeSpan? ChartInfoParseTimeout { get; set; }
 
@@ -180,6 +184,7 @@ internal static class Lr2SongDbSyncService
     /// <summary>
     /// 完全なfolder投影の一括保存と既存のsong保存を実行し、実処理の段階・件数を通知します。
     /// 保存済みカーソルは観測用に維持し、準備の進捗や表示排出を同期成功の条件にしません。
+    /// reader/workerの故障は操作内の待機を直ちに停止し、全開始Taskと完了処理の終端後に元原因とstackを返します。
     /// </summary>
     internal static Lr2SongDbSyncResult Run(
         LR2SongDBExtended songDb,
@@ -1010,6 +1015,7 @@ internal static class Lr2SongDbSyncService
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
         BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+        ChartInfoBuildService effectiveChartInfoBuildService = request?.ChartInfoBuildService ?? chartInfoBuildService;
         const int songRowSyncChunkSize = 1000;
         int processorCount = Environment.ProcessorCount;
         int workerDegree = ResolveSongRowSyncWorkerDegree(processorCount);
@@ -1097,6 +1103,23 @@ internal static class Lr2SongDbSyncService
             ? request?.CommittedBmsPaths
             : null;
         int committedBmsPathCount = committedBmsPaths?.Count ?? 0;
+        void SignalPipelineFault(Exception failure)
+        {
+            Exception cause = UnwrapPipelineException(failure);
+            bool firstFault = Interlocked.CompareExchange(ref pipelineException, cause, null) == null;
+            // 欠番の発生時点で全待機を起こします。順序回収から故障を発見するまで待つと、
+            // ordering windowを使い切った後続とreader/workerが循環待ちになります。
+            Volatile.Write(ref writerFailed, 1);
+            pipelineCancellationSource.Cancel();
+            TryCompleteAdding(readQueue);
+            TryCompleteAdding(computedQueue);
+            if (firstFault)
+            {
+                LogSync(request, "lr2_song_db_sync pipeline_failed stage=song_rows exception="
+                    + cause.GetType().Name + " message=" + cause.Message);
+            }
+        }
+
         LogSync(request, "lr2_song_db_sync pipeline_start"
             + " stage=song_rows"
             + " startIndex=" + safeStartIndex
@@ -1375,55 +1398,63 @@ internal static class Lr2SongDbSyncService
         Task[] readerTasks = [.. Enumerable.Range(0, readerDegree)
             .Select(_ => Task.Run(delegate
             {
-                while (true)
+                try
                 {
-                    if (Volatile.Read(ref writerFailed) != 0)
+                    while (true)
                     {
-                        break;
-                    }
-
-                    bool windowSlotAcquired = false;
-                    bool windowSlotTransferred = false;
-                    try
-                    {
-                        // 採番を先に行うと、後続の結果だけで枠が埋まり、先頭の読み手と
-                        // 順序回収を待つ書き手が循環待ちになる。採番済みの項目には必ず枠を持たせる。
-                        orderingWindow.Wait(pipelineToken);
-                        windowSlotAcquired = true;
                         if (Volatile.Read(ref writerFailed) != 0)
                         {
                             break;
                         }
 
-                        cancellationToken.ThrowIfCancellationRequested();
-                        int index = Interlocked.Increment(ref nextReadIndex);
-                        if (index >= targetRows.Count)
+                        bool windowSlotAcquired = false;
+                        bool windowSlotTransferred = false;
+                        try
                         {
-                            // 末尾の確認用に取得した枠も finally で返す。
+                            // 採番を先に行うと、後続の結果だけで枠が埋まり、先頭の読み手と
+                            // 順序回収を待つ書き手が循環待ちになる。採番済みの項目には必ず枠を持たせる。
+                            orderingWindow.Wait(pipelineToken);
+                            windowSlotAcquired = true;
+                            if (Volatile.Read(ref writerFailed) != 0)
+                            {
+                                break;
+                            }
+
+                            cancellationToken.ThrowIfCancellationRequested();
+                            int index = Interlocked.Increment(ref nextReadIndex);
+                            if (index >= targetRows.Count)
+                            {
+                                // 末尾の確認用に取得した枠も finally で返す。
+                                break;
+                            }
+
+                            SongRowSyncReadCandidate candidate = ShouldSkipCommittedBmsPath(targetRows[index], committedBmsPaths)
+                                ? SongRowSyncReadCandidate.CreateCommittedPathSkipped(index, targetRows[index])
+                                : ReadSyncSongRowCandidate(
+                                    index,
+                                    targetRows[index],
+                                    request?.ChartFileBufferReader ?? ChartFileContentReader.ReadBuffer);
+                            AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
+                            windowSlotTransferred = true;
+                            UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
+                        }
+                        catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
+                        {
                             break;
                         }
-
-                        SongRowSyncReadCandidate candidate = ShouldSkipCommittedBmsPath(targetRows[index], committedBmsPaths)
-                            ? SongRowSyncReadCandidate.CreateCommittedPathSkipped(index, targetRows[index])
-                            : ReadSyncSongRowCandidate(
-                                index,
-                                targetRows[index],
-                                request?.ChartFileBufferReader ?? ChartFileContentReader.ReadBuffer);
-                        AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
-                        windowSlotTransferred = true;
-                        UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
-                    }
-                    catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
-                    {
-                        break;
-                    }
-                    finally
-                    {
-                        if (windowSlotAcquired && !windowSlotTransferred)
+                        finally
                         {
-                            orderingWindow.Release();
+                            if (windowSlotAcquired && !windowSlotTransferred)
+                            {
+                                orderingWindow.Release();
+                            }
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    SignalPipelineFault(ex);
+                    throw;
                 }
             }))];
         Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => TryCompleteAdding(readQueue));
@@ -1431,33 +1462,42 @@ internal static class Lr2SongDbSyncService
         Task[] workerTasks = [.. Enumerable.Range(0, workerDegree)
             .Select(_ => Task.Run(delegate
             {
-                foreach (SongRowSyncReadCandidate candidate in readQueue.GetConsumingEnumerable(pipelineToken))
+                try
                 {
-                    if (Volatile.Read(ref writerFailed) != 0)
+                    foreach (SongRowSyncReadCandidate candidate in readQueue.GetConsumingEnumerable(pipelineToken))
                     {
-                        break;
+                        if (Volatile.Read(ref writerFailed) != 0)
+                        {
+                            break;
+                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        SongRowSyncComputedItem item = CreateSyncSongRowItem(
+                            candidate,
+                            textFileDirectories,
+                            chartInfoResolver,
+                            CacheGeneratedChartInfo,
+                            request?.ChartInfoParseTimeout,
+                            request?.CurrentChartInfoParseFailureMd5s,
+                            LogChartInfoEvaluation,
+                            LogChartInfoEvaluation,
+                            effectiveChartInfoBuildService);
+                        int evaluatedStageProcessed = Interlocked.Increment(ref evaluatedStageProcessedCount);
+                        ReportSongRowsWorkerProgress(evaluatedStageProcessed);
+                        try
+                        {
+                            AddWithWait(computedQueue, item, ref workerOutputWaitTicks, pipelineToken);
+                            UpdateHighWatermark(ref computedQueueHighWatermark, computedQueue.Count);
+                        }
+                        catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
+                        {
+                            break;
+                        }
                     }
-                    cancellationToken.ThrowIfCancellationRequested();
-                    SongRowSyncComputedItem item = CreateSyncSongRowItem(
-                        candidate,
-                        textFileDirectories,
-                        chartInfoResolver,
-                        CacheGeneratedChartInfo,
-                        request?.ChartInfoParseTimeout,
-                        request?.CurrentChartInfoParseFailureMd5s,
-                        LogChartInfoEvaluation,
-                        LogChartInfoEvaluation);
-                    int evaluatedStageProcessed = Interlocked.Increment(ref evaluatedStageProcessedCount);
-                    ReportSongRowsWorkerProgress(evaluatedStageProcessed);
-                    try
-                    {
-                        AddWithWait(computedQueue, item, ref workerOutputWaitTicks, pipelineToken);
-                        UpdateHighWatermark(ref computedQueueHighWatermark, computedQueue.Count);
-                    }
-                    catch (InvalidOperationException) when (Volatile.Read(ref writerFailed) != 0)
-                    {
-                        break;
-                    }
+                }
+                catch (Exception ex)
+                {
+                    SignalPipelineFault(ex);
+                    throw;
                 }
             }))];
         Task workerCompletionTask = Task.WhenAll(workerTasks).ContinueWith(_ => TryCompleteAdding(computedQueue));
@@ -1489,30 +1529,20 @@ internal static class Lr2SongDbSyncService
         }
         catch (Exception ex)
         {
-            pipelineException = UnwrapPipelineException(ex);
-            Volatile.Write(ref writerFailed, 1);
-            pipelineCancellationSource.Cancel();
-            TryCompleteAdding(readQueue);
-            TryCompleteAdding(computedQueue);
+            SignalPipelineFault(ex);
         }
 
-        try
+        // 完了continuationも独立して待ち、先行Taskの故障で待機を飛ばしません。
+        foreach (Task task in readerTasks.Concat(workerTasks).Append(readerCompletionTask).Append(workerCompletionTask))
         {
-            Task.WaitAll(readerTasks);
-            readerCompletionTask.Wait();
-        }
-        catch (AggregateException ex)
-        {
-            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
-        }
-        try
-        {
-            Task.WaitAll(workerTasks);
-            workerCompletionTask.Wait();
-        }
-        catch (AggregateException ex)
-        {
-            pipelineException ??= ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
+            try
+            {
+                task.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                SignalPipelineFault(ex);
+            }
         }
 
         if (pipelineException != null)
@@ -1535,7 +1565,7 @@ internal static class Lr2SongDbSyncService
                 stage: "song_rows",
                 error: pipelineException.Message,
                 nowUtc: DateTime.UtcNow);
-            throw pipelineException;
+            ExceptionDispatchInfo.Capture(pipelineException).Throw();
         }
 
         LogSync(request, "lr2_song_db_sync pipeline_done"
@@ -1749,7 +1779,8 @@ internal static class Lr2SongDbSyncService
         TimeSpan? chartInfoParseTimeout,
         ISet<string> currentChartInfoParseFailureMd5s,
         Action<string> logInstallPerformance,
-        Action<string> logInstallPerformanceWarn)
+        Action<string> logInstallPerformanceWarn,
+        ChartInfoBuildService effectiveChartInfoBuildService)
     {
         if (candidate?.CommittedPathSkipped == true)
         {
@@ -1780,7 +1811,7 @@ internal static class Lr2SongDbSyncService
                 candidate,
                 snapshot,
                 currentChartInfoParseFailureMd5s);
-            ChartInfoBuildService.ChartInfoSnapshotBuildResult snapshotResult = chartInfoBuildService.EvaluateSnapshot(
+            ChartInfoBuildService.ChartInfoSnapshotBuildResult snapshotResult = effectiveChartInfoBuildService.EvaluateSnapshot(
                 snapshot,
                 target,
                 currentRow,

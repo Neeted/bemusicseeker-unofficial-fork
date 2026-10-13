@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1565,6 +1566,106 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.AreEqual(1, summary.StaleChartInfoOwnerCount);
             Assert.AreEqual(2, summary.CandidateOwnerCount);
         });
+    }
+
+    /// <summary>実snapshotの解析境界に内部/資源故障を注入し、永続失敗結果へ変換せず元の発生stackで伝播する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartInfoSnapshotEvaluator_InternalFaultPropagatesWithoutPersistentFailure(bool resourceFailure)
+    {
+        string md5 = new('a', 32);
+        string sha256 = new('b', 64);
+        ChartFile file = ChartTestValues.Empty() with { Path = "valid.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, Encoding.ASCII.GetBytes("#BPM 120\r\n#00111:01\r\n"), DateTime.UtcNow, md5, sha256);
+        var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => ThrowSnapshotParserFault(resourceFailure));
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult? result = null;
+
+        Exception failure = resourceFailure
+            ? Assert.ThrowsException<OutOfMemoryException>(() => result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false))
+            : Assert.ThrowsException<InvalidOperationException>(() => result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false));
+
+        Assert.IsNull(result);
+        Assert.IsNotNull(failure.StackTrace);
+        StringAssert.Contains(failure.StackTrace, nameof(ThrowSnapshotParserFault));
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static ChartInfoParser.ChartInfoParseResult ThrowSnapshotParserFault(bool resourceFailure)
+    {
+        if (resourceFailure) { throw new OutOfMemoryException("injected resource fault"); }
+        throw new InvalidOperationException("injected internal fault");
+    }
+
+    /// <summary>実snapshotの成功診断が入力失敗型を投げても、成功行と失敗履歴削除の事実を保つことを確かめる。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_DiagnosticFailurePreservesSuccessfulRow()
+    {
+        string md5 = new('a', 32);
+        string sha256 = new('b', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("#BPM 1\r\n#STOP01 90000\r\n#00009:"
+            + string.Concat(Enumerable.Repeat("01", 40)) + "\r\n#00111:01\r\n");
+        ChartFile file = ChartTestValues.Empty() with { Path = "diagnostic.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        int diagnostics = 0;
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false,
+            logInstallPerformance: _ => { diagnostics++; throw new InvalidDataException("diagnostic sink failed"); });
+
+        Assert.AreEqual(1, diagnostics);
+        Assert.IsNotNull(result.Row);
+        Assert.IsTrue(result.ShouldPersistRow);
+        Assert.IsFalse(result.ParseFailed);
+        Assert.IsNull(result.ParseFailureRow);
+        Assert.AreEqual(md5, result.ParseFailureDeleteMd5);
+    }
+
+    /// <summary>入力解析失敗と期限切れを実snapshotで発生させ、警告先の故障で元の失敗分類・永続行を失わないことを確かめる。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartInfoSnapshotEvaluator_WarningFailurePreservesInputFailure(bool timeout)
+    {
+        string md5 = new('c', 32);
+        string sha256 = new('d', 64);
+        byte[] bytes = Encoding.ASCII.GetBytes("#PLAYER 1\r\n#00111:01\r\n");
+        ChartFile file = ChartTestValues.Empty() with { Path = "invalid.bms", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+        int warnings = 0;
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false,
+            parseTimeout: timeout ? TimeSpan.Zero : TimeSpan.FromSeconds(60),
+            logInstallPerformanceWarn: _ => { warnings++; throw new InvalidOperationException("warning sink failed"); });
+
+        Assert.AreEqual(1, warnings);
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsNull(result.Row);
+        Assert.IsNotNull(result.ParseFailureRow);
+        Assert.AreEqual(timeout, result.TimeoutFailed);
+        Assert.AreEqual(timeout ? "timeout" : "parse_failed", result.ParseFailureRow.failure_kind);
+        Assert.AreEqual(timeout ? "ChartInfoParseTimeoutException" : "InvalidDataException", result.ParseFailureRow.exception_type);
+        Assert.AreEqual(md5, result.ParseFailureRow.md5);
+    }
+
+    /// <summary>BMSONの整数範囲外入力を数値変換の局所境界で形式失敗にし、内部故障と区別して永続失敗を生成する。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_BmsonNumericInputFailureRemainsPersistent()
+    {
+        string md5 = new('e', 32);
+        string sha256 = new('f', 64);
+        byte[] bytes = Encoding.UTF8.GetBytes("{\"info\":{\"level\":9223372036854775807}}");
+        ChartFile file = ChartTestValues.Empty() with { Path = "invalid.bmson", Md5 = md5, Sha256 = sha256 };
+        var snapshot = new ChartFileSnapshot(file.Path, bytes, DateTime.UtcNow, md5, sha256);
+
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = new ChartInfoBuildService().EvaluateSnapshot(
+            snapshot, ChartInfoBuildTargetMapper.Create(file), null, hasCurrentParseFailure: false);
+
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.TimeoutFailed);
+        Assert.IsNotNull(result.ParseFailureRow);
+        Assert.AreEqual("JsonSerializationException", result.ParseFailureRow.exception_type);
     }
 
     private static TargetedFailureQueryRun ExecuteTargetedFailureQueryCase(int backgroundCount)
