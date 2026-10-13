@@ -106,6 +106,8 @@ sequenceDiagram
 
 再起動先の起動成功が更新の確定点です。ZIP・展開領域の後片付けは再起動前に試み、失敗は警告として次回起動へ引き継ぎます。再起動後に更新ツールが同じ一時領域を並行して掃除しません。
 
+ZIPと展開先の一時物回収は独立して試み、一方の削除失敗で他方を放棄しません。これは一時物に限る扱いであり、復元用backup・ジャーナル・回復登録の退役順序を変更しません。再起動直後は属性取得でZIP・展開先の欠損を確認した場合だけ、backup・ジャーナル・回復登録を既存順序で退役します。親終了を監視するwatchdogも同じ条件に従います。Restartingでも再起動PIDまたは既存の実行ファイル一致で起動を証明できれば、先にCommittedを保存します。残存、型違い、読取り不能では確定済みジャーナル・backup・回復登録を保持し、後日の回復所有者が一時物から整理します。削除原因と対象pathを診断しますが、stderr出力や原因の文字列化の失敗を、更新・再起動・実復元の成否へ加えません。終了コードと失敗receiptの保存試行も診断の成否から独立させます。
+
 #### 更新の確定点と復元
 
 図は通常の更新適用で、本体変更の有無と復元が必要になる境界を示します。矢印は次の段階へ進む条件です。ライブラリ変更の補償とは別契約であり、ここでは再起動先の `Process.Start` 成功が更新確定点です。中断後のジャーナル回復は次節に従います。
@@ -137,7 +139,7 @@ flowchart TB
 update_work/current/BeMusicSeeker.Updater.exe --recover --app-dir <app-dir>
 ```
 
-`RunOnce` 名は `!` と再試行世代を含みます。回復開始時に次の世代を登録し、排他の競合、復元失敗、回復自体の中断後も次回ログオンで要求を受け取れるようにします。取消・更新確定・回復完了時だけ、そのアプリディレクトリのハッシュに対応する登録をすべて解除します。
+`RunOnce` 名は `!` と再試行世代を含みます。回復開始時に次の世代を登録し、排他の競合、復元失敗、回復自体の中断後も次回ログオンで要求を受け取れるようにします。取消または回復完了時、更新確定後に所有する一時物・backup・ジャーナルの退役が完了した時だけ、そのアプリディレクトリのハッシュに対応する登録をすべて解除します。
 
 復元完了は `rolled-back` として保存し、旧アプリの起動成功後に退避・ジャーナルを整理します。後片付け中断で復元を繰り返しません。起動成功後に `Restarting` へ記録された正のPIDは確定の証拠として扱い、PIDがない未確定区間だけ実行ファイルの同一性で判定します。同じアプリが生存している場合は本体を変更せず、終了コード2と回復要求を残します。回復開始時に登録した次世代の要求をそのまま保持し、生存による延期だけでは重ねて登録しません。
 
@@ -154,6 +156,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../BeMusicSeeker.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`](../../../BeMusicSeeker.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 配布境界・管理ファイル・巻き戻し | [更新ツール](../../../BeMusicSeeker.Updater) | [`UpdaterDeploymentBoundaryTests`](../../../BeMusicSeeker.Tests/Update/UpdaterDeploymentBoundaryTests.cs)、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) |
+| 一時物回収・任意診断の分離 | `Program.ApplyUpdate`、`TryCleanupTemporaryUpdateArtifacts`、`WriteDiagnosticBestEffort` | `UpdaterPackageSyncTests.ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure` が再起動前の回収順と元起動失敗・旧版復元を、`ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication` が実再起動と新版・残留journalの保持、削除可能なZIPをwatchdogが保持して後続の明示回復だけが退役することを確認します。既存の配布プロセス検証とrollback二次故障の回復材料保持は継続します。 |
 
 ## 関連資料
 

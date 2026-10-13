@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1173,7 +1174,204 @@ public sealed class UpdaterPackageSyncTests
             Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             Assert.IsTrue(File.Exists(packagePath), "The package remains available when post-restart cleanup cannot delete it.");
             Assert.IsTrue(File.Exists(restartMarkerPath), "The updated restart target must be started before cleanup.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(appDirectoryPath, "update_work", "extracted")));
+            using var journal = JsonDocument.Parse(File.ReadAllText(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")));
+            Assert.AreEqual("committed", journal.RootElement.GetProperty("Phase").GetString());
         });
+    }
+
+    /// <summary>ZIP削除と任意stderr診断が失敗しても展開先を再起動前に回収し、実起動失敗の原因と旧版への復元を保持します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure(bool diagnosticFails)
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            (string appDirectory, string packagePath, string backupDirectory) = PrepareCleanupFailurePackage(tempDirectoryPath);
+            (Type program, object request) = PrepareManagedUpdate(appDirectory, packagePath, backupDirectory);
+            string extractDirectory = Path.Combine(appDirectory, "update_work", "extracted");
+            string? observedRestartPath = null;
+            string? observedAppliedContents = null;
+            bool extractRemovedBeforeRestart = false;
+            bool packageRetainedBeforeRestart = false;
+            Func<ProcessStartInfo, Process> startApplication = startInfo =>
+            {
+                observedRestartPath = startInfo.FileName;
+                observedAppliedContents = File.ReadAllText(Path.Combine(appDirectory, "BeMusicSeeker.exe"));
+                extractRemovedBeforeRestart = !Directory.Exists(extractDirectory);
+                packageRetainedBeforeRestart = File.Exists(packagePath);
+                return ThrowRestartLaunchFailure();
+            };
+            using FileStream packageLock = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            TextWriter originalError = Console.Error;
+            var diagnosticWriter = new ThrowingDiagnosticWriter();
+            TargetInvocationException failure;
+            try
+            {
+                if (diagnosticFails)
+                {
+                    Console.SetError(diagnosticWriter);
+                }
+                failure = Assert.ThrowsException<TargetInvocationException>(() =>
+                    program.GetMethod("ApplyUpdate", BindingFlags.NonPublic | BindingFlags.Static)!
+                        .Invoke(null, [request, startApplication]));
+            }
+            finally
+            {
+                Console.SetError(originalError);
+            }
+
+            Assert.AreEqual(Path.Combine(appDirectory, "restart.exe"), observedRestartPath);
+            Assert.AreEqual("new-app", observedAppliedContents);
+            Assert.IsTrue(extractRemovedBeforeRestart, "The second cleanup must run before attempting restart even when ZIP deletion fails.");
+            Assert.IsTrue(packageRetainedBeforeRestart);
+            Assert.IsInstanceOfType<Win32Exception>(failure.InnerException);
+            Assert.AreEqual("Injected restart launch failure.", failure.InnerException.Message);
+            StringAssert.Contains(failure.InnerException.StackTrace, nameof(ThrowRestartLaunchFailure));
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectory, "BeMusicSeeker.exe")));
+            Assert.IsFalse(Directory.Exists(extractDirectory));
+            Assert.IsTrue(File.Exists(packagePath));
+            if (diagnosticFails)
+            {
+                Assert.IsTrue(diagnosticWriter.WriteAttempts > 0);
+            }
+        });
+    }
+
+    /// <summary>実再起動後の診断故障や監視者の起動でも新版と回復資料を保ち、次回の明示回復だけが残留一時物を退役します。</summary>
+    /// <remarks>実再起動のPIDを持つ確定済み・確定保存直前の両journalを使い、全processとアプリ固有登録を所有scopeで回収します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication(bool restarting)
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            (string appDirectory, string packagePath, string backupDirectory) = PrepareCleanupFailurePackage(tempDirectoryPath);
+            (Type program, object request) = PrepareManagedUpdate(appDirectory, packagePath, backupDirectory);
+            string extractDirectory = Path.Combine(appDirectory, "update_work", "extracted");
+            bool extractRemovedBeforeRestart = false;
+            bool packageRetainedBeforeRestart = false;
+            int diagnosticAttemptsBeforeRestart = 0;
+            var diagnosticWriter = new ThrowingDiagnosticWriter();
+            using FileStream packageLock = new(packagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            string? observedRestartPath = null;
+            OwnedProcess? restartedProcess = null;
+            int restartedProcessId = 0;
+            Func<ProcessStartInfo, Process> startApplication = startInfo =>
+            {
+                observedRestartPath = startInfo.FileName;
+                extractRemovedBeforeRestart = !Directory.Exists(extractDirectory);
+                packageRetainedBeforeRestart = File.Exists(packagePath);
+                diagnosticAttemptsBeforeRestart = diagnosticWriter.WriteAttempts;
+                packageLock.Dispose();
+                startInfo.UseShellExecute = false;
+                startInfo.RedirectStandardOutput = true;
+                startInfo.RedirectStandardError = true;
+                startInfo.CreateNoWindow = true;
+                restartedProcess = StartOwnedProcess(startInfo, useExecutionGate: true);
+                restartedProcessId = restartedProcess.BorrowedProcess.Id;
+                return restartedProcess.BorrowedProcess;
+            };
+            TextWriter originalError = Console.Error;
+            try
+            {
+                Console.SetError(diagnosticWriter);
+                program.GetMethod("ApplyUpdate", BindingFlags.NonPublic | BindingFlags.Static)!
+                    .Invoke(null, [request, startApplication]);
+            }
+            finally
+            {
+                Console.SetError(originalError);
+            }
+
+            Assert.IsNotNull(restartedProcess);
+            restartedProcess.WaitForExitAndChildren();
+            Assert.AreEqual(0, restartedProcess.ExitCode);
+            Assert.AreEqual(Path.Combine(appDirectory, "restart.exe"), observedRestartPath);
+            Assert.IsTrue(extractRemovedBeforeRestart);
+            Assert.IsTrue(packageRetainedBeforeRestart);
+            Assert.AreEqual("restarted", File.ReadAllText(Path.Combine(appDirectory, "restart.marker")));
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectory, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(extractDirectory));
+            using var journal = JsonDocument.Parse(File.ReadAllText(Path.Combine(appDirectory, "update_work", "update-transaction.json")));
+            Assert.AreEqual("committed", journal.RootElement.GetProperty("Phase").GetString());
+            Assert.IsTrue(Directory.Exists(backupDirectory), "Residual temporary artifacts must keep the backup together with the committed journal.");
+            Assert.IsTrue(diagnosticWriter.WriteAttempts > diagnosticAttemptsBeforeRestart,
+                "The test must reach the post-restart diagnostic failure, not only the earlier ZIP cleanup warning.");
+            Assert.AreEqual(restartedProcessId, journal.RootElement.GetProperty("RestartProcessId").GetInt32());
+            string journalPath = Path.Combine(appDirectory, "update_work", "update-transaction.json");
+            if (restarting)
+            {
+                JsonNode interruptedJournal = JsonNode.Parse(File.ReadAllText(journalPath))!;
+                interruptedJournal["Phase"] = "restarting";
+                File.WriteAllText(journalPath, interruptedJournal.ToJsonString());
+            }
+            using (File.Open(packagePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                // 監視者が削除できる実状態で後追い削除を検出します。
+            }
+            RunUpdaterWatchdogRecovery(appDirectory);
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectory, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsTrue(Directory.Exists(backupDirectory));
+            using var retainedJournal = JsonDocument.Parse(File.ReadAllText(journalPath));
+            Assert.AreEqual("committed", retainedJournal.RootElement.GetProperty("Phase").GetString());
+            Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectory).Count);
+            Assert.AreEqual(1, GetRecoverySupervisorValues(appDirectory).Count);
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectory, "update_work", "update-failure.txt")));
+
+            RunUpdaterRecovery(appDirectory);
+            Assert.IsFalse(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(extractDirectory));
+            Assert.IsFalse(Directory.Exists(backupDirectory));
+            Assert.IsFalse(File.Exists(journalPath));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectory).Count);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectory).Count);
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectory, "BeMusicSeeker.exe")));
+
+        });
+    }
+
+    /// <summary>一時物回収の実障害を再起動前後で観測する小さな実packageを作成します。</summary>
+    private static (string AppDirectory, string PackagePath, string BackupDirectory) PrepareCleanupFailurePackage(string tempDirectory)
+    {
+        string appDirectory = Path.Combine(tempDirectory, "app");
+        string sourceDirectory = Path.Combine(tempDirectory, "package-source");
+        string packagePath = Path.Combine(appDirectory, "update_work", "downloads", "package.zip");
+        string backupDirectory = Path.Combine(appDirectory, "update_backup");
+        string managedPaths = string.Join(Environment.NewLine, new[] { "BeMusicSeeker.exe", "restart.exe", "restart.json" });
+        WriteTextFile(appDirectory, "BeMusicSeeker.exe", "old-app");
+        CopyRestartExecutable(appDirectory, "old.marker", "old");
+        WriteTextFile(appDirectory, "update-managed-files.txt", managedPaths);
+        WriteTextFile(sourceDirectory, "BeMusicSeeker.exe", "new-app");
+        CopyRestartExecutable(sourceDirectory, "restart.marker", "restarted");
+        WriteTextFile(sourceDirectory, "update-managed-files.txt", managedPaths);
+        ZipFile.CreateFromDirectory(sourceDirectory, packagePath);
+        return (appDirectory, packagePath, backupDirectory);
+    }
+
+    private static Process ThrowRestartLaunchFailure()
+    {
+        throw new Win32Exception(5, "Injected restart launch failure.");
+    }
+
+    /// <summary>診断先だけを故障させ、更新や復元の実処理は置換しません。</summary>
+    private sealed class ThrowingDiagnosticWriter : TextWriter
+    {
+        public override Encoding Encoding => Encoding.UTF8;
+
+        internal int WriteAttempts { get; private set; }
+
+        public override void WriteLine(string? value)
+        {
+            WriteAttempts++;
+            throw new IOException("Injected stderr failure.");
+        }
     }
 
     /// <summary>
@@ -1493,7 +1691,8 @@ public sealed class UpdaterPackageSyncTests
         });
     }
 
-    private void ApplyUpdateExpectRestartFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    /// <summary>managed更新境界へ実要求と本番準備済みjournalを渡します。</summary>
+    private (Type Program, object Request) PrepareManagedUpdate(string appDirectoryPath, string packagePath, string backupDirectoryPath)
     {
         // The published updater is NativeAOT. Use its managed build for this
         // in-process failure boundary; the remaining process tests use the
@@ -1520,6 +1719,13 @@ public sealed class UpdaterPackageSyncTests
         program.GetMethod("PrepareFullTransactionJournal", BindingFlags.NonPublic | BindingFlags.Static)!
             .Invoke(null, [request]);
 
+        return (program, request);
+    }
+
+    private void ApplyUpdateExpectRestartFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath)
+    {
+        (Type program, object request) = PrepareManagedUpdate(appDirectoryPath, packagePath, backupDirectoryPath);
+        string restartPath = Path.Combine(appDirectoryPath, "restart.exe");
         bool restartAttempted = false;
         var startFailure = new Win32Exception(5, "Injected restart launch failure.");
         Func<ProcessStartInfo, Process> startApplication = startInfo =>
@@ -1851,6 +2057,9 @@ public sealed class UpdaterPackageSyncTests
         }
 
         internal string Description => process.StartInfo.FileName;
+        /// <summary>既存の開始callbackへ借用し、所有と回収はこのscopeに残す実プロセスです。</summary>
+        internal Process BorrowedProcess => process;
+
         internal int Id => process.Id;
         internal bool HasExited => process.HasExited;
         internal int ExitCode => process.ExitCode;

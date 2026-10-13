@@ -169,7 +169,7 @@ internal static partial class Program
         }
         catch (TransactionRecoveryDeferredException exception)
         {
-            Console.Error.WriteLine(exception.Message);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 2;
         }
         catch (Exception ex)
@@ -182,7 +182,7 @@ internal static partial class Program
                     TryWriteFailureReceipt(request, ex);
                 }
             }
-            Console.Error.WriteLine(ex);
+            WriteDiagnosticBestEffort(string.Empty, ex);
             return 1;
         }
     }
@@ -213,7 +213,7 @@ internal static partial class Program
         {
             TryWriteFailureReceipt(appDirectory, exception);
             TryRearmRecoveryStartup(appDirectory);
-            Console.Error.WriteLine(exception);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 1;
         }
     }
@@ -500,15 +500,10 @@ internal static partial class Program
             journal.Phase = TransactionPhase.Applied;
             WriteTransactionJournal(journal);
 
-            try
-            {
-                SafeDeleteFile(packagePath);
-                SafeDeleteDirectory(extractDirectory);
-            }
-            catch (Exception cleanupException)
-            {
-                Console.Error.WriteLine("The update was applied, but temporary cleanup before restart failed; the restarted application will retry it: " + cleanupException);
-            }
+            TryCleanupTemporaryUpdateArtifacts(
+                packagePath,
+                extractDirectory,
+                "The update was applied, but temporary cleanup before restart failed; the restarted application will retry it.");
 
             journal.Phase = TransactionPhase.Restarting;
             journal.RestartProcessId = -1;
@@ -530,11 +525,11 @@ internal static partial class Program
                 WriteTransactionJournal(journal);
                 journal.Phase = TransactionPhase.Committed;
                 WriteTransactionJournal(journal);
-                TryCleanupCommittedTransactionArtifacts(journal);
+                TryCleanupCommittedTransactionArtifacts(journal, requireTemporaryArtifactsAbsent: true);
             }
             catch (Exception cleanupException)
             {
-                Console.Error.WriteLine("The update restarted successfully, but durable transaction cleanup will be retried on the next updater startup: " + cleanupException);
+                WriteDiagnosticBestEffort("The update restarted successfully, but durable transaction cleanup will be retried on the next updater startup: ", cleanupException);
             }
         }
         catch (Exception updateException)
@@ -661,7 +656,7 @@ internal static partial class Program
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine("The updater could not re-arm its recovery RunOnce handoff: " + exception);
+            WriteDiagnosticBestEffort("The updater could not re-arm its recovery RunOnce handoff: ", exception);
         }
     }
 
@@ -698,7 +693,7 @@ internal static partial class Program
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine("The updater could not clear its recovery RunOnce handoff: " + exception);
+            WriteDiagnosticBestEffort("The updater could not clear its recovery RunOnce handoff: ", exception);
         }
     }
 
@@ -880,7 +875,7 @@ internal static partial class Program
         }
         catch (Exception cleanupException)
         {
-            Console.Error.WriteLine("The updater could not discard its prepared transaction after failure: " + cleanupException);
+            WriteDiagnosticBestEffort("The updater could not discard its prepared transaction after failure: ", cleanupException);
         }
     }
 
@@ -927,15 +922,30 @@ internal static partial class Program
                         }
                     }
 
-                    bool restartApplication = !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
-                        && !(string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
+                    bool restartConfirmed = string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+                        || (string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
                             && (journal.RestartProcessId > 0
                                 || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
-                    RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
-                    if (restartApplication)
+                    if (restartConfirmed)
                     {
-                        StartRecoveredApplication(journal);
+                        if (!string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal))
+                        {
+                            journal.Phase = TransactionPhase.Committed;
+                            WriteTransactionJournal(journal);
+                        }
+                        try
+                        {
+                            // 親の直後に動く監視者は、新アプリと同じ一時物を削除しません。
+                            TryCleanupCommittedTransactionArtifacts(journal, requireTemporaryArtifactsAbsent: true);
+                        }
+                        catch (Exception exception)
+                        {
+                            WriteDiagnosticBestEffort("Committed update cleanup remains for the next recovery owner.", exception);
+                        }
+                        return 0;
                     }
+                    RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
+                    StartRecoveredApplication(journal);
                     CleanupRolledBackJournalIfPresent(appDirectory);
                     ClearRecoveryStartup(appDirectory);
                     return 0;
@@ -954,7 +964,7 @@ internal static partial class Program
         {
             TryWriteFailureReceipt(request?.AppDirectory, exception);
             TryRearmRecoveryStartup(request?.AppDirectory);
-            Console.Error.WriteLine(exception);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 1;
         }
     }
@@ -1073,7 +1083,7 @@ internal static partial class Program
                 }
                 catch (Exception existingReceiptException)
                 {
-                    Console.Error.WriteLine("The updater could not read the previous failure receipt while retaining rollback diagnostics: " + existingReceiptException);
+                    WriteDiagnosticBestEffort("The updater could not read the previous failure receipt while retaining rollback diagnostics: ", existingReceiptException);
                 }
             }
 
@@ -1088,7 +1098,7 @@ internal static partial class Program
         }
         catch (Exception receiptException)
         {
-            Console.Error.WriteLine("The updater could not atomically persist its failure receipt; the temporary receipt will be retried on the next startup: " + receiptException);
+            WriteDiagnosticBestEffort("The updater could not atomically persist its failure receipt; the temporary receipt will be retried on the next startup: ", receiptException);
             bool temporaryReceiptExists = false;
             try
             {
@@ -1096,25 +1106,60 @@ internal static partial class Program
             }
             catch (Exception fallbackProbeException)
             {
-                Console.Error.WriteLine("The updater could not inspect its temporary failure receipt fallback: " + fallbackProbeException);
+                WriteDiagnosticBestEffort("The updater could not inspect its temporary failure receipt fallback: ", fallbackProbeException);
             }
             if (!temporaryReceiptExists)
             {
-                Console.Error.WriteLine("The updater has no durable failure receipt fallback: " + receiptException);
+                WriteDiagnosticBestEffort("The updater has no durable failure receipt fallback: ", receiptException);
             }
         }
     }
 
+    /// <summary>復元済みの更新が所有する一時物を、片方の失敗でも独立に回収します。</summary>
     private static void TryCleanupFailedUpdateArtifacts(string packagePath, string extractDirectory)
+    {
+        TryCleanupTemporaryUpdateArtifacts(
+            packagePath,
+            extractDirectory,
+            "The update was rolled back, but temporary cleanup failed; startup cleanup will retry it.");
+    }
+
+    /// <summary>安全に不要となったZIPと展開先だけを回収し、回復用journalやbackupの必須順序は変更しません。</summary>
+    private static void TryCleanupTemporaryUpdateArtifacts(string packagePath, string extractDirectory, string failureMessage)
+    {
+        TryDelete(packagePath, isDirectory: false);
+        TryDelete(extractDirectory, isDirectory: true);
+
+        void TryDelete(string path, bool isDirectory)
+        {
+            try
+            {
+                if (isDirectory)
+                {
+                    SafeDeleteDirectory(path);
+                }
+                else
+                {
+                    SafeDeleteFile(path);
+                }
+            }
+            catch (Exception cleanupException)
+            {
+                WriteDiagnosticBestEffort(failureMessage + " path=" + path + " ", cleanupException);
+            }
+        }
+    }
+
+    /// <summary>診断の文字列化やstderrの故障を、更新・復元・終了コードとreceipt保存から隔離します。</summary>
+    private static void WriteDiagnosticBestEffort(string message, Exception exception = null)
     {
         try
         {
-            SafeDeleteFile(packagePath);
-            SafeDeleteDirectory(extractDirectory);
+            Console.Error.WriteLine(exception == null ? message : message + exception);
         }
-        catch (Exception cleanupException)
+        catch
         {
-            Console.Error.WriteLine("The update was rolled back, but temporary cleanup failed; startup cleanup will retry it: " + cleanupException);
+            // 診断先自身の故障を再通知せず、呼出元の確定済み結果と必要な終端処理を維持します。
         }
     }
 
@@ -1240,13 +1285,42 @@ internal static partial class Program
         }
     }
 
-    private static void TryCleanupCommittedTransactionArtifacts(TransactionJournalRecord journal)
+    /// <summary>一時物の不在が確立してから、確定済み更新のbackup・journal・回復登録を順に退役します。</summary>
+    /// <param name="journal">確定済み更新が所有する回復記録です。</param>
+    /// <param name="requireTemporaryArtifactsAbsent">再起動直後はtrueとし、新アプリと同じ一時物を再削除せず残留時の回復記録を保持します。</param>
+    private static void TryCleanupCommittedTransactionArtifacts(TransactionJournalRecord journal, bool requireTemporaryArtifactsAbsent = false)
     {
-        SafeDeleteFile(journal.PackagePath);
-        SafeDeleteDirectory(journal.ExtractDirectory);
+        if (requireTemporaryArtifactsAbsent)
+        {
+            EnsureTemporaryUpdateArtifactAbsent(journal.PackagePath);
+            EnsureTemporaryUpdateArtifactAbsent(journal.ExtractDirectory);
+        }
+        else
+        {
+            SafeDeleteFile(journal.PackagePath);
+            SafeDeleteDirectory(journal.ExtractDirectory);
+        }
         SafeDeleteDirectory(journal.BackupDirectory);
         DeleteTransactionJournal(journal);
         ClearRecoveryStartup(journal.AppDirectory);
+    }
+
+    /// <summary>欠損だけを一時物の不在とし、残存や属性取得失敗では回復資料の退役を止めます。</summary>
+    private static void EnsureTemporaryUpdateArtifactAbsent(string path)
+    {
+        try
+        {
+            _ = UpdaterFileSystem.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+        throw new IOException("Temporary update artifact remains after restart: " + path);
     }
 
     private static void MarkTransactionRolledBack(TransactionJournalRecord journal)
