@@ -619,6 +619,92 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
+    /// <summary>通信の内部故障はブラウザー代替に変換せず、所有する進捗と受付を終えます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task WorkspaceInternalAcquisitionFailureDoesNotOpenBrowser(bool resourceFailure)
+    {
+        Exception failure = resourceFailure ? new OutOfMemoryException("resource failure") : new InvalidOperationException("internal failure");
+        var gateway = new RecordingPlaylistUrlDownloadGateway(Path.GetTempPath()) { TransportException = failure };
+        int browserOpenCount = 0;
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+            acquisitionWorkflow: new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+            browserSink: _ => browserOpenCount++);
+        Exception? observed = null;
+        try { await workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/package.zip")); }
+        catch (Exception exception) { observed = exception; }
+        Assert.AreSame(failure, observed);
+        Assert.AreEqual(0, browserOpenCount);
+        Assert.AreEqual(0, gateway.OpenWriteCount);
+        Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+    }
+
+    /// <summary>読取り・応答破棄の失敗で未引渡しファイルを回収し、回収不能だけは通常失敗へ変換しません。</summary>
+    [DataTestMethod]
+    [DataRow("read", false)]
+    [DataRow("read", true)]
+    [DataRow("dispose", false)]
+    [DataRow("dispose", true)]
+    [DataRow("read-and-dispose", false)]
+    [DataRow("read-and-dispose", true)]
+    public async Task DownloadFailureReclaimsUnpublishedInputAndPreservesUnresolvedCleanup(string stage, bool failCleanup)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var failure = new IOException("response " + stage + " failed");
+            var disposeFailure = new IOException("response disposal also failed");
+            var stream = new FailingDownloadStream(failure, failOnDispose: stage == "dispose",
+                additionalDisposeFailure: stage == "read-and-dispose" ? disposeFailure : null);
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root)
+            {
+                DeleteFailure = failCleanup ? new IOException("staging cleanup failed") : null
+            };
+            Uri uri = new("https://example.invalid/package.zip");
+            gateway.AddResponse(uri, () => new AppHttpResponse(uri, stream));
+            var logs = new List<string>();
+            var workflow = new PlaylistUrlAcquisitionWorkflow(gateway, logs.Add);
+            var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            PlaylistUrlDownloadResult? result = null;
+            Exception? observed = null;
+            try { result = await workflow.DownloadCandidateAsync(uri, downloadedKeys); }
+            catch (Exception exception) { observed = exception; }
+
+            Assert.AreEqual(0, downloadedKeys.Count, "引渡し前の回収対象を取得成功済みとして残しません。");
+            Assert.IsTrue(stream.WasDisposed);
+            Assert.AreEqual(1, gateway.OpenWriteCount);
+            Assert.AreEqual(1, gateway.DeleteCount);
+            Assert.AreEqual(failCleanup, File.Exists(Path.Combine(root, "package.zip")));
+            if (failCleanup || stage == "read-and-dispose")
+            {
+                Assert.IsNull(result);
+                Assert.IsNotNull(observed);
+                StringAssert.Contains(observed.ToString(), failure.Message);
+                if (failCleanup) { StringAssert.Contains(observed.ToString(), "staging cleanup failed"); }
+                if (stage == "read-and-dispose") { StringAssert.Contains(observed.ToString(), disposeFailure.Message); }
+            }
+            else
+            {
+                Assert.IsNull(observed);
+                Assert.IsNotNull(result);
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Failed, result.Kind);
+                Assert.IsTrue(logs.Exists(message => message.Contains(failure.ToString(), StringComparison.Ordinal)));
+
+                gateway.AddResponse(uri, () => new AppHttpResponse(uri, new MemoryStream(new byte[] { 4, 5, 6 })));
+                PlaylistUrlDownloadResult retried = await workflow.DownloadCandidateAsync(uri, downloadedKeys);
+                Assert.AreEqual(PlaylistUrlDownloadResultKind.Downloaded, retried.Kind);
+                Assert.IsTrue(File.Exists(retried.FilePath));
+                Assert.AreEqual(1, downloadedKeys.Count);
+                await workflow.ReclaimStagedFilesAsync([retried.FilePath]);
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>ブラウザsinkの実呼出し例外を要求Taskへ返します。表示先の失敗を成功扱いする誤りを検出します。</summary>
     [TestMethod]
     public async Task BrowserFallbackSinkExceptionIsNotSuppressed()
@@ -775,7 +861,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Assert.AreEqual(3, dialogs.Confirmations.Count);
     }
 
-    /// <summary>結果表示が失敗した後も次の明示要求で確認・結果表示を行います。表示失敗時のcommand gate解放漏れを検出します。</summary>
+    /// <summary>結果表示だけの失敗を操作失敗へ戻さず、次の明示要求で確認・結果表示を行います。通知による結果の上書きと受付解放漏れを検出します。</summary>
     [TestMethod]
     public async Task PlaylistUrlCommandGateReleasesAfterSummaryFailure()
     {
@@ -788,10 +874,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             action => action(),
             dialogService: dialogs);
 
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => workspace.RunPlaylistUrlBatchAsync(
-                [new Uri("https://example.invalid/summary-failure/")],
-                isDiffUrl: false));
+        await workspace.RunPlaylistUrlBatchAsync(
+            [new Uri("https://example.invalid/summary-failure/")],
+            isDiffUrl: false);
+        Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
 
         dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
         await workspace.RunPlaylistUrlBatchAsync(
@@ -1029,18 +1115,24 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、入力使用終端後にstagingを回収します。展開順序の逆転と入力回収漏れを検出します。</summary>
-    [TestMethod]
-    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation()
+    /// <summary>単独の実取得物を変更不能なpathsでsinkへ渡してからtree展開し、入力使用終端後にstagingを回収します。進捗・診断故障を重ねても引渡しを保ち、展開順序の逆転と入力回収漏れを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation(bool failNotifications)
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
         {
             var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 1, 2, 3 });
-            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
+            {
+                if (failNotifications) { throw new IOException("download diagnostic unavailable"); }
+            });
             var events = new List<string>();
             IReadOnlyList<string>? capturedPaths = null;
+            bool inputsReadyAtHandoff = false;
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
                 () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
@@ -1049,13 +1141,25 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
+                    inputsReadyAtHandoff = paths.All(File.Exists);
                     return true;
                 },
                 treeExpansionSink: () => events.Add("expanded"));
 
+            var statuses = new List<PlaylistUrlDownloadStatusSnapshot>();
+            workspace.PlaylistUrlDownloadStatusChanged += (_, _) =>
+            {
+                if (failNotifications) { throw new IOException("progress unavailable"); }
+            };
+            workspace.PlaylistUrlDownloadStatusChanged += (_, status) => statuses.Add(status);
+
             await workspace.RunSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
 
             CollectionAssert.AreEqual(new[] { "sink", "expanded" }, events);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+            Assert.IsTrue(statuses.Exists(status => status.IsActive));
+            Assert.IsFalse(statuses[^1].IsActive);
+            Assert.IsTrue(inputsReadyAtHandoff);
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(1, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
@@ -1070,21 +1174,31 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         }
     }
 
-    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終えてstagingを回収します。引渡しの分割と表示順序・回収の欠落を検出します。</summary>
-    [TestMethod]
-    public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary()
+    /// <summary>二取得物を変更不能なpathsでまとめてsinkへ渡し、tree展開→結果表示の順に終えてstagingを回収します。進捗・結果・診断故障を重ねても引渡しを保ち、引渡しの分割と表示順序・回収の欠落を検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary(bool failNotifications)
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
         try
         {
             var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 4, 5, 6 });
-            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ =>
+            {
+                if (failNotifications) { throw new IOException("download diagnostic unavailable"); }
+            });
             var events = new List<string>();
             IReadOnlyList<string>? capturedPaths = null;
+            bool inputsReadyAtHandoff = false;
             var dialogs = new RecordingPlaylistUrlDialogService
             {
-                MessageObserver = _ => events.Add("summary")
+                MessageObserver = _ =>
+                {
+                    events.Add("summary");
+                    if (failNotifications) { throw new IOException("summary unavailable"); }
+                }
             };
             PlaylistWorkspaceViewModel workspace = CreateWorkspace(
                 action => action(),
@@ -1094,10 +1208,18 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
+                    inputsReadyAtHandoff = paths.All(File.Exists);
                     return true;
                 },
                 treeExpansionSink: () => events.Add("expanded"),
                 dialogService: dialogs);
+
+            var statuses = new List<PlaylistUrlDownloadStatusSnapshot>();
+            workspace.PlaylistUrlDownloadStatusChanged += (_, _) =>
+            {
+                if (failNotifications) { throw new IOException("progress unavailable"); }
+            };
+            workspace.PlaylistUrlDownloadStatusChanged += (_, status) => statuses.Add(status);
 
             await workspace.RunPlaylistUrlBatchAsync(
                 [
@@ -1109,6 +1231,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             CollectionAssert.AreEqual(new[] { "sink", "expanded", "summary" }, events);
             Assert.AreEqual(1, dialogs.Confirmations.Count);
             Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+            Assert.IsTrue(statuses.Exists(status => status.IsActive));
+            Assert.IsFalse(statuses[^1].IsActive);
+            Assert.IsTrue(inputsReadyAtHandoff);
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(2, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
@@ -1514,6 +1640,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         internal Exception? TransportException { get; set; }
 
+        internal Exception? DeleteFailure { get; set; }
+
+        internal int DeleteCount { get; private set; }
+
         internal void AddResponse(Uri uri, Func<AppHttpResponse> responseFactory)
         {
             responses[uri.AbsoluteUri] = responseFactory;
@@ -1548,7 +1678,33 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         public bool FileExists(string path) => File.Exists(path);
 
-        public void DeleteFile(string path) => File.Delete(path);
+        public void DeleteFile(string path)
+        {
+            DeleteCount++;
+            if (DeleteFailure != null) { throw DeleteFailure; }
+            File.Delete(path);
+        }
+    }
+
+    // 実ファイルへの最初の書込み後、読取りまたは応答の解放を失敗させます。
+    private sealed class FailingDownloadStream(IOException failure, bool failOnDispose, IOException? additionalDisposeFailure = null) : MemoryStream(new byte[] { 1, 2, 3 })
+    {
+        private int readCount;
+        internal bool WasDisposed { get; private set; }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        {
+            if (!failOnDispose && readCount++ > 0) { throw failure; }
+            return base.ReadAsync(buffer, offset, count, cancellationToken);
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+            WasDisposed = true;
+            if (disposing && additionalDisposeFailure != null) { throw additionalDisposeFailure; }
+            if (disposing && failOnDispose) { throw failure; }
+        }
     }
 
     private sealed class FakePlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway

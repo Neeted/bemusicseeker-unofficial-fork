@@ -97,6 +97,14 @@ Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォー�
 
 内蔵の推定表・リコメンド表は通信せず、[ローカル計算の契約](local-recommendations.md)に従います。一般の外部表取込み、URL 補完、利用者のダウンロードの通信と取消は維持します。
 
+### 失敗と事後通知の境界
+
+通常の通信・本文I/O・入力形式の失敗は取得対象内で扱い、単体のブラウザー代替や外部APIの次候補という既存の条件を維持します。内部故障・資源不足・未解決のstaging回収は通常取得失敗へ変換せず、操作を止めて所有する入力を回収します。所有する取消し要求がない例外を利用者取消し件数へ加えません。
+
+進捗、結果・受付拒否の案内、診断の失敗は局所で記録し、取得済みファイルの導入引渡しや取得結果へ戻しません。進捗は購読先ごとに分離し、他の購読先への終端通知を妨げません。開始確認、導入への引渡し、入力使用の実終端、必要な回収は任意通知ではありません。
+
+取得途中の読取り・書込み失敗、サイズ超過、取消しでは、自分が作成した未完了ファイルを回収します。保存と応答の解放を終える前に取得成功を返しません。応答破棄で取得物を渡せなかった場合も回収し、回収自体が失敗した場合は元の取得失敗と未回収を隠しません。
+
 ### 診断と検証境界
 
 `playlist_url_download` と `playlist_external_package_lookup` で解決、対象外、重複、サイズ、保存、失敗、取消を記録します。引渡し後の展開は `auto_install extract_start` / `extract_done` / `extract_failed` に対象、展開先、項目数、経過時間を記録します。
@@ -107,6 +115,7 @@ Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォー�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 進捗・結果・診断の失敗、通常通信と内部故障、未引渡し入力の回収 | `PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`、`PlaylistUrlAcquisitionWorkflow`、`PlaylistExternalPackageLookupService` | `PlaylistUrlAcquisitionOwnershipTests` の単体・一括引渡し、結果表示失敗後の次要求、`DownloadFailureReclaimsUnpublishedInputAndPreservesUnresolvedCleanup`、`PlaylistExternalPackageLookupServiceTests` の通常期限切れ・内部故障・回収不能。確認失敗と導入利用終端の既存保証を維持する。 |
 | URI境界・共有ページ・サイズ・保存 | [`PlaylistUrlAcquisitionWorkflow`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlAcquisitionWorkflow.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |
 | 通信中の許可と取得後の導入拒否 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs)、[`PackageInstallWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Install/PackageInstallWorkflowOwner.cs) | [`PlaylistUrlAcquisitionOwnershipTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistUrlAcquisitionOwnershipTests.cs) |

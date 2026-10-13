@@ -284,7 +284,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        Exception acquisitionFailure = null;
         try
         {
             for (int i = 0; i < targets.Count; i++)
@@ -343,21 +342,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         catch (Exception exception)
         {
-            acquisitionFailure = exception;
-            try
-            {
-                await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
-            }
-            catch (Exception cleanupFailure)
-            {
-                acquisitionFailure = cleanupFailure;
-                throw;
-            }
+            await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
             throw;
         }
         finally
         {
-            await CompletePlaylistUrlAcquisitionAsync(cancellation, downloadedPaths, acquisitionFailure).ConfigureAwait(false);
+            EndPlaylistUrlAcquisition(cancellation);
         }
 
         await QueuePlaylistUrlInstallPathsAsync(downloadedPaths).ConfigureAwait(true);
@@ -420,7 +410,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        Exception acquisitionFailure = null;
         try
         {
             for (int i = 0; i < targets.Count; i++)
@@ -450,7 +439,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         playlistUrlAcquisitionWorkflow.LogDownload,
                         cancellation.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i;
                     break;
@@ -495,21 +484,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         catch (Exception exception)
         {
-            acquisitionFailure = exception;
-            try
-            {
-                await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
-            }
-            catch (Exception cleanupFailure)
-            {
-                acquisitionFailure = cleanupFailure;
-                throw;
-            }
+            await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
             throw;
         }
         finally
         {
-            await CompletePlaylistUrlAcquisitionAsync(cancellation, downloadedPaths, acquisitionFailure).ConfigureAwait(false);
+            EndPlaylistUrlAcquisition(cancellation);
         }
 
         await QueuePlaylistUrlInstallPathsAsync(downloadedPaths).ConfigureAwait(true);
@@ -566,38 +546,24 @@ public sealed partial class PlaylistWorkspaceViewModel
             return PlaylistUrlDownloadResult.Failed();
         }
         PlaylistUrlDownloadResult result = null;
-        Exception acquisitionFailure = null;
         try
         {
             UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: false, labelFormat: null);
             result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token).ConfigureAwait(false);
             UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, labelFormat: null);
-            EndPlaylistUrlAcquisition(cancellation);
             return result;
         }
         catch (Exception exception)
         {
-            acquisitionFailure = exception;
-            try
+            if (result?.Kind == PlaylistUrlDownloadResultKind.Downloaded)
             {
-                if (result?.Kind == PlaylistUrlDownloadResultKind.Downloaded)
-                {
-                    await ReclaimPlaylistUrlInputsAsync([result.FilePath], exception).ConfigureAwait(false);
-                }
-            }
-            catch (Exception cleanupFailure)
-            {
-                acquisitionFailure = cleanupFailure;
-                throw;
+                await ReclaimPlaylistUrlInputsAsync([result.FilePath], exception).ConfigureAwait(false);
             }
             throw;
         }
         finally
         {
-            await CompletePlaylistUrlAcquisitionAsync(
-                cancellation,
-                result?.Kind == PlaylistUrlDownloadResultKind.Downloaded ? [result.FilePath] : [],
-                acquisitionFailure).ConfigureAwait(false);
+            EndPlaylistUrlAcquisition(cancellation);
         }
     }
 
@@ -659,27 +625,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistUrlAcquisitionCancellation = cancellation;
             playlistUrlAcquisitionRunning = 1;
             return cancellation;
-        }
-    }
-
-    // 終了表示が失敗した場合も、未引渡し入力を回収してから元の取得・通知失敗を返す。
-    private async Task CompletePlaylistUrlAcquisitionAsync(
-        CancellationTokenSource cancellation,
-        IReadOnlyList<string> stagedPaths,
-        Exception acquisitionFailure)
-    {
-        try
-        {
-            EndPlaylistUrlAcquisition(cancellation);
-        }
-        catch (Exception notificationFailure)
-        {
-            if (acquisitionFailure != null)
-            {
-                throw new AggregateException(acquisitionFailure, notificationFailure);
-            }
-            await ReclaimPlaylistUrlInputsAsync(stagedPaths, notificationFailure).ConfigureAwait(false);
-            throw;
         }
     }
 
@@ -750,8 +695,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistUrlAcquisitionCurrentDisplayName = string.Empty;
                 playlistUrlAcquisitionLabelFormat = string.Empty;
             }
-            PlaylistUrlDownloadStatusChanged?.Invoke(
-                this,
+            PublishPlaylistProgressEvent(
+                PlaylistUrlDownloadStatusChanged,
                 new PlaylistUrlDownloadStatusSnapshot(
                     isActive,
                     totalCount,
@@ -814,26 +759,33 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task ShowPlaylistUrlAcquisitionNotificationAsync(
         PlaylistUrlAcquisitionNotificationKind kind)
     {
-        string message = kind switch
+        try
         {
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
-            PlaylistUrlAcquisitionNotificationKind.InstallUnavailable
-                => BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable,
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
-        };
-        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
-            UiMessageRequest.CreateWarning(
-                message,
-                BeMusicSeeker.Properties.Resources.Warning))
-            .ConfigureAwait(true);
-        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition notification");
+            string message = kind switch
+            {
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
+                PlaylistUrlAcquisitionNotificationKind.InstallUnavailable
+                    => BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+            };
+            UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+                UiMessageRequest.CreateWarning(
+                    message,
+                    BeMusicSeeker.Properties.Resources.Warning))
+                .ConfigureAwait(true);
+            ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition notification");
+        }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_url_acquisition_notification_failed");
+        }
     }
 
     private async Task ShowPlaylistUrlAcquisitionSummaryAsync(
@@ -850,34 +802,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         int unsupportedCount,
         int canceledCount)
     {
-        string message = externalPackageLookup
-            ? string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
-                targetCount,
-                downloadedCount,
-                noCandidateCount,
-                duplicateDownloadedUrlCount,
-                duplicateFailedUrlCount,
-                blockedBySizeLimitCount,
-                unsupportedCount,
-                failedCount,
-                canceledCount)
-            : string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
-                targetCount,
-                downloadedCount,
-                browserFallbackCount,
-                blockedBySizeLimitCount,
-                duplicateCount,
-                failedCount,
-                canceledCount);
-        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
-            UiMessageRequest.CreateInformation(
-                message,
-                BeMusicSeeker.Properties.Resources.Information,
-                downloadedCount > 0))
-            .ConfigureAwait(true);
-        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition summary");
+        try
+        {
+            string message = externalPackageLookup
+                ? string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
+                    targetCount,
+                    downloadedCount,
+                    noCandidateCount,
+                    duplicateDownloadedUrlCount,
+                    duplicateFailedUrlCount,
+                    blockedBySizeLimitCount,
+                    unsupportedCount,
+                    failedCount,
+                    canceledCount)
+                : string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
+                    targetCount,
+                    downloadedCount,
+                    browserFallbackCount,
+                    blockedBySizeLimitCount,
+                    duplicateCount,
+                    failedCount,
+                    canceledCount);
+            UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+                UiMessageRequest.CreateInformation(
+                    message,
+                    BeMusicSeeker.Properties.Resources.Information,
+                    downloadedCount > 0))
+                .ConfigureAwait(true);
+            ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition summary");
+        }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_url_acquisition_summary_failed");
+        }
     }
 
     private static bool ToPlaylistUrlConfirmationDecision(UiDialogResult result, string routeName)

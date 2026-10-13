@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -45,6 +46,9 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""downloadURL"":""https://www.mediafire.com/file/abc/package.7z/file""}", out _));
         Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""downloadURL"":""https://example.invalid/download""}", out _));
         Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, "not-json", out _));
+        Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"42", out _));
+        Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""downloadURL"":{}}", out _));
+        Assert.IsFalse(GingerPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""downloadURL"":""https://example.invalid/package.zip"",""fileSize"":{}}", out _));
     }
 
     /// <summary>Konmai成功応答のネストしたsong_urlと曲名を取得し、大文字MD5を正規化する。別階層の解析や対象ハッシュの誤配送を検出する。</summary>
@@ -80,6 +84,10 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":{""song_url"":""https://www.mediafire.com/file/abc/package.7z/file""}}", out _));
         Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":{""song_url"":""https://example.invalid/download""}}", out _));
         Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, "not-json", out _));
+        Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"42", out _));
+        Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":42}", out _));
+        Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":[]}", out _));
+        Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":{""song_url"":{}}}", out _));
     }
 
     /// <summary>先頭候補の取得が成功すると後続提供元を照会しない。成功後の重複取得や提供元順序の逆転を検出する。</summary>
@@ -130,9 +138,11 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         CollectionAssert.AreEqual(new[] { "A", "B" }, attemptedProviders);
     }
 
-    /// <summary>利用者取消なしの照会タイムアウトは提供元の失敗として次へ進む。通信タイムアウトを全体取消に置換する誤りを検出する。</summary>
-    [TestMethod]
-    public async Task LookupService_TreatsProviderTimeoutAsFailureAndTriesNextProvider()
+    /// <summary>利用者取消なしの照会タイムアウトは、診断故障の有無にかかわらず次提供元へ進む。通信タイムアウトや診断故障を全体取消・操作失敗に置換する誤りを検出する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LookupService_TreatsProviderTimeoutAsFailureAndTriesNextProvider(bool failDiagnostic)
     {
         var first = new ThrowingProvider("A", new TaskCanceledException("timeout"));
         var second = new FakeProvider("B", new Uri("https://example.invalid/b.7z"));
@@ -144,7 +154,7 @@ public sealed class PlaylistExternalPackageLookupServiceTests
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             uri => uri.AbsoluteUri,
-            _ => { });
+            _ => { if (failDiagnostic) { throw new IOException("diagnostic failed"); } });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Downloaded, result.Kind);
         Assert.AreEqual(1, first.LookupCount);
@@ -167,6 +177,40 @@ public sealed class PlaylistExternalPackageLookupServiceTests
             _ => { });
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Failed, result.Kind);
+    }
+
+    /// <summary>内部故障・資源不足・回収不能を次候補への継続にせず、失敗済みURLとしても記録しません。</summary>
+    [DataTestMethod]
+    [DataRow("lookup", "internal")]
+    [DataRow("lookup", "resource")]
+    [DataRow("download", "internal")]
+    [DataRow("download", "resource")]
+    [DataRow("download", "cleanup")]
+    public async Task LookupService_PropagatesInternalAndUnresolvedCleanupFailures(string stage, string kind)
+    {
+        Exception failure = kind switch
+        {
+            "resource" => new OutOfMemoryException("resource failure"),
+            "cleanup" => new AggregateException(new IOException("staging remains")),
+            _ => new InvalidOperationException("internal failure")
+        };
+        IPlaylistExternalPackageLookupProvider first = stage == "lookup"
+            ? new ThrowingProvider("A", failure)
+            : new FakeProvider("A", new Uri("https://example.invalid/a.zip"));
+        var second = new FakeProvider("B", new Uri("https://example.invalid/b.zip"));
+        var failedKeys = new HashSet<string>();
+        var service = new PlaylistExternalPackageLookupService([first, second]);
+        Exception? observed = null;
+        try
+        {
+            await service.DownloadFirstAvailablePackageAsync(
+                SampleMd5, (_, _) => throw failure, new HashSet<string>(), failedKeys,
+                uri => uri.AbsoluteUri, _ => { });
+        }
+        catch (Exception exception) { observed = exception; }
+        Assert.AreSame(failure, observed);
+        Assert.AreEqual(0, second.LookupCount);
+        Assert.AreEqual(0, failedKeys.Count);
     }
 
     /// <summary>既に取得済みの先頭URLでは取得も下位提供元の照会も行わず重複結果を返す。同一作業内の重複取得を検出する。</summary>
