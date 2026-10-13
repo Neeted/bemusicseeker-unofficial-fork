@@ -16,9 +16,9 @@ using BeMusicSeeker.Views.Settings.Pages;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Executes the shell-owned terminal application-exit route for a settings window.
+/// 設定画面の処理が完了した後、shellが所有する終了経路を実行します。
 /// </summary>
-/// <param name="settingsWindow">The settings window whose owner-bound close must happen first.</param>
+/// <param name="settingsWindow">所有者の終了より先に閉じる設定画面。</param>
 internal delegate void SettingsWindowApplicationExitTerminal(SettingsWindow settingsWindow);
 
 /// <summary>
@@ -130,8 +130,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
     }
 
-    /// <summary>Initializes the settings window with an application-exit terminal supplied by the shell.</summary>
-    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    /// <summary>復元・アプリデータ削除の完了後にshellの終了端末を呼ぶ設定画面を初期化します。</summary>
+    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
     internal SettingsWindow(SettingsWindowApplicationExitTerminal applicationExitTerminal)
         : this(
             new DwmNativeWindowTitleBarGateway(),
@@ -141,9 +141,9 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
     }
 
-    /// <summary>Initializes the settings window with injectable dialogs and a shell-owned application-exit terminal.</summary>
-    /// <param name="dialogService">The dialog boundary used by settings routes.</param>
-    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    /// <summary>注入されたdialogと、復元・アプリデータ削除後のshell終了端末を使って設定画面を初期化します。</summary>
+    /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。</param>
+    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
     internal SettingsWindow(
         IUiDialogService dialogService,
         SettingsWindowApplicationExitTerminal applicationExitTerminal)
@@ -184,11 +184,11 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     {
     }
 
-    /// <summary>Initializes the settings window with all view and shell boundaries supplied by composition.</summary>
-    /// <param name="titleBarGateway">The boundary that applies native title-bar attributes.</param>
-    /// <param name="titleBarThemeSource">The semantic palette source for native title-bar attributes.</param>
-    /// <param name="dialogService">The dialog boundary used by settings routes.</param>
-    /// <param name="applicationExitTerminal">The shell-owned terminal for a completed application-data uninstall.</param>
+    /// <summary>構成から渡された表示・dialog・終了境界で設定画面を初期化します。</summary>
+    /// <param name="titleBarGateway">標準タイトルバー属性を適用する境界。</param>
+    /// <param name="titleBarThemeSource">標準タイトルバーのsemantic paletteを供給する境界。</param>
+    /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。</param>
+    /// <param name="applicationExitTerminal">復元またはアプリデータ削除が完了した後のshell終了経路。</param>
     internal SettingsWindow(
         INativeWindowTitleBarGateway titleBarGateway,
         INativeWindowTitleBarThemeSource titleBarThemeSource,
@@ -348,16 +348,33 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
         userCancellationQueued = true;
         closeReason = SettingsWindowCloseReason.Cancel;
-        Dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)(() =>
+        Dispatcher.InvokeAsync((Func<Task>)(() =>
         {
             userCancellationQueued = false;
-            presentationCloseObserved = false;
+            return CompleteUserCancellationAsync(settingDialogViewModel);
+        }), DispatcherPriority.Normal).Task.Unwrap().ObserveFault("settings user cancellation");
+    }
+
+    private async Task CompleteUserCancellationAsync(SettingsDialogViewModel settingDialogViewModel)
+    {
+        presentationCloseObserved = false;
+        try
+        {
             settingDialogViewModel.CancelCommand.Execute();
+        }
+        catch (Exception exception)
+        {
+            // 失敗でCloseの許可を残さず、開始済みの取消処理が終わった後で一回だけ通知します。
+            closeReason = SettingsWindowCloseReason.None;
+            await HandleSettingsRouteFailureAsync(exception, "settings cancellation");
+        }
+        finally
+        {
             if (!presentationCloseObserved)
             {
                 closeReason = SettingsWindowCloseReason.None;
             }
-        }));
+        }
     }
 
     private void SettingsWindowKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -482,20 +499,20 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
     {
-        await RunApplyOperationAsync(() => GetSettingDialogViewModel()
-            .ApplySettingsAsync()
-            .LoggingAndPropagate("buttonOKClick"));
+        try
+        {
+            await RunApplyOperationAsync(() => GetSettingDialogViewModel().ApplySettingsAsync());
+        }
+        catch (Exception exception)
+        {
+            await HandleSettingsRouteFailureAsync(exception, "settings apply");
+        }
     }
 
-    private void buttonCancelClick(object sender, RoutedEventArgs e)
+    private async void buttonCancelClick(object sender, RoutedEventArgs e)
     {
         closeReason = SettingsWindowCloseReason.Cancel;
-        presentationCloseObserved = false;
-        GetSettingDialogViewModel().CancelCommand.Execute();
-        if (!presentationCloseObserved)
-        {
-            closeReason = SettingsWindowCloseReason.None;
-        }
+        await CompleteUserCancellationAsync(GetSettingDialogViewModel());
     }
 
     private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
@@ -690,33 +707,48 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
     }
 
-    /// <summary>Logs a settings presentation route failure and attempts one owner-bound localized notification.</summary>
+    /// <summary>未処理の設定操作失敗を元原因・経路付きで診断し、所有画面への結果通知を一回だけ試みます。通知・診断先の失敗は局所で終えます。</summary>
     internal async Task HandleSettingsRouteFailureAsync(Exception exception, string routeName)
     {
         ArgumentNullException.ThrowIfNull(exception);
         string effectiveRouteName = string.IsNullOrWhiteSpace(routeName) ? "settings dialog route" : routeName;
-        Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(exception, effectiveRouteName + " failed");
+        TryLogSettingsRouteFailure(exception, effectiveRouteName);
+        await ShowSettingsMessageBestEffortAsync(new UiMessageRequest(
+            BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand,
+            MessageBoxResult.OK,
+            owner: this), effectiveRouteName + " failure notification");
+    }
+
+    private async Task ShowSettingsMessageBestEffortAsync(UiMessageRequest request, string routeName)
+    {
         try
         {
-            UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
-                BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
-                BeMusicSeeker.Properties.Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK,
-                owner: this));
-            if (notification.Status is not (UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+            UiDialogResult notification = await dialogService.ShowMessageAsync(request);
+            if (notification == null || notification.Status is not (UiDialogStatus.Accepted
+                or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
             {
-                Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(
-                    notification.Exception,
-                    effectiveRouteName + " failure notification was not shown: " + notification.Status);
+                TryLogSettingsRouteFailure(notification?.Exception,
+                    routeName + " was not shown: " + (notification?.Status.ToString() ?? "no result"));
             }
         }
-        catch (Exception notificationException)
+        catch (Exception exception)
         {
-            Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(
-                notificationException,
-                effectiveRouteName + " failure notification failed");
+            TryLogSettingsRouteFailure(exception, routeName);
+        }
+    }
+
+    private static void TryLogSettingsRouteFailure(Exception exception, string routeName)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindow)).Error(exception, routeName + " failed");
+        }
+        catch
+        {
+            // 診断の失敗を再通知せず、元の操作結果と画面の終端を保ちます。
         }
     }
 
@@ -881,12 +913,19 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }
         catch (Exception ex)
         {
-            UiDialogRoute.ShowMessageBox(owner, BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            TryLogSettingsRouteFailure(ex, "LR2 manual resync");
+            await ShowSettingsMessageBestEffortAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: owner), "LR2 manual resync failure notification");
         }
     }
 
-    /// <summary>Runs playlist backup inside the Window operation gate.</summary>
-    /// <returns>A task that completes when backup finishes or the picker is cancelled.</returns>
+    /// <summary>画面の操作gate内で実バックアップと一回の結果通知を待ちます。処理済みの失敗を表示のために再送出しません。</summary>
+    /// <returns>書込み・後片付け・通知、またはpicker取消の終端を表すTask。</returns>
     internal async Task HandlePlaylistBackupAsync()
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
@@ -905,8 +944,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            await RunViewOperationAsync(() => playlistWorkspace.BackupPlaylistAsync(result.FileName)
-                .LoggingAndPropagate("detailTabItemBackupButtonClicked"));
+            await RunViewOperationAsync(() => playlistWorkspace.BackupPlaylistAsync(result.FileName));
         }
     }
 
@@ -932,8 +970,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         await RunViewOperationAsync(settingDialogViewModel.UninstallLr2PlayHistorySchemaAsync);
     }
 
-    /// <summary>Runs playlist restore inside the Window operation gate and preserves terminal shutdown ordering.</summary>
-    /// <returns>A task that completes after restore and any requested shutdown dispatch.</returns>
+    /// <summary>実復元と必要公開・出力が完了した場合だけshellの終了へ渡します。拒否・失敗では閉じず、任意通知の失敗は終了を妨げません。</summary>
+    /// <returns>操作gate、復元、通知、必要な閉鎖の終端までを追跡するTask。</returns>
     internal async Task HandlePlaylistRestoreAsync()
     {
         PlaylistWorkspaceViewModel playlistWorkspace = PlaylistWorkspace
@@ -963,21 +1001,22 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            await RunViewOperationAsync(() => playlistWorkspace.RestorePlaylistBackupAsync(result.FileName)
-                .LoggingAndPropagate("detailTabItemRestoreButtonClicked"));
-            Func<Task> closeAfterRestore = async () =>
+            await RunViewOperationAsync(async () =>
             {
-                UiDialogResult shutdownNotification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                if (!await playlistWorkspace.RestorePlaylistBackupAsync(result.FileName))
+                {
+                    return;
+                }
+                await ShowSettingsMessageBestEffortAsync(new UiMessageRequest(
                     BeMusicSeeker.Properties.Resources.Msg_ApplicationWillExit,
                     BeMusicSeeker.Properties.Resources.Confirm,
                     MessageBoxButton.OK,
                     MessageBoxImage.Question,
                     MessageBoxResult.OK,
-                    owner: Application.Current.MainWindow));
-                ThrowIfDialogFailed(shutdownNotification, "Playlist backup restore shutdown notification");
-                Application.Current.MainWindow.Close();
-            };
-            await base.Dispatcher.InvokeAsync(closeAfterRestore, DispatcherPriority.Normal).Task.Unwrap();
+                    owner: Owner ?? this), "playlist restore shutdown notification");
+                // 必要公開・出力が成功した場合だけshellへ渡します。任意の案内失敗では終了を止めません。
+                applicationExitTerminal(this);
+            });
         }
     }
 

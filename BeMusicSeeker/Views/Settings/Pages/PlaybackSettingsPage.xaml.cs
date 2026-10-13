@@ -23,18 +23,42 @@ public partial class PlaybackSettingsPage : UserControl
             ?? throw new InvalidOperationException("Playback settings page is not hosted by SettingsWindow.");
     }
 
-    private void browseUbmplayPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseUbmplayPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseUbmplayPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseUbmplayPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "uBMplay executable picker");
+        }
     }
 
-    private void browseBmIdxViewPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseBmIdxViewPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseBmIdxViewPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseBmIdxViewPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "BMIIDXView executable picker");
+        }
     }
 
-    private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseLr2RootPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseLr2RootPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 root folder picker");
+        }
     }
 }

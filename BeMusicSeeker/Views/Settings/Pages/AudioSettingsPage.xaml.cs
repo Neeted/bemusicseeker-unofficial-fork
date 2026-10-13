@@ -40,7 +40,16 @@ public partial class AudioSettingsPage : UserControl
     {
         SettingsDialogViewModel viewModel = DataContext as SettingsDialogViewModel
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
-        await viewModel.RunAudioDeviceTestAsync();
+        SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow
+            ?? throw new InvalidOperationException("Audio settings page is not hosted by SettingsWindow.");
+        try
+        {
+            await viewModel.RunAudioDeviceTestAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "audio device test");
+        }
     }
 
     private void AudioSettingsPageIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)

@@ -45,8 +45,16 @@ public partial class AppearanceSettingsPage : UserControl
         GetViewModel().ResetCustomTableAppearanceDefaults();
     }
 
-    private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseStagefilePath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseStagefilePath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "stage image file picker");
+        }
     }
 }

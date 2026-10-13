@@ -1136,6 +1136,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "settings-score-prior-follow-up");
             var uiFailure = new IOException("required score UI failed");
             var noticeFailure = new IOException("saved backup notice failed");
+            var notices = new List<UiMessageRequest>();
             var urlStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var urlRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var urlWork = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1173,7 +1174,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             Assert.AreEqual(SettingsDialogViewModel.RestartMode.ScoreOnly, dialog.IsNeedRestartForSaved());
             fixture.Dialogs.MessageObservedAsync = request =>
             {
-                Assert.AreEqual(Resources.Msg_LR2ConfigBackupEnabledNextStartup, request.MessageBoxText);
+                notices.Add(request);
                 return Task.FromException(noticeFailure);
             };
             fixture.Ui.IsCompletionBoundary = () => !fixture.Composition.OperationAdmission.IsActive
@@ -1184,6 +1185,8 @@ public sealed class MainWindowViewModelStartupProgressTests
             try
             {
                 AwaitArrival(fixture.Ui.Entered.Task, apply, "settings-score-required-ui");
+                Assert.IsFalse(apply.IsCompleted);
+                Assert.AreEqual(0, notices.Count, "保存案内は必須UIの終端より前に表示しません。");
                 Assert.IsTrue(dialog.IsScoreReloadPending, "core成功だけでは必要UIまでのpendingを解除しません。");
                 Assert.AreEqual(0, registrations);
                 Assert.AreEqual("saved-score-player", fixture.Settings.BeatorajaPlayerId);
@@ -1191,8 +1194,12 @@ public sealed class MainWindowViewModelStartupProgressTests
                 if (uiFails) { fixture.Ui.Release.TrySetException(uiFailure); }
                 else { fixture.Ui.Release.TrySetResult(); }
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "settings-score-terminal");
-                Assert.AreEqual(1, failures.Count);
-                Assert.AreSame(uiFails ? uiFailure : noticeFailure, failures.Single());
+                Assert.AreEqual(uiFails ? 1 : 0, failures.Count);
+                if (uiFails) { Assert.AreSame(uiFailure, failures.Single()); }
+                Assert.AreEqual(1, notices.Count, "必須UIの成否にかかわらず、確定した保存の案内を一回試みます。");
+                Assert.AreEqual(Resources.Msg_LR2ConfigBackupEnabledNextStartup, notices.Single().MessageBoxText);
+                Assert.AreEqual(Resources.Confirm, notices.Single().Caption);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notices.Single().Icon);
                 Assert.AreEqual(uiFails, dialog.IsScoreReloadPending);
                 Assert.AreEqual(uiFails, dialog.HasPendingSettingChanges());
                 if (uiFails)
@@ -1206,9 +1213,12 @@ public sealed class MainWindowViewModelStartupProgressTests
                     Assert.IsFalse(dialog.IsScoreReloadPending);
                     Assert.IsFalse(dialog.HasPendingSettingChanges());
                     Assert.AreEqual(1, failures.Count);
+                    Assert.AreEqual(1, notices.Count, "確定済み保存の案内を再試行で重ねません。");
                 }
                 Assert.AreEqual(1, registrations, "Score成功の共通ownerが保存済み設定で一回登録します。Settings側から重ねません。");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(urlStarted.Task, "settings-score-url-started");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(urlStarted.Task, urlWork.Task.Unwrap(), "settings-score-url-started"),
+                    "settings-score-url-started");
                 Assert.AreEqual(1, starts);
                 urlRelease.TrySetResult();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(urlWork.Task.Unwrap(), "settings-score-actual-url-terminal");

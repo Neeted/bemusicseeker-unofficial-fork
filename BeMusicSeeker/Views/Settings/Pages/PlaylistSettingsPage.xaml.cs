@@ -30,34 +30,82 @@ public partial class PlaylistSettingsPage : UserControl
             ?? throw new InvalidOperationException("Playlist settings page is not hosted by SettingsWindow.");
     }
 
-    private void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseLr2CustomFolderOutputDirectory();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseLr2CustomFolderOutputDirectory();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 custom folder output picker");
+        }
     }
 
-    private void browseLr2CustomFolderAsRootOutputDirButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2CustomFolderAsRootOutputDirButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseLr2CustomFolderAsRootOutputDirectory();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseLr2CustomFolderAsRootOutputDirectory();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 custom root folder output picker");
+        }
     }
 
-    private void buttonAddCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    private async void buttonAddCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleAddCustomFolderAdditionalOutputBase();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleAddCustomFolderAdditionalOutputBase();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "additional custom folder output picker");
+        }
     }
 
-    private void buttonRemoveCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    private async void buttonRemoveCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        GetViewModel().RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            GetViewModel().RemoveSelectedCustomFolderAdditionalOutputBaseDir();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "additional custom folder output removal");
+        }
     }
 
-    private void buttonRenameCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
+    private async void buttonRenameCustomFolderAdditionalOutputBaseClicked(object sender, RoutedEventArgs e)
     {
-        GetViewModel().RenameSelectedCustomFolderAdditionalOutputBaseDir();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            GetViewModel().RenameSelectedCustomFolderAdditionalOutputBaseDir();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "additional custom folder output rename");
+        }
     }
 
-    private void buttonAddPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    private async void buttonAddPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleAddPlayHistoryFolderDisplayPreset();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleAddPlayHistoryFolderDisplayPreset();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "play history display preset dialog");
+        }
     }
 
     private void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
@@ -65,8 +113,16 @@ public partial class PlaylistSettingsPage : UserControl
         GetViewModel().RemoveSelectedPlayHistoryFolderDisplayPreset();
     }
 
-    private void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    private async void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleEditPlayHistoryFolderDisplayPreset();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleEditPlayHistoryFolderDisplayPreset();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "play history display preset dialog");
+        }
     }
 }

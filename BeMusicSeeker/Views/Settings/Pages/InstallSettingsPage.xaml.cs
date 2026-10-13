@@ -17,10 +17,17 @@ public partial class InstallSettingsPage : UserControl
         InitializeComponent();
     }
 
-    private void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
+    private async void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
     {
         SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow
             ?? throw new InvalidOperationException("Install settings page is not hosted by SettingsWindow.");
-        settingsWindow.HandleAddBmsInstallDirectory();
+        try
+        {
+            settingsWindow.HandleAddBmsInstallDirectory();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "BMS install directory picker");
+        }
     }
 }

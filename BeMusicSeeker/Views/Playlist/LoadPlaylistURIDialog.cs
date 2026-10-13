@@ -67,7 +67,46 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
 
     private async void OpenLocalFile(object sender, RoutedEventArgs e)
     {
-        await HandleOpenLocalFileAsync();
+        try
+        {
+            await HandleOpenLocalFileAsync();
+        }
+        catch (Exception exception)
+        {
+            TryLogLocalFilePickerFailure(exception, "playlist URI local file picker");
+            try
+            {
+                UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Hand,
+                    MessageBoxResult.OK,
+                    owner: Window.GetWindow(this)));
+                if (notification == null || notification.Status is not (UiDialogStatus.Accepted
+                    or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+                {
+                    TryLogLocalFilePickerFailure(notification?.Exception,
+                        "playlist URI local file picker failure notification status=" + notification?.Status);
+                }
+            }
+            catch (Exception notificationException)
+            {
+                TryLogLocalFilePickerFailure(notificationException, "playlist URI local file picker failure notification");
+            }
+        }
+    }
+
+    private static void TryLogLocalFilePickerFailure(Exception exception, string routeName)
+    {
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Error(exception, routeName + " failed");
+        }
+        catch
+        {
+            // 診断失敗を再通知せず、入力と元の操作結果を維持します。
+        }
     }
 
     /// <summary>

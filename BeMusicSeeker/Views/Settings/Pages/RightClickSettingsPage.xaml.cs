@@ -44,8 +44,16 @@ public partial class RightClickSettingsPage : UserControl
 
     private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetEditor().RestoreDefaults();
 
-    private void browseProgramExecutableButtonClicked(object sender, RoutedEventArgs e)
+    private async void browseProgramExecutableButtonClicked(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseRightClickProgramExecutable();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseRightClickProgramExecutable();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "right-click program executable picker");
+        }
     }
 }

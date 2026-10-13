@@ -1308,9 +1308,11 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>保存と Close 後に必須 BMT 出力の実終端を待ち、任意 URL 補完だけを scheduler へ渡すことを確認して、必要出力を予約だけで完了扱いする誤りを検出します。</summary>
-    [TestMethod]
-    public async Task ApplySettingsAsync_AwaitsRequiredPlaylistOutputAndKeepsOptionalUrlCompletionIndependent()
+    /// <summary>保存と Close 後に必須 BMT 出力の実終端を待ち、任意 URL 補完の予約失敗を設定適用失敗にせず、同補完だけを scheduler へ渡すことを確認して、必要出力を予約だけで完了扱いする誤りを検出します。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ApplySettingsAsync_AwaitsRequiredPlaylistOutputAndKeepsOptionalUrlCompletionIndependent(bool failScheduling)
     {
         string root = CreateTemporaryRoot();
         try
@@ -1320,12 +1322,22 @@ public sealed partial class SettingDialogEditCompletionTests
             var settingsSession = new CountingSettingsEditSession(settings);
             var scheduled = new List<string>();
             var runtime = new TestSettingsDialogPlaybackRuntimePort();
+            var failures = new List<Exception>();
             MainWindowViewModel viewModel = CreateViewModel(
                 settingsSession,
                 firstStartup: false,
-                playbackRuntimePort: runtime);
+                playbackRuntimePort: runtime,
+                reportSettingsApplyFailure: failures.Add);
             SetActiveLibraryProfile(viewModel, true);
             BMSPlaylist playlist = AttachPlaylistTables(viewModel, root, scheduled);
+            if (failScheduling)
+            {
+                playlist.StartupBackgroundTaskScheduler = (operation, reason, _, _) =>
+                {
+                    scheduled.Add(operation + ":" + reason);
+                    throw new IOException("optional scheduler failed");
+                };
+            }
             var presentation = new RecordingSettingsDialogPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
             int completedOutputs = 0;
@@ -1351,6 +1363,9 @@ public sealed partial class SettingDialogEditCompletionTests
             CollectionAssert.AreEqual(new[] { "playlist_url_completion:SettingDialog.SaveSettings" }, scheduled);
             Assert.AreEqual(1, completedOutputs, "必要BMT出力は外部schedulerへ予約せず、Save/Applyの実Taskが終端まで待ちます。");
             Assert.AreEqual(1, runtime.NotifyCount);
+            Assert.AreEqual(0, failures.Count, "任意予約の失敗を、確定した設定・必須出力の失敗へ変えません。");
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.IsFalse(dialog.IsEditCompletionInProgress);
         }
         finally
         {
@@ -3872,11 +3887,12 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>出力先重複を注入通知先へ一回届け、通知成功・失敗・owner 不在のいずれも元の出力先と config を保ち、通知不能は失敗として返すことを確認します。</summary>
+    /// <summary>出力先重複を注入通知先へ一回届け、通知成功・Failed・owner不在・Task faultのいずれも元の出力先とconfigを保ち、通知不能を元の入力拒否へ合成せず再通知しないことを確認します。</summary>
     [DataTestMethod]
     [DataRow("Accepted")]
     [DataRow("Failed")]
     [DataRow("OwnerUnavailable")]
+    [DataRow("TaskFault")]
     public void CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue(string statusName)
     {
         string root = CreateTemporaryRoot();
@@ -3911,21 +3927,15 @@ public sealed partial class SettingDialogEditCompletionTests
                     "Accepted" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
                     "Failed" => UiDialogResult.Failed(displayFailure),
                     "OwnerUnavailable" => UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable),
+                    "TaskFault" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
                     _ => throw new ArgumentOutOfRangeException(nameof(statusName))
                 }
             };
+            if (statusName == "TaskFault") { dialogs.MessageObservedAsync = () => Task.FromException(displayFailure); }
             dialog = CreateViewModel(session, firstStartup: false, dialogs: dialogs).SettingDialog;
             byte[] savedXml = File.ReadAllBytes(configPath);
 
-            Exception? notificationFailure = null;
-            try
-            {
-                dialog.LR2CustomFolderOutputDir = rootOutput;
-            }
-            catch (InvalidOperationException exception)
-            {
-                notificationFailure = exception;
-            }
+            dialog.LR2CustomFolderOutputDir = rootOutput;
 
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(0, dialogs.ConfirmationCount);
@@ -3935,22 +3945,6 @@ public sealed partial class SettingDialogEditCompletionTests
             Assert.AreEqual(rootOutput, dialog.LR2CustomFolderAsRootOutputDir);
             Assert.AreEqual(0, session.SaveCount);
             CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(configPath));
-            if (statusName == "Accepted")
-            {
-                Assert.IsNull(notificationFailure);
-            }
-            else
-            {
-                Assert.IsNotNull(notificationFailure);
-                if (statusName == "Failed")
-                {
-                    Assert.AreSame(displayFailure, notificationFailure!.InnerException);
-                }
-                else
-                {
-                    StringAssert.Contains(notificationFailure!.Message, statusName);
-                }
-            }
         }
         finally
         {
@@ -3959,16 +3953,17 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>保存と Close 後の初回完了通知が失敗／owner 不在なら初期化を始めず、失敗を報告して編集可能な再表示へ戻ることを確認します。</summary>
+    /// <summary>保存とClose後の任意完了通知がFailed・owner不在・Task faultでも保存済み事実を保ち、必要初期化へ一回進み再通知・再表示しません。</summary>
     [DataTestMethod]
     [DataRow("Failed")]
     [DataRow("OwnerUnavailable")]
-    public async Task ApplySettingsAsync_InitialSettingsDialogFailureIsReported(string statusName)
+    [DataRow("TaskFault")]
+    public async Task ApplySettingsAsync_InitialSettingsNoticeFailurePreservesSaveAndRequiredInitialization(string statusName)
     {
         string root = CreateTemporaryRoot();
         try
         {
-            UiDialogStatus status = Enum.Parse<UiDialogStatus>(statusName);
+            UiDialogStatus status = statusName == "TaskFault" ? UiDialogStatus.Accepted : Enum.Parse<UiDialogStatus>(statusName);
             var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
             var sequence = new List<string>();
             var dialogs = new RecordingRootDialogService
@@ -3978,6 +3973,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     : UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)
             };
             dialogs.MessageObserved = () => sequence.Add("completion-message");
+            if (statusName == "TaskFault")
+            {
+                dialogs.MessageObservedAsync = () => Task.FromException(new IOException("completion notice Task failed"));
+            }
             Exception? reportedFailure = null;
             int initializeCount = 0;
             MainWindowViewModel viewModel = CreateViewModel(
@@ -3995,11 +3994,6 @@ public sealed partial class SettingDialogEditCompletionTests
             settingsSession.SaveObserved = () => sequence.Add("save");
             dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
             {
-                if (request == "open")
-                {
-                    Assert.IsTrue(dialog.IsEditCompletionEnabled);
-                    Assert.IsTrue(dialog.IsEditCancellationEnabled);
-                }
                 sequence.Add(request);
             }));
             dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
@@ -4007,12 +4001,11 @@ public sealed partial class SettingDialogEditCompletionTests
 
             await dialog.ApplySettingsAsync();
 
-            Assert.IsNotNull(reportedFailure);
-            StringAssert.Contains(reportedFailure!.Message, status.ToString());
+            Assert.IsNull(reportedFailure);
             Assert.AreEqual(1, settingsSession.SaveCount);
             Assert.AreEqual(1, dialogs.MessageCount);
-            Assert.AreEqual(0, initializeCount);
-            CollectionAssert.AreEqual(new[] { "save", "close", "completion-message", "open" }, sequence);
+            Assert.AreEqual(1, initializeCount);
+            CollectionAssert.AreEqual(new[] { "save", "close", "completion-message", "initialize" }, sequence);
             Assert.IsTrue(dialog.IsEditCompletionEnabled);
             Assert.IsFalse(dialog.HasPendingSettingChanges());
         }
@@ -6189,6 +6182,8 @@ public sealed partial class SettingDialogEditCompletionTests
             var mutation = new BmsLibraryInitializationTestSupport.RecordingFileMutationService();
             bool changed = false;
             bool warning = false;
+            // 通知先の失敗が局所化されても検証失敗を隠さないよう、callbackでは記録し、実Taskの待機元で表明する。
+            List<(bool LibraryActive, bool PlaylistActive, bool Changed, int TimestampCallCount, bool ReentryAccepted)> warningObservations = [];
             int beforeAcceptedConfirmations = 0;
             TestUiDispatcherHost.Invoke(() =>
             {
@@ -6247,13 +6242,23 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     if (dialogs.LastMessageText != Resources.Warn_LR2LeapYearBugDetected) { return; }
                     warning = true;
-                    Assert.IsFalse(composition.OperationAdmission.IsActive);
-                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
-                    Assert.IsTrue(changed);
-                    Assert.AreEqual(1, mutation.TimestampCalls.Count);
-                    Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable reentry));
-                    reentry.Dispose();
+                    bool libraryActive = composition.OperationAdmission.IsActive;
+                    bool playlistActive = composition.PlaylistOperationAdmission.IsActive;
+                    bool changedAtWarning = changed;
+                    int timestampCallCount = mutation.TimestampCalls.Count;
+                    bool reentryAccepted = composition.OperationAdmission.TryEnter(out IDisposable reentry);
+                    if (reentryAccepted) { reentry.Dispose(); }
+                    warningObservations.Add((libraryActive, playlistActive, changedAtWarning, timestampCallCount, reentryAccepted));
                 };
+                void AssertWarningAfterAdmissionRelease()
+                {
+                    Assert.AreEqual(1, warningObservations.Count);
+                    Assert.IsFalse(warningObservations[0].LibraryActive);
+                    Assert.IsFalse(warningObservations[0].PlaylistActive);
+                    Assert.IsTrue(warningObservations[0].Changed);
+                    Assert.AreEqual(1, warningObservations[0].TimestampCallCount);
+                    Assert.IsTrue(warningObservations[0].ReentryAccepted);
+                }
                 if (shutdownDuringConfirmation)
                 {
                     var confirmationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -6308,15 +6313,11 @@ public sealed partial class SettingDialogEditCompletionTests
                 {
                     var notificationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var releaseNotification = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    List<(string Message, bool Changed, bool Warning)> notificationObservations = [];
                     dialogs.MessageObservedAsync = async () =>
                     {
-                        if (entry == 0 && dialogs.LastMessageText == Resources.Msg_initsetting_completed)
-                        {
-                            Assert.IsFalse(changed);
-                            Assert.IsFalse(warning);
-                            return;
-                        }
-                        Assert.AreEqual(Resources.Warn_LR2LeapYearBugDetected, dialogs.LastMessageText);
+                        notificationObservations.Add((dialogs.LastMessageText, changed, warning));
+                        if (entry == 0 && dialogs.LastMessageText == Resources.Msg_initsetting_completed) { return; }
                         dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.AppClosing);
                         notificationEntered.TrySetResult();
                         await releaseNotification.Task;
@@ -6332,6 +6333,15 @@ public sealed partial class SettingDialogEditCompletionTests
                     {
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, operation,
                             "leap-notification-shutdown-entered"), "leap-notification-shutdown-arrival");
+                        Assert.AreEqual(entry == 0 ? 2 : 1, notificationObservations.Count);
+                        CollectionAssert.AreEqual(entry == 0
+                            ? new[] { Resources.Msg_initsetting_completed, Resources.Warn_LR2LeapYearBugDetected }
+                            : new[] { Resources.Warn_LR2LeapYearBugDetected }, notificationObservations.Select(value => value.Message).ToArray());
+                        if (entry == 0)
+                        {
+                            Assert.IsFalse(notificationObservations[0].Changed);
+                            Assert.IsFalse(notificationObservations[0].Warning);
+                        }
                         Assert.IsFalse(operation.IsCompleted);
                         shutdown = activeOwner.ShellShutdownWorkflow.RequestWindowCloseAsync();
                         releaseNotification.TrySetResult();
@@ -6345,6 +6355,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.AreEqual(entry == 3, lifetime.IsFirstStartup, "通常・初設定の成功公開後の終了は成立済み初回完了を取り消しません。");
                         Assert.IsTrue(changed);
                         Assert.IsTrue(warning);
+                        AssertWarningAfterAdmissionRelease();
                         Assert.IsFalse(composition.OperationAdmission.IsActive);
                         Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                         Assert.IsFalse(activeOwner.ProgressHub.StartupProgress.IsFailed);
@@ -6398,6 +6409,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 else { TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.ReinitializeLibraryAsync(), "leap-tree-reinitialize"); }
                 Assert.IsTrue(changed);
                 Assert.IsTrue(warning);
+                AssertWarningAfterAdmissionRelease();
                 Assert.AreEqual(beforeAcceptedConfirmations + 1, dialogs.ConfirmationCount);
                 Assert.IsFalse(composition.OperationAdmission.IsActive);
                 Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);

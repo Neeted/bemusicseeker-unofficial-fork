@@ -406,7 +406,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         return (playlist, workspace, db, config, output);
     }
 
-    /// <summary>実backupを別DBへ復元して日本語名を保持し、未接続・空集合の警告と読書失敗のerrorを区別して既存backup bytesを保護します。</summary>
+    /// <summary>実backupを別DBへ復元して日本語名を保持し、未接続・空集合の警告と書込み失敗のerrorを区別します。通知先が失敗しても確定bytesを保持し、失敗を再送出せず既存backupを保護します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceBackupPlaylistAsync_PublishesSuccessWarningAndFailureReceipts()
     {
@@ -479,31 +479,31 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 successNotifications[0].Receipt.Notifications.Single().Message,
                 BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
 
+            EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> brokenSubscriber =
+                (_, _) => throw new InvalidOperationException("backup notification subscriber failed");
+            successWorkspace.PlaylistOperationNotificationPresentationRequested += brokenSubscriber;
+            string notifiedSuccessPath = Path.Combine(tempDirectory, "notified-success.sql");
+            await successWorkspace.BackupPlaylistAsync(notifiedSuccessPath);
+            CollectionAssert.AreEqual(backupBytes, File.ReadAllBytes(notifiedSuccessPath));
+            Assert.AreEqual(2, successNotifications.Count);
+            successWorkspace.PlaylistOperationNotificationPresentationRequested -= brokenSubscriber;
+
             string previousBackupPath = Path.Combine(tempDirectory, "previous-backup.sql");
             byte[] previousBackupBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes("previous backup bytes");
             File.WriteAllBytes(previousBackupPath, previousBackupBytes);
-            Exception? publishFailure = null;
             using (var lockedDestination = new FileStream(
                 previousBackupPath,
                 FileMode.Open,
                 FileAccess.ReadWrite,
                 FileShare.None))
             {
-                try
-                {
-                    await successWorkspace.BackupPlaylistAsync(previousBackupPath);
-                }
-                catch (Exception exception)
-                {
-                    publishFailure = exception;
-                }
+                await successWorkspace.BackupPlaylistAsync(previousBackupPath);
             }
-            Assert.IsNotNull(publishFailure);
             CollectionAssert.AreEqual(previousBackupBytes, File.ReadAllBytes(previousBackupPath));
-            Assert.AreEqual(2, successNotifications.Count);
+            Assert.AreEqual(3, successNotifications.Count);
             Assert.AreEqual(
                 PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                successNotifications[1].Receipt.Notifications.Single().Severity);
+                successNotifications[2].Receipt.Notifications.Single().Severity);
 
             string emptyDbDirectory = Path.Combine(tempDirectory, "empty");
             Directory.CreateDirectory(emptyDbDirectory);
@@ -546,16 +546,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 out failureNotifications);
             string invalidPath = Path.Combine(tempDirectory, "missing", "backup.sql");
 
-            Exception? backupFailure = null;
-            try
-            {
-                await failureWorkspace.BackupPlaylistAsync(invalidPath);
-            }
-            catch (Exception exception)
-            {
-                backupFailure = exception;
-            }
-            Assert.IsNotNull(backupFailure);
+            await failureWorkspace.BackupPlaylistAsync(invalidPath);
 
             Assert.IsFalse(File.Exists(invalidPath));
             Assert.AreEqual(1, failureNotifications.Count);
@@ -568,7 +559,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 failureNotification.Message,
                 BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup);
             StringAssert.Contains(failureNotification.Message, "missing");
-            StringAssert.Contains(failureNotification.Message, backupFailure!.Message);
             Assert.IsFalse(failureNotifications.Any(request => request.Receipt.Notifications.Any(
                 notification => notification.Message.IndexOf(
                     BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
@@ -777,10 +767,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     // DB Monitor の再取得は process-wide な所有確認のため、他 fixture の DB 保持から隔離する。
-    /// <summary>実DB復元確定、UI集合適用、UI operation完了を別gateで観測し、待機中のDB lock解放とP保持、競合変更拒否、完了後の次保存を確認します。</summary>
-    [TestMethod]
+    /// <summary>実DB復元確定、UI集合適用、UI operation完了を別gateで観測し、待機中のDB lock解放とP保持、競合変更拒否、完了後の次保存を確認します。任意URL補完の予約が失敗しても必須復元の成功を取り消しません。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [DoNotParallelize]
-    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_AwaitsUiCompletionAndRejectsCompetingWrites()
+    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_AwaitsUiCompletionAndRejectsCompetingWrites(bool failOptionalScheduling)
     {
         string directory = Path.Combine(Path.GetTempPath(), "playlist-restore-completion-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -788,7 +780,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         var execute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var executed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task? restore = null;
+        Task<bool>? restore = null;
         int scheduleCount = 0;
         var scheduledApplies = new List<Task>();
         Task? registration = null;
@@ -817,6 +809,19 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                     accepted.TrySetResult();
                     return task;
                 });
+            int optionalSchedulingCalls = 0;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, _) =>
+            {
+                Interlocked.Increment(ref optionalSchedulingCalls);
+                if (failOptionalScheduling) { throw new IOException("restore optional URL completion scheduling failed"); }
+                return false;
+            };
+            bool notificationAfterAdmissionRelease = false;
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+            {
+                notificationAfterAdmissionRelease = playlist.TryEnterPlaylistMutation(out IDisposable notificationLease);
+                notificationLease?.Dispose();
+            };
             bool collectionOnUi = true;
             playlist.BMSTables.CollectionChanged += (_, _) =>
                 collectionOnUi &= TestUiDispatcherHost.Dispatcher.CheckAccess();
@@ -858,8 +863,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.ThrowsException<InvalidOperationException>(() =>
                 playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single()));
             complete.TrySetResult();
-            await restore;
+            Assert.IsTrue(await restore);
+            Assert.IsTrue(notificationAfterAdmissionRelease, "結果通知へPを持ち越さない。");
             Assert.AreEqual(1, scheduleCount);
+            Assert.AreEqual(1, optionalSchedulingCalls, "任意予約を再試行しない。");
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
                 notifications.Single().Receipt.Notifications.Single().Severity);
             playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
@@ -944,7 +951,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>DB確定後のUI所属検査を失敗させ、確定DBと旧表示集合を区別してerror通知と元失敗を返しDB lockを残しません。</summary>
+    /// <summary>DB確定後のUI所属検査を失敗させ、確定DBと旧表示集合を区別し、一回のerror通知と終了不可の結果を返してDB lockを残しません。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_UiApplyFailureKeepsCommittedDatabaseAndOldCollection()
     {
@@ -972,8 +979,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string backupPath = Path.Combine(tempDirectory, "restore.sql");
             File.WriteAllText(backupPath, CreatePlaylistRestoreDump(2, "Should not apply", "rejected"), Encoding.UTF8);
 
-            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                () => workspace.RestorePlaylistBackupAsync(backupPath));
+            Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(backupPath));
 
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
@@ -1031,22 +1037,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 CreatePlaylistRestoreDump(2, "Partial replacement", "P") + "\v" + Environment.NewLine + "THIS IS NOT SQL",
                 Encoding.UTF8);
 
-            Exception? restoreFailure = null;
-            try
-            {
-                await workspace.RestorePlaylistBackupAsync(invalidBackupPath);
-            }
-            catch (Exception ex)
-            {
-                restoreFailure = ex;
-            }
-            Assert.IsNotNull(restoreFailure);
+            Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(invalidBackupPath));
 
             Assert.AreEqual(1, notifications.Count);
             PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
             Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
             StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
-            StringAssert.Contains(failure.Message, restoreFailure!.Message);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);
@@ -1066,9 +1062,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>存在しないbackupファイルの読込でFileNotFoundExceptionを返し、復元処理前の読込失敗から成功・復元errorのreceiptを生成しません。</summary>
+    /// <summary>存在しないbackupファイルを終了不可の失敗として一回通知し、DB・表示の復元や成功通知を開始しません。</summary>
     [TestMethod]
-    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_PropagatesFileReadFailureWithoutReceipt()
+    public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_ReportsReadFailureWithoutAuthorizingExit()
     {
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
         TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(owned.SongDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
@@ -1082,10 +1078,13 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             (_, request) => notifications.Add(request);
         string missingPath = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests) + "-" + Guid.NewGuid().ToString("N") + ".sql");
 
-        await Assert.ThrowsExceptionAsync<FileNotFoundException>(
-            () => workspace.RestorePlaylistBackupAsync(missingPath));
+        Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(missingPath));
 
-        Assert.AreEqual(0, notifications.Count);
+        Assert.AreEqual(1, notifications.Count);
+        PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
+        Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
+        StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+        StringAssert.Contains(failure.Message, missingPath);
     }
 
     /// <summary>二つの保存pickerからheader・dataを実出力し、相対data指定と既存URL保存を区別してserializerの実行中も正本URLを書き換えません。</summary>

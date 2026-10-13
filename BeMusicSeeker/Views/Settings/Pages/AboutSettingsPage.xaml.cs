@@ -79,29 +79,45 @@ public partial class AboutSettingsPage : UserControl
     {
         SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow
             ?? throw new InvalidOperationException("About settings page is not hosted by SettingsWindow.");
-        await settingsWindow.HandleShowReleaseNotesAsync();
+        try
+        {
+            await settingsWindow.HandleShowReleaseNotesAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "release notes dialog");
+        }
     }
 
-    private void externalLinkButtonClicked(object sender, RoutedEventArgs e)
+    private async void externalLinkButtonClicked(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: string url })
         {
             throw new InvalidOperationException("About link URL is unavailable.");
         }
 
-        OpenExternalUrl(url);
+        await OpenExternalUrlAsync(url);
     }
 
-    private void OpenExternalUrl(string url)
+    private async System.Threading.Tasks.Task OpenExternalUrlAsync(string url)
     {
         SettingsDialogViewModel viewModel = DataContext as SettingsDialogViewModel
             ?? throw new InvalidOperationException("Setting dialog view model is unavailable.");
-        viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(url));
+        SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow
+            ?? throw new InvalidOperationException("About settings page is not hosted by SettingsWindow.");
+        try
+        {
+            viewModel.ExternalShellGateway.Open(ExternalShellRequest.OpenUrl(url));
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "settings external link url=" + url);
+        }
     }
 
-    private void hyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
+    private async void hyperlinkRequestNavigate(object sender, RequestNavigateEventArgs e)
     {
-        OpenExternalUrl(e.Uri.ToString());
         e.Handled = true;
+        await OpenExternalUrlAsync(e.Uri.ToString());
     }
 }

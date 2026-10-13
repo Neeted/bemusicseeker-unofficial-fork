@@ -1183,6 +1183,7 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>
     /// 復元の DB ロック・transaction・ヘッダー読込を worker で実行し、UI 一覧適用と必要出力・公開の実終端までPを保持します。
     /// commit 後の読込・UI 失敗は復元 DB を保持したまま伝播し、再試行や巻戻しを行いません。
+    /// 必須公開・出力後の任意URL補完予約や診断失敗は局所で終え、復元成功を取り消しません。
     /// </summary>
     internal async Task RestorePlaylistDumpAsync(string sql, LibraryFileMutationCapability capability = null)
     {
@@ -1240,13 +1241,27 @@ public partial class BMSPlaylist : ObservableObject
                     bool rootOutputSearchRootsChanged = SyncRootFolderOutputDirectoriesToLr2Config();
                     await HydrateRequiredAsync("RestorePlaylist", exportBeatorajaBmt: true,
                         verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged, authority).ConfigureAwait(false);
-                    SchedulePlaylistUrlCompletionRefresh("RestorePlaylist");
                 }
                 catch (Exception exception)
                 {
                     // 復元後の出力準備が失敗しても、後続 import の readiness 待機を pending のまま残さない。
                     startupReadinessCoordinator.FailRequiredPlaylistReadiness(exception);
                     throw;
+                }
+                try
+                {
+                    SchedulePlaylistUrlCompletionRefresh("RestorePlaylist");
+                }
+                catch (Exception exception)
+                {
+                    try
+                    {
+                        NLogWrapper.FileLogger?.Error(exception, "playlist restore optional URL completion scheduling failed");
+                    }
+                    catch
+                    {
+                        // 任意予約と診断先の失敗を必須readinessや確定済み復元へ戻しません。
+                    }
                 }
             }
             finally

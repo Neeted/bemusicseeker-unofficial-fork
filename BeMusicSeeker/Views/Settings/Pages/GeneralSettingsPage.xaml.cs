@@ -33,7 +33,7 @@ public partial class GeneralSettingsPage : UserControl
             ?? throw new InvalidOperationException("General settings page is not hosted by SettingsWindow.");
     }
 
-    private void operationModeRadioButtonClick(object sender, RoutedEventArgs e)
+    private async void operationModeRadioButtonClick(object sender, RoutedEventArgs e)
     {
         bool requestedOperationMode = sender switch
         {
@@ -41,32 +41,71 @@ public partial class GeneralSettingsPage : UserControl
             _ when ReferenceEquals(sender, radioButtonNotUseLR2) => false,
             _ => throw new InvalidOperationException("Unexpected operation mode selection source.")
         };
-
-        SettingsDialogViewModel viewModel = GetViewModel();
-        if (viewModel.OperationModeLR2DB != requestedOperationMode)
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
         {
-            viewModel.OperationModeLR2DB = requestedOperationMode;
+            SettingsDialogViewModel viewModel = GetViewModel();
+            if (viewModel.OperationModeLR2DB != requestedOperationMode)
+            {
+                viewModel.OperationModeLR2DB = requestedOperationMode;
+            }
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "operation mode selection");
         }
     }
 
     private async void resyncLr2SongDbSyncDataButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandleLr2SongDbSyncDataResyncAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleLr2SongDbSyncDataResyncAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 manual resync");
+        }
     }
 
     private async void installOrRepairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandleInstallOrRepairLr2PlayHistorySchemaAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleInstallOrRepairLr2PlayHistorySchemaAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 play history schema installation");
+        }
     }
 
     private async void buttonAddBmsSearchRootPathsClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandleAddBmsSearchRootPathsAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleAddBmsSearchRootPathsAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "BMS search root folder picker");
+        }
     }
 
-    private void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2RootPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseLr2RootPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseLr2RootPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 root folder picker");
+        }
     }
 
     private async void browseLr2SongDbPathButtonClick(object sender, RoutedEventArgs e)
@@ -95,14 +134,30 @@ public partial class GeneralSettingsPage : UserControl
         }
     }
 
-    private void browseBeatorajaRootPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseBeatorajaRootPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseBeatorajaRootPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseBeatorajaRootPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "beatoraja root folder picker");
+        }
     }
 
-    private void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
+    private async void importBeatorajaTableUrlsButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleImportBeatorajaTableUrls();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleImportBeatorajaTableUrls();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "beatoraja table URL import");
+        }
     }
 
     private void bmsSearchRootPathListBoxDragOver(object sender, DragEventArgs e)

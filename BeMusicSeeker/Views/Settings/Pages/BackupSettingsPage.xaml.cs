@@ -25,16 +25,40 @@ public partial class BackupSettingsPage : UserControl
 
     private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandlePlaylistBackupAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandlePlaylistBackupAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "playlist backup");
+        }
     }
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandlePlaylistRestoreAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandlePlaylistRestoreAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "playlist restore");
+        }
     }
 
-    private void browseLr2BackupPathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseLr2BackupPathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseLr2BackupPath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseLr2BackupPath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 backup folder picker");
+        }
     }
 }

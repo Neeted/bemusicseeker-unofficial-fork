@@ -132,15 +132,15 @@ DB確定後のLR2/BMT出力失敗で、保存済みの表や表示を巻き戻�
 JSON出力は必要な正本入力を読取り境界内で捕捉し、保存先に応じたData_urlは出力用値だけへ反映します。シリアライズ中も正本Data_urlを一時変更しません。
 
 
-バックアップは整合読取りを使い、選択先と同じディレクトリの一時ファイルへUTF-8・BOMなしで書き、閉じた後に置換または移動で公開します。先に既存先を消したり、直接上書きへ切り替えたりしません。後片付け失敗も診断に残し、成功通知は公開後だけです。
+バックアップは整合読取りを使い、選択先と同じディレクトリの一時ファイルへUTF-8・BOMなしで書き、閉じた後に置換または移動で公開します。先に既存先を消したり、直接上書きへ切り替えたりしません。後片付け失敗も診断に残し、成功通知は公開後だけです。書込み・公開の失敗はWorkspaceで保存先と元原因を診断し、一回の失敗receiptへ渡します。receiptの表示失敗は局所診断で終え、公開済みbytesや元の保存結果を変えず、表示のために失敗を再送出しません。
 
 SQLリテラルはSQLiteの保存値と型から生成します。数値風のTEXT、空文字、空白、引用符、日本語はTEXTのまま、NULLは空文字と区別して往復します。埋込みNULやバックアップ区切りに使う垂直TABを含むTEXTは、引用時の切詰めや区切りとの衝突を避け、全byteから同じTEXTを復元するSQL式へ変換します。INTEGERとREALも値・型を保ち、文化圏の数値解釈へ依存しません。旧形式のBMT設定を補正する場合も、bmt_sortとis_bmt_outputの二列だけを更新して他列の保存値を保ちます。復元途中のSQL失敗では旧三表を保ち、songや未知の利用者表は変更しません。従来の有効なSQLバックアップも引き続き読み込みます。
 
 復元はファイル読込み、DB復元、表示一覧への反映を分けます。DBのMonitor、トランザクション、確定後のヘッダー読込み、接続解放は同じワーカーの同期範囲で完結させます。UIへの一覧反映を予約する前にその範囲を抜け、予約の受付だけでなく完了を待ちます。譜面行は引き続き遅延読込みです。
 
-復元の受付分類は[競合ポリシー](../core/operation-concurrency-policy.md#設定全体操作終了)に従います。読込み・復元確定前の失敗は旧DBと一覧を保持します。確定後のヘッダー読込みやUI反映の失敗は復元済みDBを保持し、元エラーを返します。UIの途中適用は補償しません。必須hydration・出力修復も同じ受理操作のTaskとして実終端を待ち、表示用の独立した版・対象識別は維持します。
+復元の受付分類は[競合ポリシー](../core/operation-concurrency-policy.md#設定全体操作終了)に従います。読込み・復元確定前の失敗は旧DBと一覧を保持します。確定後のヘッダー読込みやUI反映の失敗は復元済みDBを保持し、元原因を診断して終了不可の結果と失敗receiptを返します。UIの途中適用は補償しません。必須hydration・出力修復も同じ受理操作のTaskとして実終端を待ち、表示用の独立した版・対象識別は維持します。
 
-復元後に開始した必須のプレイリスト準備は、出力先同期等が失敗した場合も同じ元例外で終端します。復元処理と準備を待つ外部取込みの両方へ失敗を返し、待機を残しません。準備開始前の失敗では既存の準備状態を変えません。失敗時に成功表示、追加出力、設定画面終了、アプリ終了の許可を出しません。
+復元後に開始した必須のプレイリスト準備は、出力先同期等が失敗した場合も同じ元例外で終端します。復元処理と準備を待つ外部取込みの両方へ失敗を返し、待機を残しません。準備開始前の失敗では既存の準備状態を変えません。失敗時に成功表示、追加出力、設定画面終了、アプリ終了の許可を出しません。Workspaceは必要公開・出力の完了までL/Pを保持し、最終結果通知より先に解放します。Busy・受付拒否ではdumpを読まず、復元完了の結果を返しません。下位の失敗receiptがあれば同じ事実を再通知せず、通知失敗も元復元結果へ合成しません。実復元と必要公開・出力が成功した場合だけ終了を許可し、任意の完了・終了案内の失敗はその許可を取り消しません。必要出力後の任意URL補完の予約・診断失敗は局所で終え、成功済み復元や必須readinessを失敗へ戻しません。
 
 SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行をダンプ・復元・表示へ公開しません。読取り失敗を解放失敗より主原因にします。同期 `LoadPlaylistDump` は移行等のDB専用入口に限り、設定画面は非同期復元を使います。
 
@@ -159,6 +159,7 @@ SQL読取りは `SQLITE_ROW` と `SQLITE_DONE` 以外を失敗とし、途中行
 | DB失敗後の同一オブジェクト保持と次の正常編集 | [`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) |
 | 実ドロップ・分類・参照・通知 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
 | 所持参照解決索引の所有・版・差分と旧捕捉値 | [`CatalogOwnedCollectionOwner.Playlist`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Playlist.cs) | [`PlaylistSummaryResolveIndexTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryResolveIndexTests.cs)、[`PlaylistSummaryMutationAndWarmTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryMutationAndWarmTests.cs)、[`PlaylistSummaryOwnedHashTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryOwnedHashTests.cs) |
+| バックアップ実公開と任意通知、復元の終了許可 | `PlaylistWorkspaceViewModel.PlaylistBackup`、`PlaylistWorkspaceViewModel.PlaylistRestore`、`SettingsWindow` | `PlaylistWorkspacePersistenceCommandTests` のbackup receipt系列は旧bytes・成功bytesと失敗receiptを確認し、restore系列は必須UIの実終端、通知前P解放、確定後失敗と次の明示操作を確認する。実BAMLの失敗捕捉・重複通知抑止・Busy/必要公開失敗のClose抑止・通知失敗後の成功Closeは `SettingsWindowPresentationTests` の `BackupPage_` 系列が分担する。 |
 | 復元の排他・DB待機・UI完了・準備失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistPersistenceLifecycleTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
 | 復元から新正本・表示・必須出力と次保存への正常接続 | 同上、`PlaylistWorkspaceViewModel`、`PlaylistPropertySaveService` | 同workspace系列の `PlaylistWorkspaceRestorePlaylistBackupAsync_ReplacesTablesAndPublishesSuccess` は実SQL復元後の新正本・ツリー受信・summary・entry hydration、必要な実LR2/BMT出力を新readerの初期化前に観測する。新正本の次編集保存を新readonly接続で読戻し、別表・song・利用者表と管理外ファイルを保つ。SQL値・型の条件表は既存schema往復系列へ分担する。 |
 | 見出し・項目の型と不正なJSONの失敗 | [`BMSTable`](../../../BeMusicSeeker/Models/Playlist/BMSTable.cs) | [`BMSTableLoadTests`](../../../BeMusicSeeker.Tests/Playlist/BMSTableLoadTests.cs) |

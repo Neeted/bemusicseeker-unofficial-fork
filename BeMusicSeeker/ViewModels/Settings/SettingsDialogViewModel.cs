@@ -1474,6 +1474,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex)
         {
+            TryLogSettingsLocalFailure(ex, "LR2 play history schema install path=" + scoreDbPath);
             await ShowLr2PlayHistorySchemaMessageAsync(
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
                 BeMusicSeeker.Properties.Resources.Error,
@@ -1606,6 +1607,7 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         catch (Exception ex)
         {
+            TryLogSettingsLocalFailure(ex, "LR2 play history schema uninstall path=" + scoreDbPath);
             await ShowLr2PlayHistorySchemaMessageAsync(
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
                 BeMusicSeeker.Properties.Resources.Error,
@@ -1633,20 +1635,12 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
-    private async Task ShowLr2PlayHistorySchemaMessageAsync(
+    private Task ShowLr2PlayHistorySchemaMessageAsync(
         string message,
         string caption,
         MessageBoxImage icon,
         string routeName)
-    {
-        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-            message,
-            caption,
-            MessageBoxButton.OK,
-            icon,
-            MessageBoxResult.OK));
-        UiDialogRoute.ThrowIfNotShown(result, routeName);
-    }
+        => ShowUiMessageAsync(message, caption, icon, routeName);
 
     private void ResetLr2PlayHistorySchemaStatus()
     {
@@ -6131,15 +6125,11 @@ public partial class SettingsDialogViewModel : ViewModel
         isBMSDirectoryRemoved = false;
     }
 
-    private async Task PresentBmsSearchRootRemovalFailureAsync(Exception exception)
+    private Task PresentBmsSearchRootRemovalFailureAsync(Exception exception)
     {
-        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-            exception.Message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK));
-        UiDialogRoute.ThrowIfNotShown(result, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder failure notification");
+        TryLogSettingsLocalFailure(exception, "BMS search root removal");
+        return ShowUiMessageAsync(exception.Message, BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxImage.Hand, "treeViewLibraryFolderContextMenuItemUnregisterRootFolder failure notification");
     }
 
     [Flags]
@@ -7291,26 +7281,17 @@ public partial class SettingsDialogViewModel : ViewModel
     private async Task CompleteSavedSettingsFollowUpAsync(SettingsPostSaveImpact impact, bool scheduleUrlCompletion, Func<bool> isCompletionCurrent = null)
     {
         if (operationAdmission.IsAdmissionClosed || isCompletionCurrent?.Invoke() == false) { return; }
-        Exception notificationFailure = null;
-        try
+        if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
         {
-            if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))
-            {
-                await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup,
-                    BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Settings backup enabled notification");
-            }
+            await ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_LR2ConfigBackupEnabledNextStartup,
+                BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Asterisk, "Settings backup enabled notification");
         }
-        catch (Exception failure) { notificationFailure = failure; }
         // 保存事実の通知失敗は公開済み必須成功を取り消しません。未公開・終了では今回の新規任意投入をしません。
         if (!operationAdmission.IsAdmissionClosed && isCompletionCurrent?.Invoke() != false && scheduleUrlCompletion && impact.HasFlag(SettingsPostSaveImpact.PlaylistUrlCompletion))
         {
             try { workspacePort.SchedulePlaylistUrlCompletionRefresh("SettingDialog.SaveSettings"); }
-            catch (Exception schedulingFailure) when (notificationFailure != null)
-            {
-                Task.FromException(schedulingFailure).ObserveFault("Settings saved follow-up scheduling");
-            }
+            catch (Exception exception) { TryLogSettingsLocalFailure(exception, "Settings URL completion scheduling"); }
         }
-        if (notificationFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(notificationFailure).Throw(); }
     }
 
     /// <summary>既存のL/Pを非待機で揃えます。一部取得の拒否・例外ではLを解放し、成功時は呼出元が実処理終端まで両方を所有します。</summary>
@@ -7835,16 +7816,10 @@ public partial class SettingsDialogViewModel : ViewModel
         return ToUiConfirmationDecision(result, routeName);
     }
 
-    private async Task ShowInitialSettingsCompletionMessageAsync()
-    {
-        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-            BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
-            BeMusicSeeker.Properties.Resources.Information,
-            MessageBoxButton.OK,
-            MessageBoxImage.Asterisk,
-            MessageBoxResult.OK));
-        UiDialogRoute.ThrowIfNotShown(result, "Initial settings completion notification");
-    }
+    private Task ShowInitialSettingsCompletionMessageAsync()
+        => ShowUiMessageAsync(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
+            BeMusicSeeker.Properties.Resources.Information, MessageBoxImage.Asterisk,
+            "Initial settings completion notification");
 
     private async Task ShowUiMessageAsync(
         string messageBoxText,
@@ -7853,13 +7828,16 @@ public partial class SettingsDialogViewModel : ViewModel
         string routeName,
         MessageBoxResult defaultResult = MessageBoxResult.OK)
     {
-        UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
-            messageBoxText,
-            caption,
-            MessageBoxButton.OK,
-            icon,
-            defaultResult));
-        UiDialogRoute.ThrowIfNotShown(result, routeName);
+        try
+        {
+            UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult));
+            DiagnoseSettingsNotificationResult(result, routeName);
+        }
+        catch (Exception exception)
+        {
+            TryLogSettingsLocalFailure(exception, routeName);
+        }
     }
 
     private void ShowUiMessage(
@@ -7869,11 +7847,39 @@ public partial class SettingsDialogViewModel : ViewModel
         string routeName = "UI message dialog",
         MessageBoxResult defaultResult = MessageBoxResult.OK)
     {
-        UiDialogResult result = schemaDialogs
-            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfUiDialogNotShown(result, routeName);
+        try
+        {
+            UiDialogResult result = schemaDialogs
+                .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult))
+                .GetAwaiter().GetResult();
+            DiagnoseSettingsNotificationResult(result, routeName);
+        }
+        catch (Exception exception)
+        {
+            TryLogSettingsLocalFailure(exception, routeName);
+        }
+    }
+
+    private static void DiagnoseSettingsNotificationResult(UiDialogResult result, string routeName)
+    {
+        if (result == null || result.Status is not (UiDialogStatus.Accepted
+            or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+        {
+            TryLogSettingsLocalFailure(result?.Exception,
+                routeName + " status=" + (result?.Status.ToString() ?? "no result"));
+        }
+    }
+
+    private static void TryLogSettingsLocalFailure(Exception exception, string routeName)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Error(exception, routeName + " failed");
+        }
+        catch
+        {
+            // 任意通知と診断先の失敗は局所で終え、確定結果・確認の判断へ混ぜません。
+        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)
@@ -7886,16 +7892,6 @@ public partial class SettingsDialogViewModel : ViewModel
             UiDialogStatus.Failed => throw CreateUiDialogDisplayException(routeName, result),
             _ => throw CreateUiDialogDisplayException(routeName, result),
         };
-    }
-
-    private static void ThrowIfUiDialogNotShown(UiDialogResult result, string routeName)
-    {
-        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
-        {
-            return;
-        }
-
-        throw CreateUiDialogDisplayException(routeName, result);
     }
 
     private static SettingsDialogUiDialogDisplayException CreateUiDialogDisplayException(

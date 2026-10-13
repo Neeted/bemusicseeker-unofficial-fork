@@ -185,11 +185,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実行ファイル picker に設定 Window と filter を渡し、受理した空白入りパスと名前を現在の右クリック編集行へ反映することを確認します。</summary>
+    /// <summary>実Buttonの実行file選択を現在の右クリック行へ反映し、別のBrowseRequested入口の同期失敗・失敗通知の失敗でもdraftと選択を保持して再通知しません。</summary>
     [TestMethod]
     public void SettingsWindow_ExecutablePickerUpdatesSelectedRightClickDraft()
     {
-        TestUiDispatcherHost.Invoke(() =>
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
@@ -211,13 +211,18 @@ public sealed class SettingsWindowPresentationTests
             dialogs.ExpectedOwner = window;
             try
             {
-                window.Measure(new Size(820, 760));
-                window.Arrange(new Rect(0, 0, 820, 760));
-                window.UpdateLayout();
+                windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
 
                 owner.SettingDialog.RightClickActionSettingsEditor.AddProgramAction();
-                window.HandleBrowseRightClickProgramExecutable();
+                navigation.SelectedItem = window.FindName("navigationRightClick");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                window.UpdateLayout();
+                var rightClickPage = (RightClickSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                FindDescendants<Button>(rightClickPage).Single(button =>
+                    AutomationProperties.GetAutomationId(button) == "RightClickProgramExecutablePicker")
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(1, dialogs.FileRequests.Count);
                 UiFilePickerRequest request = dialogs.FileRequests[0];
@@ -228,10 +233,35 @@ public sealed class SettingsWindowPresentationTests
                     .RightClickActionSettingsEditor.SelectedProgramAction;
                 Assert.AreEqual(@"C:\Tools\Chart Viewer.exe", selected.ExecutablePath);
                 Assert.AreEqual("Chart Viewer", selected.Name);
+                string previousUbmplay = owner.SettingDialog.uBMplayPath;
+                dialogs.FileSynchronousFailure = new IOException("executable picker synchronous failure");
+                dialogs.MessageResult = UiDialogResult.Failed(new IOException("executable notice failure"));
+                navigation.SelectedItem = window.FindName("navigationPlayback");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playbackPage = (PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var ubmplay = (RadioButton)playbackPage.FindName("radioButtonPlayuBMplay");
+                typeof(RadioButton).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(ubmplay, null);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                window.UpdateLayout();
+                SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(playbackPage).Single(candidate =>
+                    candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.uBMplayPath));
+                Assert.IsTrue(picker.IsVisible, "選択した外部playerの可視pickerから実BrowseRequestedへ進みます。");
+                FindDescendants<Button>(picker).Single(button => Equals(button.Content, picker.BrowseText))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(previousUbmplay, owner.SettingDialog.uBMplayPath);
+                Assert.AreSame(selected, owner.SettingDialog.RightClickActionSettingsEditor.SelectedProgramAction);
+                Assert.AreEqual(@"C:\Tools\Chart Viewer.exe", selected.ExecutablePath);
+                Assert.AreEqual(1, dialogs.MessageRequests.Count, "失敗通知の失敗を再通知しない。");
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    if (window.IsVisible) { window.CloseForOwnerShutdown(); }
+                }
+                finally { owner.SettingDialog.Dispose(); }
             }
         });
     }
@@ -465,6 +495,407 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>実backupボタンからatomic writerの公開を失敗させ、旧bytes・一回の結果通知・grid再開と次の明示保存を保ちます。picker取消では通知・変更を始めません。</summary>
+    /// <remarks>実BAMLのasyncイベントとWorkspace・ファイル公開を接続し、失敗ダイアログがさらに失敗してもdispatcherへ漏れないことを観測します。</remarks>
+    [TestMethod]
+    public void BackupPage_WriteFailureAndBrokenNoticeRetainBytesAndAcceptNextExplicitClick()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "settings-backup-boundary-" + Guid.NewGuid().ToString("N"));
+            Logger logger = Ribbit.Logging.NLogWrapper.GetLogger(typeof(SettingsWindowPresentationTests));
+            FieldInfo? fileLoggerProvider = typeof(Ribbit.Logging.NLogWrapper).GetField("_FileLogger", BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.IsNotNull(fileLoggerProvider);
+            var previousFileLogger = (Func<Logger>?)fileLoggerProvider.GetValue(null);
+            LoggingConfiguration? previousLogging = LogManager.Configuration;
+            using var logs = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+            SettingsWindow? window = null;
+            MainWindowViewModel? owner = null;
+            var unhandled = new List<Exception>();
+            var noticeFailure = new IOException("backup notice failed");
+            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) =>
+            {
+                unhandled.Add(args.Exception);
+                args.Handled = true;
+            };
+            try
+            {
+                Directory.CreateDirectory(directory);
+                var configuration = new LoggingConfiguration();
+                configuration.AddRule(LogLevel.Error, LogLevel.Fatal, logs, logger.Name);
+                LogManager.Configuration = configuration;
+                fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
+                string dbPath = Path.Combine(directory, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
+                owner = MainWindowViewModelTestFactory.Create();
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                    dbPath,
+                    [new BMSTable { playlist_id = 1, name = "Saved backup", symbol = "B" }],
+                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications);
+                playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
+                string destination = Path.Combine(directory, "backup.sql");
+                byte[] oldBytes = System.Text.Encoding.UTF8.GetBytes("old backup bytes");
+                File.WriteAllBytes(destination, oldBytes);
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    SaveFileResult = new UiSaveFilePickerResult(UiDialogStatus.Accepted, destination),
+                    MessageResult = UiDialogResult.Failed(noticeFailure)
+                };
+                window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
+                dialogs.ExpectedOwner = window;
+                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                {
+                    foreach (PlaylistOperationNotificationOwner.OperationNotification notice in request.Receipt.Notifications)
+                    {
+                        UiDialogResult result = dialogs.ShowMessageAsync(new UiMessageRequest(
+                            notice.Message, notice.Caption, MessageBoxButton.OK, MessageBoxImage.Hand,
+                            MessageBoxResult.OK, owner: window)).GetAwaiter().GetResult();
+                        UiDialogRoute.ThrowIfNotShown(result, request.RouteName);
+                    }
+                };
+                window.Dispatcher.UnhandledException += onUnhandled;
+                windowTest.ShowAndWaitForContentRendered(window);
+                var grid = (Grid)window.FindName("settingDialogOperationGrid");
+                using (var locked = new FileStream(destination, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    ClickBackupPageButton(window, Resources.Backup_playlist);
+                    AwaitViewOperationTerminal(window);
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                CollectionAssert.AreEqual(oldBytes, File.ReadAllBytes(destination));
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                Assert.AreEqual(1, notifications.Count);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                    notifications.Single().Receipt.Notifications.Single().Severity);
+                Assert.IsTrue(grid.IsEnabled);
+                LogManager.Flush();
+                Assert.IsTrue(logs.Logs.Any(log => log.Contains("playlist backup path=" + destination, StringComparison.Ordinal)
+                    && log.Contains(nameof(IOException), StringComparison.Ordinal)));
+                Assert.AreEqual(1, logs.Logs.Count(log => log.Contains("playlist backup notification", StringComparison.Ordinal)
+                    && log.Contains(noticeFailure.Message, StringComparison.Ordinal)),
+                    "保存結果とは別に、結果通知の表示失敗を一回診断します。");
+
+                dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+                ClickBackupPageButton(window, Resources.Backup_playlist);
+                AwaitViewOperationTerminal(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                StringAssert.Contains(File.ReadAllText(destination), "Saved backup");
+                Assert.AreEqual(2, dialogs.SaveFileRequests.Count);
+                Assert.AreEqual(2, dialogs.MessageRequests.Count);
+                byte[] savedBytes = File.ReadAllBytes(destination);
+                dialogs.SaveFileResult = new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser);
+                ClickBackupPageButton(window, Resources.Backup_playlist);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                CollectionAssert.AreEqual(savedBytes, File.ReadAllBytes(destination));
+                Assert.AreEqual(3, dialogs.SaveFileRequests.Count);
+                Assert.AreEqual(2, dialogs.MessageRequests.Count);
+                LogManager.Flush();
+                Assert.AreEqual(1, logs.Logs.Count(log => log.Contains("playlist backup notification", StringComparison.Ordinal)
+                    && log.Contains(noticeFailure.Message, StringComparison.Ordinal)),
+                    "次の成功と取消では通知失敗の診断を重ねません。");
+                Assert.AreEqual(0, unhandled.Count);
+            }
+            finally
+            {
+                try
+                {
+                    if (window?.IsVisible == true) { AwaitViewOperationTerminal(window); }
+                }
+                finally
+                {
+                    if (window != null) { window.Dispatcher.UnhandledException -= onUnhandled; }
+                    try
+                    {
+                        if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    }
+                    finally
+                    {
+                        try { owner?.SettingDialog.Dispose(); }
+                        finally
+                        {
+                            try { LogManager.Flush(); }
+                            finally
+                            {
+                                try { fileLoggerProvider.SetValue(null, previousFileLogger); }
+                                finally
+                                {
+                                    try { LogManager.Configuration = previousLogging; }
+                                    finally
+                                    {
+                                        if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /// <summary>実restoreボタンのL/P Busyと受付閉鎖ではdumpを読まず、必須UI完了失敗では確定DBを保持します。いずれも終了端末を呼ばず、次要求を自動再生しません。</summary>
+    /// <remarks>Busyの入力を存在しないdumpにして副作用前の拒否を区別し、実DBとcompiledイベント・設定gridの実終端を観測します。</remarks>
+    [DataTestMethod]
+    [DataRow("library-busy")]
+    [DataRow("playlist-busy")]
+    [DataRow("admission-closed")]
+    [DataRow("required-ui-failure")]
+    [DataRow("required-publication-failure")]
+    public void BackupPage_RestoreRefusalOrRequiredFailureNeverRequestsExit(string condition)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "settings-restore-refusal-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            SettingsWindow? window = null;
+            MainWindowViewModel? owner = null;
+            IDisposable? heldLease = null;
+            bool committedFailure = condition is "required-ui-failure" or "required-publication-failure";
+            try
+            {
+                string dbPath = Path.Combine(directory, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath,
+                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                    dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
+                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    restoreUiApplyScheduler: condition == "required-ui-failure"
+                        ? _ => Task.FromException(new InvalidOperationException("required restore UI failed")) : null,
+                    libraryOverride: library);
+                playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
+                if (condition == "required-publication-failure")
+                {
+                    workspace.PlaylistEntriesHydrationRequested += (_, _) =>
+                        throw new IOException("required restore publication failed");
+                }
+                BMSTable oldTable = playlist.BMSTables.Single();
+                int rejected = 0;
+                workspace.MutationRejected += (_, _) => rejected++;
+                if (condition == "library-busy")
+                {
+                    Assert.IsTrue(library.OperationAdmission.TryEnter(out heldLease));
+                }
+                else if (condition == "playlist-busy")
+                {
+                    Assert.IsTrue(playlist.TryEnterPlaylistMutation(out heldLease));
+                }
+                else if (condition == "admission-closed")
+                {
+                    library.OperationAdmission.CloseAdmission();
+                }
+                string dump = Path.Combine(directory, "restore.sql");
+                if (committedFailure)
+                {
+                    File.WriteAllText(dump, PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(2, "Committed", "C"));
+                }
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    FileResult = new UiFilePickerResult(UiDialogStatus.Accepted, [dump])
+                };
+                int exitRequests = 0;
+                owner = MainWindowViewModelTestFactory.Create();
+                window = new SettingsWindow(dialogs, _ => exitRequests++)
+                { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
+                dialogs.ExpectedOwner = window;
+                windowTest.ShowAndWaitForContentRendered(window);
+                var grid = (Grid)window.FindName("settingDialogOperationGrid");
+                ClickBackupPageButton(window, Resources.Backup_restore_playlist);
+                AwaitViewOperationTerminal(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, exitRequests);
+                Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                Assert.IsTrue(window.IsVisible);
+                Assert.IsTrue(grid.IsEnabled);
+                Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
+                if (condition == "required-publication-failure")
+                {
+                    Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id, "必要公開の後段失敗で採用済み集合を巻き戻さない。");
+                }
+                else { Assert.AreSame(oldTable, playlist.BMSTables.Single()); }
+                Assert.AreEqual(committedFailure ? 0 : 1, rejected);
+                Assert.AreEqual(committedFailure ? 1 : 0, notifications.Count);
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly())
+                {
+                    Assert.AreEqual(committedFailure ? 2 : 1, db.Table<BMSTable>().Single().playlist_id);
+                }
+                heldLease?.Dispose();
+                heldLease = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, dialogs.FileRequests.Count, "解放後に要求を自動再生しない。");
+                Assert.AreEqual(0, exitRequests);
+            }
+            finally
+            {
+                heldLease?.Dispose();
+                try
+                {
+                    if (window?.IsVisible == true) { AwaitViewOperationTerminal(window); }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    }
+                    finally
+                    {
+                        try { owner?.SettingDialog.Dispose(); }
+                        finally { Directory.Delete(directory, recursive: true); }
+                    }
+                }
+            }
+        });
+    }
+
+    /// <summary>実restoreのDB・必要UI公開が成功すれば、完了receiptと終了案内が失敗してもshell端末を一回呼び実Closeします。最終通知へL/Pを持ち越しません。</summary>
+    [TestMethod]
+    public void BackupPage_RestoreSuccessClosesOnceDespiteCompletionAndExitNoticeFailures()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "settings-restore-success-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            SettingsWindow? window = null;
+            MainWindowViewModel? owner = null;
+            var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var execute = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var executed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var complete = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var scheduledApplies = new List<Task>();
+            bool clicked = false;
+            async Task ApplyAsync(Action action)
+            {
+                await execute.Task;
+                action();
+                executed.TrySetResult();
+                await complete.Task;
+            }
+            try
+            {
+                string dbPath = Path.Combine(directory, "song.db");
+                StartupLibraryConstructionTestSupport.CreateSongDatabase(dbPath);
+                TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(dbPath,
+                    MainWindowViewModelTestFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
+                PlaylistWorkspaceViewModel workspace = PlaylistWorkspaceFixtureFactory.CreateBackupWorkspace(
+                    dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
+                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    restoreUiApplyScheduler: action =>
+                    {
+                        Task operation = ApplyAsync(action);
+                        lock (scheduledApplies) { scheduledApplies.Add(operation); }
+                        accepted.TrySetResult();
+                        return operation;
+                    },
+                    libraryOverride: library);
+                string dump = Path.Combine(directory, "restore.sql");
+                File.WriteAllText(dump, PlaylistWorkspaceTestDataSupport.CreatePlaylistRestoreDump(2, "Restored", "R"));
+                bool notificationAfterAdmissionRelease = false;
+                workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+                {
+                    bool libraryAvailable = library.OperationAdmission.TryEnter(out IDisposable l);
+                    bool playlistAvailable = playlist.TryEnterPlaylistMutation(out IDisposable p);
+                    p?.Dispose();
+                    l?.Dispose();
+                    notificationAfterAdmissionRelease = libraryAvailable && playlistAvailable;
+                    throw new IOException("completion notice failed");
+                };
+                var dialogs = new RecordingSettingsRouteDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    FileResult = new UiFilePickerResult(UiDialogStatus.Accepted, [dump]),
+                    MessageResult = UiDialogResult.Failed(new IOException("exit notice failed"))
+                };
+                int exits = 0;
+                owner = MainWindowViewModelTestFactory.Create();
+                window = new SettingsWindow(dialogs, source =>
+                {
+                    exits++;
+                    source.CloseForOwnerShutdown();
+                })
+                { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
+                dialogs.ExpectedOwner = window;
+                window.Closed += (_, _) => closed.TrySetResult();
+                windowTest.ShowAndWaitForContentRendered(window);
+                clicked = true;
+                ClickBackupPageButton(window, Resources.Backup_restore_playlist);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(accepted.Task, closed.Task, "compiled restore UI accepted"),
+                    "compiled restore UI accepted");
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(0, exits);
+                Assert.AreEqual(0, notifications.Count);
+                execute.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(executed.Task, closed.Task, "compiled restore UI execute"),
+                    "compiled restore UI execute");
+                Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id);
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(0, exits, "必要UIの実完了前に終了を許可しない。");
+                Assert.AreEqual(0, dialogs.MessageRequests.Count);
+                complete.TrySetResult();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "compiled restore success Close");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, exits);
+                Assert.IsTrue(notificationAfterAdmissionRelease);
+                Assert.AreEqual(1, notifications.Count);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
+                    notifications.Single().Receipt.Notifications.Single().Severity);
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                Assert.AreEqual(Resources.Msg_ApplicationWillExit, dialogs.MessageRequests.Single().MessageBoxText);
+                Assert.IsFalse(window.IsVisible);
+                Assert.IsNull(window.DataContext);
+                Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(dbPath).OpenSongDbReadOnly();
+                Assert.AreEqual(2, db.Table<BMSTable>().Single().playlist_id);
+            }
+            finally
+            {
+                execute.TrySetResult();
+                complete.TrySetResult();
+                try
+                {
+                    Task[] applies;
+                    lock (scheduledApplies) { applies = scheduledApplies.ToArray(); }
+                    foreach (Task apply in applies)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "compiled restore finally UI terminal");
+                    }
+                    if (clicked && !closed.Task.IsCompleted)
+                    {
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "compiled restore finally Close");
+                    }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+                finally
+                {
+                    try
+                    {
+                        if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                    }
+                    finally
+                    {
+                        try { owner?.SettingDialog.Dispose(); }
+                        finally { Directory.Delete(directory, recursive: true); }
+                    }
+                }
+            }
+        });
+    }
+
+    private static void ClickBackupPageButton(SettingsWindow window, string text)
+    {
+        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationBackup");
+        window.Measure(new Size(820, 760));
+        window.Arrange(new Rect(0, 0, 820, 760));
+        window.UpdateLayout();
+        var page = (BackupSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+        FindDescendants<Button>(page).Single(button => Equals(button.Content, text))
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    }
+
     /// <summary>実 DB の restore が保存後の UI 反映で失敗しても設定 Window を閉じず、保存済み DB と失敗を保持することを確認します。</summary>
     [TestMethod]
     public void SettingsWindow_RestoreFailureDoesNotAuthorizeCloseOrShutdown()
@@ -500,7 +931,7 @@ public sealed class SettingsWindowPresentationTests
                     songDbPath,
                     [new BMSTable { playlist_id = 1, name = "Existing", symbol = "E" }],
                     out _,
-                    out _,
+                    out List<PlaylistOperationNotificationPresentationRequestedEventArgs> restoreNotifications,
                     restoreUiApplyScheduler: _ => throw new InvalidOperationException("restore UI completion failure"));
                 var dialogs = new RecordingSettingsRouteDialogService
                 {
@@ -516,18 +947,12 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
 
                 Task restoreTask = window.HandlePlaylistRestoreAsync();
-                InvalidOperationException? failure = null;
-                try
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreTask, "settings restore failure");
-                }
-                catch (InvalidOperationException exception)
-                {
-                    failure = exception;
-                }
-                Assert.IsNotNull(failure);
-
-                StringAssert.Contains(failure!.Message, "restore UI completion failure");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreTask, "settings restore failure");
+                Assert.IsTrue(restoreTask.IsCompletedSuccessfully);
+                Assert.AreEqual(1, restoreNotifications.Count);
+                StringAssert.Contains(restoreNotifications.Single().Receipt.Notifications.Single().Message,
+                    "restore UI completion failure");
+                Assert.AreEqual(0, dialogs.MessageRequests.Count, "下位の失敗receiptを再通知せず、終了案内も出さない。");
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(SettingsWindowCloseReason.None, window.CloseReason);
                 using (LR2SongDBExtended verify = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
@@ -549,7 +974,7 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>複数 root を受理順に追加して先頭を選び、取消・閉じる・picker 失敗では一覧と選択を保ち元例外を伝えることを確認します。</summary>
+    /// <summary>実root追加Buttonから受理順と先頭選択を保ち、取消・閉じるでは無通知、picker FailedとTask faultでは一回ずつ通知してdraftと選択を保持します。</summary>
     [TestMethod]
     public void SettingsWindow_BmsSearchRootPickerPreservesAcceptedOrderSelectionAndFailureContract()
     {
@@ -582,11 +1007,17 @@ public sealed class SettingsWindowPresentationTests
                 windowTest.ShowAndWaitForContentRendered(window);
                 dialogs.ExpectedOwner = window;
 
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                void ClickAdd()
+                {
+                    ((Button)page.FindName("addBmsSearchRootButton")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
                 string[] acceptedPaths = [firstPath, secondPath];
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(
                     UiDialogStatus.Accepted,
                     acceptedPaths));
-                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                ClickAdd();
 
                 Assert.AreEqual(1, dialogs.FolderRequests.Count);
                 Assert.IsTrue(dialogs.FolderRequests[0].Multiselect);
@@ -597,20 +1028,23 @@ public sealed class SettingsWindowPresentationTests
                 string[] rootsAfterAccepted = [.. owner.SettingDialog.AvailableBMSDirectories];
                 string selectedAfterAccepted = owner.SettingDialog.SelectedBmsSearchRootPath;
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
-                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                ClickAdd();
                 CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
                 Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
 
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.ClosedByUser));
-                window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
+                ClickAdd();
                 CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
                 Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
 
                 var pickerFailure = new IOException("search root picker sentinel");
                 dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Failed, error: pickerFailure));
-                InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(
-                    () => window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult());
-                Assert.AreSame(pickerFailure, failure.InnerException);
+                Assert.AreEqual(0, dialogs.MessageRequests.Count, "利用者の取消・閉鎖は通知しない。");
+                ClickAdd();
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                dialogs.FolderTasks.Enqueue(Task.FromException<UiFolderPickerResult>(new IOException("root picker Task fault")));
+                ClickAdd();
+                Assert.AreEqual(2, dialogs.MessageRequests.Count);
                 CollectionAssert.AreEqual(rootsAfterAccepted, owner.SettingDialog.AvailableBMSDirectories);
                 Assert.AreEqual(selectedAfterAccepted, owner.SettingDialog.SelectedBmsSearchRootPath);
                 Assert.IsTrue(dialogs.FolderRequests.All(request => request.Multiselect));
@@ -813,12 +1247,14 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 schema 操作の確認取消では DB を変えず、承認では実 DB を導入して表示・再読込み・成功通知を更新し、未保存 draft は保つことを確認します。</summary>
+    /// <summary>実 schema 操作の確認取消では DB を変えず、承認では実 DB を導入して表示・再読込み・成功通知を更新し、未保存draftを保ちます。成功通知のFailed/Task faultでも成功済みDBと必要再読込みを保ち、重複通知しません。</summary>
     [TestMethod]
     // 確認取消と、承認後の実 schema 導入を比較する。
-    [DataRow(false)]
-    [DataRow(true)]
-    public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept)
+    [DataRow(false, "accepted")]
+    [DataRow(true, "accepted")]
+    [DataRow(true, "failed-result")]
+    [DataRow(true, "task-fault")]
+    public void GeneralSchema_InstallOrRepairActualButtonPreservesCancelAndSuccessOwnerContracts(bool accept, string noticeOutcome)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -835,7 +1271,12 @@ public sealed class SettingsWindowPresentationTests
 
                 var dialogs = new DangerDialogService
                 {
-                    ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel
+                    ImmediateConfirmationResult = accept ? MessageBoxResult.OK : MessageBoxResult.Cancel,
+                    MessageResult = noticeOutcome == "failed-result"
+                        ? UiDialogResult.Failed(new IOException("schema success notice failed"))
+                        : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    MessageTaskFailure = noticeOutcome == "task-fault"
+                        ? new IOException("schema success notice Task failed") : null
                 };
                 context = CreateDangerDialog(
                     values,
@@ -903,6 +1344,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 if (window?.IsVisible == true)
                 {
+                    AwaitViewOperationTerminal(window);
                     window.CloseForOwnerShutdown();
                 }
                 context?.Settings.Dispose();
@@ -5311,6 +5753,10 @@ public sealed class SettingsWindowPresentationTests
 
         internal List<UiMessageRequest> Messages { get; } = [];
 
+        internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal Exception? MessageTaskFailure { get; set; }
+
         public Task<UiDialogResult> ShowMessageAsync(
             UiMessageRequest request,
             CancellationToken cancellationToken = default)
@@ -5324,7 +5770,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 events?.Add("message-exit");
             }
-            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            return MessageTaskFailure == null ? Task.FromResult(MessageResult) : Task.FromException<UiDialogResult>(MessageTaskFailure);
         }
 
         public Task<UiDialogResult> ConfirmAsync(
@@ -5427,6 +5873,8 @@ public sealed class SettingsWindowPresentationTests
 
         internal List<UiFilePickerRequest> FileRequests { get; } = [];
 
+        internal Exception? FileSynchronousFailure { get; set; }
+
         internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
 
         internal Queue<Task<UiDialogResult>> ConfirmationTasks { get; } = [];
@@ -5487,6 +5935,7 @@ public sealed class SettingsWindowPresentationTests
             CancellationToken cancellationToken = default)
         {
             FileRequests.Add(request);
+            if (FileSynchronousFailure != null) { throw FileSynchronousFailure; }
             return Task.FromResult(FileResult);
         }
 

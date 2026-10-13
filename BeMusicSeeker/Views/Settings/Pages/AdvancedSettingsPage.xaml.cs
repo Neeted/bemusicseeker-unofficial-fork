@@ -25,11 +25,27 @@ public partial class AdvancedSettingsPage : UserControl
 
     private async void uninstallLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandleUninstallLr2PlayHistorySchemaAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleUninstallLr2PlayHistorySchemaAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 play history schema removal");
+        }
     }
 
     private async void applicationDataUninstallButtonClicked(object sender, RoutedEventArgs e)
     {
-        await GetSettingsWindow().HandleApplicationDataUninstallAsync();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleApplicationDataUninstallAsync();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "application data uninstall");
+        }
     }
 }
