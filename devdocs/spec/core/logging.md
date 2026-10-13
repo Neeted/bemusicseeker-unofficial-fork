@@ -26,7 +26,7 @@ Taskの診断拡張は回復・終了の判断を代行しません。実処理�
 
 ### Taskの結果
 
-結果を返す処理は `LoggingAndPropagate` を使い、元のTask完了後に診断し、成功値・元の例外・取消をそのまま呼出元へ伝えます。診断失敗で結果を置換しません。結果を利用しない処理の `ObserveFault` は待機可能な結果を返さず、失敗時だけ例外を観測します。取消をエラー記録せず、診断コールバックの失敗も未観測例外にしません。ログの継続処理が完了しただけで本体成功と見なす経路は設けません。
+結果を返す処理は `LoggingAndPropagate` を使い、元のTask完了後に診断し、成功値・元の例外・取消をそのまま呼出元へ伝えます。診断失敗で結果を置換しません。結果を利用しない処理の `ObserveFault` は待機可能な結果を返さず、失敗時だけ例外を観測します。元Taskが`Canceled`の場合はエラー記録せず、`Faulted`の`OperationCanceledException`や`TaskCanceledException`を型だけで取消へ読み替えません。元Taskの複数の失敗も最初の一件へ切り詰めず、診断コールバックの失敗を未観測例外にしません。ログの継続処理が完了しただけで本体成功と見なす経路は設けません。
 
 ### 画面操作の失敗
 
@@ -86,7 +86,7 @@ LR2のアプリ管理出力ディレクトリの探索除外と、組込みカ�
 | --- | --- | --- |
 | ログ構成、文字コード、回転、出力先の失敗 | [`NLogWrapper`](../../../BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs) | [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) |
 | 探索条件、確認対象・解析対象・保存結果の区別 | [`RootFileEnumerationService`](../../../BeMusicSeeker/Models/Utils/Scanning/RootFileEnumeration.cs)、[`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs)、[`Lr2SynchronizationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs) | [`LibraryFileScanPipelineOwnerTests`](../../../BeMusicSeeker.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs)、[`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) で処理対象と実結果を確認し、条件ログが実要求から出ることを静的に確認する。ログ全文の固定検査は設けない。 |
-| Taskの成功値、元の例外、取消、診断失敗 | [`TaskEx`](../../../BeMusicSeeker/Ribbit/Util/Extensions/TaskEx.cs) | [`TaskLoggingTests`](../../../BeMusicSeeker.Tests/Runtime/TaskLoggingTests.cs) |
+| Taskの成功値、元の失敗集合、取消状態・トークン、診断失敗 | [`TaskEx`](../../../BeMusicSeeker/Ribbit/Util/Extensions/TaskEx.cs)、[アプリ診断のTask拡張](../../../BeMusicSeeker/Models/Utils/TaskEx.cs) | [`TaskLoggingTests`](../../../BeMusicSeeker.Tests/Runtime/TaskLoggingTests.cs) |
 | プレイリスト通知の順序、一次失敗、通知失敗時も再表示しない | [`PlaylistOperationNotificationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs) | [`PlaylistOperationNotificationOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistOperationNotificationOwnerTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
 | 画面イベントからの例外通知 | [MainWindow.cs](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の `NotifyMainWindowOperationFailureAsync` と `playlistTableDrop` | 共通サービスへの引渡しと、既存の通知境界を実装で確認する。ダイアログの受付・失敗は[ダイアログ仕様](../ui/dialogs.md)の対応表を参照する。 |
 

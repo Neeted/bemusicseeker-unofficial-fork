@@ -1,6 +1,5 @@
 using System;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,7 +16,7 @@ public static class TaskEx
     /// <param name="filePath">呼出元のソースパス。</param>
     /// <param name="lineNumber">呼出元のソース行番号。</param>
     /// <returns>対象タスクと同じ成功、例外、またはキャンセルで完了するタスク。</returns>
-    public static async Task LoggingAndPropagate(
+    public static Task LoggingAndPropagate(
         this Task task,
         Action<Task, string, string, int> logger,
         [CallerMemberName] string memberName = null,
@@ -29,26 +28,11 @@ public static class TaskEx
             throw new ArgumentNullException(nameof(task));
         }
 
-        ExceptionDispatchInfo sourceFailure = null;
-        try
+        return task.ContinueWith(completedTask =>
         {
-            await task.ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            sourceFailure = ExceptionDispatchInfo.Capture(exception);
-        }
-
-        try
-        {
-            logger?.Invoke(task, memberName, filePath, lineNumber);
-        }
-        catch
-        {
-            // Diagnostic logging must not replace the source task's outcome.
-        }
-
-        sourceFailure?.Throw();
+            LogCompletedTask(completedTask, logger, memberName, filePath, lineNumber);
+            return completedTask;
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
     }
 
     /// <summary>
@@ -73,38 +57,20 @@ public static class TaskEx
             throw new ArgumentNullException(nameof(task));
         }
 
-        return LoggingAndPropagateCore(task, logger, memberName, filePath, lineNumber);
+        return task.ContinueWith(completedTask =>
+        {
+            LogCompletedTask(completedTask, logger, memberName, filePath, lineNumber);
+            return completedTask;
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
     }
 
-    private static async Task<T> LoggingAndPropagateCore<T>(
-        Task<T> task,
-        Action<Task, string, string, int> logger,
-        string memberName,
-        string filePath,
-        int lineNumber)
+    // 元Taskを再awaitして投げ直すと、FaultedのOCEや複数の失敗を変質させます。
+    // 診断後に同じTaskをUnwrapで転送し、取消トークン・元の失敗集合・成功値を保ちます。
+    private static void LogCompletedTask(Task task, Action<Task, string, string, int> logger,
+        string memberName, string filePath, int lineNumber)
     {
-        ExceptionDispatchInfo sourceFailure = null;
-        T result = default;
-        try
-        {
-            result = await task.ConfigureAwait(false);
-        }
-        catch (Exception exception)
-        {
-            sourceFailure = ExceptionDispatchInfo.Capture(exception);
-        }
-
-        try
-        {
-            logger?.Invoke(task, memberName, filePath, lineNumber);
-        }
-        catch
-        {
-            // 診断ログの失敗で元タスクの結果を置き換えない。
-        }
-
-        sourceFailure?.Throw();
-        return result;
+        try { logger?.Invoke(task, memberName, filePath, lineNumber); }
+        catch { /* 診断失敗を元Taskの終端へ加えません。 */ }
     }
 
     /// <summary>
