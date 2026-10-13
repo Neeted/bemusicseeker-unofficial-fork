@@ -42,14 +42,14 @@ internal sealed class ApplicationSettingsLifecycle
     private readonly Action<Exception> warnSaveFailure;
 
     /// <summary>
-    /// Creates the startup settings lifecycle, including the pre-materialization normalization seam.
+    /// 設定の初回読取り前の正規化と、起動時のバージョン・言語・テーマ反映を構成します。
     /// </summary>
-    /// <param name="legacyMigration">Migrates legacy user configuration when required.</param>
-    /// <param name="upgradeSettings">Upgrades the settings store to the current version.</param>
-    /// <param name="saveSettings">Persists settings after a version upgrade.</param>
-    /// <param name="settingsStore">Store used for startup version, language, and theme values.</param>
-    /// <param name="warnSaveFailure">Reports failure to persist otherwise readable settings.</param>
-    /// <param name="normalizeSettings">Normalizes persisted settings before the first store read.</param>
+    /// <param name="legacyMigration">必要な場合に旧ユーザー設定を移行します。</param>
+    /// <param name="upgradeSettings">設定ストアを現在のバージョンへ更新します。</param>
+    /// <param name="saveSettings">バージョン更新後の設定を保存します。</param>
+    /// <param name="settingsStore">起動時のバージョン・言語・テーマを読み書きするストア。</param>
+    /// <param name="warnSaveFailure">読取り可能な設定の保存失敗を診断します。診断先の例外は初期化を停止しません。</param>
+    /// <param name="normalizeSettings">ストアの初回読取り前に保存設定を正規化します。</param>
     internal ApplicationSettingsLifecycle(
         Action<ISet<string>, string> legacyMigration = null,
         Action upgradeSettings = null,
@@ -67,11 +67,11 @@ internal sealed class ApplicationSettingsLifecycle
     }
 
     /// <summary>
-    /// Normalizes persisted settings before reading the store, then runs version and culture startup handling.
+    /// 保存設定の正規化後にストアを読み、バージョン・文化圏・テーマを反映します。保存診断の失敗は結果を変えません。
     /// </summary>
-    /// <param name="availableCultureNames">Culture names supported by the application.</param>
-    /// <param name="serializableVersionFactory">Factory for the current application version.</param>
-    /// <param name="firstStartupObserver">Optional observer notified after first-startup detection.</param>
+    /// <param name="availableCultureNames">アプリが対応する文化圏名。</param>
+    /// <param name="serializableVersionFactory">現在のアプリバージョンを返す処理。</param>
+    /// <param name="firstStartupObserver">初回起動の判定後に通知する任意の購読先。</param>
     internal ApplicationSettingsInitializationResult Initialize(
         IEnumerable<string> availableCultureNames,
         Func<SerializableVersion> serializableVersionFactory,
@@ -94,7 +94,7 @@ internal sealed class ApplicationSettingsLifecycle
         }
         catch (PortableSettingsException exception) when (exception.Operation == "Save")
         {
-            warnSaveFailure(exception);
+            WarnSaveFailure(exception);
         }
         bool firstStartup = false;
         SerializableVersion serializableVersion = null;
@@ -109,7 +109,14 @@ internal sealed class ApplicationSettingsLifecycle
         catch (Exception ex)
         {
             // Version discovery is independent of reading the user-owned document.
-            NLogWrapper.TraceLogger?.Warn(ex, "Settings version discovery failed");
+            try
+            {
+                NLogWrapper.TraceLogger?.Warn(ex, "Settings version discovery failed");
+            }
+            catch
+            {
+                // 任意の診断失敗で読取り可能な設定の初期化を止めません。
+            }
         }
         if (serializableVersion != null)
         {
@@ -128,7 +135,7 @@ internal sealed class ApplicationSettingsLifecycle
                     || portableFailure.Operation == "Save")
                 {
                     // Save rereads the file: losing readable input is fatal even after initial materialization.
-                    warnSaveFailure(exception);
+                    WarnSaveFailure(exception);
                 }
             }
         }
@@ -144,7 +151,19 @@ internal sealed class ApplicationSettingsLifecycle
         return new ApplicationSettingsInitializationResult(firstStartup, appearanceTheme, culture);
     }
 
-    /// <summary>Invokes legacy import when the startup file owner has established that portable input is missing.</summary>
+    private void WarnSaveFailure(Exception exception)
+    {
+        try
+        {
+            warnSaveFailure(exception);
+        }
+        catch
+        {
+            // 保存警告の診断先を再通知せず、読取り可能な設定の反映を続けます。
+        }
+    }
+
+    /// <summary>起動ファイル所有者がポータブル設定の欠落を確認した後に、旧設定の移行を実行します。</summary>
     internal void MigrateLegacy(IEnumerable<string> availableCultureNames, string currentCultureName)
     {
         if (availableCultureNames == null)
@@ -155,7 +174,7 @@ internal sealed class ApplicationSettingsLifecycle
         legacyMigration(availableCultures, currentCultureName);
     }
 
-    /// <summary>Returns the initialized theme for presentation after successful settings preparation.</summary>
+    /// <summary>設定準備の成功後に表示へ適用する初期化済みテーマを返します。</summary>
     internal string GetCurrentAppearanceTheme()
     {
         return settingsStore.AppearanceTheme;

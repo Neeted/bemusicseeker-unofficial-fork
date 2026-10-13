@@ -201,9 +201,11 @@ public sealed class ApplicationSettingsLifecycleTests
         Assert.IsTrue(firstReadIndex > normalizeIndex);
     }
 
-    /// <summary>実設定の旧ビット正規化を読取り専用で阻止しても一回警告と正規化済み値を利用し、排他読取り失敗では設定処理を開始しないことを確認します。</summary>
-    [TestMethod]
-    public void ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal()
+    /// <summary>実設定の正規化保存を阻止しても一回警告と同じ値・文化圏・テーマを利用します。警告先の通常完了・例外を分担し、排他読取り失敗では警告せず設定処理を止めます。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal(bool warningThrows)
     {
         string directory = Path.Combine(Path.GetTempPath(), "BmsLifecycle-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -211,17 +213,25 @@ public sealed class ApplicationSettingsLifecycleTests
         CultureInfo previousCulture = Resources.Culture;
         try
         {
-            WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("PlayerPanelState", "12"));
+            WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("AppearanceTheme", AppThemeService.Dark), ("PlayerPanelState", "12"));
             byte[] before = File.ReadAllBytes(path);
             Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
             var lifecycle = new ApplicationSettingsLifecycle(settingsStore: new FileSettingsStore(settings),
                 normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
-                warnSaveFailure: notices.Add);
+                warnSaveFailure: exception =>
+                {
+                    notices.Add(exception);
+                    if (warningThrows) { throw new InvalidOperationException("warning callback failure"); }
+                });
             File.SetAttributes(path, FileAttributes.ReadOnly);
             ApplicationSettingsInitializationResult result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6));
             Assert.IsFalse(result.FirstStartup);
             Assert.AreEqual("en-US", result.Culture.Name);
+            Assert.AreEqual("en-US", Resources.Culture.Name);
+            Assert.AreEqual(AppThemeService.Dark, result.AppearanceTheme);
+            Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
+            Assert.AreEqual(new SerializableVersion(9, 8, 7, 6), settings.AssemblyVersion);
             Assert.AreEqual((BeMusicSeeker.ViewModels.PlayerPanelState)10, settings.PlayerPanelState);
             Assert.AreEqual(1, notices.Count);
             Assert.AreEqual("Save", ((PortableSettingsException)notices[0]).Operation);
@@ -229,14 +239,18 @@ public sealed class ApplicationSettingsLifecycleTests
             File.SetAttributes(path, FileAttributes.Normal);
 
             var store = new FakeApplicationSettingsStore();
+            int readWarningCount = 0;
             lifecycle = new ApplicationSettingsLifecycle(settingsStore: store,
-                normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path), warnSaveFailure: _ => Assert.Fail("Read is fatal."));
+                normalizeSettings: () => PortableSettingsProvider.NormalizePortableConfig(path),
+                warnSaveFailure: _ => readWarningCount++);
             using (var blocker = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
             {
                 Assert.ThrowsException<PortableSettingsException>(() => lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
             }
 
+            Assert.AreEqual(0, readWarningCount);
             Assert.AreEqual(0, store.Events.Count);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(path));
         }
         finally
         {
@@ -246,11 +260,13 @@ public sealed class ApplicationSettingsLifecycleTests
         }
     }
 
-    /// <summary>最初の読込み後にファイル共有条件を変え、再読込み失敗は致命的、公開だけの失敗は一回警告で続行し、双方で元 bytes を保持することを確認します。</summary>
+    /// <summary>実ファイルの再読込み失敗は警告せず致命的にし、公開だけの失敗は警告先が例外を返しても同じ値・文化圏・テーマで続行します。全条件で元bytesを保持します。</summary>
     [DataTestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void VersionUpdateDistinguishesReadFailureFromPublicationFailure(bool blockRead)
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public void VersionUpdateDistinguishesReadFailureFromPublicationFailure(bool blockRead, bool warningThrows)
     {
         string directory = Path.Combine(Path.GetTempPath(), "BmsVersionSave-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
@@ -258,7 +274,7 @@ public sealed class ApplicationSettingsLifecycleTests
         CultureInfo previousCulture = Resources.Culture;
         try
         {
-            WriteConfig(path, ("AssemblyVersion", "1.0.0.0"), ("Lang", "en-US"));
+            WriteConfig(path, ("AssemblyVersion", "1.0.0.0"), ("Lang", "en-US"), ("AppearanceTheme", AppThemeService.Dark));
             byte[] before = File.ReadAllBytes(path);
             Settings settings = PortableSettingsPersistenceTests.OpenSettings(path);
             var notices = new System.Collections.Generic.List<Exception>();
@@ -272,7 +288,11 @@ public sealed class ApplicationSettingsLifecycleTests
                         blockRead ? FileShare.None : FileShare.ReadWrite);
                     settings.Save();
                 },
-                warnSaveFailure: notices.Add);
+                warnSaveFailure: exception =>
+                {
+                    notices.Add(exception);
+                    if (warningThrows) { throw new InvalidOperationException("warning callback failure"); }
+                });
 
             if (blockRead)
             {
@@ -288,6 +308,10 @@ public sealed class ApplicationSettingsLifecycleTests
                 ApplicationSettingsInitializationResult result = lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(2, 0, 0, 0));
                 Assert.IsFalse(result.FirstStartup);
                 Assert.AreEqual("en-US", result.Culture.Name);
+                Assert.AreEqual("en-US", Resources.Culture.Name);
+                Assert.AreEqual(AppThemeService.Dark, result.AppearanceTheme);
+                Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
+                Assert.AreEqual(new SerializableVersion(2, 0, 0, 0), settings.AssemblyVersion);
                 Assert.AreEqual(1, notices.Count);
                 Assert.AreEqual("Save", ((PortableSettingsException)notices[0]).Operation);
             }
@@ -369,19 +393,21 @@ public sealed class ApplicationSettingsLifecycleTests
     [TestMethod]
     public void RestartAfterQuarantineAndCreateFailureDoesNotImportEligibleLegacySettings()
     {
+        int unexpectedNotificationCount = 0;
         string directory = Path.Combine(Path.GetTempPath(), "BmsRestart-" + Guid.NewGuid().ToString("N"));
         string legacyRoot = Path.Combine(directory, "legacy");
         string legacyPath = Path.Combine(legacyRoot, "BeMusicSeeker.exe_Url_example", "1.0", "user.config");
         string path = Path.Combine(directory, "user.config");
         Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
         CultureInfo previousCulture = Resources.Culture;
+        var saveWarnings = new List<Exception>();
         try
         {
             WriteConfig(legacyPath, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"),
                 ("TableListURL", "https://example.invalid/legacy"), ("BMSInstallDir", "legacy-install"),
                 ("OperationModeLR2DB", "False"), ("BMSRootPath", "legacy-root"));
             // First prove that this exact physical legacy candidate is eligible through the real owner.
-            ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsFalse(normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
 
@@ -392,28 +418,85 @@ public sealed class ApplicationSettingsLifecycleTests
             {
                 backup = preserved;
                 Directory.CreateDirectory(path);
-            });
+            }, saveWarnings.Add);
             PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
                 failed.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
             Assert.AreEqual("Create", failure.Operation);
             Assert.IsNotNull(backup);
             Directory.Delete(path);
 
-            ApplicationSettingsLifecycle restarted = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail("Already quarantined."));
+            ApplicationSettingsLifecycle restarted = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsTrue(restarted.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreNotEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
 
             WriteConfig(path, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"), ("BMSInstallDir", "current-install"));
-            ApplicationSettingsLifecycle current = CreateFileLifecycle(path, legacyRoot, _ => Assert.Fail());
+            ApplicationSettingsLifecycle current = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), saveWarnings.Add);
             Assert.IsFalse(current.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)).FirstStartup);
             Assert.AreEqual("current-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
             CollectionAssert.AreEqual(corrupt, File.ReadAllBytes(backup));
+            Assert.AreEqual(0, saveWarnings.Count);
         }
         finally { Resources.Culture = previousCulture; Directory.Delete(directory, true); }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
-    private static ApplicationSettingsLifecycle CreateFileLifecycle(string path, string legacyRoot, Action<string> warnRecovery)
+    /// <summary>実際に移行可能な旧XMLの公開を対象ディレクトリで阻止し、移行失敗を保存警告へ変換せず、設定読取り・文化圏反映・元XML変更を行わないことを確認します。</summary>
+    [TestMethod]
+    public void InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead()
+    {
+        int unexpectedNotificationCount = 0;
+        string directory = Path.Combine(Path.GetTempPath(), "BmsMigrationFailure-" + Guid.NewGuid().ToString("N"));
+        string legacyRoot = Path.Combine(directory, "legacy");
+        string legacyPath = Path.Combine(legacyRoot, "BeMusicSeeker.exe_Url_example", "1.0", "user.config");
+        string path = Path.Combine(directory, "user.config");
+        Directory.CreateDirectory(Path.GetDirectoryName(legacyPath)!);
+        CultureInfo previousCulture = Resources.Culture;
+        try
+        {
+            WriteConfig(legacyPath, ("AssemblyVersion", "9.8.7.6"), ("Lang", "en-US"),
+                ("TableListURL", "https://example.invalid/legacy"), ("BMSInstallDir", "legacy-install"),
+                ("OperationModeLR2DB", "False"), ("BMSRootPath", "legacy-root"));
+            byte[] before = File.ReadAllBytes(legacyPath);
+            // 同じ旧XMLが実移行対象になることを確認してから、別の起動で公開だけを阻止します。
+            var normalWarnings = new List<Exception>();
+            ApplicationSettingsLifecycle normal = CreateFileLifecycle(path, legacyRoot, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), normalWarnings.Add);
+            normal.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6));
+            Assert.AreEqual("legacy-install", PortableSettingsPersistenceTests.OpenSettings(path).BMSInstallDir);
+            Assert.AreEqual(0, normalWarnings.Count);
+            Resources.Culture = previousCulture;
+            File.Delete(path);
+            Directory.CreateDirectory(path);
+            var store = new FakeApplicationSettingsStore();
+            int warnings = 0;
+            ApplicationSettingsLifecycle lifecycle = null!;
+            lifecycle = new ApplicationSettingsLifecycle(
+                legacyMigration: (cultures, culture) => LegacyUserConfigMigrator.MigrateIfNeeded(path, legacyRoot, cultures, culture),
+                settingsStore: store,
+                normalizeSettings: () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"),
+                warnSaveFailure: _ => warnings++);
+
+            PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
+                lifecycle.Initialize(["ja-JP", "en-US"], () => new SerializableVersion(9, 8, 7, 6)));
+
+            Assert.AreEqual("Migrate", failure.Operation);
+            Assert.AreEqual(path, failure.FilePath);
+            Assert.AreEqual(0, warnings);
+            Assert.AreEqual(0, store.Events.Count);
+            Assert.AreSame(previousCulture, Resources.Culture);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(legacyPath));
+            Assert.IsTrue(Directory.Exists(path));
+        }
+        finally
+        {
+            Resources.Culture = previousCulture;
+            Directory.Delete(directory, true);
+        }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+    }
+
+    private static ApplicationSettingsLifecycle CreateFileLifecycle(
+        string path, string legacyRoot, Action<string> warnRecovery, Action<Exception> warnSaveFailure)
     {
         ApplicationSettingsLifecycle lifecycle = null!;
         lifecycle = new ApplicationSettingsLifecycle(
@@ -421,7 +504,7 @@ public sealed class ApplicationSettingsLifecycleTests
             settingsStore: new FileSettingsStore(PortableSettingsPersistenceTests.OpenSettings(path)),
             normalizeSettings: () => new PortableSettingsStartupFile(path).Prepare(
                 () => lifecycle.MigrateLegacy(["ja-JP", "en-US"], "en-US"), warnRecovery),
-            warnSaveFailure: _ => Assert.Fail("No save fault is expected."));
+            warnSaveFailure: warnSaveFailure);
         return lifecycle;
     }
 

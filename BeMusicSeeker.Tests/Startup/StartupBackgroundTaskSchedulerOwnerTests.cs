@@ -140,16 +140,23 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     /// <summary>
-    /// 進捗observerの失敗を隔離して他observerへ開始・終端を届け、保持中の要求identityを終端まで一致させる。
+    /// 進捗observerの失敗を局所診断し、警告先の通常完了・例外の双方で他observerへ開始・終端を届けます。要求identityと成功集計を終端まで維持します。
     /// </summary>
-    [TestMethod]
-    public async Task ProgressChanged_CapturesRequestIdentityAndIsolatesObserverFailure()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ProgressChanged_CapturesRequestIdentityAndIsolatesObserverFailure(bool warningThrows)
     {
         var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var ended = new TaskCompletionSource<StartupBackgroundTaskProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
         var notifications = new ConcurrentQueue<StartupBackgroundTaskProgressSnapshot>();
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        var warnings = new ConcurrentQueue<string>();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(logWarning: message =>
+        {
+            warnings.Enqueue(message);
+            if (warningThrows) { throw new InvalidOperationException("warning log failure"); }
+        });
         owner.ProgressChanged += _ => throw new InvalidOperationException("display failure");
         owner.ProgressChanged += snapshot =>
         {
@@ -185,6 +192,10 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Assert.AreEqual(generation, terminal.Generation);
         Assert.IsTrue(terminal.Version > 0);
         Assert.AreEqual(notifications.First().Request, terminal.Request);
+        Assert.AreEqual(2, warnings.Count);
+        Assert.IsTrue(warnings.All(message => message.Contains("progress notification failed name=playlist_library_index_prewarm", StringComparison.Ordinal)
+            && message.Contains("display failure", StringComparison.Ordinal)));
+        StringAssert.Contains(owner.BuildSummaryLog(0L), "playlist_library_index_prewarm{queued=1,started=1,completed=1,failed=0,");
     }
 
     /// <summary>
@@ -1722,47 +1733,235 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
     }
 
     /// <summary>
-    /// 依存元の失敗を終端として後続を実行し、元の失敗を診断に残して依存queueを永久に止めない。
+    /// 一般受付・予約・予約受付・scheduler開始・work開始の各診断失敗が受理を取り消さず、実workを一回実行して全件・laneの終端と成功集計へ到達することを確認します。
     /// </summary>
-    [TestMethod]
-    public async Task FailureCompletesDependencyAndRecordsSummary()
+    [DataTestMethod]
+    [DataRow("queue", false)]
+    [DataRow("reservation", true)]
+    [DataRow("reserved_submit", true)]
+    [DataRow("scheduler_start", false)]
+    [DataRow("start", false)]
+    public async Task AcceptanceAndStartDiagnosticFailuresStillRunAcceptedWorkOnce(string diagnosticPoint, bool reserved)
     {
-        var dependentRan = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
-
-        owner.Queue("maintenance_hydration", "test", null, () =>
-            Task.FromException(new InvalidOperationException("expected failure")));
-        owner.Queue("installable_maintenance", "test", "maintenance_hydration", () =>
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int runs = 0;
+        int diagnosticFailures = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(logInfo: message =>
         {
-            dependentRan.TrySetResult(true);
-            return Task.CompletedTask;
+            if ((message.StartsWith("startup_background_task " + diagnosticPoint + " ", StringComparison.Ordinal)
+                    && message.Contains("name=default_work ", StringComparison.Ordinal))
+                || message == "startup_background_task " + diagnosticPoint)
+            {
+                Interlocked.Increment(ref diagnosticFailures);
+                throw new InvalidOperationException("diagnostic failure");
+            }
         });
+        try
+        {
+            async Task Work()
+            {
+                Interlocked.Increment(ref runs);
+                entered.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+            }
 
-        owner.MarkRequiredInitializationSchedulingComplete();
-        owner.MarkPostInitializationSchedulingComplete();
-        owner.Start();
-        await TestUiDispatcherHost.AwaitNotificationAsync(dependentRan.Task, WaitForFullyIdleAsync(owner), nameof(owner));
-        await WaitForFullyIdleAsync(owner);
-
-        string summary = owner.BuildSummaryLog(12L);
-        StringAssert.Contains(summary, "failed=1");
-        StringAssert.Contains(summary, "installable_maintenance");
+            bool accepted = reserved
+                ? owner.QueueReserved(Reserve(owner, "default_work"), "diagnostic_failure", Work)
+                : owner.Queue("default_work", "diagnostic_failure", null, Work);
+            Assert.IsTrue(accepted);
+            owner.Start();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
+            Assert.AreEqual(1, runs);
+            Assert.IsFalse(owner.IsFullyIdle);
+            release.TrySetResult(true);
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(1, diagnosticFailures);
+            Assert.AreEqual(1, runs);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 0), owner.CaptureWorkSnapshot());
+            StringAssert.Contains(owner.BuildSummaryLog(0L), "default_work{queued=1,started=1,completed=1,failed=0,lastStatus=done,");
+            int sameLaneRuns = 0;
+            Assert.IsTrue(owner.Queue("default_after", "lane_probe", null, () =>
+            {
+                Interlocked.Increment(ref sameLaneRuns);
+                return Task.CompletedTask;
+            }));
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(1, sameLaneRuns);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 0), owner.CaptureWorkSnapshot());
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            owner.Start();
+            await WaitForFullyIdleAsync(owner);
+        }
     }
 
     /// <summary>
-    /// 終了時に未開始の通信・任意補完をlock外で破棄し、新規受付を拒否して受理済み必須処理だけを回収する。
+    /// 完了ログの失敗を実work失敗へ変換せず、同じlaneの依存後続と成功集計を維持します。所有側で処理した期待取消も正常完了として分担します。
     /// </summary>
     [DataTestMethod]
-    [DataRow("external_playlist_sync")]
-    [DataRow("chart_info_backfill")]
-    public async Task ShutdownDrainsRequiredWorkAndDiscardsOtherWorkOutsideLock(string deferredName)
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task DoneDiagnosticFailurePreservesSuccessAndDependentExecution(bool consumeExpectedCancellation)
+    {
+        int workRuns = 0;
+        int dependentRuns = 0;
+        int doneLogFailures = 0;
+        int warningCount = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(
+            logInfo: message =>
+            {
+                if (message.StartsWith("startup_background_task done name=default_work ", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref doneLogFailures);
+                    throw new InvalidOperationException("done log failure");
+                }
+            },
+            logWarning: _ => Interlocked.Increment(ref warningCount));
+        try
+        {
+            owner.Queue("default_work", "test", null, () =>
+            {
+                Interlocked.Increment(ref workRuns);
+                if (consumeExpectedCancellation)
+                {
+                    try { throw new OperationCanceledException("owned cancellation"); }
+                    catch (OperationCanceledException) { }
+                }
+                return Task.CompletedTask;
+            });
+            owner.Queue("default_dependent", "test", "default_work", () =>
+            {
+                Interlocked.Increment(ref dependentRuns);
+                return Task.CompletedTask;
+            });
+            owner.Start();
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(1, workRuns);
+            Assert.AreEqual(1, dependentRuns);
+            Assert.AreEqual(1, doneLogFailures);
+            Assert.AreEqual(0, warningCount);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 0), owner.CaptureWorkSnapshot());
+            string summary = owner.BuildSummaryLog(0L);
+            StringAssert.Contains(summary, "default_work{queued=1,started=1,completed=1,failed=0,lastStatus=done,");
+            StringAssert.Contains(summary, "default_dependent{queued=1,started=1,completed=1,failed=0,lastStatus=done,");
+        }
+        finally
+        {
+            owner.Start();
+            await WaitForFullyIdleAsync(owner);
+        }
+    }
+
+    /// <summary>
+    /// 通常例外とworkから外へ出た取消例外を失敗として計上し、警告先の通常完了・例外の双方で後続処理の並列枠と依存を解放します。終端後の同じlaneも実行でき、保持中は全idleにせずfinallyで全workを待ちます。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task FailureCompletesDependencyAndRecordsSummary(bool cancellationEscapes, bool warningThrows)
+    {
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int workRuns = 0;
+        int dependentRuns = 0;
+        var warnings = new ConcurrentQueue<string>();
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(logWarning: message =>
+        {
+            warnings.Enqueue(message);
+            if (warningThrows) { throw new InvalidOperationException("warning log failure"); }
+        });
+        try
+        {
+            owner.Queue("maintenance_hydration", "test", null, async () =>
+            {
+                Interlocked.Increment(ref workRuns);
+                entered.TrySetResult(true);
+                await release.Task.ConfigureAwait(false);
+                if (cancellationEscapes) { throw new OperationCanceledException("expected work cancellation"); }
+                throw new InvalidOperationException("expected work failure");
+            });
+            owner.Queue("installable_maintenance", "test", "maintenance_hydration", () =>
+            {
+                Interlocked.Increment(ref dependentRuns);
+                return Task.CompletedTask;
+            });
+            owner.MarkRequiredInitializationSchedulingComplete();
+            owner.MarkPostInitializationSchedulingComplete();
+            owner.Start();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
+            Assert.AreEqual(0, dependentRuns);
+            Assert.IsFalse(owner.IsFullyIdle);
+            Task drain = WaitForFullyIdleAsync(owner);
+            Assert.IsFalse(drain.IsCompleted);
+            release.TrySetResult(true);
+            await drain;
+            Assert.AreEqual(1, workRuns);
+            Assert.AreEqual(1, dependentRuns);
+            Assert.IsTrue(owner.IsIdle);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 0), owner.CaptureWorkSnapshot());
+            Assert.AreEqual(1, warnings.Count);
+            StringAssert.Contains(warnings.Single(), cancellationEscapes ? "expected work cancellation" : "expected work failure");
+            string summary = owner.BuildSummaryLog(12L);
+            StringAssert.Contains(summary, "maintenance_hydration{queued=1,started=1,completed=0,failed=1,lastStatus=failed,");
+            StringAssert.Contains(summary, "installable_maintenance{queued=1,started=1,completed=1,failed=0,lastStatus=done,");
+            int sameLaneRuns = 0;
+            Assert.IsTrue(owner.Queue("maintenance_hydration", "lane_probe", null, () =>
+            {
+                Interlocked.Increment(ref sameLaneRuns);
+                return Task.CompletedTask;
+            }));
+            await WaitForFullyIdleAsync(owner);
+            Assert.AreEqual(1, sameLaneRuns);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 0), owner.CaptureWorkSnapshot());
+            StringAssert.Contains(owner.BuildSummaryLog(12L), "maintenance_hydration{queued=2,started=2,completed=1,failed=1,lastStatus=done,");
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            owner.MarkRequiredInitializationSchedulingComplete();
+            owner.MarkPostInitializationSchedulingComplete();
+            owner.Start();
+            await WaitForFullyIdleAsync(owner);
+        }
+    }
+
+    /// <summary>
+    /// 終了・破棄診断の通常完了と例外を分担し、任意補完をlock外で一回破棄します。再終了要求でも破棄を繰り返さず、新規受付を拒否し、必須workの実終端までdrainを待ちます。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("external_playlist_sync", false)]
+    [DataRow("external_playlist_sync", true)]
+    [DataRow("chart_info_backfill", false)]
+    [DataRow("chart_info_backfill", true)]
+    public async Task ShutdownDrainsRequiredWorkAndDiscardsOtherWorkOutsideLock(string deferredName, bool diagnosticThrows)
     {
         bool shutdownRequested = false;
         var requiredEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var requiredRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var discarded = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool discardedProbeSucceeded = false;
-        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(() => shutdownRequested);
+        int discardCount = 0;
+        int shutdownLogs = 0;
+        int discardLogs = 0;
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner(() => shutdownRequested,
+            logInfo: message =>
+            {
+                if (message.StartsWith("startup_background_task discarded ", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref discardLogs);
+                    if (diagnosticThrows) { throw new InvalidOperationException("discard log failure"); }
+                }
+            },
+            logShutdown: _ =>
+            {
+                Interlocked.Increment(ref shutdownLogs);
+                if (diagnosticThrows) { throw new InvalidOperationException("shutdown log failure"); }
+            });
         try
         {
             owner.Queue("chart_info_hydration", "shutdown", null, async () =>
@@ -1773,6 +1972,7 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             owner.Queue(deferredName, "shutdown", "chart_info_hydration", () => Task.CompletedTask, reason =>
             {
                 // 同期discard callbackを保持し、別threadのprobeがowner lockを取得できることを観測する。
+                Interlocked.Increment(ref discardCount);
                 discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
                 discarded.TrySetResult(true);
             });
@@ -1784,10 +1984,19 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             Assert.IsTrue(discarded.Task.IsCompletedSuccessfully);
             Assert.IsTrue(discardedProbeSucceeded);
             Assert.IsFalse(owner.Queue("post_shutdown", "shutdown", null, () => Task.CompletedTask));
-
+            owner.RequestShutdown("repeated_close");
+            Assert.AreEqual(1, discardCount);
+            Assert.AreEqual(1, discardLogs);
+            Assert.AreEqual(2, shutdownLogs);
+            Assert.AreEqual(new StartupBackgroundWorkSnapshot(0, 1), owner.CaptureWorkSnapshot());
+            Task drain = WaitForFullyIdleAsync(owner);
+            Assert.IsFalse(drain.IsCompleted);
             requiredRelease.SetResult(true);
-            await WaitForFullyIdleAsync(owner);
-            StringAssert.Contains(owner.BuildSummaryLog(1L), deferredName);
+            await drain;
+            Assert.AreEqual(1, discardCount);
+            string summary = owner.BuildSummaryLog(1L);
+            StringAssert.Contains(summary, deferredName + "{queued=1,started=0,completed=1,failed=0,lastStatus=discarded,");
+            StringAssert.Contains(summary, "chart_info_hydration{queued=1,started=1,completed=1,failed=0,lastStatus=done,");
         }
         finally
         {
@@ -1951,14 +2160,15 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         Func<bool>? isShutdownRequested = null,
         Action<long, long>? schedulerIdleChanged = null,
         Action<string>? logInfo = null,
-        Action<string>? logWarning = null)
+        Action<string>? logWarning = null,
+        Action<string>? logShutdown = null)
     {
         var notificationProbe = new SchedulerNotificationProbe();
         return new StartupBackgroundTaskSchedulerOwner(
             isShutdownRequested ?? (() => false),
             logInfo ?? (_ => { }),
             logWarning ?? (_ => { }),
-            _ => { },
+            logShutdown ?? (_ => { }),
             value => value ?? string.Empty,
             (generation, revision) =>
             {

@@ -10,6 +10,10 @@
 
 ## 仕様
 
+### 起動時の設定診断
+
+読取り可能な設定の正規化保存とバージョン記録の保存が失敗した場合は、同じ読込み済み値・文化圏・テーマで起動を継続します。保存警告のcallbackや任意の診断が例外を返しても、初期化結果へ加えず再通知しません。保存時の再読込み、旧設定の移行、その他の必須設定準備の失敗は保存警告へ格下げせず、後続の初期化へ進みません。元ファイルの保全と失敗分類は[設定の永続化](settings-persistence.md#起動時の回復)に従います。
+
 ### 編集状態と画面の所有者
 
 設定編集が既存の`Values`メモリーobjectへ反映される共有範囲は維持します。Busy保存・適用の無副作用は、編集後・Save/Apply呼出し直前を基準に、呼出し前後の保存回数・XML・対象設定値が変わらず、保存・実行時適用・再読込み・LR2後処理を開始しないことです。編集によるValuesの反映をBusy操作の副作用には数えません。draftを保持し、受付終端後の明示保存で同じ値を反映します。実処理の既存入力捕捉・スナップショット保証は維持します。
@@ -189,6 +193,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・callback例外と、同じ値・bytes・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |
 | 10カテゴリのcompiled編集から実保存・稼働値・新画面への接続 | `SettingsWindow`、`SettingsDialogViewModel`、実編集session・専用provider、`ApplicationComposition` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は一般・導入・playlist・外観・再生・音声・録音・backup・詳細・右クリックの各一代表を実Bindingで変更し、専用providerの新reader、本番が参照する設定窓口、新dialogのeditor値を確認する。保存後の取消と再表示、未編集設定・別Web actionも保持する。個々の副作用、外部起動・引数展開、未知キーの条件は既存機能・永続化系列へ分担し、文化・テーマ・Window・設定ownerの終端を回収する。 |
 | 実生成アプリデータの撤去とLR2・利用者データ保全 | [`LR2SongDBExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs)、[`Lr2ApplicationDataUninstallStore`](../../../BeMusicSeeker/Models/LR2/Lr2ApplicationDataUninstallStore.cs) | [`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs)の実起動/アプリスキーマ・IR保存・フォルダ索引前後の`sqlite_schema`差分、実撤去後の新規接続観測と非対象行・`sqlite_sequence`・譜面保全。受付・取消・失敗・通知・終了は既存 [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)が分担する。 |
 | 標準ScoreOnlyの保存後Close、同権限と実score公開 | `SettingsDialogViewModel` | [`ApplySettingsAsync_DefaultScoreOnlyPublishesChangedRealScoreAfterClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |

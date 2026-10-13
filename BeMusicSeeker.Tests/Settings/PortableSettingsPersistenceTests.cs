@@ -180,22 +180,25 @@ public sealed class PortableSettingsPersistenceTests
     [DataRow("<configuration><userSettings /></configuration>")]
     public void StartupStructureFailureDoesNotQuarantineOrImport(string input)
     {
+        int unexpectedNotificationCount = 0;
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, input);
         byte[] before = File.ReadAllBytes(files.Path);
         PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
             new PortableSettingsStartupFile(files.Path).Prepare(
-                () => Assert.Fail("Must not import."), _ => Assert.Fail("Must not recover.")));
+                () => Assert.Fail("Must not import."), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount)));
         AssertFailure(failure, files.Path, "Read");
         Assert.IsFalse(failure.InnerException is XmlException);
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
         Assert.AreEqual(1, Directory.GetFiles(files.Directory).Length);
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>共有条件による Read 失敗と退避 rename 失敗の双方で、輸入・警告・新規作成を開始せず元入力を保つことを確認します。</summary>
     [TestMethod]
     public void StartupReadAndQuarantineFailuresDoNotWarnOrCreate()
     {
+        int unexpectedNotificationCount = 0;
         using var files = new SettingsFiles();
         File.WriteAllText(files.Path, "<configuration>");
         byte[] before = File.ReadAllBytes(files.Path);
@@ -205,12 +208,13 @@ public sealed class PortableSettingsPersistenceTests
             {
                 PortableSettingsException failure = Assert.ThrowsException<PortableSettingsException>(() =>
                     new PortableSettingsStartupFile(files.Path).Prepare(
-                        () => Assert.Fail("Must not import."), _ => Assert.Fail("Must not warn after failed read/move.")));
+                        () => Assert.Fail("Must not import."), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount)));
                 AssertFailure(failure, files.Path, share == FileShare.None ? "Read" : "Quarantine");
             }
             CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Path));
             Assert.AreEqual(1, Directory.GetFiles(files.Directory).Length);
         }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>退避警告中に作成先を占有し、退避内容を保って Create 失敗を返し、成功や一時ファイル残存へ進まないことを確認します。</summary>
@@ -251,12 +255,14 @@ public sealed class PortableSettingsPersistenceTests
     [TestMethod]
     public void StartupMissingFileCreatesValidFirstRunConfiguration()
     {
+        int unexpectedNotificationCount = 0;
         using var files = new SettingsFiles();
         int imports = 0;
-        new PortableSettingsStartupFile(files.Path).Prepare(() => imports++, _ => Assert.Fail("Missing is not corruption."));
+        new PortableSettingsStartupFile(files.Path).Prepare(() => imports++, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount));
         Assert.AreEqual(1, imports);
         Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
         Assert.IsNotNull(XDocument.Load(files.Path).Root!.Element("userSettings")!.Element(PortableSettingsProvider.SettingsSectionName));
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>専用パスの本番 provider を生成済み Settings wrapper に接続し、実保存・読戻しを確認できるようにします。</summary>
