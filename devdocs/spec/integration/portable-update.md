@@ -14,7 +14,7 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
 
-JSON解析の失敗だけを `UpdateManifestValidationException` へ変換し、元のJSON例外を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールprotocolの検証は維持します。`UpdateCheckServiceTests.ParseManifest_MalformedJsonRetainsValidationCause` が不正JSONの分類と原因保持を、既存の有効・無効マニフェスト群が資産検証を確認します。
+JSON解析と整数tokenの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールprotocolの検証は維持します。`UpdateCheckServiceTests.ParseManifest_MalformedJsonRetainsValidationCause` が不正JSONの分類と原因保持を、既存の有効・無効マニフェスト群が資産検証を確認します。
 
 ```text
 https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/update.json
@@ -24,13 +24,13 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 | フィールド | 契約 |
 | --- | --- |
-| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。 |
+| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。Int32内の非対応版は従来の意味検証で拒否し、Int32範囲外は原因を保持する変換失敗とする。 |
 | `version` / `releaseTag` | 更新先の版と `v{version}`。 |
 | `releasePageUrl` | GitHub Releaseのページ。 |
 | `minimumUpdaterVersion` | 更新ツールのプロトコル版。対応版は1。 |
 | `assets` | 1件以上。通常版の `kind=app` を必須とし、メタデータ同梱版 `app-with-metadata` より先に並べる。 |
 
-各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を持ちます。`label` は識別用の英語で、画面の名前と説明は `kind` に対応する多言語リソースを使います。
+各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を持ちます。`sizeBytes` は正のInt64を受理し、`long.MaxValue` も有効です。Int64範囲外だけを型付き変換失敗とし、非正数の意味検証を維持します。新たな入力上限は設けません。`label` は識別用の英語で、画面の名前と説明は `kind` に対応する多言語リソースを使います。
 
 `--update-manifest-url=` で検証用URLを指定できます。ローカル検証は `scripts/prepare-local-update-test.ps1 -StartServer` を使い、`dist/` にある通常版・同梱版から更新情報を作ってHTTP配信します。
 
@@ -153,6 +153,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| マニフェスト整数のInt32/Int64上下範囲外とBigInteger、表現可能な非対応版・非正数、最大sizeの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`](../../../BeMusicSeeker.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../BeMusicSeeker.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`](../../../BeMusicSeeker.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 配布境界・管理ファイル・巻き戻し | [更新ツール](../../../BeMusicSeeker.Updater) | [`UpdaterDeploymentBoundaryTests`](../../../BeMusicSeeker.Tests/Update/UpdaterDeploymentBoundaryTests.cs)、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) |

@@ -13,6 +13,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Views;
@@ -64,21 +65,35 @@ public partial class PlaybackPanelView : UserControl
     {
         get
         {
+            // DataContextの契約違反は、任意画像の不足へ変換しません。
+            PlaybackPanelViewModel playbackPanel = PlaybackPanel;
             if (_panelImage != null)
             {
                 return _panelImage;
             }
-
-            if (PlaybackPanel.UseExternalPanelImage)
+            if (playbackPanel.UseExternalPanelImage)
             {
-                try
+                _panelImage = ReadOptionalArtwork(playbackPanel.StagefilePath, "external_panel");
+                if (_panelImage != null)
                 {
-                    using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(PlaybackPanel.StagefilePath));
-                    return _panelImage = new WriteableBitmap(BitmapFrame.Create(stream));
+                    return _panelImage;
                 }
-                catch { }
             }
-            return _panelImage = new BitmapImage(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Images/default_image.jpg"));
+            const string defaultImageUri = "pack://application:,,,/BeMusicSeeker;component/Assets/Images/default_image.jpg";
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.UriSource = new Uri(defaultImageUri);
+                image.EndInit();
+                return _panelImage = image;
+            }
+            catch (Exception ex)
+            {
+                ReportArtworkFailure(ex, "default_panel", defaultImageUri);
+                return null;
+            }
         }
     }
 
@@ -400,55 +415,102 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerImage.Effect as BlurEffect
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
-    /// <summary>BMSの既存呼出元を形式共通の表示素材へ投影します。</summary>
-
-
-    /// <summary>選曲中・再生中の共通譜面からstagefileとbannerを表示し、前曲の素材を残しません。</summary>
+    /// <summary>現在の共通譜面だけから素材を表示し、欠落・破損時も前曲の画像を残しません。</summary>
+    /// <remarks>任意の読取り・復号・既定画像・診断の失敗は再生開始へ伝えず、同曲stageまたは空表示へ進みます。</remarks>
 #nullable enable annotations
     internal void RefreshArtwork(ChartFile? bmsFile)
     {
+        if (DataContext != null)
+        {
+            _ = PlaybackPanel;
+        }
+        ClearArtwork();
         if (bmsFile == null)
         {
-            ApplyEmptyArtwork(showDefaultImage: DataContext != null);
+            gridBMSPlayerImage.Source = DataContext == null ? null : PanelImage;
             return;
         }
-        WriteableBitmap stage = null;
-        try
+
+        BitmapSource stage = ReadChartArtwork(bmsFile, bmsFile.Stagefile, "stagefile");
+        BitmapSource banner = ReadChartArtwork(bmsFile, bmsFile.Banner, "banner");
+        gridBMSPlayerImage.Source = stage ?? (DataContext == null ? null : PanelImage);
+        BitmapSource bannerImage = banner ?? stage;
+        if (bannerImage != null)
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Stagefile);
-            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
+            try
             {
-                using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
-                stage = new WriteableBitmap(BitmapFrame.Create(stream));
+                gridBMSPlayerControlsBanner.Background = new ImageBrush(bannerImage)
+                {
+                    Stretch = banner == null ? Stretch.UniformToFill : Stretch.Fill
+                };
             }
-            gridBMSPlayerImage.Source = stage ?? PanelImage;
-        }
-        catch { gridBMSPlayerImage.Source = PanelImage; }
-        try
-        {
-            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Banner);
-            ImageSource banner = null;
-            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
+            catch (Exception ex)
             {
-                using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
-                banner = new WriteableBitmap(BitmapFrame.Create(stream));
+                // 同曲stageを使うbrush生成も任意です。二次失敗では背景なしを維持します。
+                ReportArtworkFailure(ex, "banner_fallback", bmsFile.Path);
             }
-            banner ??= stage;
-            gridBMSPlayerControlsBanner.Background = banner == null ? null : new ImageBrush(banner) { Stretch = stage == banner ? Stretch.UniformToFill : Stretch.Fill };
-        }
-        catch
-        {
-            gridBMSPlayerControlsBanner.Background = stage == null ? null : new ImageBrush(stage) { Stretch = Stretch.UniformToFill };
         }
         gridBMSPlayerControlsBanner.BorderThickness = gridBMSPlayerControlsBanner.Background == null ? new Thickness(0) : new Thickness(1, 0, 1, 0);
     }
 #nullable restore annotations
 
-    private void ApplyEmptyArtwork(bool showDefaultImage)
+    private static BitmapSource ReadChartArtwork(ChartFile chart, string relativePath, string material)
     {
-        gridBMSPlayerImage.Source = showDefaultImage ? PanelImage : null;
+        if (string.IsNullOrWhiteSpace(chart.Path) || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+        string path = relativePath;
+        try
+        {
+            path = Path.Combine(DirectoryExt.GetDirectoryNameSimple(chart.Path), relativePath);
+            return ReadOptionalArtwork(path, material);
+        }
+        catch (Exception ex)
+        {
+            ReportArtworkFailure(ex, material, path);
+            return null;
+        }
+    }
+
+    private static BitmapSource ReadOptionalArtwork(string path, string material)
+    {
+        try
+        {
+            using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
+            return new WriteableBitmap(BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad));
+        }
+        catch (Exception ex)
+        {
+            // 素材は再生の必須入力ではありません。元pathと復号原因を診断し、現在曲のfallbackへ進みます。
+            ReportArtworkFailure(ex, material, path);
+            return null;
+        }
+    }
+
+    private static void ReportArtworkFailure(Exception exception, string material, string path)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(typeof(PlaybackPanelView)).Warn(exception, "playback_artwork failed material=" + material + " path=" + path);
+        }
+        catch (Exception)
+        {
+            // 任意診断の二次故障は素材不足や選曲・開始の結果を変えません。
+        }
+    }
+
+    private void ClearArtwork()
+    {
+        gridBMSPlayerImage.Source = null;
         gridBMSPlayerControlsBanner.Background = null;
         gridBMSPlayerControlsBanner.BorderThickness = new Thickness(0);
+    }
+
+    private void ApplyEmptyArtwork(bool showDefaultImage)
+    {
+        ClearArtwork();
+        gridBMSPlayerImage.Source = showDefaultImage ? PanelImage : null;
     }
     private void ShowBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Collapsed);

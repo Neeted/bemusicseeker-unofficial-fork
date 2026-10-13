@@ -38,7 +38,7 @@ internal sealed class UpdateCheckService
             : UpdateCheckResult.NoUpdate(currentVersionText);
     }
 
-    /// <summary>配信マニフェストの入力形式と更新資産を検証し、JSON失敗の元原因を診断用に保持します。</summary>
+    /// <summary>配信マニフェストの入力形式と更新資産を検証し、JSON・整数範囲失敗の元原因を診断用に保持します。</summary>
     internal static UpdateManifest ParseManifest(string manifestJson)
     {
         if (string.IsNullOrWhiteSpace(manifestJson))
@@ -199,7 +199,14 @@ internal sealed class UpdateCheckService
         {
             throw new UpdateManifestValidationException(propertyName + " must be an integer.");
         }
-        return (int)obj[propertyName];
+        try
+        {
+            return (int)obj[propertyName];
+        }
+        catch (OverflowException ex)
+        {
+            throw new UpdateManifestValidationException(propertyName + " is outside the Int32 range.", ex);
+        }
     }
 
     private static long ReadRequiredLong(JObject obj, string propertyName)
@@ -208,7 +215,14 @@ internal sealed class UpdateCheckService
         {
             throw new UpdateManifestValidationException(propertyName + " must be an integer.");
         }
-        return (long)obj[propertyName];
+        try
+        {
+            return (long)obj[propertyName];
+        }
+        catch (OverflowException ex)
+        {
+            throw new UpdateManifestValidationException(propertyName + " is outside the Int64 range.", ex);
+        }
     }
 
     private static bool ReadRequiredBool(JObject obj, string propertyName)

@@ -34,7 +34,13 @@
 
 準備・開始・一時停止・再開・停止・対象変更では既存の非同期UI dispatchを通して `MainChartList.RequestDisplayRefresh` から表の `RefreshDisplay` へ接続します。行集合・順序・選択・スコア・未確定編集を維持してセルの表示値を再評価します。時刻進行だけでは表を更新せず、sessionGateを保持したままUI完了を同期的に待ちません。
 
-題名・字幕・作者は選択対象の共通表示値を使います。表示対象の `DisplayedChart` が変わると画像とバナーを更新します。素材Aから素材B、素材なしへの選曲でも前曲の素材を残さず、素材なしは既定画像とバナー背景なしへ戻します。実開始後のBPM・min/max・total・ノート進行・表示終端は共通再生解析結果を使います。形式固有の表示統計は[bmson再生仕様](../library/bmson-playback.md#共通の再生経路と表示)に従い、音声voice数や他プレイヤーの採点値とは区別します。
+題名・字幕・作者は選択対象の共通表示値を使います。表示対象の `DisplayedChart` が変わると画像とバナーを更新します。素材Aから素材B、素材なしへの選曲でも前曲の素材を残さず、素材なしは既定画像とバナー背景なしへ戻します。
+
+画像は再生に必須の入力ではありません。表示対象が変わったら前曲の画像とバナーを先に除去し、現在曲のstagefileとbannerを独立して読みます。stagefileの欠落・破損では設定外部画像または同梱既定画像へ進み、bannerの欠落・破損では同曲の正常stagefileを `UniformToFill` で使います。同曲stagefileも使えなければバナー背景と枠を消します。正常bannerは `Fill` を維持します。
+
+設定外部画像の読取り・復号失敗は同梱既定画像へ進み、既定画像やbannerの代替自体も失敗すれば安全な空表示を保ちます。任意画像とその元path・原因の診断の失敗は、実選曲Task・現在曲・PLAY状態・開始結果を変えません。画像の復号はstreamを閉じる前に完了させます。ViewのDataContext契約違反を素材不足として隠しません。
+
+実開始後のBPM・min/max・total・ノート進行・表示終端は共通再生解析結果を使います。形式固有の表示統計は[bmson再生仕様](../library/bmson-playback.md#共通の再生経路と表示)に従い、音声voice数や他プレイヤーの採点値とは区別します。
 
 ### 初期同期
 
@@ -80,6 +86,7 @@ DataContextが読込み前・読込み中のどちらで設定されても同じ
 | --- | --- | --- |
 | 異なるDPIの実モニターでの描画・入力 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | 下記の自動テストは実行時DPIで配置・寸法・HWND寿命を検証する。異なるDPIのモニターでの描画・入力位置とモニター移動後の操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
 | 譜面の表示対象変更、素材A→素材B→素材なし | [`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) の `DisplayedChart` 通知と `RefreshArtwork(ChartFile)` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ChartSelectionReplacesArtworkAndRestoresDefaultWhenAbsent` は実選曲からcompiled Viewの画像・バナー画素更新と既定画像・背景なしへの復帰を確認する。 |
+| 正常Aから破損stage・破損banner・両素材の破損/欠落、設定外部画像の欠落/破損 | [`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) の `RefreshArtwork` / `PanelImage` / `ReadOptionalArtwork` | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) の `PlaybackPanelView_ArtworkFailureKeepsCurrentSelectionAndPlayback` は実選曲・compiled View・実decoderから前曲除去、同曲stageまたは既定画像の画素、背景と伸縮方式、元path・原因の診断と現在曲・PLAY・一回の開始を確認する。Windows実decoderの具体的例外型・結果はLinuxのクロスビルドで保証しない。既定画像/brushの二次故障と診断の独立、DataContext検査の位置は静的に確認する。 |
 | 共通譜面キュー、現在曲表示、再生状態投影、外部playerの能力 | `PlaybackPanelViewModel.NowPlayingChart` / `GetPlaybackStatus`、[`MainChartRowProjectionOwner`](../../../BeMusicSeeker/ViewModels/ChartList/MainChartRowProjectionOwner.cs)、`PlaybackChartQueue` | `PlaybackPanelViewModelTests.PlaybackPanelChartQueueKeepsIdentityStatusAndSingleAdvance` は混在入力を代表として現在対象・ヘッダー・PLAY/PAUSE・一回の送り・旧対象の状態解除と `SCORE_UNSENT` / `SEARCHING` の維持を、`PlaybackPanelDoesNotSendBmsonToAnExternalPlayerWithoutThatCapability` は外部能力の分離を確認する。 |
 | 要求状態と実効状態、初期フレーム、差替え・再読込み、遷移 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`PlaybackPanelView`](../../../BeMusicSeeker/Views/Playback/PlaybackPanelView.xaml.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs) |
 | 初期Collapsedでの子HWND生成、UIスレッド・プロセス所有 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、`PlaybackPanelView.PlayerHostHandle` | `PlaybackPanelViewModelTests.PlaybackPanelView_CompiledTreeMaterializesCurrentSurfaceAndHeader` は `ContentRendered` 後の継承 `Handle`、親、PID・TIDを確認する。 |

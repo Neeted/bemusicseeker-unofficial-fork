@@ -17,6 +17,10 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Tests;
 
@@ -2848,6 +2852,253 @@ public sealed class PlaybackPanelViewModelTests
                     window.Content = null;
                     window.Close();
                     Directory.Delete(directory, recursive: true);
+                }
+            }
+        });
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+    }
+
+    /// <summary>正常Aから破損・欠落素材のBへ実選曲して前曲を除去し、同曲stage・既定画像へのfallbackとPLAY・一回の開始を保ちます。</summary>
+    /// <remarks>compiled Viewの実decoder・画素・元path診断を観測するため表示します。NLog構成を準備から復元まで所有します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("broken-stage")]
+    [DataRow("broken-banner")]
+    [DataRow("broken-both")]
+    [DataRow("missing-both")]
+    [DataRow("missing-external")]
+    [DataRow("broken-external")]
+    public void PlaybackPanelView_ArtworkFailureKeepsCurrentSelectionAndPlayback(string scenario)
+    {
+        int unexpectedNotificationCount = 0;
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeeker.ArtworkFailure." + Guid.NewGuid().ToString("N"));
+            LoggingConfiguration? originalLogging = null;
+            bool loggingSnapshotCaptured = false;
+            MemoryTarget? logs = null;
+            PlaybackPanelViewModel? panel = null;
+            PlaybackPanelView? view = null;
+            Window? window = null;
+            Image? artwork = null;
+            DependencyPropertyDescriptor? sourceDescriptor = null;
+            TaskCompletionSource? sourceChanged = null;
+            EventHandler sourceHandler = (_, _) => sourceChanged?.TrySetResult();
+            Task selection = Task.CompletedTask;
+            Exception? primaryFailure = null;
+            List<Exception> cleanupFailures = [];
+            void Cleanup(Action cleanup)
+            {
+                try
+                {
+                    cleanup();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailures.Add(exception);
+                }
+            }
+            void WriteImage(string name, byte blue)
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(1, 1, 96, 96, PixelFormats.Bgra32, null, new byte[] { blue, 30, 40, 255 }, 4)));
+                using FileStream file = File.Create(Path.Combine(directory, name));
+                encoder.Save(file);
+            }
+            byte Blue(ImageSource image)
+            {
+                Assert.IsInstanceOfType<BitmapSource>(image);
+                var converted = new FormatConvertedBitmap((BitmapSource)image, PixelFormats.Bgra32, null, 0);
+                byte[] pixel = new byte[4];
+                converted.CopyPixels(new Int32Rect(0, 0, 1, 1), pixel, 4, 0);
+                return pixel[0];
+            }
+            try
+            {
+                Directory.CreateDirectory(directory);
+                _ = NLogWrapper.GetLogger(typeof(PlaybackPanelView));
+                // 一回限りの初期化を復元で取り消さないよう、成功後の構成だけを退避します。
+                originalLogging = LogManager.Configuration;
+                loggingSnapshotCaptured = true;
+                logs = new MemoryTarget();
+                logs.Layout = "${message}|${exception:format=tostring}";
+                var configuration = new LoggingConfiguration();
+                string loggerName = typeof(PlaybackPanelView).FullName ?? throw new InvalidOperationException("Playback panel logger name is unavailable.");
+                configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, logs, loggerName);
+                LogManager.Configuration = configuration;
+                var settings = new InMemoryPlaybackSettingsStore
+                {
+                    UseExternalPanelImage = scenario.EndsWith("external", StringComparison.Ordinal),
+                    StagefilePath = Path.Combine(directory, "external.png")
+                };
+                var player = new PreloadBmsPlayer { SupportsBmson = true };
+                var rows = new MainChartListViewModel();
+                var dialogs = new FakePlaybackDialogService();
+                panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+                    settings, dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+                view = new PlaybackPanelView();
+                view.DataContext = panel;
+                window = new Window();
+                window.Content = view;
+                window.Width = 640;
+                window.Height = 360;
+                window.ShowInTaskbar = false;
+                artwork = (Image)view.FindName("gridBMSPlayerImage");
+                var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
+                sourceDescriptor = DependencyPropertyDescriptor.FromProperty(Image.SourceProperty, typeof(Image));
+                WriteImage("stage-a.png", 50);
+                WriteImage("banner-a.png", 60);
+                WriteImage("stage-b.png", 150);
+                WriteImage("banner-b.png", 160);
+                if (scenario is "broken-stage" or "broken-both")
+                {
+                    File.WriteAllText(Path.Combine(directory, "stage-b.png"), "broken stage image");
+                }
+                if (scenario is "broken-banner" or "broken-both")
+                {
+                    File.WriteAllText(Path.Combine(directory, "banner-b.png"), "broken banner image");
+                }
+                if (scenario == "broken-external")
+                {
+                    File.WriteAllText(settings.StagefilePath, "broken external image");
+                }
+                string[] paths = [Path.Combine(directory, "first.bms"), Path.Combine(directory, "second.bmson")];
+                foreach (string path in paths)
+                {
+                    File.WriteAllText(path, "");
+                }
+                bool chartMaterialsAbsent = scenario is "missing-both" or "missing-external" or "broken-external";
+                ChartFile[] charts = [
+                    ChartTestValues.Empty() with { Path = paths[0], Stagefile = "stage-a.png", Banner = "banner-a.png" },
+                    ChartTestValues.Empty(ChartFileKind.Bmson) with
+                    {
+                        Path = paths[1],
+                        Stagefile = chartMaterialsAbsent ? "missing-stage.png" : "stage-b.png",
+                        Banner = chartMaterialsAbsent ? "missing-banner.png" : "banner-b.png"
+                    }
+                ];
+                rows.Rows = charts.Select(chart => (object)rows.RowProjection.CreateLibraryRow(null, chart)).ToList();
+                scope.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                ImageSource defaultImage = artwork.Source;
+                Assert.IsNotNull(defaultImage, "外部画像の失敗でも同梱既定画像を使います。");
+                Assert.IsNull(banner.Background);
+                sourceDescriptor.AddValueChanged(artwork, sourceHandler);
+                for (int index = 0; index < charts.Length; index++)
+                {
+                    sourceChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    selection = index == 0 ? panel.StartAtIndex(0) : panel.Next();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "ArtworkFailure.selection");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(sourceChanged.Task, "ArtworkFailure.image-source");
+                    window.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(selection.IsCompletedSuccessfully);
+                    Assert.AreEqual(charts[index].Path, panel.DisplayedChart?.Path);
+                    Assert.AreEqual(charts[index].Path, panel.NowPlayingChart?.Path);
+                    Assert.AreEqual(ChartFileStatus.PLAY, panel.GetPlaybackStatus(charts[index]));
+                    Assert.AreEqual(index + 1, player.Starts.Count);
+                    if (index == 0)
+                    {
+                        Assert.AreEqual((byte)50, Blue(artwork.Source));
+                        Assert.IsInstanceOfType<ImageBrush>(banner.Background);
+                        Assert.AreEqual((byte)60, Blue(((ImageBrush)banner.Background).ImageSource));
+                    }
+                    else if (scenario == "broken-stage")
+                    {
+                        Assert.AreSame(defaultImage, artwork.Source);
+                        Assert.IsInstanceOfType<ImageBrush>(banner.Background);
+                        Assert.AreEqual((byte)160, Blue(((ImageBrush)banner.Background).ImageSource));
+                        Assert.AreEqual(Stretch.Fill, ((ImageBrush)banner.Background).Stretch);
+                    }
+                    else if (scenario == "broken-banner")
+                    {
+                        Assert.AreEqual((byte)150, Blue(artwork.Source));
+                        Assert.IsInstanceOfType<ImageBrush>(banner.Background);
+                        Assert.AreEqual((byte)150, Blue(((ImageBrush)banner.Background).ImageSource));
+                        Assert.AreEqual(Stretch.UniformToFill, ((ImageBrush)banner.Background).Stretch);
+                    }
+                    else
+                    {
+                        Assert.AreSame(defaultImage, artwork.Source);
+                        Assert.IsNull(banner.Background);
+                        Assert.AreEqual(new Thickness(0), banner.BorderThickness);
+                    }
+                }
+                Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+                CollectionAssert.AreEqual(paths, player.Starts.ToArray());
+                LogManager.Flush();
+                string diagnostics = string.Join(Environment.NewLine, logs.Logs);
+                string expectedPath = scenario.EndsWith("external", StringComparison.Ordinal)
+                    ? settings.StagefilePath
+                    : Path.Combine(directory, scenario == "broken-banner" ? "banner-b.png" : scenario == "missing-both" ? "missing-stage.png" : "stage-b.png");
+                string expectedDiagnostic = logs.Logs.FirstOrDefault(entry => entry.Contains(expectedPath, StringComparison.Ordinal))
+                    ?? throw new AssertFailedException("失敗素材の元pathを診断に残していません: " + expectedPath);
+                StringAssert.Contains(expectedDiagnostic, "playback_artwork failed");
+                if (scenario is "broken-both" or "missing-both")
+                {
+                    StringAssert.Contains(diagnostics, Path.Combine(directory, scenario == "broken-both" ? "banner-b.png" : "missing-banner.png"));
+                }
+                if (scenario is "missing-both" or "missing-external")
+                {
+                    StringAssert.Contains(expectedDiagnostic, nameof(FileNotFoundException));
+                }
+                else
+                {
+                    Assert.IsTrue(expectedDiagnostic.Contains("Exception", StringComparison.Ordinal), "実decoderの元例外を同じpathの診断に残します。");
+                }
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+                throw;
+            }
+            finally
+            {
+                // 部分setupも回収し、後片付けの二次故障で元のsetup・本文故障を置き換えません。
+                if (sourceDescriptor != null && artwork != null)
+                {
+                    Cleanup(() => sourceDescriptor.RemoveValueChanged(artwork, sourceHandler));
+                }
+                if (panel != null)
+                {
+                    Cleanup(panel.BeginShutdown);
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(panel.CloseForShutdown(), "ArtworkFailure.shutdown"));
+                }
+                Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(selection, "ArtworkFailure.selection-cleanup"));
+                if (view != null)
+                {
+                    Cleanup(view.DisposePlayerHost);
+                }
+                if (window != null)
+                {
+                    Cleanup(() => window.Content = null);
+                    Cleanup(window.Close);
+                }
+                if (Directory.Exists(directory))
+                {
+                    Cleanup(() => Directory.Delete(directory, recursive: true));
+                }
+                Cleanup(() => LogManager.Flush());
+                if (loggingSnapshotCaptured)
+                {
+                    Cleanup(() => LogManager.Configuration = originalLogging);
+                }
+                if (logs != null)
+                {
+                    Cleanup(logs.Dispose);
+                }
+                if (cleanupFailures.Count != 0)
+                {
+                    var cleanupFailure = new AggregateException("ArtworkFailure fixture cleanup failed.", cleanupFailures);
+                    if (primaryFailure != null)
+                    {
+                        primaryFailure.Data["ArtworkFailureCleanupFailures"] = cleanupFailure.ToString();
+                    }
+                    else
+                    {
+                        throw cleanupFailure;
+                    }
                 }
             }
         });

@@ -40,6 +40,14 @@ pickerの利用者取消・閉鎖はdraftと選択を無通知で保持します
 
 全般ではLR2の場所、状態、手動同期、履歴DBの状態を区別します。音声設定は出力設定、音量、専用テスト、詳細な音声設定を別々のセクションにします。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作はそれぞれの目的が分かる見出しで示します。「このソフトについて」はバージョン、ライセンス、リンク、読み取り専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。文化圏変更の購読は表示中だけ保持します。
 
+### 言語辞書と資源の代替
+
+表示文字列は、指定カルチャのJSON、指定カルチャの埋込み資源、日本語の埋込み資源の順で解決します。利用者が編集した日本語JSONも優先します。UTF-8/BOM、任意キー、大小文字を区別する辞書と既存の `DataContractJsonSerializer` による受理を維持し、辞書の整合検査を実行時の追加拒否条件にはしません。
+
+JSONの欠落・アクセス・読取り失敗、serializerの入力失敗だけを空辞書へ変換して資源の代替へ進みます。内部の契約型故障や資源不足を入力不良・空の成功へ変換しません。`ConcurrentDictionary.GetOrAdd` のfactoryが完了しなければ、その辞書は登録しません。任意の診断が失敗しても正常に読めた辞書を失いません。埋込み資源の取得では資源自体の欠落だけを日本語の最終取得へ渡し、キー・型などの内部故障は伝えます。
+
+候補探索は日本語を常に含み、正常辞書を破損・無効カルチャ・言語名なしのファイルと独立して扱います。完了した探索結果だけを共有snapshotへ公開します。ディレクトリ欠落は日本語候補として完了し、既知のディレクトリ読取り・アクセス失敗は今回だけの日本語候補を返して探索済み状態を保存しません。予期しない故障や資源不足では未完了の候補を公開しません。
+
 ### 音声設定の編集と照会
 
 出力設定、音量、テスト、詳細な音声設定の順に表示します。詳細な音声設定は独立した設定セクションとして表示します。能力照会とテストに付随する技術的な診断だけを、各欄の閉じた詳細表示に置きます。WASAPI共有の手動バッファ入力とASIOのイベント駆動入力は表示せず、ASIO形式と共有mix条件は読取り専用にします。成功時は候補と機器情報だけを示し、照会状態は一か所、nativeの診断は閉じた詳細欄で確認できます。
@@ -220,6 +228,8 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 | 出力設定の復元、保存時確認と取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ApplySettingsAsync` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `ApplySettingsAsync_RestoresRegisteredOutputWithCancellableConfirmation`、`ApplySettingsAsync_NormalOutputChangeWarnsOnlyForSavedSearchRoot`: 通常・追加・ルートの復元（登録削除を先行する同一編集を含む）、取消時の編集値・XML保持、保存後の再警告抑止、中間値への通知抑止、旧通常の追加転用。 |
 | LR2設定XMLの構造と読込み結果 | [`LR2Config`](../../../BeMusicSeeker/Models/LR2/LR2Config.cs) の `TryLoad` とコンストラクター | [`LR2ConfigTests`](../../../BeMusicSeeker.Tests/Lr2/LR2ConfigTests.cs) の `TryLoad_UnsetOrInvalidPathReturnsNoConfig`、`TryLoad_InvalidDocumentRejectsWithoutChangingFile`、`TryLoad_ValidConfigPreservesUnavailableRegisteredRoots`、`TryLoad_EmptyJukeboxIsValidWithoutCreatingOptionalSections`: 不正入力の拒否、空登録と `.xml` / `.xmh` の許容、欠落ルートとファイルの保持。 |
 | LR2楽曲DBの再選択と検出状態 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `LR2SongDBPath` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2SongDbPicker_ReselectingRestoredFileRefreshesStatusWithoutSaving`: 標準配置・個別設定で欠落後に復元された同じファイルを選び直すと、状態の文字列・種類・アイコンを通知する。3パス、設定XML、保存回数は変更しない。 |
+| 実JSON辞書のUTF-8/BOM・任意キー、欠落・破損、混在した候補探索 | [`JsonLanguageCatalog`](../../../BeMusicSeeker/Models/Localization/JsonLanguageCatalog.cs) の実ファイル・ディレクトリ読取り境界 | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) の `LanguageFile_Utf8AndBomPreserveAcceptedDictionary`、`LanguageFile_MissingOrInvalidInputReturnsEmptyFallback`、`LanguageDiscovery_MixedFilesPreserveValidCultureAndJapaneseFallback` は所有する一時入力で値・空辞書・正常候補と日本語を確認する。既存の辞書整合検査も維持する。 |
+| 資源の優先順、未知の故障と任意診断、完了snapshotのみの公開 | [`JsonBackedResourceManager`](../../../BeMusicSeeker/Models/Localization/JsonBackedResourceManager.cs)、`JsonLanguageCatalog.GetLanguagesSnapshot` / `LoadLanguageMapFromFile` | 狭い入力捕捉、factory失敗時の非登録、診断の独立、既知の走査失敗時の一時fallbackを静的に確認する。共有path/cacheの反射差替えやOOM注入の自動テストは設けない。 |
 | LR2設定元の状態表示と言語変更 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`GeneralSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/GeneralSettingsPage.xaml) | [`SettingsWindowPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsWindowPresentationTests.cs) の `SettingsWindow_Lr2PathSourceStatusUpdatesWhenLanguageChanges`: 標準配置・個別設定のそれぞれで、表示中の楽曲DBと設定XMLの状態文言が言語変更に追従し、3パスを保持する。 |
 | LR2パスの再選択とXML由来の履歴DB対象 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `LR2RootPath`、`LR2ConfigXmlPath` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2PathPickers_ReselectingCurrentPathAdoptsExternalConfigBeforeLaterSave`: 同じルート・XML・XMHの再選択で外部変更とプレイヤーを採用し、履歴DBの対象と通知を更新する。選択時の保存抑止と後の保存での外部要素保持も確認する。 |
 | 無効なLR2設定パスの保存・再表示・取消 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) の `Lr2InvalidPersistedConfig_OpenSaveReopenAndParentCancelPreserveRawTuple`: ファイル欠落、XML不正、必要構造不足でも独立した3パスを保持する。 |
