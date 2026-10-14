@@ -22,7 +22,7 @@ internal sealed class ChartInfoWorkflowProgressSnapshot
     /// <summary>確認・補完または読込みの対象数です。未確定では0です。</summary>
     internal int TotalCount { get; }
 
-    /// <summary>処理済みまたはメモリ適用済みの件数です。保存成功は既存完了版で判断します。</summary>
+    /// <summary>処理済みまたはメモリ適用済みの件数です。保存成功を表さず、既存完了版も要求の終端だけを表します。</summary>
     internal int ProcessedCount { get; }
 
     /// <summary>処理中の対象です。対象を持たない読込みでは空文字です。</summary>

@@ -24,6 +24,267 @@ public sealed class ChartInfoInlineHydrationTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
 
+    /// <summary>候補取得前と受付後保存前のDB準備故障を隠さず、未採用のDB・現在値と実Taskの失敗を保持する。</summary>
+    /// <remarks>既存gatewayの接続factoryで候補取得または受付後の最初のDB準備だけを失敗させる。同じSQLiteの後続接続、要求終端と次の明示要求を確認する。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CatalogChartInfoOwner_PreparationFailureTerminatesAndNextExplicitRequestSucceeds(bool afterAcceptance)
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            bool requestAccepted = false;
+            bool preparationFault = true;
+            var gateway = new BmsLibraryDbGateway(songDbPath, songDbFactory: path =>
+            {
+                if (preparationFault && (!afterAcceptance || requestAccepted))
+                {
+                    preparationFault = false;
+                    throw new InvalidOperationException(afterAcceptance ? "backfill DB preparation fault" : "candidate preparation fault");
+                }
+                return new LR2SongDBExtended(path);
+            });
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () =>
+                {
+                    requestAccepted = true;
+                    return new TestMutationWindow();
+                });
+            var operation = Task.Run(() => owner.QueueBackfill("preparation", processSynchronously: true));
+            try
+            {
+                await AssertOwnerBackfillFault(operation, afterAcceptance ? "backfill DB preparation fault" : "candidate preparation fault");
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(0, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
+                Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
+                using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                {
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                }
+                await Task.Run(() => owner.QueueBackfill("explicit_next", processSynchronously: true));
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNotNull(owner.ResolveChartInfo(rows.BmsRows.Single().Sha256, file.Md5));
+            }
+            finally
+            {
+                try { await operation; }
+                catch (Exception) { /* 実Task終端後にfixtureを解放し、一次表明を保ちます。 */ }
+            }
+        });
+    }
+
+    /// <summary>保存rollbackの失敗を隠さず、受理済みの別token要求を終端まで処理し、次の明示要求も実行できる。</summary>
+    /// <remarks>実SQLiteのABORTを使い、二つ目のmutation window開始ゲートで未確定非公開を観測してtriggerを除去する。最初のSQLite原因を保つ。finallyは全ゲート解放と実Task回収を所有する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_StorageFailureDrainsAcceptedRequestAndKeepsFirstFault()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.Execute("CREATE TRIGGER fail_owner_backfill BEFORE INSERT ON chart_info BEGIN SELECT RAISE(ABORT, 'owner transaction fault'); END;");
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            var firstEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var nextEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseFirst = new ManualResetEventSlim();
+            using var releaseNext = new ManualResetEventSlim();
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            int windows = 0;
+            long operationToken = 11;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, operationToken, name, version);
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () =>
+                {
+                    int window = Interlocked.Increment(ref windows);
+                    if (window == 1) { firstEntered.TrySetResult(); releaseFirst.Wait(); }
+                    if (window == 2) { nextEntered.TrySetResult(); releaseNext.Wait(); }
+                    return new TestMutationWindow();
+                });
+            var operation = Task.Run(() => owner.QueueBackfill("first_failure", processSynchronously: true));
+            try
+            {
+                await AwaitOwnerBackfillStage(firstEntered.Task, operation);
+                OperationProgressRequest firstRequest = owner.BackfillProgressRequest;
+                operationToken = 22;
+                owner.QueueBackfill("accepted_next");
+                OperationProgressRequest nextRequest = owner.BackfillProgressRequest;
+                Assert.IsTrue(nextRequest.Version > firstRequest.Version);
+                releaseFirst.Set();
+                await AwaitOwnerBackfillStage(nextEntered.Task, operation);
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsNull(owner.ResolveChartInfo(null, file.Md5));
+                Assert.AreEqual(string.Empty, rows.BmsRows.Single().Sha256);
+                using (var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+                {
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                    Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_digest_map;"));
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                }
+                using (var setup = new LR2SongDBExtended(songDbPath)) { setup.Execute("DROP TRIGGER fail_owner_backfill;"); }
+                releaseNext.Set();
+                await AssertOwnerBackfillFault(operation, "owner transaction fault");
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(nextRequest.Version, owner.ChartInfoBackfillCompletedVersion);
+                Assert.IsTrue(progress.Contains((firstRequest, true)));
+                Assert.IsTrue(progress.Contains((firstRequest, false)));
+                Assert.IsTrue(progress.Contains((nextRequest, true)));
+                Assert.IsTrue(progress.Contains((nextRequest, false)));
+                Assert.AreEqual(11L, firstRequest.OperationToken);
+                Assert.AreEqual(22L, nextRequest.OperationToken);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                Assert.IsNotNull(owner.ResolveChartInfo(rows.BmsRows.Single().Sha256, file.Md5));
+                Assert.AreEqual(1L, CountChartInfoRows(songDbPath, rows.BmsRows.Single().Sha256));
+                await Task.Run(() => owner.QueueBackfill("explicit_after_drain", processSynchronously: true));
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+            }
+            finally
+            {
+                releaseFirst.Set();
+                releaseNext.Set();
+                try { await operation; }
+                catch (Exception) { /* 一次表明を保ち、全開始Taskの終端後だけfixtureを解放します。 */ }
+            }
+        });
+    }
+
+    /// <summary>DB確定後の必要digest準備故障は実Taskの失敗にし、要求終端と実確定件数・DBを保持する。</summary>
+    /// <remarks>SHA不足の実BMS一件で、本番LibraryMutationOwnerの派生反映を接続するprepare callbackを失敗させる。共有派生状態の安全続行や次操作の許可は保証しない。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_RequiredPublicationFaultKeepsCommittedDigestCount()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            bool windowReleased = false;
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, _ => { },
+                beginDigestMutationWindow: () => new TestMutationWindow(() => windowReleased = true),
+                prepareDigestPublication: (_, _) => throw new InvalidOperationException("digest preparation fault"));
+            var operation = Task.Run(() => owner.QueueBackfill("publication_failure", processSynchronously: true));
+            try
+            {
+                await AssertOwnerBackfillFault(operation, "digest preparation fault");
+                Assert.IsTrue(windowReleased);
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                string sha256 = ChartFileContentReader.ReadSnapshot(file.Path).Sha256;
+                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", sha256));
+                Assert.AreEqual(sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
+                Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+            }
+            finally
+            {
+                try { await operation; }
+                catch (Exception) { /* 実Taskを回収し、一次表明を保ちます。 */ }
+            }
+        });
+    }
+
+    /// <summary>保存後の計測checkpointが失敗しても、確定DB・必要索引公開と元要求の終了進捗を保持する。</summary>
+    /// <remarks>実本番after_releaseはProcessのメモリ計測を終了進捗より先に行う。その通常故障一代表を専用DBの実補完へ接続し、保存や要求終端を飛ばす誤りを検出する。</remarks>
+    [TestMethod]
+    public async Task CatalogChartInfoOwner_AfterReleaseCheckpointFailurePreservesCompletion()
+    {
+        await WithTemporarySongDb(async (root, songDbPath) =>
+        {
+            (ChartFile? file, CatalogOwnedCollectionOwner? rows) = CreateBackfillOwnerInput(root, songDbPath);
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            bool checkpointAttempted = false;
+            int indexPublications = 0;
+            var progress = new ConcurrentQueue<(OperationProgressRequest Request, bool Running)>();
+            var owner = new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, null, _ => { });
+            owner.ProgressRequestFactory = (name, version) => new(7, 11, name, version);
+            owner.RequestProgressReporter = (request, running) => progress.Enqueue((request, running));
+            owner.ConfigureWorkflow(gateway, new CatalogMutationOwner(rows, gateway), rows, _ => { }, ownerEvent =>
+            {
+                if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.IndexChanged) { Interlocked.Increment(ref indexPublications); }
+                if (ownerEvent.Kind == CatalogChartInfoOwnerEventKind.StartupMemoryCheckpoint
+                    && ownerEvent.CheckpointStatus == "after_release")
+                {
+                    checkpointAttempted = true;
+                    throw new System.ComponentModel.Win32Exception("checkpoint measurement unavailable");
+                }
+            });
+            var operation = Task.Run(() => owner.QueueBackfill("checkpoint_failure", processSynchronously: true));
+            try
+            {
+                await operation;
+                Assert.IsTrue(operation.IsCompletedSuccessfully);
+                Assert.IsTrue(checkpointAttempted);
+                Assert.IsTrue(indexPublications > 0);
+                OperationProgressRequest request = owner.BackfillProgressRequest;
+                CollectionAssert.AreEqual(new[] { (request, true), (request, false) }, progress.ToArray());
+                Assert.IsFalse(owner.ChartInfoBackfillRunning);
+                Assert.AreEqual(string.Empty, owner.ChartInfoBackfillCurrentPath);
+                Assert.AreEqual(owner.ChartInfoBackfillRequestedVersion, owner.ChartInfoBackfillCompletedVersion);
+                Assert.AreEqual(1, owner.ChartInfoBackfillDigestBackfilledCount);
+                ChartFile current = rows.BmsRows.Single();
+                Assert.AreEqual(9, current.Level);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(current.Sha256));
+                Assert.IsNotNull(owner.ResolveChartInfo(current.Sha256, file.Md5));
+                Assert.AreEqual(1L, CountChartInfoRows(songDbPath, current.Sha256));
+                using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+                Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", file.Path));
+                Assert.AreEqual(current.Sha256, verify.ExecuteScalar<string>("SELECT sha256 FROM chart_digest_map WHERE md5 = ?;", file.Md5));
+            }
+            finally { await operation; }
+        });
+    }
+
+    private static async Task AwaitOwnerBackfillStage(Task stage, Task operation)
+    {
+        Task completed = await Task.WhenAny(stage, operation);
+        if (completed == operation)
+        {
+            await operation;
+            Assert.Fail("要求の必要段階を観測する前に補完の実Taskが終わりました。");
+        }
+        await stage;
+    }
+
+    private static (ChartFile File, CatalogOwnedCollectionOwner Rows) CreateBackfillOwnerInput(string root, string songDbPath)
+    {
+        string path = Path.Combine(root, "owner-backfill.bms");
+        File.WriteAllText(path, "#PLAYER 1\r\n#TITLE owner\r\n#PLAYLEVEL 9\r\n#BPM 130\r\n#00111:01\r\n", Encoding.ASCII);
+        ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Sha256 = string.Empty, Level = 2 };
+        var setup = new BmsLibraryDbGateway(songDbPath);
+        setup.UpsertSongs([file]);
+        setup.EnsureChartInfoBackfillSchema();
+        var rows = new CatalogOwnedCollectionOwner();
+        rows.ReplaceCharts([file], null, replaceBmson: false);
+        return (file, rows);
+    }
+
+    private static async Task AssertOwnerBackfillFault(Task operation, string expectedCause)
+    {
+        Exception? failure = null;
+        try { await operation; }
+        catch (Exception ex) { failure = ex; }
+        Assert.IsNotNull(failure, "実補完Taskが失敗を成功へ変換しました。");
+        // 原因の観測だけを要求し、集約の形・個数・参照同一性は固定しません。
+        Assert.IsTrue(failure.ToString().Contains(expectedCause, StringComparison.Ordinal), failure.ToString());
+        Assert.IsTrue(operation.IsFaulted);
+    }
+
     /// <summary>
     /// 保存済み情報の必須反映は任意候補要約を待たずに終端し、後続は元要求を保持して補完する。終了先着時は要約・補完を始める誤りを検出する。
     /// </summary>
@@ -1789,9 +2050,9 @@ public sealed class ChartInfoInlineHydrationTests
                 StringComparison.OrdinalIgnoreCase);
     }
 
-    private sealed class TestMutationWindow : IDisposable
+    private sealed class TestMutationWindow(Action? onDispose = null) : IDisposable
     {
-        public void Dispose() { }
+        public void Dispose() { onDispose?.Invoke(); }
     }
 
     private sealed record TargetedFailureQueryRun(

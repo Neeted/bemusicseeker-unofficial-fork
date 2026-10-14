@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
@@ -683,7 +684,7 @@ internal sealed class CatalogChartInfoOwner
         }
     }
 
-    /// <summary>統合パイプラインの補完要求を受付け、再利用する実行周ごとに発生元を保持します。</summary>
+    /// <summary>統合パイプラインの補完要求を受付け、実行周ごとに発生元を保持します。候補取得・必要処理の失敗は呼出元へ返します。</summary>
     /// <param name="reason">既存の受付理由。</param>
     /// <param name="processSynchronously">既存の同期補完許可。</param>
     /// <param name="hydrationResult">直前の読込みによる既存の解析要否情報。</param>
@@ -705,46 +706,35 @@ internal sealed class CatalogChartInfoOwner
         if (currentAllCurrentResult != null && currentAllCurrentResult.OwnerCount == hydrationResult.OwnerCount)
         {
             int skippedVersion = CompleteSkippedBackfillRequestIfIdle(originatingRequest);
-            LogPerformance?.Invoke("chart_info_backfill skipped reason=hydration_all_current"
+            ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill skipped reason=hydration_all_current"
                 + " version=" + skippedVersion
                 + " requestReason=" + (reason ?? "unknown")
                 + " ownerCount=" + currentAllCurrentResult.OwnerCount
                 + " currentChartInfo=" + currentAllCurrentResult.CurrentChartInfoOwnerCount
                 + " currentParseFailure=" + currentAllCurrentResult.CurrentParseFailureOwnerCount
                 + " candidates=" + currentAllCurrentResult.BackfillCandidateOwnerCount);
-            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped"));
+            NotifyBackfillCompletionBestEffort(() => PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped")));
             return;
         }
 
-        ChartInfoBackfillCandidateSummary summary = null;
         var candidateSummaryStopwatch = Stopwatch.StartNew();
-        try
-        {
-            LogPerformance?.Invoke("chart_info_backfill candidate_summary_start reason=" + (reason ?? "unknown"));
-            summary = GetBackfillCandidateSummary(workflowDbGateway, buildService.CurrentParseTimeout);
-            candidateSummaryStopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_backfill candidate_summary_done reason=" + (reason ?? "unknown")
-                + " elapsedMs=" + candidateSummaryStopwatch.ElapsedMilliseconds
-                + " bmsOwners=" + summary.BmsOwnerCount
-                + " bmsonOwners=" + summary.BmsonOwnerCount
-                + " candidates=" + summary.CandidateOwnerCount
-                + " missingDigest=" + summary.MissingDigestOwnerCount
-                + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
-                + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
-                + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
-                + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
-        }
-        catch (Exception ex)
-        {
-            candidateSummaryStopwatch.Stop();
-            LogPerformance?.Invoke("chart_info_backfill candidate_summary_failed reason=" + (reason ?? "unknown")
-                + " elapsedMs=" + candidateSummaryStopwatch.ElapsedMilliseconds
-                + " message=" + ex.Message);
-        }
-        if (summary != null && summary.CandidateOwnerCount <= 0)
+        ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill candidate_summary_start reason=" + (reason ?? "unknown"));
+        ChartInfoBackfillCandidateSummary summary = GetBackfillCandidateSummary(workflowDbGateway, buildService.CurrentParseTimeout);
+        candidateSummaryStopwatch.Stop();
+        ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill candidate_summary_done reason=" + (reason ?? "unknown")
+            + " elapsedMs=" + candidateSummaryStopwatch.ElapsedMilliseconds
+            + " bmsOwners=" + summary.BmsOwnerCount
+            + " bmsonOwners=" + summary.BmsonOwnerCount
+            + " candidates=" + summary.CandidateOwnerCount
+            + " missingDigest=" + summary.MissingDigestOwnerCount
+            + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
+            + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
+            + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
+            + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
+        if (summary.CandidateOwnerCount <= 0)
         {
             int skippedVersion = CompleteSkippedBackfillRequestIfIdle(originatingRequest);
-            LogPerformance?.Invoke("chart_info_backfill skipped reason=no_candidates"
+            ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill skipped reason=no_candidates"
                 + " version=" + skippedVersion
                 + " requestReason=" + (reason ?? "unknown")
                 + " bmsOwners=" + summary.BmsOwnerCount
@@ -755,25 +745,23 @@ internal sealed class CatalogChartInfoOwner
                 + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
                 + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
                 + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
-            PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped"));
+            NotifyBackfillCompletionBestEffort(() => PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "skipped")));
             return;
         }
-        if (summary != null)
-        {
-            LogPerformance?.Invoke("chart_info_backfill candidates"
-                + " reason=" + (reason ?? "unknown")
-                + " bmsOwners=" + summary.BmsOwnerCount
-                + " bmsonOwners=" + summary.BmsonOwnerCount
-                + " candidates=" + summary.CandidateOwnerCount
-                + " missingDigest=" + summary.MissingDigestOwnerCount
-                + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
-                + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
-                + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
-                + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
-        }
+        ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill candidates"
+            + " reason=" + (reason ?? "unknown")
+            + " bmsOwners=" + summary.BmsOwnerCount
+            + " bmsonOwners=" + summary.BmsonOwnerCount
+            + " candidates=" + summary.CandidateOwnerCount
+            + " missingDigest=" + summary.MissingDigestOwnerCount
+            + " missingChartInfo=" + summary.MissingChartInfoOwnerCount
+            + " staleChartInfo=" + summary.StaleChartInfoOwnerCount
+            + " currentParseFailure=" + summary.CurrentParseFailureOwnerCount
+            + " currentChartInfo=" + summary.CurrentChartInfoOwnerCount);
         QueueBackfillRequest(ChartInfoBackfillRequest.Full(reason), processSynchronously, originatingRequest);
     }
 
+    /// <summary>純表示の進捗値を先に確定し、購読者の通常故障で処理結果を変えません。</summary>
     private void PublishProgressSnapshot(
         ref ChartInfoWorkflowProgressSnapshot target,
         ChartInfoWorkflowProgressSnapshot snapshot,
@@ -782,27 +770,30 @@ internal sealed class CatalogChartInfoOwner
         Volatile.Write(ref target, snapshot);
         try
         {
-            propertyChanged(propertyName);
+            propertyChanged?.Invoke(propertyName);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // 表示購読者の失敗で元の保存・取消・終端を変えない。
-            try
-            {
-                LogPerformance?.Invoke("chart_info_progress_observer_failed property=" + propertyName + " exception=" + ex.GetType().Name);
-            }
-            catch
-            {
-            }
+            // 既存の純表示購読者の普通故障で保存・取消・終端を変えません。
+            ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance,
+                () => "chart_info_progress_observer_failed property=" + propertyName + " exception=" + ex.GetType().Name);
         }
     }
 
+    /// <summary>受理済み要求を終端まで処理し、必要処理の最初の通常失敗を所有Taskへ返します。完了版は保存成功を意味しません。</summary>
     private void ProcessBackfillRequests()
     {
         EnsureWorkflowConfigured();
         lock (backfillGate)
         {
             if (!ChartInfoBackfillRunning) { return; }
+        }
+        ExceptionDispatchInfo firstFailure = null;
+        void recordFailure(Exception failure, int version, string phase)
+        {
+            firstFailure ??= ExceptionDispatchInfo.Capture(failure);
+            ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance,
+                () => "chart_info_backfill failed version=" + version + " phase=" + phase + " exception=" + failure);
         }
         while (true)
         {
@@ -814,15 +805,19 @@ internal sealed class CatalogChartInfoOwner
                     shutdownRequestVersion = chartInfoBackfillRequestedVersion;
                     backfillRequests.Clear();
                     chartInfoBackfillCompletedVersion = shutdownRequestVersion;
-                    ChartInfoBackfillRunning = false;
+                    chartInfoBackfillCompletedVersionValue = shutdownRequestVersion;
+                    chartInfoBackfillRunningValue = false;
+                    chartInfoBackfillCurrentPathValue = string.Empty;
                 }
-                ChartInfoBackfillCompletedVersion = shutdownRequestVersion;
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillRunning)));
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillCompletedVersion)));
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillCurrentPath)));
                 ChartInfoBackfillTotalCount = 0;
                 ChartInfoBackfillProcessedCount = 0;
                 ChartInfoBackfillDigestBackfilledCount = 0;
-                ChartInfoBackfillCurrentPath = string.Empty;
-                LogPerformance?.Invoke("chart_info_backfill skipped version=" + shutdownRequestVersion + " reason=shutdown_requested");
-                return;
+                ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance,
+                    () => "chart_info_backfill skipped version=" + shutdownRequestVersion + " reason=shutdown_requested");
+                break;
             }
             int requestVersion;
             OperationProgressRequest progressRequest;
@@ -834,30 +829,27 @@ internal sealed class CatalogChartInfoOwner
                 requestVersion = chartInfoBackfillRequestedVersion;
                 backfillRequests.Clear();
             }
-            progressReporter?.Invoke(progressRequest, true);
+            bool completedLatestRequest = false;
+            int committedDigestCount = 0;
+            List<ChartFile> chartSnapshot = null;
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null;
+            List<Action> publicationEffects = [];
             try
             {
-                List<ChartFile> chartSnapshot;
-                using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
+                try
                 {
-
-                    lock (workflowOwnedCollectionOwner.Gate)
+                    progressReporter?.Invoke(progressRequest, true);
+                    using (workflowOwnedCollectionOwner.WriteGate.GetReaderGuard())
                     {
-                        chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(
-                            includeWarningSnapshot: false,
-                            includeScoreSnapshot: false);
+                        lock (workflowOwnedCollectionOwner.Gate)
+                        {
+                            chartSnapshot = workflowOwnedCollectionOwner.Collection.CreateSnapshot(
+                                includeWarningSnapshot: false,
+                                includeScoreSnapshot: false);
+                        }
                     }
-                }
-                int snapshotCount = chartSnapshot.Count;
-                bool completedLatestRequest = false;
-                Dictionary<string, BeMusicSeeker.Models.ChartDetails> existingRowsSnapshot = null;
-                ChartInfoBackfillResult result = null;
-                List<Action> publicationEffects = [];
-                using (workflowBeginDigestMutationWindow())
-                {
-                    try
+                    using (workflowBeginDigestMutationWindow())
                     {
-                        ChartInfoBackfillRunning = true;
                         ChartInfoBackfillTotalCount = 0;
                         ChartInfoBackfillProcessedCount = 0;
                         ChartInfoBackfillCurrentPath = string.Empty;
@@ -871,24 +863,26 @@ internal sealed class CatalogChartInfoOwner
                                 nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot));
                         }
                         existingRowsSnapshot = CreateSha256Snapshot();
-                        result = buildService.BackfillChartInfos(
+                        ChartInfoBackfillResult result = buildService.BackfillChartInfos(
                             workflowDbGateway,
                             chartSnapshot,
                             reportProgress,
                             LogPerformance,
                             workflowLogWarning,
-                            publication => PublishCommittedStorageApplication(
-                                publication.DigestChanges,
-                                publication.AppliedRows,
-                                publication.ParseFailureChanged,
-                                "chart_info_backfill",
-                                publicationEffects.Add, publication.CurrentValues, publication.ChangedFailureMd5s),
-                            existingRowsSnapshot,
-                            request =>
+                            publication =>
                             {
-                                return workflowMutationOwner.ApplyChartInfoStorageWrite(request);
-                            });
-                        LogPerformance?.Invoke("chart_info_backfill done version=" + requestVersion
+                                // callback以後の必要反映が失敗しても、既に確定したdigest件数は失いません。
+                                committedDigestCount += publication.DigestChanges.Count;
+                                PublishCommittedStorageApplication(
+                                    publication.DigestChanges,
+                                    publication.AppliedRows,
+                                    publication.ParseFailureChanged,
+                                    "chart_info_backfill",
+                                    publicationEffects.Add, publication.CurrentValues, publication.ChangedFailureMd5s);
+                            },
+                            existingRowsSnapshot,
+                            workflowMutationOwner.ApplyChartInfoStorageWrite);
+                        ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill done version=" + requestVersion
                             + " mode=full total=" + result.TargetCount
                             + " success=" + result.BackfilledCount
                             + " failed=" + result.FailedCount
@@ -904,48 +898,54 @@ internal sealed class CatalogChartInfoOwner
                             + " songProjectionChanged=" + result.SongProjectionChangedCount
                             + " songProjectionMissing=" + result.SongProjectionMissingCount);
                     }
-                    catch (Exception ex)
-                    {
-                        LogPerformance?.Invoke("chart_info_backfill failed version=" + requestVersion + " message=" + ex.Message);
-                    }
-                    finally
-                    {
-                        ChartInfoBackfillCurrentPath = string.Empty;
-                        ChartInfoBackfillDigestBackfilledCount = result?.DigestBackfilledCount ?? 0;
-                        chartSnapshot?.Clear();
-                        existingRowsSnapshot?.Clear();
-                    }
                 }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    recordFailure(ex, requestVersion, "build");
+                }
+                // 既に準備した確定後効果は、mutation window解放後にそれぞれ試みます。
                 for (int publicationIndex = 0; publicationIndex < publicationEffects.Count; publicationIndex++)
                 {
                     try
                     {
                         publicationEffects[publicationIndex]?.Invoke();
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
                     {
-                        LogPerformance?.Invoke("chart_info_backfill publication failed version="
-                            + requestVersion + " index=" + publicationIndex + " message=" + ex.Message);
+                        recordFailure(ex, requestVersion, "publication_" + publicationIndex);
                     }
                 }
-                ChartInfoBackfillCompletedVersion = requestVersion;
+            }
+            finally
+            {
+                chartSnapshot?.Clear();
+                existingRowsSnapshot?.Clear();
+                // observerに渡す前に、普通故障を含む要求の終端事実を全て確定します。
                 lock (backfillGate)
                 {
                     chartInfoBackfillCompletedVersion = requestVersion;
+                    chartInfoBackfillCompletedVersionValue = requestVersion;
+                    chartInfoBackfillCurrentPathValue = string.Empty;
+                    chartInfoBackfillDigestBackfilledCountValue = committedDigestCount;
                     if (requestVersion == chartInfoBackfillRequestedVersion)
                     {
-                        ChartInfoBackfillRunning = false;
+                        chartInfoBackfillRunningValue = false;
                         completedLatestRequest = true;
                     }
                 }
-                PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "after_release"));
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillCurrentPath)));
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillDigestBackfilledCount)));
+                NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillCompletedVersion)));
                 if (completedLatestRequest)
                 {
-                    return;
+                    NotifyBackfillCompletionBestEffort(() => propertyChanged?.Invoke(nameof(BMSLibrary.ChartInfoBackfillRunning)));
                 }
+                NotifyBackfillCompletionBestEffort(() => PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Checkpoint("chart_info_backfill", "after_release")));
+                NotifyBackfillCompletionBestEffort(() => progressReporter?.Invoke(progressRequest, false));
             }
-            finally { progressReporter?.Invoke(progressRequest, false); }
+            if (completedLatestRequest) { break; }
         }
+        firstFailure?.Throw();
     }
 
     private void ProcessDeferredHydrationRequests()
@@ -1191,7 +1191,7 @@ internal sealed class CatalogChartInfoOwner
         ChartInfoBackfillProcessedCount = 0;
         ChartInfoBackfillDigestBackfilledCount = 0;
         ChartInfoBackfillCurrentPath = string.Empty;
-        LogPerformance?.Invoke("chart_info_backfill queue"
+        ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance, () => "chart_info_backfill queue"
             + " reason=" + (request.Reason ?? "unknown")
             + " mode=full"
             + " version=" + requestVersion);
@@ -2094,5 +2094,19 @@ internal sealed class CatalogChartInfoOwner
         }
         field = value;
         propertyChanged?.Invoke(propertyName);
+    }
+
+    /// <summary>補完の終端表示・終了進捗と計測checkpointの普通故障を局所化し、要求終端を保持します。必要な索引・digest公開には使いません。</summary>
+    private void NotifyBackfillCompletionBestEffort(Action notify)
+    {
+        try
+        {
+            notify();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            ChartInfoBuildService.ReportDiagnosticBestEffort(LogPerformance,
+                () => "chart_info_observer_failed exception=" + ex.GetType().Name);
+        }
     }
 }
