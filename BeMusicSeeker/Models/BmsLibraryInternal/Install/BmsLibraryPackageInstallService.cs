@@ -755,15 +755,16 @@ internal sealed class BmsLibraryPackageInstallService
         return fullPath.StartsWith(normalizedRootDirectoryPath, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>不採用のprivate展開先だけを回収し、通常の残留診断で独立入力の処理を止めません。</summary>
     private static void DeleteExtractedTemporaryDirectory(string tempDirectoryPath, IFileMutationService fileMutationService, FileMutationOptions targetOnlyFileMutationOptions, Action<string> logInfo)
     {
-        if (string.IsNullOrWhiteSpace(tempDirectoryPath) || !LongPathFileSystem.DirectoryExists(tempDirectoryPath))
-        {
-            return;
-        }
-
         try
         {
+            if (string.IsNullOrWhiteSpace(tempDirectoryPath) || !LongPathFileSystem.DirectoryExists(tempDirectoryPath))
+            {
+                return;
+            }
+
             if (fileMutationService != null)
             {
                 fileMutationService.DeleteDirectoryDirect(tempDirectoryPath, recursive: true, targetOnlyFileMutationOptions);
@@ -772,6 +773,11 @@ internal sealed class BmsLibraryPackageInstallService
             {
                 LongPathFileSystem.DeleteDirectory(tempDirectoryPath, recursive: true);
             }
+        }
+        catch (OutOfMemoryException exception)
+        {
+            Environment.FailFast("不採用アーカイブの回収中にメモリが不足しました。", exception);
+            throw;
         }
         catch (Exception cleanupException)
         {
@@ -782,6 +788,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <summary>
     /// 入力アーカイブを管理一時領域へ展開し、正常な管理元アーカイブだけを消費します。
     /// 展開失敗と必須日時復元失敗は対象を除外して診断し、独立した入力の処理を続けます。
+    /// 診断先の通常故障は採否を変えず、捕捉したOOMは即時終了します。
     /// </summary>
     /// <param name="observeCreatedInput">作成直後・展開開始前に管理展開先を渡します。外側が準備途中の取消・例外でもその寿命を所有します。</param>
     internal List<string> ExpandInstallSourcesWithProgress(
@@ -796,6 +803,17 @@ internal sealed class BmsLibraryPackageInstallService
         Action<string> observeCreatedInput = null)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
+        // 純粋な診断だけを局所化し、正常入力の採否や元の準備失敗を変えません。
+        Action<string> logPreparation = message =>
+        {
+            try { logInfo?.Invoke(message); }
+            catch (OutOfMemoryException exception)
+            {
+                Environment.FailFast("アーカイブ準備の診断中にメモリが不足しました。", exception);
+                throw;
+            }
+            catch (Exception) { }
+        };
         string[] archiveExtensions = [".zip", ".7z", ".rar", ".lzh"];
         string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
         int archiveSourceTotal = normalizedInstallPaths.Count(path => archiveExtensions.Any(ext => path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)));
@@ -826,11 +844,11 @@ internal sealed class BmsLibraryPackageInstallService
                         archiveSourceTotal));
                     extractedTempDirectoryPath = TempDirectoryPublisher.Get();
                     observeCreatedInput?.Invoke(extractedTempDirectoryPath);
-                    logInfo?.Invoke("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
+                    logPreparation("auto_install extract_start path=" + installPath + " destination=" + extractedTempDirectoryPath);
                     var extractStopwatch = Stopwatch.StartNew();
                     List<ArchiveEntryMetadata> archiveEntries = SevenZipArchiveExtractor.ExtractArchiveEntries(installPath, extractedTempDirectoryPath);
                     extractStopwatch.Stop();
-                    logInfo?.Invoke("auto_install extract_done path=" + installPath + " destination=" + extractedTempDirectoryPath + " entries=" + archiveEntries.Count + " elapsedMs=" + extractStopwatch.ElapsedMilliseconds);
+                    logPreparation("auto_install extract_done path=" + installPath + " destination=" + extractedTempDirectoryPath + " entries=" + archiveEntries.Count + " elapsedMs=" + extractStopwatch.ElapsedMilliseconds);
                     foreach (ArchiveEntryMetadata entry in archiveEntries)
                     {
                         if (string.IsNullOrWhiteSpace(entry.FileName))
@@ -856,7 +874,7 @@ internal sealed class BmsLibraryPackageInstallService
                         {
                             if (entry.LastWriteTime <= DateTime.MinValue)
                             {
-                                logInfo?.Invoke("auto_install metadata_restore_required_failed archive=" + installPath + " path=" + fullPath + " reason=last_write_time_missing");
+                                logPreparation("auto_install metadata_restore_required_failed archive=" + installPath + " path=" + fullPath + " reason=last_write_time_missing");
                                 throw new RequiredArchiveMetadataRestoreException(fullPath, Resources.Warn_ArchiveLastWriteTimeMissingDetail);
                             }
 
@@ -864,9 +882,14 @@ internal sealed class BmsLibraryPackageInstallService
                             {
                                 fileMutationService.SetTimestamps(fullPath, false, null, entry.LastWriteTime, targetOnlyFileMutationOptions);
                             }
+                            catch (OutOfMemoryException exception)
+                            {
+                                Environment.FailFast("アーカイブの必須更新日時復元中にメモリが不足しました。", exception);
+                                throw;
+                            }
                             catch (Exception lastWriteTimeRestoreException)
                             {
-                                logInfo?.Invoke("auto_install metadata_restore_required_failed archive=" + installPath + " path=" + fullPath + " error=" + lastWriteTimeRestoreException.Message);
+                                logPreparation("auto_install metadata_restore_required_failed archive=" + installPath + " path=" + fullPath + " error=" + lastWriteTimeRestoreException.Message);
                                 throw new RequiredArchiveMetadataRestoreException(fullPath, lastWriteTimeRestoreException.Message);
                             }
                         }
@@ -876,9 +899,14 @@ internal sealed class BmsLibraryPackageInstallService
                             {
                                 fileMutationService.SetTimestamps(fullPath, true, null, entry.LastWriteTime, targetOnlyFileMutationOptions);
                             }
+                            catch (OutOfMemoryException exception)
+                            {
+                                Environment.FailFast("アーカイブのフォルダ更新日時復元中にメモリが不足しました。", exception);
+                                throw;
+                            }
                             catch (Exception directoryLastWriteRestoreException)
                             {
-                                logInfo?.Invoke("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=directory_last_write_time error=" + directoryLastWriteRestoreException.Message);
+                                logPreparation("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=directory_last_write_time error=" + directoryLastWriteRestoreException.Message);
                             }
                         }
 
@@ -889,9 +917,14 @@ internal sealed class BmsLibraryPackageInstallService
                             {
                                 fileMutationService.SetTimestamps(fullPath, isDirectory, creationTimeToRestore, null, targetOnlyFileMutationOptions);
                             }
+                            catch (OutOfMemoryException exception)
+                            {
+                                Environment.FailFast("アーカイブの作成日時復元中にメモリが不足しました。", exception);
+                                throw;
+                            }
                             catch (Exception creationTimeRestoreException)
                             {
-                                logInfo?.Invoke("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=creation_time error=" + creationTimeRestoreException.Message);
+                                logPreparation("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=creation_time error=" + creationTimeRestoreException.Message);
                             }
                         }
 
@@ -908,9 +941,14 @@ internal sealed class BmsLibraryPackageInstallService
                                     LongPathFileSystem.SetLastAccessTime(fullPath, isDirectory: true, entry.LastAccessTime);
                                 }
                             }
+                            catch (OutOfMemoryException exception)
+                            {
+                                Environment.FailFast("アーカイブのアクセス日時復元中にメモリが不足しました。", exception);
+                                throw;
+                            }
                             catch (Exception lastAccessTimeRestoreException)
                             {
-                                logInfo?.Invoke("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=last_access_time error=" + lastAccessTimeRestoreException.Message);
+                                logPreparation("auto_install metadata_restore_optional_failed archive=" + installPath + " path=" + fullPath + " target=last_access_time error=" + lastAccessTimeRestoreException.Message);
                             }
                         }
                     }
@@ -918,13 +956,25 @@ internal sealed class BmsLibraryPackageInstallService
                     extractedTempDirectoryPath = null;
                     TempDirectoryPublisher.TryDeleteManagedPath(
                         installPath,
-                        logInfo,
-                        (path, cleanupException) => logInfo?.Invoke("auto_install cleanup_failed path=" + path + " error=" + cleanupException.Message));
+                        logPreparation,
+                        (path, cleanupException) =>
+                        {
+                            if (cleanupException is OutOfMemoryException)
+                            {
+                                Environment.FailFast("管理元アーカイブの回収中にメモリが不足しました。", cleanupException);
+                            }
+                            logPreparation("auto_install cleanup_failed path=" + path + " error=" + cleanupException.Message);
+                        });
                 }
+            }
+            catch (OutOfMemoryException exception)
+            {
+                Environment.FailFast("アーカイブ入力の準備中にメモリが不足しました。", exception);
+                throw;
             }
             catch (RequiredArchiveMetadataRestoreException metadataRestoreException)
             {
-                DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logInfo);
+                DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
                 Action showFailure = () => dialogService?.Show(
                     string.Format(Resources.Warn_ArchiveTimestampRestoreFailed, installPath, metadataRestoreException.RestoredPath, metadataRestoreException.Message),
                     Resources.MessageBoxTitle_Warning,
@@ -935,9 +985,9 @@ internal sealed class BmsLibraryPackageInstallService
             }
             catch (Exception ex)
             {
-                DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logInfo);
+                DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
                 sourceStopwatch.Stop();
-                logInfo?.Invoke("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
+                logPreparation("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
                 Action showFailure = () => dialogService?.Show(
                     string.Format(Resources.Warn_ArchiveExtractFailed, installPath, ex.Message),
                     Resources.MessageBoxTitle_Warning,

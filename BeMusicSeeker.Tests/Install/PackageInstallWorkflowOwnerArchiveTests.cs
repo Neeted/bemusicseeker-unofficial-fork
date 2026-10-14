@@ -152,7 +152,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
     }
 
-    /// <summary>全失敗の必須日時警告と壊れZIP混在の抽出警告を、実処理が生成して受付解放後に一度表示します。正常独立対象の確定を警告で失敗へ変えません。</summary>
+    /// <summary>全失敗の必須日時警告と壊れZIP混在の抽出警告を、実処理が生成して受付解放後に一度表示します。正常独立対象の確定と次の明示要求を妨げません。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
     [DataTestMethod]
@@ -201,6 +201,22 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             }
             Assert.AreEqual(timestampFailure ? 0 : 1, fixture.Library.BmsCharts.Count);
             Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+            if (!timestampFailure)
+            {
+                completion = null;
+                string next = fixture.CreateInput("managed", "Next");
+                Assert.IsTrue(owner.Enqueue([next]));
+                await owner.WaitForIdleAsync();
+                Assert.IsNull(failure);
+                Assert.IsNotNull(completion);
+                Assert.IsTrue(completion.HasDurableCommit);
+                Assert.AreEqual("Next", completion.Packages.Single().ChartEntries.Single().Chart.Title);
+                Assert.AreEqual(2, fixture.Library.BmsCharts.Count);
+                Assert.IsFalse(File.Exists(next));
+                Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+                Assert.AreEqual(2, db.Table<LR2SongDB.song>().Count());
+            }
         }
         finally { await owner.WaitForIdleAsync(); }
     }

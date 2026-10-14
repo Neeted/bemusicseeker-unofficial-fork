@@ -189,7 +189,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         }
     }
 
-    /// <summary>必須日時復元の全失敗と壊れZIP・正常ZIP混在で、対象と原因を終端診断へ残し、非致命的警告のまま正常独立対象だけを確定します。</summary>
+    /// <summary>必須日時復元の未知故障による全失敗と壊れZIP・正常ZIP混在で、対象と原因を終端診断へ残し、非致命的警告のまま正常独立対象だけを確定します。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     // trueは必須日時復元の全失敗、falseは壊れZIPと正常ZIPの混在による部分成功。
     [DataTestMethod]
@@ -200,7 +200,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         using var fixture = new ManagedArchiveInstallFixture();
         string rejected = fixture.CreateInput("managed", "Rejected");
         string marker = "required timestamp failure marker";
-        if (timestampFailure) { fixture.Files.BeforeTimestamp = _ => throw new IOException(marker); }
+        if (timestampFailure) { fixture.Files.BeforeTimestamp = _ => throw new InvalidOperationException(marker); }
         else { File.WriteAllText(rejected, "broken zip"); }
         string[] paths = timestampFailure ? [rejected] : [rejected, fixture.CreateInput("managed", "Normal")];
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
@@ -226,6 +226,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.AreEqual(1, fixture.Library.BmsCharts.Count);
         }
         Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+        Assert.IsTrue(fixture.ExtractedRoots.All(path => !Directory.Exists(path)), "必須日時復元が不成立のprivate展開先は採用せず回収します。");
         Assert.AreEqual(0, fixture.Dialogs.ModelMessages);
         Assert.IsFalse(File.Exists(rejected));
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);

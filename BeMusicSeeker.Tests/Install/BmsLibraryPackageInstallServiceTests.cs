@@ -6969,6 +6969,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     progressWriter.ArchiveStarts.ToArray());
                 Assert.IsFalse(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.IsFalse(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
+                using FileStream reopenedSource = File.Open(archivePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                Assert.AreEqual(new FileInfo(GetArchiveFixturePath(archiveFileName)).Length, reopenedSource.Length);
             }
             finally
             {
@@ -7074,12 +7076,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 暗号化・破損書庫の展開失敗では元書庫を保って準備先を削除し、失敗通知と進捗を残すことで、失敗入力の消費や部分展開の採用を検出する。
+    /// 暗号化・破損7zと短い・切断RARの展開失敗では借用元bytesと排他再読取りを保ってprivate準備先を削除し、失敗通知と進捗を残します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。 展開先の共通一時領域を回収するため並列実行を避ける。</remarks>
     [DataTestMethod]
     [DataRow("encrypted.7z")]
     [DataRow("corrupt.7z")]
+    [DataRow("short.rar")]
+    [DataRow("truncated.rar")]
     [DoNotParallelize]
     public void ExpandInstallSources_RejectsArchiveFailureWithoutConsumingSource(string archiveFileName)
     {
@@ -7091,11 +7095,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 File.WriteAllText(archivePath, "not a valid archive");
             }
+            else if (archiveFileName == "short.rar")
+            {
+                File.WriteAllBytes(archivePath, [0x52, 0x61, 0x72]);
+            }
+            else if (archiveFileName == "truncated.rar")
+            {
+                File.WriteAllBytes(archivePath, File.ReadAllBytes(GetArchiveFixturePath("fixture.rar"))[..16]);
+            }
             else
             {
                 File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
             }
 
+            byte[] originalSource = File.ReadAllBytes(archivePath);
+            List<string> createdRoots = [];
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
             var dialogService = new RecordingDialogService();
@@ -7111,7 +7125,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     dialogService,
                     progressWriter,
                     CancellationToken.None,
-                    action => action());
+                    action => action(),
+                    createdRoots.Add);
 
                 Assert.AreEqual(0, expandedPaths.Count);
                 Assert.AreEqual(1, progressWriter.SourceProcessedCount);
@@ -7119,16 +7134,112 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 Assert.IsTrue(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.AreEqual(1, dialogService.Messages.Count);
 
-                string extractStart = logs.Single(message => message.IndexOf("extract_start", StringComparison.OrdinalIgnoreCase) >= 0);
-                int destinationMarker = extractStart.IndexOf(" destination=", StringComparison.Ordinal);
-                Assert.IsTrue(destinationMarker >= 0);
-                string extractionDirectoryPath = extractStart[(destinationMarker + " destination=".Length)..];
-                Assert.IsFalse(Directory.Exists(extractionDirectoryPath));
+                Assert.IsFalse(Directory.Exists(createdRoots.Single()));
+                CollectionAssert.AreEqual(originalSource, File.ReadAllBytes(archivePath));
+                using FileStream reopenedSource = File.Open(archivePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                Assert.AreEqual(originalSource.Length, reopenedSource.Length);
             }
             finally
             {
                 global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll();
             }
+        });
+    }
+
+    /// <summary>借用元を他者が排他保持して読取りIOが失敗しても、そのprivate展開先だけを回収し、独立した正常ZIPのbytes・必須日時と進捗を保持します。</summary>
+    /// <remarks>テスト自身が排他Streamを所有し、解除後の借用元bytesと排他再読取りを確認します。管理一時領域の回収を使うため非並列です。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ExpandInstallSources_SourceReadFailurePreservesBorrowedSourceAndIndependentArchive()
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            byte[] original = File.ReadAllBytes(GetArchiveFixturePath("fixture.zip"));
+            string blocked = Path.Combine(tempDirectoryPath, "blocked.zip");
+            string normal = Path.Combine(tempDirectoryPath, "normal.zip");
+            File.WriteAllBytes(blocked, original);
+            File.WriteAllBytes(normal, original);
+            List<string> roots = [];
+            var progress = new RecordingPackageInstallProgressWriter();
+            var dialogs = new RecordingDialogService();
+            try
+            {
+                List<string> expanded;
+                using (FileStream blockedSource = File.Open(blocked, FileMode.Open, FileAccess.Read, FileShare.None))
+                {
+                    expanded = new BmsLibraryPackageInstallService().ExpandInstallSourcesWithProgress(
+                        [blocked, normal], new RealFileMutationService(),
+                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), null, dialogs, progress,
+                        CancellationToken.None, action => action(), roots.Add);
+                }
+                Assert.AreEqual(1, expanded.Count);
+                Assert.AreEqual(roots[1], expanded.Single());
+                Assert.IsFalse(Directory.Exists(roots[0]));
+                using (ZipArchive reference = ZipFile.OpenRead(GetArchiveFixturePath("fixture.zip")))
+                {
+                    foreach (ZipArchiveEntry entry in reference.Entries)
+                    {
+                        using Stream content = entry.Open();
+                        using var bytes = new MemoryStream();
+                        content.CopyTo(bytes);
+                        CollectionAssert.AreEqual(bytes.ToArray(), File.ReadAllBytes(Path.Combine(expanded.Single(), entry.FullName)));
+                    }
+                }
+                Assert.AreEqual(GetExpectedArchiveLastWriteTime(), File.GetLastWriteTime(Path.Combine(expanded.Single(), "maybe_H.bms")));
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(blocked));
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(normal));
+                using FileStream blockedReopened = File.Open(blocked, FileMode.Open, FileAccess.Read, FileShare.None);
+                using FileStream normalReopened = File.Open(normal, FileMode.Open, FileAccess.Read, FileShare.None);
+                Assert.AreEqual(2, progress.SourceProcessedCount);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                StringAssert.Contains(dialogs.Messages.Single(), blocked);
+            }
+            finally { global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll(); }
+        });
+    }
+
+    /// <summary>診断先が通常例外を返しても壊れた借用ZIPだけを除外し、独立した正常ZIPのbytes・進捗と借用元を保持します。</summary>
+    /// <remarks>実native展開と既存の管理一時領域を使うため非並列とし、診断callback内の表明に頼らず実結果を観測します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ExpandInstallSources_DiagnosticFailureDoesNotRejectIndependentNormalArchive()
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string broken = Path.Combine(tempDirectoryPath, "broken.zip");
+            File.WriteAllBytes(broken, [1, 2, 3]);
+            string normal = Path.Combine(tempDirectoryPath, "normal.zip");
+            byte[] original = File.ReadAllBytes(GetArchiveFixturePath("fixture.zip"));
+            File.WriteAllBytes(normal, original);
+            var progress = new RecordingPackageInstallProgressWriter();
+            var dialogs = new RecordingDialogService();
+            List<string> roots = [];
+            int diagnosticAttempts = 0;
+            try
+            {
+                List<string> expanded = new BmsLibraryPackageInstallService().ExpandInstallSourcesWithProgress(
+                    [broken, normal], new RealFileMutationService(),
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                    _ => { diagnosticAttempts++; throw new InvalidOperationException("diagnostic failure"); },
+                    dialogs, progress, CancellationToken.None, action => action(), roots.Add);
+                Assert.AreEqual(1, expanded.Count);
+                Assert.AreEqual(roots[1], expanded.Single());
+                Assert.IsFalse(Directory.Exists(roots[0]));
+                using (ZipArchive reference = ZipFile.OpenRead(GetArchiveFixturePath("fixture.zip")))
+                using (Stream content = (reference.GetEntry("maybe_H.bms") ?? throw new AssertFailedException("比較元の譜面がありません。")).Open())
+                using (var bytes = new MemoryStream())
+                {
+                    content.CopyTo(bytes);
+                    CollectionAssert.AreEqual(bytes.ToArray(), File.ReadAllBytes(Path.Combine(expanded.Single(), "maybe_H.bms")));
+                }
+                CollectionAssert.AreEqual(original, File.ReadAllBytes(normal));
+                CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(broken));
+                Assert.AreEqual(2, progress.SourceProcessedCount);
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                StringAssert.Contains(dialogs.Messages.Single(), broken);
+                Assert.IsTrue(diagnosticAttempts > 0);
+            }
+            finally { global::BeMusicSeeker.TempDirectoryPublisher.RemoveAll(); }
         });
     }
 

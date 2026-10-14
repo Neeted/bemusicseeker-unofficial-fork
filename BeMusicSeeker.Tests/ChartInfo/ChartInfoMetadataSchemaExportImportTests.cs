@@ -265,12 +265,7 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
             ChartInfoMetadataBundleStartupImporter.TryImportFromBaseDirectory(
                 appBaseDirectory,
                 new BmsLibraryDbGateway(importDbPath),
-                null,
-                delegate (string sourceArchivePath, string destinationDirectoryPath)
-                {
-                    RunSevenZip(sevenZipPath, "x -y " + QuoteProcessArgument(sourceArchivePath) + " -o" + QuoteProcessArgument(destinationDirectoryPath));
-                    return [];
-                });
+                null);
 
             using var verify = new LR2SongDBExtended(importDbPath, SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ? AND md5 = ?;", sha, md5));
