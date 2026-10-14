@@ -1041,9 +1041,9 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 準備後にXMLを削除しても通知抑止下で準備済み順位索引を適用し、local順位と変更scoreの記録を得る。
+    /// 準備後にXMLを削除しても通知抑止下で準備済み順位索引を適用し、local順位を反映し追加読取りを行わない。
     /// </summary>
-    /// <remarks>実SQLiteの保存行と実XMLから準備し、XML削除後の適用結果と変更scoreの記録を確認する。</remarks>
+    /// <remarks>実SQLiteの保存行と実XMLから準備し、XML削除後の適用結果と準備段階の読取り件数を確認する。</remarks>
     [TestMethod]
     public void PreparedRankingRefresh_DoesNotReadFallbackXmlDuringGuardedApply()
     {
@@ -1098,7 +1098,6 @@ public sealed class BmsLibraryIrServiceTests
 
         Assert.AreEqual(1, plan.Result.OfflineEstimateXmlLoadCount);
         Assert.AreEqual(1, score.ranking);
-        CollectionAssert.Contains(plan.ChangedScores.ToList(), score);
     }
 
     /// <summary>
@@ -1149,7 +1148,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 取得はstagingだけへ保存し、準備/昇格/適用後に有効成績一件をDBとlocalへ反映する。負のBP行を除き順位変更通知を公開する。
+    /// 取得はstagingだけへ保存し、準備/昇格/適用後に有効成績一件をDBとlocalへ反映する。負のBP行を除き順位値を保持する。
     /// </summary>
     /// <remarks>局所clientが返すXMLを実ファイルへ取得・昇格し、実SQLiteの保存行とlocal成績への反映を確認する。</remarks>
     [TestMethod]
@@ -1201,15 +1200,72 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(0, failed.Count);
         Assert.AreEqual(1, scores.Count);
         Assert.AreEqual(hash, scores[0].hash);
-        int scoreNotifications = 0;
-        scores[0].PropertyChanged += (_, _) => scoreNotifications++;
-
-        scores[0].PublishRankingDataChanged();
-
-        Assert.AreEqual(5, scoreNotifications);
         Assert.AreEqual(1, scores[0].ranking);
         Assert.AreEqual(1, scores[0].rankingNum);
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
+    }
+
+    /// <summary>成功XMLと不正XMLが混在する実model取得で、snapshot通知故障後も成功対象の昇格・保存・新hash lookupを保持し、実失敗対象だけを返します。</summary>
+    /// <remarks>サービス側の解析条件は既存ケースへ分担し、この代表例はmodelの通知生産とDB・実索引の接続を確認します。</remarks>
+    [TestMethod]
+    public void DownloadIRData_NotificationFailurePreservesSuccessfulSnapshotAndReturnsOnlyMalformedTarget()
+    {
+        using var env = TempIrEnvironment.Create();
+        const string successHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        const string failedHash = "cccccccccccccccccccccccccccccccc";
+        using (var db = new LR2ScoreDBExtended(env.ScoreDbPath))
+        {
+            db.RunInTransaction(() =>
+            {
+                db.CreateTable<LR2ScoreDB.player>();
+                db.CreateTable<LR2ScoreDB.score>();
+                db.Insert(new LR2ScoreDB.player { id = "download-model", irid = 123 });
+                db.Insert(new LR2ScoreDB.score { hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", perfect = 321, great = 45 });
+            });
+        }
+        DateTime updatedAt = new(2026, 10, 10, 12, 0, 0);
+        string xml = BuildRankingCacheXml(updatedAt,
+            [new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 900, Pg = 500, Gr = 100, MinBp = 12, Clear = 4 }]);
+        const string retainedCache = "retained malformed target cache";
+        string failedCachePath = Path.Combine(env.IrDirectoryPath, failedHash + ".xml");
+        File.WriteAllText(failedCachePath, retainedCache);
+        var client = new FakeIrClient(string.Empty);
+        client.SetRankingXml(successHash, xml);
+        client.SetRankingXml(failedHash, "<ranking><score>truncated");
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = env.RootDirectoryPath };
+        var library = new TestBmsLibrary(env.SongDbPath, null, env.ScoreDbPath, null, () => options,
+            TestBmsFactory.MissingEverythingBridge, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: client);
+        library.InitializeScoresOnly(null);
+        BMSLibrary.IRDataCacheInfo successfulTarget = CreateCacheInfo(successHash, updatedAt);
+        BMSLibrary.IRDataCacheInfo failedTarget = CreateCacheInfo(failedHash, updatedAt);
+        var observations = new List<(int Version, int SnapshotVersion, int Subscriptions, int? Score)>();
+        Action<ScoreSnapshotChange> handler = _ =>
+        {
+            observations.Add((library.ScoreSnapshotVersion, library.GetScoreSnapshotForDiagnostics().Version,
+                library.ScoreSubscriptionCount, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "success.bms", successHash, string.Empty).Score));
+            throw new InvalidOperationException("controlled download snapshot notification failure");
+        };
+        library.ScoreSnapshotChanged += handler;
+        try
+        {
+            List<BMSLibrary.IRDataCacheInfo> failed = library.DownloadIRData([successfulTarget, failedTarget]);
+            CollectionAssert.AreEqual(new[] { failedTarget }, failed);
+            Assert.AreEqual(xml, File.ReadAllText(Path.Combine(env.IrDirectoryPath, successHash + ".xml"), Encoding.GetEncoding("shift_jis")));
+            Assert.AreEqual(retainedCache, File.ReadAllText(failedCachePath));
+            Assert.AreEqual(500, env.CreateGateway().LoadIrData(123).Single(row => row.hash == successHash).pg);
+            Assert.AreEqual(0, env.CreateGateway().LoadIrData(123).Count(row => row.hash == failedHash));
+            Assert.AreEqual(1100, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "success.bms", successHash, string.Empty).Score);
+            Assert.AreEqual(1, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "success.bms", successHash, string.Empty).Ranking);
+            Assert.AreEqual(1, observations.Count);
+            Assert.AreEqual(observations[0].Version, observations[0].SnapshotVersion);
+            Assert.AreEqual(2, observations[0].Subscriptions);
+            Assert.AreEqual(1100, observations[0].Score);
+        }
+        finally
+        {
+            library.ScoreSnapshotChanged -= handler;
+            library.RequestShutdown("download-model-fixture-cleanup");
+        }
     }
 
     /// <summary>

@@ -20,7 +20,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 本契約は起動時のプレイヤーによる更新を対象とし、起動後のプレイヤー切替は扱いません。取得内容と履歴のdigestが一致すれば、正常に読み取った保存成績を使って置換を省きます。過去の部分保存を検出するための追加照合は行いません。履歴が未記録・不一致の場合は、既存の保存成績との比較を使います。
 
-成績が変わる場合は、成績と対象プレイヤーの履歴を同じDB接続・既存トランザクションで一体に保存します。実成績が一致する場合は成績を置換せず、履歴が未記録・不一致の場合だけ履歴を保存し、成績の`lastupdate`を含む既存値を保持します。成績と履歴がともに一致する場合は保存しません。トランザクション内の通常の保存・確定失敗は更新失敗として終え、旧成績・全プレイヤーの履歴・時刻を保持し、新成績をメモリへ採用しません。確定を再呼出しせず、診断の失敗を元結果へ加えません。DB確定後の必須メモリ反映と通知順序の適合は[未完了の計画](../../plan/exception-handling-simplification-plan.md)で扱います。
+成績が変わる場合は、成績と対象プレイヤーの履歴を同じDB接続・既存トランザクションで一体に保存します。実成績が一致する場合は成績を置換せず、履歴が未記録・不一致の場合だけ履歴を保存し、成績の`lastupdate`を含む既存値を保持します。成績と履歴がともに一致する場合は保存しません。トランザクション内の通常の保存・確定失敗は更新失敗として終え、旧成績・全プレイヤーの履歴・時刻を保持し、新成績をメモリへ採用しません。確定を再呼出しせず、診断の失敗を元結果へ加えません。
 
 本人スコア取得を無効にすると、取得、保存、その情報による未送信判定を行いません。起動時順位キャッシュ更新を無効にすると、ローカルXMLの走査・読込み・保存を行いません。両方無効なら起動時の順位更新を予約しません。
 
@@ -54,7 +54,9 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 `ranking_cache_refresh done` は読込みと保存時間、並列数、解析行数、解析失敗、互換項目、一括追加の利用、追加の推定読込みを記録します。過去の測定値を現行の時間上限にはしません。
 
-スコアの購読はライブラリがスコア実体ごとに一つ保持し、差替え・再読込み・終了で解除します。譜面ごとのscore購読は持ちません。IR・順位・未送信状態の更新は既存のスコア版と変更キーを通知し、通常一覧の該当キーの行だけを更新します。
+スコアの購読はライブラリがスコア実体ごとに一つ保持し、差替え・再読込み・終了で解除します。譜面ごとのscore購読は持ちません。IR・順位・未送信状態の一括反映は、現在lookupのsnapshotと購読・版・取得状態を採用してから、既存snapshotの変更キーを通知します。個別scoreへの重複する一括通知は行わず、通常setterの通知は維持します。通常一覧は通知されたキーの行を現在lookupから投影します。
+
+本人IR・順位cacheの公開Actionは既存の操作受付とモデルロックの解放後に実行します。PropertyChanged、snapshot変更、性能診断の通常失敗はそれぞれの純通知境界で閉じ、必要なsnapshot・購読反映をそのcatchへ含めません。通知の故障で保存・現在lookup・版を戻したり、取得や保存を再実行したりせず、独立cache・要求の実終端・次要求を保ちます。ダウンロード結果には実際に失敗した対象だけを残し、通知例外を失敗対象や再送出する集合へ加えません。取得状態と版のgetterは採用済みsnapshotから読み、通知用の別状態を持ちません。初期化で借用した親の受付を保持中の通知時点は[未完了の計画](../../plan/exception-handling-simplification-plan.md)で扱います。
 
 ## 実装とテストの対応
 
@@ -66,6 +68,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 | 予約条件、UI後の本人スコア取得、通信中のL受付と退役後の非保存 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
 | 情報JSONの型維持、不正行の上限付き診断、部分応答とキャッシュ保持 | [`BmsLibraryIrClient.ParseRankingInfoResponse`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrClient.cs)、[`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |
+| 一括反映の実lookup・購読と通知非干渉 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) のsnapshot・本人IR・順位cache公開、[`ScoreOwnership`](../../../BeMusicSeeker/Models/Library/BMSLibrary.ScoreOwnership.cs) の通常setter通知 | [`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) の `InitializeStartup_NotificationFailurePreservesCommittedSnapshotAndIndependentCache` が実起動・新hash・通知故障・別仕事と次要求、`ScoreSubscriptions_ReloadAndShutdownDetachPreviousScore` が通常setter・購読解除、`GetBMSScores_UnconfiguredSourcePublishesOneEmptySnapshotDespiteNotificationFailure` が取得元未設定のon-demandを分担する。[`BmsLibraryIrServiceTests.DownloadIRData_NotificationFailurePreservesSuccessfulSnapshotAndReturnsOnlyMalformedTarget`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) は実Downloadの失敗対象、[`RegularChartNormalLibraryRefreshTests.AttachedScoreSnapshotSource_RefreshesOnlyMatchingRowFromRealScoreSetter`](../../../BeMusicSeeker.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は生産された変更キーから一覧行への接続を確認する。 |
 | キャッシュの取得要求、確認、取消、成功・失敗件数の通知 | [`RankingCacheDownloadWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/RankingCacheDownloadWorkflowOwner.cs) | [`RankingCacheDownloadWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/RankingCacheDownloadWorkflowOwnerTests.cs) |
 
 ## 関連資料

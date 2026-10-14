@@ -99,7 +99,7 @@ public sealed class BmsLibraryIrStartupTests
     }
 
     /// <summary>
-    /// score再読込みで古いscoreの購読を外し、現在scoreだけの変更を通知して終了後は全購読を解除する。
+    /// score再読込みで旧購読を外し、通常setterの版・snapshot通知故障を局所化して実lookupを保持し、終了後は全購読を解除する。
     /// </summary>
     /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
     [TestMethod]
@@ -109,6 +109,7 @@ public sealed class BmsLibraryIrStartupTests
         fixture.Client.Release.TrySetResult();
         await fixture.InitializeAsync();
         await fixture.RankingCompleted.Task;
+        await fixture.WaitForWorkersAsync();
         BMSScore previous = fixture.Library.GetBMSScores().Single();
         Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
         Assert.AreEqual(previous.score, fixture.Library.ResolveChartScoreSnapshot(
@@ -136,6 +137,7 @@ public sealed class BmsLibraryIrStartupTests
         {
             await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
             await reloadCompleted.Task;
+            await fixture.WaitForWorkersAsync();
             BMSScore current = fixture.Library.GetBMSScores().Single();
             Assert.AreNotSame(previous, current);
             Assert.AreEqual(1, fixture.Library.ScoreSubscriptionCount);
@@ -145,9 +147,43 @@ public sealed class BmsLibraryIrStartupTests
             Assert.AreEqual(1, count);
             CollectionAssert.AreEqual(new[] { current.hash }, lastChange.Md5Keys.ToArray());
             Assert.AreEqual(fixture.Library.ScoreSnapshotVersion, lastChange.Version);
+            System.ComponentModel.PropertyChangedEventHandler failingVersion = (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion))
+                {
+                    throw new InvalidOperationException("controlled version notification failure");
+                }
+            };
+            fixture.Library.PropertyChanged += failingVersion;
+            try
+            {
+                int version = fixture.Library.ScoreSnapshotVersion;
+                current.ranking = 4;
+                Assert.AreEqual(version + 1, fixture.Library.ScoreSnapshotVersion);
+                Assert.AreEqual(fixture.Library.GetScoreSnapshotForDiagnostics().Version, fixture.Library.ScoreSnapshotVersion);
+                Assert.AreEqual(2, count, "版通知の故障後にも独立したsnapshot通知を試みます。");
+                Assert.AreEqual(4, fixture.Library.ResolveChartScoreSnapshot(
+                    ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).Ranking);
+            }
+            finally { fixture.Library.PropertyChanged -= failingVersion; }
+            Action<ScoreSnapshotChange> failingSnapshot = _ => throw new InvalidOperationException("controlled snapshot notification failure");
+            fixture.Library.ScoreSnapshotChanged += failingSnapshot;
+            try
+            {
+                int version = fixture.Library.ScoreSnapshotVersion;
+                current.ranking = 5;
+                Assert.AreEqual(version + 1, fixture.Library.ScoreSnapshotVersion);
+                Assert.AreEqual(5, fixture.Library.ResolveChartScoreSnapshot(
+                    ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).Ranking);
+            }
+            finally { fixture.Library.ScoreSnapshotChanged -= failingSnapshot; }
+            current.IsLr2IrScoreUnsent = true;
+            Assert.IsTrue(fixture.Library.ResolveChartScoreSnapshot(
+                ChartFileKind.Bms, "captured.bms", current.hash, string.Empty).IsLr2IrScoreUnsent);
+            CollectionAssert.AreEqual(new[] { current.hash }, lastChange.Md5Keys.ToArray());
             fixture.Library.RequestShutdown("score-subscription-test");
             current.ranking = 3;
-            Assert.AreEqual(1, count);
+            Assert.AreEqual(4, count);
             Assert.AreEqual(0, fixture.Library.ScoreSubscriptionCount);
         }
         finally
@@ -347,8 +383,128 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
+    /// <summary>本人IRと独立cacheの新hashを実起動で採用し、版またはsnapshot通知の通常故障でも保存・lookup・購読・要求終端を保持します。</summary>
+    /// <remarks>通信gate後に故障購読を接続し、callbackは採用状態とL解放を記録して処理後に検証します。全subscriber配送や初期化の通知時点は保証しません。</remarks>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InitializeStartup_NotificationFailurePreservesCommittedSnapshotAndIndependentCache(bool failSnapshot)
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exercisePublication: true);
+        await fixture.InitializeAsync();
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
+        var observations = new ConcurrentQueue<(int Version, int SnapshotVersion, bool Ready, int Subscriptions, int? Score, bool AdmissionFree)>();
+        void RecordAndFail()
+        {
+            BMSLibrary.ScoreSnapshot snapshot = fixture.Library.GetScoreSnapshotForDiagnostics();
+            bool admitted = fixture.Library.OperationAdmission.TryEnter(out IDisposable lease);
+            lease?.Dispose();
+            observations.Enqueue((fixture.Library.ScoreSnapshotVersion, snapshot.Version, fixture.Library.ScoreSnapshotReady,
+                fixture.Library.ScoreSubscriptionCount, fixture.Library.ResolveChartScoreSnapshot(
+                    ChartFileKind.Bms, "new-ir.bms", StartupFixture.IrHash, string.Empty).Score, admitted));
+            throw new InvalidOperationException("controlled score publication failure");
+        }
+        System.ComponentModel.PropertyChangedEventHandler propertyHandler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)) { RecordAndFail(); }
+        };
+        Action<ScoreSnapshotChange> snapshotHandler = _ => RecordAndFail();
+        if (failSnapshot) { fixture.Library.ScoreSnapshotChanged += snapshotHandler; }
+        else { fixture.Library.PropertyChanged += propertyHandler; }
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+            Assert.IsFalse(fixture.FailedReport);
+            Assert.AreEqual(1, fixture.Client.RequestCount);
+            fixture.AssertDatabaseCommitted();
+            Assert.IsTrue(observations.Count >= 2, "本人IR通知の故障後にも独立cacheを公開します。");
+            foreach ((int Version, int SnapshotVersion, bool Ready, int Subscriptions, int? Score, bool AdmissionFree) observation in observations)
+            {
+                Assert.AreEqual(observation.Version, observation.SnapshotVersion);
+                Assert.IsTrue(observation.Ready);
+                Assert.IsTrue(observation.Subscriptions >= 2);
+                Assert.AreEqual(1100, observation.Score);
+                Assert.IsTrue(observation.AdmissionFree, "IRとcacheはL解放後に公開します。");
+            }
+            Assert.AreEqual(1100, fixture.Library.ResolveChartScoreSnapshot(
+                ChartFileKind.Bms, "new-cache.bms", StartupFixture.CacheHash, string.Empty).Score);
+            Assert.AreEqual(fixture.Library.GetBMSScores().Count, fixture.Library.ScoreSubscriptionCount);
+            Assert.IsFalse(fixture.Library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "new-ir.bms", StartupFixture.IrHash, string.Empty).IsLr2IrScoreUnsent);
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+        }
+        finally
+        {
+            fixture.Library.PropertyChanged -= propertyHandler;
+            fixture.Library.ScoreSnapshotChanged -= snapshotHandler;
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+        }
+        BMSScore adopted = fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.IrHash);
+        ScoreSnapshotChange change = null;
+        Action<ScoreSnapshotChange> recordChange = current => change = current;
+        fixture.Library.ScoreSnapshotChanged += recordChange;
+        try
+        {
+            int version = fixture.Library.ScoreSnapshotVersion;
+            adopted.ranking = 7;
+            Assert.AreEqual(version + 1, fixture.Library.ScoreSnapshotVersion);
+            Assert.AreEqual(7, fixture.Library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "new-ir.bms", adopted.hash, string.Empty).Ranking);
+            CollectionAssert.Contains(change.Md5Keys.ToArray(), adopted.hash);
+        }
+        finally { fixture.Library.ScoreSnapshotChanged -= recordChange; }
+        await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+        await fixture.WaitForWorkersAsync();
+        Assert.AreEqual(2, fixture.Client.RequestCount);
+        Assert.IsFalse(fixture.FailedReport);
+        Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+        Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+    }
+
+    /// <summary>score取得元未設定のon-demand lookupは空snapshotを一度採用し、readyをfalseに保ちながら公開版と実snapshot版を一致させます。</summary>
+    [TestMethod]
+    public void GetBMSScores_UnconfiguredSourcePublishesOneEmptySnapshotDespiteNotificationFailure()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BmsScoreOnDemand", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songPath = Path.Combine(root, "song.db");
+        using (var db = new LR2SongDBExtended(songPath)) { db.CreateTable<LR2SongDB.song>(); }
+        var library = new TestBmsLibrary(songPath);
+        int attempts = 0;
+        System.ComponentModel.PropertyChangedEventHandler handler = (_, args) =>
+        {
+            if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion))
+            {
+                attempts++;
+                throw new InvalidOperationException("controlled on-demand notification failure");
+            }
+        };
+        library.PropertyChanged += handler;
+        try
+        {
+            Assert.AreEqual(0, library.GetBMSScores().Count);
+            Assert.IsFalse(library.ScoreSnapshotReady);
+            int version = library.ScoreSnapshotVersion;
+            Assert.IsTrue(version > 0);
+            Assert.AreEqual(version, library.GetScoreSnapshotForDiagnostics().Version);
+            Assert.AreEqual(0, library.GetBMSScores().Count);
+            Assert.AreEqual(version, library.ScoreSnapshotVersion);
+            Assert.AreEqual(1, attempts);
+        }
+        finally
+        {
+            library.PropertyChanged -= handler;
+            library.RequestShutdown("on-demand-fixture-cleanup");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private sealed class StartupFixture : IAsyncDisposable
     {
+        internal const string IrHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        internal const string CacheHash = "cccccccccccccccccccccccccccccccc";
+        private readonly bool exercisePublication;
         private const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
         private readonly string root = Path.Combine(Path.GetTempPath(), "BmsIrStartup", Guid.NewGuid().ToString("N"));
         private readonly BmsLibraryDbGateway gateway;
@@ -361,9 +517,10 @@ public sealed class BmsLibraryIrStartupTests
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false)
         {
-            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure;
+            this.exercisePublication = exercisePublication;
+            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication;
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
             string scorePath = exerciseRankingCache
@@ -408,7 +565,13 @@ public sealed class BmsLibraryIrStartupTests
                     + "\t\t<gr>45</gr>\n\t\t<minbp>20</minbp>\n\t\t</score>\n</ranking>\n"
                     + "<lastupdate>2026-10-10 12:00:00</lastupdate>\n", Encoding.UTF8);
             }
-            Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure);
+            if (exercisePublication)
+            {
+                File.Copy(Path.Combine(root, "Ir", Hash + ".xml"), Path.Combine(root, "Ir", CacheHash + ".xml"));
+                string cachePath = Path.Combine(root, "Ir", CacheHash + ".xml");
+                File.WriteAllText(cachePath, File.ReadAllText(cachePath).Replace("<pg>321</pg>", "<pg>500</pg>").Replace("<gr>45</gr>", "<gr>100</gr>"), Encoding.UTF8);
+            }
+            Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure, extraScoreHash: exercisePublication ? IrHash : null);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
@@ -506,7 +669,10 @@ public sealed class BmsLibraryIrStartupTests
 
         internal void AssertDatabaseCommitted()
         {
-            LR2IRScore score = gateway.LoadIrScoreRows().Single();
+            List<LR2IRScore> rows = gateway.LoadIrScoreRows();
+            Assert.AreEqual(exercisePublication ? 2 : 1, rows.Count);
+            if (exercisePublication) { Assert.AreEqual(500, rows.Single(row => row.hash == IrHash).pg); }
+            LR2IRScore score = rows.Single(row => row.hash == Hash);
             Assert.AreEqual(Hash, score.hash);
             Assert.AreEqual(500, score.pg);
             Assert.AreEqual(100, score.gr);
@@ -532,7 +698,7 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
-    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false, bool emptyFirstRequest = false) : IBmsLibraryIrClient
+    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false, bool emptyFirstRequest = false, string extraScoreHash = null) : IBmsLibraryIrClient
     {
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -568,11 +734,17 @@ public sealed class BmsLibraryIrStartupTests
                     return "<root></root>";
                 }
 
-                return "<root>\n\t<score>\n\t\t<hash>abcdefabcdefabcdefabcdefabcdefab</hash>\n"
+                string xml = "<root>\n\t<score>\n\t\t<hash>abcdefabcdefabcdefabcdefabcdefab</hash>\n"
                     + "\t\t<clear>4</clear>\n\t\t<notes>1000</notes>\n\t\t<combo>900</combo>\n"
                     + "\t\t<pg>500</pg>\n\t\t<gr>100</gr>\n\t\t<gd>10</gd>\n\t\t<bd>2</bd>\n"
                     + "\t\t<pr>1</pr>\n\t\t<minbp>12</minbp>\n\t\t<option>0</option>\n"
                     + "\t\t<lastupdate>20261010</lastupdate>\n\t</score>\n</root>\n";
+                if (extraScoreHash != null)
+                {
+                    string extra = xml.Replace("abcdefabcdefabcdefabcdefabcdefab", extraScoreHash).Replace("<root>", "").Replace("</root>", "");
+                    xml = xml.Replace("</root>", extra + "</root>");
+                }
+                return xml;
             }
             finally { Completed.TrySetResult(); }
         }

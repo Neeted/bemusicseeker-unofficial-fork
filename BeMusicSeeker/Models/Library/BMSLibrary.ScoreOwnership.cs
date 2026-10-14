@@ -68,6 +68,7 @@ public partial class BMSLibrary
         }
     }
 
+    /// <summary>現在実体の変更版を先に採用し、版と変更キーの純通知を互いの通常失敗から分離します。</summary>
     private void PublishOwnedScoreChange(BMSScore score)
     {
         ScoreSnapshotChange change;
@@ -102,8 +103,8 @@ public partial class BMSLibrary
             }
             change = new ScoreSnapshotChange(version, subscription.Md5Keys, subscription.Sha256Keys);
         }
-        ScoreSnapshotVersion = change.Version;
-        ScoreSnapshotChanged?.Invoke(change);
+        TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotVersion)), "score_snapshot_version_notification_failed");
+        TryInvokePostLeaseNotification(() => ScoreSnapshotChanged?.Invoke(change), "score_snapshot_change_notification_failed");
     }
 
     private void DetachScoreSubscriptions()

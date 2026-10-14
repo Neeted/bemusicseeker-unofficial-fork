@@ -35,8 +35,6 @@ internal sealed class BmsLibraryIrService
 
         public Dictionary<string, Lr2IrRankingLookup> XmlLookupsByHash { get; } = new Dictionary<string, Lr2IrRankingLookup>(StringComparer.OrdinalIgnoreCase);
 
-        public HashSet<BMSScore> ChangedScores { get; } = [];
-
         public IrCacheRefreshResult Result { get; } = new IrCacheRefreshResult();
     }
 
@@ -65,7 +63,6 @@ internal sealed class BmsLibraryIrService
     {
         internal List<BMSLibrary.IRDataCacheInfo> Failed { get; } = [];
 
-        internal List<BMSScore> ChangedScores { get; } = [];
     }
 
     internal sealed class DownloadedRankingCacheFile
@@ -789,7 +786,6 @@ internal sealed class BmsLibraryIrService
         List<LR2IRData> irDataToBeCommitted = [];
         Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
 
-        var changedScores = new HashSet<BMSScore>();
         int offlineEstimateXmlLoadCount = 0;
         foreach (RankingCacheReloadResult result in plan.ParsedResults)
         {
@@ -802,7 +798,7 @@ internal sealed class BmsLibraryIrService
             }
 
             irDataToBeCommitted.Add(result.IrData);
-            BMSScore changedScore = ApplyIrDataToScoresIndexed(
+            ApplyIrDataToScoresIndexed(
                 result.IrData,
                 result.Lookup,
                 dbGateway.ScoreDbPath,
@@ -811,14 +807,9 @@ internal sealed class BmsLibraryIrService
                 estimateOfflineScoreRanking,
                 ref offlineEstimateXmlLoadCount,
                 allowLookupFileLoad: false);
-            if (changedScore != null)
-            {
-                changedScores.Add(changedScore);
-            }
         }
 
         dbGateway.UpsertIrData(irDataToBeCommitted);
-        applyResult.ChangedScores.AddRange(changedScores);
         return applyResult;
     }
 
@@ -1151,7 +1142,7 @@ internal sealed class BmsLibraryIrService
                 plan.XmlLookupsByHash.TryGetValue(
                     irData.hash,
                     out Lr2IrRankingLookup lookup);
-                BMSScore changedScore = ApplyIrDataToScoresIndexed(
+                ApplyIrDataToScoresIndexed(
                     irData,
                     lookup,
                     scoreDbPath,
@@ -1160,10 +1151,6 @@ internal sealed class BmsLibraryIrService
                     estimateOfflineScoreRanking,
                     ref offlineEstimateXmlLoadCount,
                     allowLookupFileLoad: false);
-                if (changedScore != null)
-                {
-                    plan.ChangedScores.Add(changedScore);
-                }
                 plan.Result.DbFallbackAppliedCount++;
             }
         }
@@ -1174,7 +1161,7 @@ internal sealed class BmsLibraryIrService
                 continue;
             }
             plan.XmlLookupsByHash.TryGetValue(irData.hash, out Lr2IrRankingLookup lookup);
-            BMSScore changedScore = ApplyIrDataToScoresIndexed(
+            ApplyIrDataToScoresIndexed(
                 irData,
                 lookup,
                 scoreDbPath,
@@ -1183,10 +1170,6 @@ internal sealed class BmsLibraryIrService
                 estimateOfflineScoreRanking,
                 ref offlineEstimateXmlLoadCount,
                 allowLookupFileLoad: false);
-            if (changedScore != null)
-            {
-                plan.ChangedScores.Add(changedScore);
-            }
             plan.Result.XmlAppliedCount++;
         }
         plan.Result.OfflineEstimateXmlLoadCount = offlineEstimateXmlLoadCount;

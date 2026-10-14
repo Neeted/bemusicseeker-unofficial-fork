@@ -52,20 +52,6 @@ public class BMSScore : LR2ScoreDB.score
         }
     }
 
-    internal void PublishRankingDataChanged()
-    {
-        base.RaisePropertyChanged(nameof(ranking));
-        base.RaisePropertyChanged(nameof(rankingNum));
-        base.RaisePropertyChanged(nameof(rankingLastupdate));
-        base.RaisePropertyChanged(nameof(stddevVal));
-        base.RaisePropertyChanged(nameof(scoreDifficulty));
-    }
-
-    internal void PublishLr2IrScoreUnsentChanged()
-    {
-        base.RaisePropertyChanged(nameof(IsLr2IrScoreUnsent));
-    }
-
     public int score => base.perfect * 2 + base.great;
 
     public int ranking

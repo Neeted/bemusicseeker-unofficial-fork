@@ -324,6 +324,75 @@ public sealed class RegularChartNormalLibraryRefreshTests
         });
     }
 
+    /// <summary>実libraryの通常score setterがsnapshot変更キーを生産し、接続済み通常一覧の実lookup表示だけを更新して無関係行へ通知しません。</summary>
+    /// <remarks>既存Attachと部分一覧のfixtureを使い、投影値の条件網羅はChartListVirtualViewTestsとsort engineへ分担します。</remarks>
+    [TestMethod]
+    public void AttachedScoreSnapshotSource_RefreshesOnlyMatchingRowFromRealScoreSetter()
+    {
+        WithTemporarySongDb(songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath)!;
+            string scorePath = Path.Combine(root, "score.db");
+            const string affectedHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string unrelatedHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            using (var db = new LR2ScoreDBExtended(scorePath))
+            {
+                db.RunInTransaction(() =>
+                {
+                    db.CreateTable<LR2ScoreDB.player>();
+                    db.CreateTable<LR2ScoreDB.score>();
+                    db.Insert(new LR2ScoreDB.player { id = "row-score", irid = 123 });
+                    db.Insert(new LR2ScoreDB.score { hash = affectedHash, perfect = 321, great = 45 });
+                    db.Insert(new LR2ScoreDB.score { hash = unrelatedHash, perfect = 100, great = 20 });
+                });
+            }
+            var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = root };
+            var library = new TestBmsLibrary(songDbPath, null, scorePath, null, () => options,
+                TestBmsFactory.MissingEverythingBridge);
+            library.InitializeScoresOnly(null);
+            library.BmsCharts =
+            [
+                CreateTestableBmsFile(Path.Combine(root, "affected.bms")) with { Title = "Affected" },
+                CreateTestableBmsFile(Path.Combine(root, "unrelated.bms")) with { Title = "Unrelated", Md5 = unrelatedHash }
+            ];
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table));
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(new RegularVirtualNormalLibraryApplyRequest
+                {
+                    Library = library,
+                    KeywordFilter = string.Empty,
+                    ModeFilter = ChartModeFilter.All,
+                    SortColumnName = nameof(LibraryChartRow.Title),
+                    SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                    ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                        MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                    Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                    Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                    Reason = "real_score_snapshot_connection"
+                }).WasCommitted);
+                LibraryChartRow[] rows = table.Rows.Cast<LibraryChartRow>().ToArray();
+                Assert.AreEqual(2, rows.Length);
+                LibraryChartRow affected = rows.Single(row => row.Title == "Affected");
+                LibraryChartRow unrelated = rows.Single(row => row.Title == "Unrelated");
+                int affectedNotifications = 0;
+                int unrelatedNotifications = 0;
+                affected.PropertyChanged += (_, _) => affectedNotifications++;
+                unrelated.PropertyChanged += (_, _) => unrelatedNotifications++;
+                BMSScore score = library.GetBMSScores().Single(value => value.hash == affectedHash);
+                score.ranking = 7;
+                Assert.AreEqual(7, affected.ranking);
+                Assert.AreEqual(7, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, affected.Chart.Path, affectedHash, string.Empty).Ranking);
+                Assert.IsTrue(affectedNotifications > 0);
+                Assert.AreEqual(0, unrelatedNotifications);
+                Assert.AreEqual(220, unrelated.score);
+            }
+            finally { library.RequestShutdown("row-score-fixture-cleanup"); }
+        });
+    }
+
     /// <summary>通知済みlibraryへ接続すると未適用変更へ一回追従して派生cacheを失効させ、同じ版の二重適用を検出します。</summary>
     [TestMethod]
     public void AttachNormalLibraryRefreshSource_CatchesUpOnceAndSuppressesDuplicate()

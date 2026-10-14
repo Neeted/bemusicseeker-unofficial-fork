@@ -441,6 +441,7 @@ public partial class BMSLibrary : ObservableObject
         if (installPerformanceLoggingEnabled)
         {
             try { installPerformanceLogger.Info(message); }
+            catch (OutOfMemoryException ex) { Environment.FailFast("性能診断中にメモリが不足しました。", ex); }
             catch { /* 任意の性能記録で本体の保存・終端を中断しません。 */ }
         }
     }
@@ -450,6 +451,7 @@ public partial class BMSLibrary : ObservableObject
         if (installPerformanceLoggingEnabled)
         {
             try { installPerformanceLogger.Warn(message); }
+            catch (OutOfMemoryException ex) { Environment.FailFast("性能診断中にメモリが不足しました。", ex); }
             catch { /* 診断出力の失敗で元の操作失敗を置換しません。 */ }
         }
     }
@@ -869,10 +871,6 @@ public partial class BMSLibrary : ObservableObject
     private List<BMSScore> _BMSScores = [];
 
     private int _LR2ID;
-
-    private bool _ScoreSnapshotReady;
-
-    private int _ScoreSnapshotVersion;
 
     private bool _ScoreHydrationRunning;
 
@@ -1478,7 +1476,6 @@ public partial class BMSLibrary : ObservableObject
             {
                 DetachScoreSubscriptions();
                 _BMSScores = value;
-                RaisePropertyChanged("BMSScores");
             }
         }
     }
@@ -1507,14 +1504,10 @@ public partial class BMSLibrary : ObservableObject
     {
         get
         {
-            return _ScoreSnapshotReady;
-        }
-        private set
-        {
-            if (_ScoreSnapshotReady != value)
+            lock (lockScoreSnapshot)
             {
-                _ScoreSnapshotReady = value;
-                RaisePropertyChanged(() => ScoreSnapshotReady);
+                return scoreSnapshot != null && scoreSnapshot.ActiveScoreSource != ActiveScoreSource.None
+                    && scoreSnapshot.LoadStatus == ScoreTableLoadStatus.Loaded;
             }
         }
     }
@@ -1527,15 +1520,7 @@ public partial class BMSLibrary : ObservableObject
     {
         get
         {
-            return _ScoreSnapshotVersion;
-        }
-        private set
-        {
-            if (_ScoreSnapshotVersion != value)
-            {
-                _ScoreSnapshotVersion = value;
-                RaisePropertyChanged(() => ScoreSnapshotVersion);
-            }
+            lock (lockScoreSnapshot) { return scoreSnapshot?.Version ?? 0; }
         }
     }
 
@@ -2905,7 +2890,7 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// storage rows replacement の確定後に、facade が公開する行コレクション通知を発行します。
+    /// 必要な状態採用後の純通知を発行します。leaseの解放時点は呼出元が所有します。
     /// 通知とその診断先の失敗は確定結果へ加えず、呼出元が残る独立した公開へ進めるようにします。
     /// </summary>
     private void TryInvokePostLeaseNotification(Action notification, string diagnostic)
@@ -2918,11 +2903,19 @@ public partial class BMSLibrary : ObservableObject
         {
             notification();
         }
+        catch (OutOfMemoryException exception)
+        {
+            Environment.FailFast("通知中にメモリが不足しました。", exception);
+        }
         catch (Exception exception)
         {
             try
             {
                 NLogWrapper.FileLogger?.Warn(exception, diagnostic);
+            }
+            catch (OutOfMemoryException diagnosticFailure)
+            {
+                Environment.FailFast("通知失敗の診断中にメモリが不足しました。", diagnosticFailure);
             }
             catch (Exception)
             {
@@ -3156,7 +3149,8 @@ public partial class BMSLibrary : ObservableObject
             {
                 return new ScoreRuntimeState
                 {
-                    SnapshotReady = ScoreSnapshotReady,
+                    SnapshotReady = snapshot != null && snapshot.ActiveScoreSource != ActiveScoreSource.None
+                        && snapshot.LoadStatus == ScoreTableLoadStatus.Loaded,
                     SnapshotVersion = snapshot?.Version ?? 0,
                     ActiveScoreSource = snapshot?.ActiveScoreSource ?? ActiveScoreSource.None,
                     LoadStatus = snapshot?.LoadStatus ?? ScoreTableLoadStatus.NotConfigured,
@@ -4434,7 +4428,8 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 現在の BMSScores から score snapshot を再構築して公開します。
+    /// 現在の正本からlookup snapshotと実体購読を採用してから、純通知の通常失敗を個別に局所化します。
+    /// 初期化の借用leaseを保持する呼出元の通知時点は、ここでは変更しません。
     /// </summary>
     /// <param name="reason">ログ出力用の更新理由。</param>
     private void RefreshScoreSnapshotFromCurrentScores(string reason)
@@ -4487,12 +4482,17 @@ public partial class BMSLibrary : ObservableObject
             };
         }
         ReplaceScoreSubscriptions(scoreSnapshot);
-        ScoreSnapshotReady = sourceSnapshot != ActiveScoreSource.None
-            && loadStatusSnapshot == ScoreTableLoadStatus.Loaded;
-        ScoreSnapshotVersion = version;
-        ScoreSnapshotChanged?.Invoke(new ScoreSnapshotChange(version,
+        var change = new ScoreSnapshotChange(version,
             [.. scoresByHash.Keys.Concat((IEnumerable<string>)previous?.ScoresByHash.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)],
-            [.. beatorajaScoresSnapshot.Keys.Concat((IEnumerable<string>)previous?.ScoresBySha256.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)]));
+            [.. beatorajaScoresSnapshot.Keys.Concat((IEnumerable<string>)previous?.ScoresBySha256.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)]);
+        bool wasReady = previous != null && previous.ActiveScoreSource != ActiveScoreSource.None
+            && previous.LoadStatus == ScoreTableLoadStatus.Loaded;
+        if (wasReady != ScoreSnapshotReady)
+        {
+            TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotReady)), "score_snapshot_ready_notification_failed");
+        }
+        TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotVersion)), "score_snapshot_version_notification_failed");
+        TryInvokePostLeaseNotification(() => ScoreSnapshotChanged?.Invoke(change), "score_snapshot_change_notification_failed");
         LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " source=" + sourceSnapshot + " count=" + scoresSnapshot.Count + " beatorajaCount=" + beatorajaScoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
     }
 
@@ -5433,13 +5433,13 @@ public partial class BMSLibrary : ObservableObject
             }
             scoreSourceGeneration++;
         }
-        RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
-        stopwatchScoreTblLoad.Stop();
-        scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
         if (!options.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             ClearScoreUnsentStatus();
         }
+        RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
+        stopwatchScoreTblLoad.Stop();
+        scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
     }
 
     /// <summary>先行走査の実結果を確定し、保存済み譜面情報に必要なdigestとスコア投影を直接完了します。</summary>
@@ -6822,6 +6822,10 @@ public partial class BMSLibrary : ObservableObject
                 LogInstallPerformance("ranking_refresh_deferred cancelled version=" + requestVersion + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 ReportStartupBackgroundTask("ranking_refresh_deferred", "cancelled", stopwatch.ElapsedMilliseconds, failed: false);
             }
+            catch (OutOfMemoryException ex)
+            {
+                Environment.FailFast("順位更新中にメモリが不足しました。", ex);
+            }
             catch (Exception ex)
             {
                 stopwatch.Stop();
@@ -7831,45 +7835,21 @@ public partial class BMSLibrary : ObservableObject
         }
         PlaylistLibraryResolveIndexSnapshot ownedIndex = GetPlaylistLibraryResolveIndexSnapshot(
             CancellationToken.None, out _, out _);
-        List<BMSScore> mergedScores;
-        var priorUnsentByScore = new Dictionary<BMSScore, bool>();
         using (rwlockBMSScores.GetWriterGuard())
         {
             EnsureCurrentRankingDownloadContext(context);
-            foreach (BMSScore score in BMSScores ?? [])
-            {
-                if (score != null)
-                {
-                    priorUnsentByScore[score] = score.IsLr2IrScoreUnsent;
-                }
-            }
             using (BMSScore.SuppressPropertyChangedScope())
             {
-                mergedScores = irService.UpdateBmsScores(
+                BMSScores = irService.UpdateBmsScores(
                     scoreTable, BMSScores, ownedIndex.ContainsBmsMd5, detectUnsentScores);
-                BMSScores = mergedScores;
             }
         }
-        List<BMSScore> changedUnsentScores =
-        [
-            .. mergedScores.Where(score =>
-                score != null
-                && priorUnsentByScore.TryGetValue(score, out bool priorUnsent)
-                && priorUnsent != score.IsLr2IrScoreUnsent)
-        ];
-        return () =>
-        {
-            foreach (BMSScore score in changedUnsentScores)
-            {
-                score.PublishLr2IrScoreUnsentChanged();
-            }
-            RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
-        };
+        return () => RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
     }
 
+    /// <summary>未送信状態だけを解除します。LoadSavedScoresの最終snapshotへまとめて公開します。</summary>
     private void ClearScoreUnsentStatus()
     {
-        List<BMSScore> changed = [];
         using (rwlockBMSScores.GetWriterGuard())
         using (BMSScore.SuppressPropertyChangedScope())
         {
@@ -7878,13 +7858,8 @@ public partial class BMSLibrary : ObservableObject
                 if (score?.IsLr2IrScoreUnsent == true)
                 {
                     score.IsLr2IrScoreUnsent = false;
-                    changed.Add(score);
                 }
             }
-        }
-        foreach (BMSScore score in changed)
-        {
-            score.PublishLr2IrScoreUnsentChanged();
         }
     }
 
@@ -7948,14 +7923,7 @@ public partial class BMSLibrary : ObservableObject
             + " upsertMs=" + result.UpsertMs
             + " bulkInsertUsed=" + result.BulkInsertUsed
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
-        uiScheduler.Invoke(() =>
-        {
-            foreach (BMSScore changedScore in preparedPlan.ChangedScores)
-            {
-                changedScore.PublishRankingDataChanged();
-            }
-            RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache");
-        });
+        uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache"));
         return result;
     }
 
@@ -7976,6 +7944,9 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
+    /// <summary>順位cacheの成功対象を昇格・保存して実lookupへ採用し、通知失敗を実失敗対象へ加えずに返します。</summary>
+    /// <param name="cacheInfo">取得する順位cache対象。</param>
+    /// <returns>取得・解析・昇格に失敗した対象。</returns>
     public List<IRDataCacheInfo> DownloadIRData(IEnumerable<IRDataCacheInfo> cacheInfo)
     {
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
@@ -8027,29 +7998,7 @@ public partial class BMSLibrary : ObservableObject
 
                 }
             }
-            uiScheduler.Invoke(() =>
-            {
-                List<Exception> publicationFailures = null;
-                foreach (BMSScore changedScore in applyResult.ChangedScores)
-                {
-                    try
-                    {
-                        changedScore.PublishRankingDataChanged();
-                    }
-                    catch (Exception ex)
-                    {
-                        publicationFailures ??= [];
-                        publicationFailures.Add(ex);
-                    }
-                }
-                RefreshScoreSnapshotFromCurrentScores("download_ir_data");
-                if (publicationFailures?.Count > 0)
-                {
-                    throw new AggregateException(
-                        "One or more ranking score subscribers failed.",
-                        publicationFailures);
-                }
-            });
+            uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("download_ir_data"));
             return applyResult.Failed;
         }
         finally
@@ -8060,6 +8009,10 @@ public partial class BMSLibrary : ObservableObject
                 {
                     LongPathFileSystem.DeleteDirectory(stagingDirectoryPath, recursive: true);
                 }
+            }
+            catch (OutOfMemoryException ex)
+            {
+                Environment.FailFast("順位取得の後片付け中にメモリが不足しました。", ex);
             }
             catch (Exception ex)
             {
