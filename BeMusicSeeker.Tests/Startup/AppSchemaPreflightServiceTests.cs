@@ -15,7 +15,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class AppSchemaPreflightServiceTests
 {
     /// <summary>
-    /// startup schemaを実DBへ作成してlibraryが所有する各表を保存し、起動後に必要な永続化先を欠かさない。
+    /// startup schemaを実DBへ作成し、刷新履歴の未記録読取りと初回保存・読戻しまで成立させ、起動時の表準備漏れを検出する。
     /// </summary>
     [TestMethod]
     public void EnsureLibraryStartupSchema_ContainsLibraryOwnedTables()
@@ -23,14 +23,16 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            new BmsLibraryDbGateway(tempDbPath).EnsureLibraryStartupSchema();
+            var gateway = new BmsLibraryDbGateway(tempDbPath);
+            gateway.EnsureLibraryStartupSchema();
+            AssertIrScoreRefreshMetadataFirstSave(gateway);
 
             using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
             List<string> tableNames = [.. db.Query<ColumnNameRow>(
                 "SELECT name FROM sqlite_master WHERE type = 'table';")
                 .Select(row => row.name)];
             CollectionAssert.IsSubsetOf(
-                new[] { "folder", "install", "ir_score", "ir_data", "chart_info" },
+                new[] { "folder", "install", "ir_score", "ir_score_refresh_metadata", "ir_data", "chart_info" },
                 tableNames);
         }
         finally
@@ -111,11 +113,13 @@ public sealed class AppSchemaPreflightServiceTests
     }
 
     /// <summary>
-    /// 新規LR2 DBには無警告でapp所有schemaを作成し、再Inspectで修復要求が収束して必要なdigest・bmson表が残る。
+    /// 新規LR2 DBのEnsure・Repairは無警告でapp所有schemaを作成し、preflightの収束とdigest・bmson表、刷新履歴の初回読取り・保存を保証する。
     /// </summary>
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
     [TestCategory("Playlist")]
-    public void EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration()
+    public void EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration(bool repair)
     {
         string tempDbPath = CreateEmptySongDbPath();
         try
@@ -130,7 +134,15 @@ public sealed class AppSchemaPreflightServiceTests
             PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
 
-            gateway.EnsureAppOwnedSchema();
+            if (repair)
+            {
+                gateway.RepairAppOwnedSchema();
+            }
+            else
+            {
+                gateway.EnsureAppOwnedSchema();
+            }
+            AssertIrScoreRefreshMetadataFirstSave(gateway);
 
             AppSchemaPreflightResult result = service.Inspect(tempDbPath);
             Assert.IsFalse(result.NeedsPlaylistEntrySha256Repair);
@@ -142,6 +154,130 @@ public sealed class AppSchemaPreflightServiceTests
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM app_schema_version WHERE name = 'app_schema' AND version >= 1;"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'chart_digest_map';"));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'bmson_song';"));
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    /// <summary>
+    /// 既存の刷新履歴・本人スコア・楽曲行を各明示準備の再実行後も保持し、記録あり・未記録の通常読取りで構造版や保存行を変えない。
+    /// </summary>
+    [TestMethod]
+    public void PrepareSchema_ExistingIrRefreshMetadataPreservesRowsAndReadDoesNotMutateDatabase()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            var gateway = new BmsLibraryDbGateway(tempDbPath);
+            gateway.EnsureLibraryStartupSchema();
+            const string hash = "0123456789abcdef0123456789abcdef";
+            const string digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            DateTime updatedAt = new(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            using (var seed = new LR2SongDBExtended(tempDbPath))
+            {
+                seed.RunInTransaction(() =>
+                {
+                    seed.CreateTable<LR2SongDB.song>();
+                    seed.Insert(new LR2SongDB.song { hash = hash, path = @"D:\BMS\chart.bms", title = "Existing song" });
+                    seed.Insert(new LR2SongDBExtended.ir_score { hash = hash, clearValue = 3, notes = 100, pg = 80, gr = 20, lastupdate = 123456 });
+                    seed.Insert(new LR2SongDBExtended.ir_score_refresh_metadata { lr2id = 123, score_digest_sha256 = digest, updated_at = updatedAt });
+                });
+            }
+
+            Action[] prepareSchema = [gateway.EnsureLibraryStartupSchema, gateway.EnsureAppOwnedSchema, gateway.RepairAppOwnedSchema];
+            foreach (Action prepare in prepareSchema)
+            {
+                prepare();
+                int schemaVersion;
+                int appSchemaVersion;
+                using (LR2SongDBExtended beforeRead = gateway.OpenSongDbReadOnly())
+                {
+                    schemaVersion = beforeRead.ExecuteScalar<int>("PRAGMA schema_version;");
+                    appSchemaVersion = beforeRead.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema';");
+                }
+
+                LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123, out _);
+                Assert.IsNotNull(metadata);
+                Assert.AreEqual(123, metadata.lr2id);
+                Assert.AreEqual(digest, metadata.score_digest_sha256);
+                Assert.AreEqual(updatedAt, metadata.updated_at);
+                Assert.IsNull(gateway.LoadIrScoreRefreshMetadata(456));
+
+                using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+                Assert.AreEqual(schemaVersion, verify.ExecuteScalar<int>("PRAGMA schema_version;"));
+                Assert.AreEqual(appSchemaVersion, verify.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema';"));
+                LR2SongDBExtended.ir_score_refresh_metadata storedMetadata = verify.Table<LR2SongDBExtended.ir_score_refresh_metadata>().Single();
+                Assert.AreEqual(123, storedMetadata.lr2id);
+                Assert.AreEqual(digest, storedMetadata.score_digest_sha256);
+                Assert.AreEqual(updatedAt, storedMetadata.updated_at);
+                LR2SongDBExtended.ir_score score = verify.Table<LR2SongDBExtended.ir_score>().Single();
+                Assert.AreEqual(hash, score.hash);
+                Assert.AreEqual(3, score.clearValue);
+                Assert.AreEqual(100, score.notes);
+                Assert.AreEqual(80, score.pg);
+                Assert.AreEqual(20, score.gr);
+                Assert.AreEqual(123456, score.lastupdate);
+                LR2SongDB.song song = verify.Table<LR2SongDB.song>().Single();
+                Assert.AreEqual(hash, song.hash);
+                Assert.AreEqual(@"D:\BMS\chart.bms", song.path);
+                Assert.AreEqual("Existing song", song.title);
+            }
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    /// <summary>
+    /// 刷新履歴表が未準備なら通常読取りの失敗を観測し、未記録nullへの変換や表作成、既存楽曲行の変更を検出する。
+    /// </summary>
+    [TestMethod]
+    public void LoadIrScoreRefreshMetadata_UnpreparedDatabaseFailsWithoutCreatingTableOrChangingRows()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        try
+        {
+            var gateway = new BmsLibraryDbGateway(tempDbPath);
+            using (var seed = new LR2SongDBExtended(tempDbPath))
+            {
+                seed.RunInTransaction(() =>
+                {
+                    seed.CreateTable<LR2SongDB.song>();
+                    seed.Insert(new LR2SongDB.song { hash = "0123456789abcdef0123456789abcdef", path = @"D:\BMS\chart.bms", title = "Existing song" });
+                });
+            }
+            int schemaVersion;
+            using (LR2SongDBExtended beforeRead = gateway.OpenSongDbReadOnly())
+            {
+                schemaVersion = beforeRead.ExecuteScalar<int>("PRAGMA schema_version;");
+                Assert.AreEqual(0L, beforeRead.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'ir_score_refresh_metadata';"));
+            }
+
+            Action[] readMetadata = [() => gateway.LoadIrScoreRefreshMetadata(123), () => gateway.LoadIrScoreRefreshMetadata(123, out _)];
+            foreach (Action read in readMetadata)
+            {
+                bool failed = false;
+                try
+                {
+                    read();
+                }
+                catch (Exception)
+                {
+                    failed = true;
+                }
+                Assert.IsTrue(failed, "未準備DBの刷新履歴読取りは失敗を返す必要があります。");
+            }
+
+            using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+            Assert.AreEqual(schemaVersion, verify.ExecuteScalar<int>("PRAGMA schema_version;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE type = 'table' AND name = 'ir_score_refresh_metadata';"));
+            LR2SongDB.song song = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual("0123456789abcdef0123456789abcdef", song.hash);
+            Assert.AreEqual(@"D:\BMS\chart.bms", song.path);
+            Assert.AreEqual("Existing song", song.title);
         }
         finally
         {
@@ -767,6 +903,18 @@ public sealed class AppSchemaPreflightServiceTests
         {
             DeleteTempSongDbDirectory(tempDbPath);
         }
+    }
+
+    private static void AssertIrScoreRefreshMetadataFirstSave(BmsLibraryDbGateway gateway)
+    {
+        Assert.IsNull(gateway.LoadIrScoreRefreshMetadata(123));
+        const string digest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        gateway.UpsertIrScoreRefreshMetadata(123, digest);
+        LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123, out _);
+        Assert.IsNotNull(metadata);
+        Assert.AreEqual(123, metadata.lr2id);
+        Assert.AreEqual(digest, metadata.score_digest_sha256);
+        Assert.IsTrue(metadata.updated_at > DateTime.MinValue);
     }
 
     private static string CreateEmptySongDbPath()

@@ -14,6 +14,8 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 本人スコアXMLと `ir_score` / `ir_score_refresh_metadata` は未送信判定とUNSENT SONGS出力に使います。順位キャッシュXMLと `ir_data` は順位表示とオフラインスコアの順位推定に使います。有効設定も別々です。
 
+刷新履歴の構造は、明示的な起動・モデル構築のDB準備で初回取得前に揃えます。新規DBでは未記録の履歴を正常に読め、既存DBと再準備では刷新履歴・本人スコア・楽曲行を保持します。Gatewayの通常履歴読取りは構造・保存行を変更せず、未記録の`null`と表未準備等の読取り失敗を区別します。IRサービス消費側の失敗処理の適合は[未完了の計画](../../plan/exception-handling-simplification-plan.md)で扱います。
+
 本人スコア取得を無効にすると、取得、保存、その情報による未送信判定を行いません。起動時順位キャッシュ更新を無効にすると、ローカルXMLの走査・読込み・保存を行いません。両方無効なら起動時の順位更新を予約しません。
 
 ### 予約と要求の鮮度
@@ -52,6 +54,7 @@ LR2IRの本人スコア、ローカル順位キャッシュ、未送信判定と
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 刷新履歴の初回準備、既存行保持、純読取りと未準備時の失敗 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) の起動・Ensure/Repair準備と履歴読取り | [`AppSchemaPreflightServiceTests`](../../../BeMusicSeeker.Tests/Startup/AppSchemaPreflightServiceTests.cs) の `EnsureLibraryStartupSchema_ContainsLibraryOwnedTables` と `EnsureAppOwnedSchema_FreshLr2DatabaseConvergesPreflightWithoutDigestMigration` が初回利用、`PrepareSchema_ExistingIrRefreshMetadataPreservesRowsAndReadDoesNotMutateDatabase` が既存行・再準備・無変更、`LoadIrScoreRefreshMetadata_UnpreparedDatabaseFailsWithoutCreatingTableOrChangingRows` が失敗と無変更を分担する。 |
 | 予約条件、UI後の本人スコア取得、通信中のL受付と退役後の非保存 | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs) | [`StartupRankingRefreshPolicyTests`](../../../BeMusicSeeker.Tests/Startup/StartupRankingRefreshPolicyTests.cs)、[`BmsLibraryIrStartupTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryIrStartupTests.cs) |
 | 情報JSONの型維持、不正行の上限付き診断、部分応答とキャッシュ保持 | [`BmsLibraryIrClient.ParseRankingInfoResponse`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrClient.cs)、[`BmsLibraryIrService.GetIRDataNeedUpdatesFromRankingInfo`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`BmsLibraryIrServiceTests.ParseRankingInfoResponse_PreservesTypedFieldsAndSkipsInvalidRows`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs)、`ParseRankingInfoResponse_BoundsSkippedRowDiagnostics`、`ParseRankingInfoResponse_PartialListAndDiagnosticFailurePreserveCache` |
 | XML集計、順位と未送信、保存 | [`LR2IRCache`](../../../BeMusicSeeker/Models/Ir/LR2IRCache.cs) | [`BmsLibraryIrServiceTests`](../../../BeMusicSeeker.Tests/Ir/BmsLibraryIrServiceTests.cs) |

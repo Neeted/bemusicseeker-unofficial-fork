@@ -829,12 +829,20 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>
+    /// アプリ所有の表と索引を明示的に準備し、通常読取り前に本人スコアの刷新履歴表を用意します。
+    /// 既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
     public void EnsureAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         ExecuteAppOwnedSchemaTransaction(songDb, EnsureAppOwnedSchema);
     }
 
+    /// <summary>
+    /// ライブラリの起動後に必要な表と索引を明示的に準備します。
+    /// 初回の刷新履歴読取り前に保存先を作成し、繰返し準備しても既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
     public void EnsureLibraryStartupSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
@@ -843,6 +851,7 @@ internal sealed class BmsLibraryDbGateway(
         songDb.CreateTable<LR2SongDBExtended.install>();
         EnsureMaintenanceSchema(songDb);
         songDb.CreateTable<LR2SongDBExtended.ir_score>();
+        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
         EnsureIrDataSchema(songDb);
         EnsureChartInfoSchema(songDb);
     }
@@ -866,6 +875,10 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>
+    /// アプリ所有の構造を明示的に修復し、刷新履歴表がないDBでも初回読取り・保存を可能にします。
+    /// 既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
     public void RepairAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
@@ -2186,6 +2199,7 @@ internal sealed class BmsLibraryDbGateway(
 
     /// <summary>
     /// 借用済み song.db connection 上で app-owned schema を準備します。
+    /// 通常読取りが表を作成せずに済むよう、本人スコアの刷新履歴表もここで用意します。
     /// transaction の開始、commit、rollback は呼び出し側の owner が行います。
     /// </summary>
     internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)
@@ -2203,6 +2217,7 @@ internal sealed class BmsLibraryDbGateway(
         EnsureBmsonSchema(songDb);
         EnsureMaintenanceSchema(songDb);
         EnsureChartInfoSchemaOnConnection(songDb, stampVersion);
+        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
         EnsureLr2SongDbSyncStatusSchema(songDb);
