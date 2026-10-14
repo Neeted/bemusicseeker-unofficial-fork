@@ -291,6 +291,62 @@ public sealed class BmsLibraryIrStartupTests
             await fixture.WaitForWorkersAsync();
         }
     }
+    /// <summary>
+    /// 正常な異成績取得でもmetadata保存が失敗したら、一度失敗報告し本人score・未送信判定・保存値を保持する。
+    /// 独立cacheの同周反映と、障害除去後の次の明示要求での通常保存・メモリ採用を確認する。
+    /// </summary>
+    /// <remarks>実InitializeStartup・通信gate・DB transaction・model非採用・順位cache・worker実終端を接続する。保存失敗の条件分担はサービス側で検証する。</remarks>
+    [TestMethod]
+    public async Task InitializeStartup_IrMetadataSaveFailurePreservesScoresAndAllowsNextRequest()
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseSaveFailure: true);
+        await fixture.InitializeAsync();
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
+        BMSScore before = fixture.Library.GetBMSScores().Single();
+        Assert.IsTrue(fixture.Library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _)
+            .ContainsBmsMd5(before.hash));
+        Assert.IsFalse(before.IsLr2IrScoreUnsent);
+        fixture.InstallMetadataWriteFailure();
+        string databaseBefore = fixture.CaptureRawIrDatabase();
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(1, fixture.Client.RequestCount);
+            Assert.IsTrue(fixture.FailedReport);
+            Assert.AreSame(before, fixture.Library.GetBMSScores().Single());
+            Assert.AreEqual(321, before.perfect);
+            Assert.AreEqual(45, before.great);
+            Assert.IsFalse(before.IsLr2IrScoreUnsent);
+            Assert.AreEqual(databaseBefore, fixture.CaptureRawIrDatabase());
+            Assert.AreEqual(1, before.ranking);
+            Assert.AreEqual(1, before.rankingNum, "本人成績の保存失敗とは独立して順位cacheを反映します。");
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+
+            fixture.RemoveMetadataWriteFailure();
+            fixture.FailedReport = false;
+            await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(2, fixture.Client.RequestCount);
+            Assert.IsFalse(fixture.FailedReport);
+            BMSScore current = fixture.Library.GetBMSScores().Single();
+            Assert.AreEqual(500, current.perfect);
+            Assert.AreEqual(100, current.great);
+            Assert.IsFalse(current.IsLr2IrScoreUnsent);
+            fixture.AssertDatabaseCommitted();
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+        }
+        finally
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+        }
+    }
+
     private sealed class StartupFixture : IAsyncDisposable
     {
         private const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
@@ -305,11 +361,12 @@ public sealed class BmsLibraryIrStartupTests
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false)
         {
+            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure;
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
-            string scorePath = exerciseReadFailure
+            string scorePath = exerciseRankingCache
                 ? Path.Combine(root, "LR2files", "Database", "score.db")
                 : Path.Combine(root, "score.db");
             Directory.CreateDirectory(Path.GetDirectoryName(scorePath));
@@ -322,7 +379,7 @@ public sealed class BmsLibraryIrStartupTests
                     db.CreateTable<LR2SongDBExtended.install>();
                     db.CreateTable<LR2SongDBExtended.ir_score>();
                     db.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
-                    if (exerciseReadFailure)
+                    if (exerciseRankingCache)
                     {
                         db.Insert(new LR2SongDB.song { hash = Hash, path = Path.Combine(root, "owned.bms"), title = "Owned chart" });
                     }
@@ -339,10 +396,9 @@ public sealed class BmsLibraryIrStartupTests
                 });
             }
             gateway = new BmsLibraryDbGateway(songPath, scorePath);
-            gateway.ReplaceIrScoreTable([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }]);
-            gateway.UpsertIrScoreRefreshMetadata(123, "retained-startup-digest");
+            gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }], 123, "retained-startup-digest");
             metadataUpdatedAt = gateway.LoadIrScoreRefreshMetadata(123).updated_at;
-            if (exerciseReadFailure)
+            if (exerciseRankingCache)
             {
                 string irDirectory = Path.Combine(root, "Ir");
                 Directory.CreateDirectory(irDirectory);
@@ -358,7 +414,7 @@ public sealed class BmsLibraryIrStartupTests
                 OperationModeLR2DB = true,
                 LR2RootPath = root,
                 EnableDownloadLr2IrScoreAndDetectUnsent = true,
-                UpdateLr2IrRankingCacheOnStartup = exerciseReadFailure,
+                UpdateLr2IrRankingCacheOnStartup = exerciseRankingCache,
                 PendingInstallEstimateMaxParallelPackages = 1
             };
             Library = new TestBmsLibrary(songPath, null, scorePath, null, () => options,
@@ -399,6 +455,18 @@ public sealed class BmsLibraryIrStartupTests
         internal Task InitializeAsync() => Task.Run(() => Library.InitializeStartup(null));
 
         internal Task WaitForWorkersAsync() => Task.WhenAll(scheduledWorkers.ToArray());
+
+        internal void InstallMetadataWriteFailure()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDb();
+            db.Execute("CREATE TRIGGER reject_ir_metadata BEFORE INSERT ON ir_score_refresh_metadata BEGIN SELECT RAISE(ABORT, 'controlled metadata failure'); END;");
+        }
+
+        internal void RemoveMetadataWriteFailure()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDb();
+            db.Execute("DROP TRIGGER reject_ir_metadata;");
+        }
 
         internal void CorruptSavedIrScore()
         {

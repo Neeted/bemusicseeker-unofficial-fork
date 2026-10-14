@@ -172,6 +172,7 @@ internal sealed class BmsLibraryDbGateway(
     /// <remarks>
     /// 処理または commit の失敗後は savepoint への rollback を一度だけ試みます。
     /// その rollback と診断出力の失敗では元の例外を置き換えず、元の stack trace を維持して再送出します。
+    /// 処理・rollback・診断で直接捕捉したメモリ不足は、復元や診断の完了を待たず即時終了します。
     /// </remarks>
     public void ExecuteSongDbTransaction(Action<LR2SongDBExtended> action)
     {
@@ -186,12 +187,22 @@ internal sealed class BmsLibraryDbGateway(
             action(songDb);
             songDb.Commit();
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("song.dbのトランザクション中にメモリが不足しました。", ex);
+            throw;
+        }
         catch (Exception)
         {
             try
             {
                 // Commit や入れ子の InsertAll が既に全体を rollback していると、savepoint は無効になる。
                 songDb.RollbackTo(savepoint);
+            }
+            catch (OutOfMemoryException ex)
+            {
+                Environment.FailFast("song.dbのrollback中にメモリが不足しました。", ex);
+                throw;
             }
             catch (Exception rollbackException)
             {
@@ -200,6 +211,11 @@ internal sealed class BmsLibraryDbGateway(
                     NLogWrapper.FileLogger?.Warn(
                         rollbackException,
                         "song_db_transaction_rollback_failed");
+                }
+                catch (OutOfMemoryException ex)
+                {
+                    Environment.FailFast("song.dbのrollback失敗診断中にメモリが不足しました。", ex);
+                    throw;
                 }
                 catch
                 {
@@ -1915,9 +1931,17 @@ internal sealed class BmsLibraryDbGateway(
         return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault(row => row.lr2id == lr2Id);
     }
 
+    /// <summary>実保存成績が同内容の場合に、対象IDの刷新履歴だけを専用transactionで確定します。</summary>
+    /// <param name="lr2Id">刷新履歴の対象プレイヤーID。</param>
+    /// <param name="scoreDigestSha256">実保存成績と一致を確認した取得成績のdigest。</param>
+    /// <remarks>他IDの履歴を保持し、通常の保存失敗は呼出元へ伝播します。</remarks>
     public void UpsertIrScoreRefreshMetadata(int lr2Id, string scoreDigestSha256)
     {
-        using LR2SongDBExtended songDb = OpenSongDb();
+        ExecuteSongDbTransaction(songDb => UpsertIrScoreRefreshMetadata(songDb, lr2Id, scoreDigestSha256));
+    }
+
+    private static void UpsertIrScoreRefreshMetadata(LR2SongDBExtended songDb, int lr2Id, string scoreDigestSha256)
+    {
         songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
         songDb.InsertOrReplace(new LR2SongDBExtended.ir_score_refresh_metadata
         {
@@ -1997,7 +2021,12 @@ internal sealed class BmsLibraryDbGateway(
         return [.. deduplicated.Values];
     }
 
-    public void ReplaceIrScoreTable(IEnumerable<LR2IRScore> scoreTable)
+    /// <summary>本人スコア全体と対象IDの刷新履歴を同じ接続・transactionで一体保存します。</summary>
+    /// <param name="scoreTable">置換する本人スコア。正常空も保存します。</param>
+    /// <param name="lr2Id">刷新履歴の対象プレイヤーID。</param>
+    /// <param name="scoreDigestSha256">置換する取得成績のdigest。</param>
+    /// <remarks>他IDの履歴を保持し、statement・commitの通常失敗は呼出元へ伝播します。</remarks>
+    public void ReplaceIrScoreTableAndRefreshMetadata(IEnumerable<LR2IRScore> scoreTable, int lr2Id, string scoreDigestSha256)
     {
         List<LR2IRScore> entries = [.. (scoreTable ?? []).Where(score => score != null)];
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
@@ -2020,6 +2049,7 @@ internal sealed class BmsLibraryDbGateway(
                 SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr),
                 SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp)
             ]);
+            UpsertIrScoreRefreshMetadata(songDb, lr2Id, scoreDigestSha256);
         });
     }
 

@@ -358,8 +358,9 @@ internal sealed class BmsLibraryIrService
     }
 
     /// <summary>
-    /// 通信済み結果を、metadataと保存成績の読取り成功後に正本DBへ確定します。
-    /// 読取り失敗はDBを変更せず適用不能な結果を返し、直接捕捉したメモリ不足は即時終了します。
+    /// 通信済み結果の変更成績と対象IDのmetadataを正本DBへ一体保存します。
+    /// metadataが一致すれば無保存で既存成績を返し、未記録・不一致なら既存の実成績比較で必要な保存を選びます。
+    /// 読取り・保存の通常失敗は適用不能な結果を返し、直接捕捉したメモリ不足は即時終了します。
     /// モデル側はL取得後に停止とscore contextを確認して呼びます。
     /// </summary>
     internal IrScoreTableUpdateResult CommitPreparedIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway,
@@ -413,63 +414,58 @@ internal sealed class BmsLibraryIrService
         {
             result.Failure = IrScoreFailure.Unavailable;
             result.SkipReason = "db_read_failed";
-            try
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "IR score database read failed lr2Id=" + lr2Id);
-            }
-            catch (OutOfMemoryException diagnosticFailure)
-            {
-                Environment.FailFast("本人IRの読取り失敗診断中にメモリが不足しました。", diagnosticFailure);
-                throw;
-            }
-            catch (Exception)
-            {
-                // 更新停止は確定済みです。診断先の通常失敗で結果を変えません。
-            }
-            return result;
-        }
-        if (scoreDigestMatches)
-        {
-            if (!metadataDigestMatches)
-            {
-                try
-                {
-                    dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
-                    result.MetadataUpdated = true;
-                }
-                catch
-                {
-                }
-            }
-            result.ScoreTable = existingScoreTable;
-            result.Skipped = true;
-            result.SkipReason = "score_digest_same";
+            WarnIrScoreDatabaseFailure(ex, lr2Id, "read");
             return result;
         }
         try
         {
-            var dbStopwatch = Stopwatch.StartNew();
-            dbGateway.ReplaceIrScoreTable(scoreTable);
-            dbStopwatch.Stop();
-            result.DbReplaceMs = dbStopwatch.ElapsedMilliseconds;
+            if (!scoreDigestMatches)
+            {
+                var dbStopwatch = Stopwatch.StartNew();
+                dbGateway.ReplaceIrScoreTableAndRefreshMetadata(scoreTable, lr2Id, scoreDigest);
+                dbStopwatch.Stop();
+                result.DbReplaceMs = dbStopwatch.ElapsedMilliseconds;
+                result.MetadataUpdated = true;
+            }
+            else if (!metadataDigestMatches)
+            {
+                dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
+                result.MetadataUpdated = true;
+            }
         }
-        catch
+        catch (OutOfMemoryException ex)
         {
-            result.SkipReason = "unavailable";
+            Environment.FailFast("本人IRの保存中にメモリが不足しました。", ex);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            result.Failure = IrScoreFailure.Unavailable;
+            result.SkipReason = "db_save_failed";
+            WarnIrScoreDatabaseFailure(ex, lr2Id, "save");
             return result;
         }
-        try
-        {
-            dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
-            result.MetadataUpdated = true;
-        }
-        catch
-        {
-        }
-        result.ScoreTable = scoreTable;
-        result.Skipped = false;
-        result.SkipReason = "changed";
+        result.ScoreTable = scoreDigestMatches ? existingScoreTable : scoreTable;
+        result.Skipped = scoreDigestMatches;
+        result.SkipReason = scoreDigestMatches ? "score_digest_same" : "changed";
         return result;
+    }
+
+    private static void WarnIrScoreDatabaseFailure(Exception exception, int lr2Id, string phase)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(exception, "IR score database " + phase + " failed lr2Id=" + lr2Id);
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("本人IRのDB失敗診断中にメモリが不足しました。", ex);
+            throw;
+        }
+        catch (Exception)
+        {
+            // 更新停止は確定済みです。診断先の通常失敗で結果を変えません。
+        }
     }
 
     private static List<LR2IRScore> ParsePlayerScoreXml(string playerXml, Regex lr2IrScoreRegex)

@@ -8,6 +8,7 @@ using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Tests.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -18,6 +19,114 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryIrServiceTests
 {
+    /// <summary>実保存成績と取得内容が一致しlastupdateだけ異なる場合、未記録・不一致のmetadataだけを保存し、全score列と返却lastupdateを保持する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CommitPreparedIrScoreTable_MatchingScoresUpdatesOnlyMissingOrDifferentMetadata(bool missingMetadata)
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        var service = new BmsLibraryIrService();
+        const string hash = "12345678901234567890123456789012";
+        IrScorePrefetchResult saved = service.PrefetchIrScoreTableWithMetrics(123,
+            new FakeIrClient(BuildPlayerScoreXml(hash, 321, 45, lastUpdate: 20260504)), PlayerScoreRegex);
+        gateway.ReplaceIrScoreTableAndRefreshMetadata(saved.ScoreTable, 123, "old-digest");
+        if (missingMetadata)
+        {
+            using var db = new SQLiteConnection(env.SongDbPath);
+            db.Execute("DELETE FROM ir_score_refresh_metadata WHERE lr2id = 123;");
+        }
+        string beforeScores = CaptureRawIrDatabase(env.SongDbPath).Split('\n')[0];
+        IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(123,
+            new FakeIrClient(BuildPlayerScoreXml(hash, 321, 45, lastUpdate: 20260505)), PlayerScoreRegex);
+
+        IrScoreTableUpdateResult result = service.CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.None, result.Failure);
+        Assert.IsTrue(result.MetadataUpdated);
+        Assert.IsTrue(result.Skipped);
+        Assert.AreEqual(20260504, result.ScoreTable.Single().lastupdate);
+        Assert.AreEqual(saved.ScoreDigestSha256, BmsLibraryIrService.ComputeScoreDigest(result.ScoreTable));
+        Assert.AreEqual(beforeScores, CaptureRawIrDatabase(env.SongDbPath).Split('\n')[0]);
+        LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123);
+        Assert.AreEqual(fetched.ScoreDigestSha256, metadata.score_digest_sha256);
+        Assert.IsTrue(metadata.updated_at > DateTime.MinValue);
+    }
+
+    /// <summary>実score一致・metadata不一致の保存がDELETE journalのreaderでcommit Busyとなった場合、commit到達と失敗結果、全score列・全metadata・時刻の保持を確認する。</summary>
+    [TestMethod]
+    public void CommitPreparedIrScoreTable_MetadataOnlyCommitBusyPreservesDatabase()
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway setupGateway = env.CreateGateway();
+        var service = new BmsLibraryIrService();
+        IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(123,
+            new FakeIrClient(BuildPlayerScoreXml("12345678901234567890123456789012", 321, 45)), PlayerScoreRegex);
+        setupGateway.ReplaceIrScoreTableAndRefreshMetadata(fetched.ScoreTable, 123, "old-digest");
+        setupGateway.UpsertIrScoreRefreshMetadata(456, "other-digest");
+        using (var db = new SQLiteConnection(env.SongDbPath))
+        {
+            Assert.AreEqual("delete", db.ExecuteScalar<string>("PRAGMA journal_mode=DELETE;"));
+        }
+        string before = CaptureRawIrDatabase(env.SongDbPath);
+        using var observation = new SqliteStatementObservation();
+        var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
+        {
+            LR2SongDBExtended writer = observation.OpenSongDb(path);
+            writer.BusyTimeout = TimeSpan.Zero;
+            return writer;
+        });
+        IrScoreTableUpdateResult result;
+        using (var reader = new SQLiteConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
+        {
+            reader.BeginTransaction();
+            try
+            {
+                Assert.AreEqual("old-digest", reader.ExecuteScalar<string>(
+                    "SELECT score_digest_sha256 FROM ir_score_refresh_metadata WHERE lr2id=123;"));
+                result = service.CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+            }
+            finally { reader.Rollback(); }
+        }
+
+        observation.ThrowIfCallbackFailed();
+        Assert.IsTrue(observation.Statements.Any(statement => statement.Sql.TrimStart()
+            .StartsWith("COMMIT", StringComparison.OrdinalIgnoreCase)), "statement失敗をcommit失敗として数えません。");
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        Assert.IsNull(result.ScoreTable);
+        Assert.IsFalse(result.MetadataUpdated);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
+    }
+
+    /// <summary>異なる正常取得のmetadata書込みが実DB triggerで失敗したら、本人score全列と全IDのdigest・時刻を一体で保持し、取得値を返さない。</summary>
+    [TestMethod]
+    public void CommitPreparedIrScoreTable_MetadataStatementFailureRollsBackScoreAndAllMetadata()
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore("12345678901234567890123456789012") { pg = 321, gr = 45 }], 123, "retained-digest");
+        gateway.UpsertIrScoreRefreshMetadata(456, "other-digest");
+        using (var db = new SQLiteConnection(env.SongDbPath))
+        {
+            db.Execute("CREATE TRIGGER reject_ir_metadata BEFORE INSERT ON ir_score_refresh_metadata BEGIN SELECT RAISE(ABORT, 'controlled metadata failure'); END;");
+        }
+        string before = CaptureRawIrDatabase(env.SongDbPath);
+        var service = new BmsLibraryIrService();
+        IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(123,
+            new FakeIrClient(BuildPlayerScoreXml("12345678901234567890123456789012", 999, 1)), PlayerScoreRegex);
+
+        IrScoreTableUpdateResult result = service.CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        Assert.IsNull(result.ScoreTable);
+        Assert.IsFalse(result.MetadataUpdated);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
+    }
+
     /// <summary>
     /// IRのEASYを上書きすると古いASSIST履歴ビットを置換し、LR2 clear2をEASYとして解決する。
     /// </summary>
@@ -1243,18 +1352,40 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 同じ取得XMLを再処理しても成績digest一致でDB置換を省き、保存行を読んで結果を返す。
+    /// 初回の正常変更は全score列と対象metadataを保存し、同じ取得XMLの再処理では書込み接続を開かず保存値・時刻を保持して返す。
     /// </summary>
     [TestMethod]
     public void UpdateIrScoreTableWithMetrics_SameScoreDigestSkipsReplaceForSameXml()
     {
         using var env = TempIrEnvironment.Create();
         var service = new BmsLibraryIrService();
-        BmsLibraryDbGateway gateway = env.CreateGateway();
+        int writeConnections = 0;
+        var gateway = new BmsLibraryDbGateway(env.SongDbPath, env.ScoreDbPath, path =>
+        {
+            writeConnections++;
+            return new LR2SongDBExtended(path);
+        });
         string hash = "44444444444444444444444444444444";
         var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 700, gr: 50));
 
         IrScoreTableUpdateResult first = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
+        Assert.IsTrue(first.Succeeded);
+        Assert.AreEqual(1, first.ScoreTable.Count);
+        Assert.IsTrue(first.MetadataUpdated);
+        List<LR2IRScore> saved = gateway.LoadIrScoreRows();
+        Assert.AreEqual(1, saved.Count);
+        foreach (LR2IRScore score in first.ScoreTable.Concat(saved))
+        {
+            Assert.AreEqual(hash, score.hash);
+            CollectionAssert.AreEqual(new[] { 4, 1000, 900, 700, 50, 10, 2, 1, 12, 0, 20260505 },
+                new[] { score.clearValue, score.notes, score.combo, score.pg, score.gr, score.gd, score.bd,
+                    score.pr, score.minbp, score.option, score.lastupdate });
+        }
+        LR2SongDBExtended.ir_score_refresh_metadata metadata = gateway.LoadIrScoreRefreshMetadata(123);
+        Assert.AreEqual(BmsLibraryIrService.ComputeScoreDigest(first.ScoreTable), metadata.score_digest_sha256);
+        Assert.IsTrue(metadata.updated_at > DateTime.MinValue);
+        string before = CaptureRawIrDatabase(env.SongDbPath);
+        writeConnections = 0;
         IrScoreTableUpdateResult second = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
 
         Assert.AreEqual("changed", first.SkipReason);
@@ -1264,6 +1395,9 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, second.ParsedRows);
         Assert.AreEqual(1, second.LoadedRows);
         Assert.AreEqual(hash, second.ScoreTable[0].hash);
+        Assert.IsFalse(second.MetadataUpdated);
+        Assert.AreEqual(0, writeConnections);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
     }
 
     /// <summary>
@@ -1352,8 +1486,7 @@ public sealed class BmsLibraryIrServiceTests
         var service = new BmsLibraryIrService();
         BmsLibraryDbGateway gateway = env.CreateGateway();
         const string hash = "12345678901234567890123456789012";
-        gateway.ReplaceIrScoreTable([new LR2IRScore { hash = hash, pg = 321, gr = 45 }]);
-        gateway.UpsertIrScoreRefreshMetadata(123, "retained-digest");
+        gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = hash, pg = 321, gr = 45 }], 123, "retained-digest");
         LR2SongDBExtended.ir_score_refresh_metadata beforeMetadata = gateway.LoadIrScoreRefreshMetadata(123);
         var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1));
         var prefetch = new IrScorePrefetchResult { Lr2Id = 123, FailureReason = "fetch_failed" };
@@ -1421,8 +1554,7 @@ public sealed class BmsLibraryIrServiceTests
         using var env = TempIrEnvironment.Create();
         BmsLibraryDbGateway gateway = env.CreateGateway();
         const string hash = "12345678901234567890123456789012";
-        gateway.ReplaceIrScoreTable([new LR2IRScore { hash = hash, pg = 321, gr = 45 }]);
-        gateway.UpsertIrScoreRefreshMetadata(123, "retained-digest");
+        gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = hash, pg = 321, gr = 45 }], 123, "retained-digest");
         var service = new BmsLibraryIrService();
         IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(
             123, new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1)), PlayerScoreRegex);

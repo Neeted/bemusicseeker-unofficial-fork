@@ -4527,8 +4527,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 db.Insert(new LR2ScoreDB.score { hash = irHash, perfect = 321, great = 45 });
             }
             var originalGateway = new BmsLibraryDbGateway(values.LR2SongDBPath, scoreDb);
-            originalGateway.ReplaceIrScoreTable([new LR2IRScore { hash = irHash, pg = 123, gr = 67 }]);
-            originalGateway.UpsertIrScoreRefreshMetadata(123, "retained-all-digest");
+            originalGateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = irHash, pg = 123, gr = 67 }], 123, "retained-all-digest");
             var irClient = new BmsLibraryIrStartupTests.ControlledIrClient(false, false, ignoreCancellation: true);
             string music = Path.Combine(root, "Songs");
             string chartPath = Path.Combine(music, "actual.bms");
