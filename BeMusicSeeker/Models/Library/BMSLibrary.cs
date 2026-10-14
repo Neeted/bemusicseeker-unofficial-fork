@@ -6923,6 +6923,7 @@ public partial class BMSLibrary : ObservableObject
         public long CacheMs { get; set; }
     }
 
+    /// <summary>本人IRの取得・DB読取り失敗は採用せず報告し、独立した順位キャッシュ更新は継続します。</summary>
     private RankingRefreshRunResult RunDeferredRankingRefresh(int requestVersion)
     {
         var result = new RankingRefreshRunResult();
@@ -6940,17 +6941,22 @@ public partial class BMSLibrary : ObservableObject
                 rankingContext.Lr2Id, irClient, lr2IRScoreRegex, irScoreShutdownCancellation.Token);
             irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
             IrScoreTableUpdateResult irScoreUpdateResult;
-            Action publishScores;
+            Action publishScores = null;
             using (IDisposable lease = OperationAdmission.EnterAcceptedBackgroundAsync(irScoreShutdownCancellation.Token).GetAwaiter().GetResult())
             {
                 irScoreShutdownCancellation.Token.ThrowIfCancellationRequested();
                 EnsureCurrentRankingDownloadContext(rankingContext);
                 if (IsDeferredRankingRefreshRequestSuperseded(requestVersion)) { throw new OperationCanceledException(); }
                 irScoreUpdateResult = irService.CommitPreparedIrScoreTableWithMetrics(rankingContext.Lr2Id, dbGateway, fetched, irScoreShutdownCancellation.Token);
-                publishScores = ApplyIrScoresUnderAdmission(irScoreUpdateResult.ScoreTable, true, rankingContext);
+                if (irScoreUpdateResult.Succeeded)
+                {
+                    publishScores = ApplyIrScoresUnderAdmission(irScoreUpdateResult.ScoreTable, true, rankingContext);
+                }
             }
-            uiScheduler.Invoke(publishScores);
-            List<LR2IRScore> scoreTable = irScoreUpdateResult.ScoreTable;
+            if (publishScores != null)
+            {
+                uiScheduler.Invoke(publishScores);
+            }
             result.IrScoreXmlFetchMs = irScoreUpdateResult.XmlFetchMs;
             result.IrScoreXmlParseMs = irScoreUpdateResult.XmlParseMs;
             result.IrScoreDigestMs = irScoreUpdateResult.DigestMs;

@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -235,6 +236,61 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
+    /// <summary>
+    /// 起動中の保存IR成績読取り失敗は一度報告し、スコア・未送信判定・保存値を保持する。
+    /// 独立順位cacheは同周で反映し、障害除去後の次の明示要求は通常保存・メモリ更新を完了する。
+    /// </summary>
+    /// <remarks>実InitializeStartupから通信gate・DB実体化・model非採用・順位XML・worker実終端を接続する代表例。読取り条件の組合せはサービス側で保証する。</remarks>
+    [TestMethod]
+    public async Task InitializeStartup_SavedIrScoreReadFailurePreservesScoresAndAllowsNextRequest()
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseReadFailure: true);
+        await fixture.InitializeAsync();
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
+        BMSScore before = fixture.Library.GetBMSScores().Single();
+        Assert.IsTrue(fixture.Library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _)
+            .ContainsBmsMd5(before.hash), "未送信判定の対象となる所持譜面が必要です。");
+        Assert.IsFalse(before.IsLr2IrScoreUnsent);
+        fixture.CorruptSavedIrScore();
+        string databaseBefore = fixture.CaptureRawIrDatabase();
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(1, fixture.Client.RequestCount, "同じ失敗更新をその場で再要求しません。");
+            Assert.IsTrue(fixture.FailedReport);
+            Assert.AreSame(before, fixture.Library.GetBMSScores().Single());
+            Assert.AreEqual(321, before.perfect);
+            Assert.AreEqual(45, before.great);
+            Assert.IsFalse(before.IsLr2IrScoreUnsent, "失敗を正常空として採用すると所持譜面が未送信へ変わります。");
+            Assert.AreEqual(databaseBefore, fixture.CaptureRawIrDatabase());
+            Assert.AreEqual(1, before.ranking);
+            Assert.AreEqual(1, before.rankingNum, "本人成績失敗とは独立して順位cacheを反映します。");
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+
+            fixture.RestoreSavedIrScore();
+            fixture.FailedReport = false;
+            await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(2, fixture.Client.RequestCount);
+            Assert.IsFalse(fixture.FailedReport);
+            BMSScore current = fixture.Library.GetBMSScores().Single();
+            Assert.AreEqual(500, current.perfect);
+            Assert.AreEqual(100, current.great);
+            Assert.IsFalse(current.IsLr2IrScoreUnsent);
+            fixture.AssertDatabaseCommitted();
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+        }
+        finally
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+        }
+    }
     private sealed class StartupFixture : IAsyncDisposable
     {
         private const string Hash = "abcdefabcdefabcdefabcdefabcdefab";
@@ -249,11 +305,14 @@ public sealed class BmsLibraryIrStartupTests
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false)
         {
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
-            string scorePath = Path.Combine(root, "score.db");
+            string scorePath = exerciseReadFailure
+                ? Path.Combine(root, "LR2files", "Database", "score.db")
+                : Path.Combine(root, "score.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(scorePath));
             using (var db = new LR2SongDBExtended(songPath))
             {
                 db.RunInTransaction(() =>
@@ -263,6 +322,10 @@ public sealed class BmsLibraryIrStartupTests
                     db.CreateTable<LR2SongDBExtended.install>();
                     db.CreateTable<LR2SongDBExtended.ir_score>();
                     db.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+                    if (exerciseReadFailure)
+                    {
+                        db.Insert(new LR2SongDB.song { hash = Hash, path = Path.Combine(root, "owned.bms"), title = "Owned chart" });
+                    }
                 });
             }
             using (var db = new LR2ScoreDBExtended(scorePath))
@@ -279,12 +342,23 @@ public sealed class BmsLibraryIrStartupTests
             gateway.ReplaceIrScoreTable([new LR2IRScore { hash = Hash, pg = 123, gr = 67 }]);
             gateway.UpsertIrScoreRefreshMetadata(123, "retained-startup-digest");
             metadataUpdatedAt = gateway.LoadIrScoreRefreshMetadata(123).updated_at;
-            Client = new ControlledIrClient(waitForCancellation, failFirstRequest);
+            if (exerciseReadFailure)
+            {
+                string irDirectory = Path.Combine(root, "Ir");
+                Directory.CreateDirectory(irDirectory);
+                File.WriteAllText(Path.Combine(irDirectory, Hash + ".xml"),
+                    "<root>\n<ranking>\n\t\t<score>\n\t\t<id>123</id>\n\t\t<clear>0</clear>\n"
+                    + "\t\t<notes>1000</notes>\n\t\t<combo>300</combo>\n\t\t<pg>321</pg>\n"
+                    + "\t\t<gr>45</gr>\n\t\t<minbp>20</minbp>\n\t\t</score>\n</ranking>\n"
+                    + "<lastupdate>2026-10-10 12:00:00</lastupdate>\n", Encoding.UTF8);
+            }
+            Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
                 LR2RootPath = root,
                 EnableDownloadLr2IrScoreAndDetectUnsent = true,
+                UpdateLr2IrRankingCacheOnStartup = exerciseReadFailure,
                 PendingInstallEstimateMaxParallelPackages = 1
             };
             Library = new TestBmsLibrary(songPath, null, scorePath, null, () => options,
@@ -324,6 +398,34 @@ public sealed class BmsLibraryIrStartupTests
 
         internal Task InitializeAsync() => Task.Run(() => Library.InitializeStartup(null));
 
+        internal Task WaitForWorkersAsync() => Task.WhenAll(scheduledWorkers.ToArray());
+
+        internal void CorruptSavedIrScore()
+        {
+            using (LR2SongDBExtended db = gateway.OpenSongDb())
+            {
+                db.Execute("UPDATE ir_score SET hash = 'unmaterializable-hash'");
+            }
+            bool readFailed = false;
+            try { gateway.LoadIrScoreRows(); }
+            catch (Exception) { readFailed = true; }
+            Assert.IsTrue(readFailed, "保存スコアの実読取りが失敗するfixtureが必要です。");
+        }
+
+        internal void RestoreSavedIrScore()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDb();
+            db.Execute("UPDATE ir_score SET hash = ?", Hash);
+        }
+
+        internal string CaptureRawIrDatabase()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+            string scores = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(gd)||','||quote(bd)||','||quote(pr)||','||quote(minbp)||','||quote(option)||','||quote(lastupdate) AS value FROM ir_score ORDER BY hash)");
+            string metadata = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(lr2id)||','||quote(score_digest_sha256)||','||quote(updated_at) AS value FROM ir_score_refresh_metadata ORDER BY lr2id)");
+            string schema = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(type)||','||quote(name)||','||quote(tbl_name)||','||quote(sql) AS value FROM sqlite_master ORDER BY type, name)");
+            return scores + "\n" + metadata + "\n" + schema;
+        }
         internal void AssertDatabaseRetained()
         {
             LR2IRScore score = gateway.LoadIrScoreRows().Single();
@@ -362,7 +464,7 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
-    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false) : IBmsLibraryIrClient
+    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false, bool emptyFirstRequest = false) : IBmsLibraryIrClient
     {
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -391,6 +493,11 @@ public sealed class BmsLibraryIrStartupTests
                 if (RequestCount == 1 && failFirstRequest)
                 {
                     throw new IOException("controlled unavailable IR");
+                }
+
+                if (RequestCount == 1 && emptyFirstRequest)
+                {
+                    return "<root></root>";
                 }
 
                 return "<root>\n\t<score>\n\t\t<hash>abcdefabcdefabcdefabcdefabcdefab</hash>\n"

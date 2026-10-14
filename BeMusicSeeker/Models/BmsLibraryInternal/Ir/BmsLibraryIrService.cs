@@ -357,7 +357,11 @@ internal sealed class BmsLibraryIrService
         return result;
     }
 
-    /// <summary>通信済み結果だけを正本DBへ確定します。モデル側はL取得後に停止とscore contextを確認して呼びます。</summary>
+    /// <summary>
+    /// 通信済み結果を、metadataと保存成績の読取り成功後に正本DBへ確定します。
+    /// 読取り失敗はDBを変更せず適用不能な結果を返し、直接捕捉したメモリ不足は即時終了します。
+    /// モデル側はL取得後に停止とscore contextを確認して呼びます。
+    /// </summary>
     internal IrScoreTableUpdateResult CommitPreparedIrScoreTableWithMetrics(int lr2Id, BmsLibraryDbGateway dbGateway,
         IrScorePrefetchResult fetched, CancellationToken cancellationToken = default)
     {
@@ -380,35 +384,64 @@ internal sealed class BmsLibraryIrService
         List<LR2IRScore> scoreTable = [.. fetched.ScoreTable];
         string scoreDigest = fetched.ScoreDigestSha256;
         result.ParsedRows = scoreTable.Count;
-        LR2SongDBExtended.ir_score_refresh_metadata metadata = null;
+        LR2SongDBExtended.ir_score_refresh_metadata metadata;
+        List<LR2IRScore> existingScoreTable;
+        bool metadataDigestMatches;
+        bool scoreDigestMatches;
         try
         {
             metadata = dbGateway.LoadIrScoreRefreshMetadata(lr2Id, out long metadataDbLockWaitMs);
             result.DbLockWaitMs += metadataDbLockWaitMs;
+            var loadStopwatch = Stopwatch.StartNew();
+            IrScoreRowsLoadResult loadResult = dbGateway.LoadIrScoreRowsWithMetrics();
+            loadStopwatch.Stop();
+            existingScoreTable = loadResult.Rows;
+            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
+            result.DbLockWaitMs += loadResult.DbLockWaitMs;
+            result.LoadedRows = existingScoreTable.Count;
+            metadataDigestMatches = metadata != null
+                && string.Equals(metadata.score_digest_sha256, scoreDigest, StringComparison.OrdinalIgnoreCase);
+            scoreDigestMatches = metadataDigestMatches
+                || string.Equals(ComputeScoreDigest(existingScoreTable), scoreDigest, StringComparison.OrdinalIgnoreCase);
         }
-        catch
+        catch (OutOfMemoryException ex)
         {
+            Environment.FailFast("本人IRの保存状態読取り中にメモリが不足しました。", ex);
+            throw;
         }
-        if (metadata != null && string.Equals(metadata.score_digest_sha256, scoreDigest, StringComparison.OrdinalIgnoreCase))
+        catch (Exception ex)
         {
-            LoadExistingIrScores(dbGateway, result);
-            result.Skipped = true;
-            result.SkipReason = "score_digest_same";
-            return result;
-        }
-        List<LR2IRScore> existingScoreTable = LoadExistingIrScoresForDigestComparison(dbGateway, result);
-        if (string.Equals(ComputeScoreDigest(existingScoreTable), scoreDigest, StringComparison.OrdinalIgnoreCase))
-        {
+            result.Failure = IrScoreFailure.Unavailable;
+            result.SkipReason = "db_read_failed";
             try
             {
-                dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
-                result.MetadataUpdated = true;
+                NLogWrapper.FileLogger?.Warn(ex, "IR score database read failed lr2Id=" + lr2Id);
             }
-            catch
+            catch (OutOfMemoryException diagnosticFailure)
             {
+                Environment.FailFast("本人IRの読取り失敗診断中にメモリが不足しました。", diagnosticFailure);
+                throw;
+            }
+            catch (Exception)
+            {
+                // 更新停止は確定済みです。診断先の通常失敗で結果を変えません。
+            }
+            return result;
+        }
+        if (scoreDigestMatches)
+        {
+            if (!metadataDigestMatches)
+            {
+                try
+                {
+                    dbGateway.UpsertIrScoreRefreshMetadata(lr2Id, scoreDigest);
+                    result.MetadataUpdated = true;
+                }
+                catch
+                {
+                }
             }
             result.ScoreTable = existingScoreTable;
-            result.LoadedRows = existingScoreTable.Count;
             result.Skipped = true;
             result.SkipReason = "score_digest_same";
             return result;
@@ -468,43 +501,6 @@ internal sealed class BmsLibraryIrService
                 where e != null
                 group e by e.hash into e
                 select e.First())];
-    }
-
-    private static List<LR2IRScore> LoadExistingIrScoresForDigestComparison(BmsLibraryDbGateway dbGateway, IrScoreTableUpdateResult result)
-    {
-        try
-        {
-            var loadStopwatch = Stopwatch.StartNew();
-            IrScoreRowsLoadResult loadResult = dbGateway.LoadIrScoreRowsWithMetrics();
-            loadStopwatch.Stop();
-            List<LR2IRScore> scoreTable = loadResult.Rows;
-            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
-            result.DbLockWaitMs += loadResult.DbLockWaitMs;
-            result.LoadedRows = scoreTable?.Count ?? 0;
-            return scoreTable ?? [];
-        }
-        catch
-        {
-            return [];
-        }
-    }
-
-    private static void LoadExistingIrScores(BmsLibraryDbGateway dbGateway, IrScoreTableUpdateResult result)
-    {
-        try
-        {
-            var loadStopwatch = Stopwatch.StartNew();
-            IrScoreRowsLoadResult loadResult = dbGateway.LoadIrScoreRowsWithMetrics();
-            result.ScoreTable = loadResult.Rows;
-            loadStopwatch.Stop();
-            result.DbLoadMs = loadStopwatch.ElapsedMilliseconds;
-            result.DbLockWaitMs += loadResult.DbLockWaitMs;
-            result.LoadedRows = result.ScoreTable?.Count ?? 0;
-        }
-        catch
-        {
-            result.ScoreTable = [];
-        }
     }
 
     internal static string ComputeScoreDigest(IEnumerable<LR2IRScore> scoreTable)

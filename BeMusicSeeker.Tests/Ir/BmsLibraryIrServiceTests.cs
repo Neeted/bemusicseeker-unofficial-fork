@@ -1392,6 +1392,108 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(shutdown ? IrScoreFailure.Cancelled : IrScoreFailure.TimedOut, result.Failure);
     }
 
+    /// <summary>準備済みDBの未記録metadataと正常空スコアは有効で、空の取得を失敗として扱わない。</summary>
+    [TestMethod]
+    public void CommitPreparedIrScoreTable_NormalEmptyDatabaseAndFetchSucceeds()
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        Assert.IsNull(gateway.LoadIrScoreRefreshMetadata(123));
+        var fetched = new IrScorePrefetchResult
+        {
+            Lr2Id = 123,
+            ScoreDigestSha256 = BmsLibraryIrService.ComputeScoreDigest([])
+        };
+
+        IrScoreTableUpdateResult result = new BmsLibraryIrService()
+            .CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.None, result.Failure);
+        Assert.AreEqual(0, result.ScoreTable.Count);
+        Assert.AreEqual(0, gateway.LoadIrScoreRows().Count);
+    }
+
+    /// <summary>metadata表の読取りが不成立なら異なる取得成績も採用せず、旧スコア・退避metadata・構造を保持する。</summary>
+    [TestMethod]
+    public void CommitPreparedIrScoreTable_MetadataReadFailurePreservesDatabase()
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        const string hash = "12345678901234567890123456789012";
+        gateway.ReplaceIrScoreTable([new LR2IRScore { hash = hash, pg = 321, gr = 45 }]);
+        gateway.UpsertIrScoreRefreshMetadata(123, "retained-digest");
+        var service = new BmsLibraryIrService();
+        IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(
+            123, new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1)), PlayerScoreRegex);
+        Assert.IsTrue(fetched.Succeeded);
+        using (var db = new SQLiteConnection(env.SongDbPath))
+        {
+            db.Execute("ALTER TABLE ir_score_refresh_metadata RENAME TO retained_ir_score_refresh_metadata");
+        }
+        bool readFailed = false;
+        try { gateway.LoadIrScoreRefreshMetadata(123); }
+        catch (Exception) { readFailed = true; }
+        Assert.IsTrue(readFailed, "準備した故障が実metadata読取りで観測されません。");
+        string before = CaptureRawIrDatabase(env.SongDbPath, "retained_ir_score_refresh_metadata");
+
+        IrScoreTableUpdateResult result = service.CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        Assert.IsNull(result.ScoreTable);
+        Assert.IsFalse(result.MetadataUpdated);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath, "retained_ir_score_refresh_metadata"));
+    }
+
+    /// <summary>
+    /// 保存hashの実体化不能は更新失敗で全保存列とmetadata・構造を保持する。
+    /// 未記録metadata＋正常空取得と、metadata digest一致＋正常非空取得の両経路で空成功への変換を検出する。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CommitPreparedIrScoreTable_SavedScoreReadFailurePreservesDatabase(bool matchingMetadata)
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        var service = new BmsLibraryIrService();
+        string xml = matchingMetadata
+            ? BuildPlayerScoreXml("12345678901234567890123456789012", pg: 999, gr: 1)
+            : "<root></root>";
+        IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(123, new FakeIrClient(xml), PlayerScoreRegex);
+        Assert.IsTrue(fetched.Succeeded);
+        if (matchingMetadata)
+        {
+            gateway.UpsertIrScoreRefreshMetadata(123, fetched.ScoreDigestSha256);
+        }
+        using (var db = new SQLiteConnection(env.SongDbPath))
+        {
+            db.Execute("INSERT INTO ir_score (hash, clear, notes, combo, pg, gr, gd, bd, pr, minbp, option, lastupdate) VALUES ('unmaterializable-hash', 4, 1000, 900, 321, 45, 10, 2, 1, 12, 0, 20261010)");
+        }
+        bool readFailed = false;
+        try { gateway.LoadIrScoreRows(); }
+        catch (Exception) { readFailed = true; }
+        Assert.IsTrue(readFailed, "準備した故障が実スコア読取りで観測されません。");
+        string before = CaptureRawIrDatabase(env.SongDbPath);
+
+        IrScoreTableUpdateResult result = service.CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        Assert.IsNull(result.ScoreTable);
+        Assert.IsFalse(result.MetadataUpdated);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
+    }
+
+    private static string CaptureRawIrDatabase(string path, string metadataTable = "ir_score_refresh_metadata")
+    {
+        using var db = new SQLiteConnection(path, SQLiteOpenFlags.ReadOnly);
+        string scores = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(gd)||','||quote(bd)||','||quote(pr)||','||quote(minbp)||','||quote(option)||','||quote(lastupdate) AS value FROM ir_score ORDER BY hash)");
+        string metadata = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(lr2id)||','||quote(score_digest_sha256)||','||quote(updated_at) AS value FROM " + metadataTable + " ORDER BY lr2id)");
+        string schema = db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(type)||','||quote(name)||','||quote(tbl_name)||','||quote(sql) AS value FROM sqlite_master ORDER BY type, name)");
+        return scores + "\n" + metadata + "\n" + schema;
+    }
     private static ChartFile CreateFile(string hash)
     {
         ChartFile file = ChartTestValues.Empty();

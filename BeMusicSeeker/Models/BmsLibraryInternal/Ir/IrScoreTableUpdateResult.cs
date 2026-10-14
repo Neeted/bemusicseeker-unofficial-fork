@@ -4,8 +4,9 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class IrScoreTableUpdateResult
 {
-    /// <summary>DB と live score を保持した取得失敗の分類。</summary>
+    /// <summary>取得またはDB読取りの失敗分類。失敗結果は現在のスコアへ採用しません。</summary>
     public IrScoreFailure Failure { get; set; }
+    /// <summary>適用可能な成績。正常空を含み、取得・DB読取り失敗時はnullです。</summary>
     public List<LR2IRScore> ScoreTable { get; set; }
 
     public long XmlFetchMs { get; set; }
@@ -40,5 +41,6 @@ internal sealed class IrScoreTableUpdateResult
 
     public string SkipReason { get; set; } = "unavailable";
 
+    /// <summary>正常空を含む、採用可能な成績がある場合だけ成功です。</summary>
     public bool Succeeded => ScoreTable != null;
 }
