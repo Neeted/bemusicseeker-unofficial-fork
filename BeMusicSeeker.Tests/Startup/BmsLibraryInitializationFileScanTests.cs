@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1437,12 +1436,10 @@ public sealed class BmsLibraryInitializationFileScanTests
         });
     }
 
-    /// <summary>実scanの主解析故障がqueue閉鎖後の健全worker出力で置換されず、collector最終Flushの確定factsとwriter待機を保持する。</summary>
-    /// <remarks>異なる実4譜面・実DB・2post-parse worker・4件を越えるchunkを使う。最初の2件は実詳細解析、3/4件はgateで故障/遅延させ、finallyで全gate解放と操作終端を待つ。</remarks>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task ApplyFileScanDiff_PrimaryParserFaultSurvivesClosedQueueRace(bool resourceFailure)
+    /// <summary>詳細解析の未知故障だけでは基本行登録を止めず、正常詳細の保存・公開と開始済み健全解析/writerの実終端を保持する。</summary>
+    /// <remarks>実4譜面・SQLite・2post-parse workerを使う。故障/遅延解析とwriterをgateで分け、finallyで全gate解放・操作終端後にfixtureを解放する。</remarks>
+    [TestMethod]
+    public async Task ApplyFileScanDiff_UnknownDetailFailureKeepsBasicAndWaitsForHealthyWriter()
     {
         using var scope = Lr2SongDbSyncTestSupport.TestDatabaseScope.Create();
         string chartDirectory = Path.Combine(scope.DirectoryPath, "ScanFault");
@@ -1491,7 +1488,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 {
                     faultEntered.TrySetResult(true);
                     releaseFault.Wait();
-                    return ThrowFileScanParserFault(resourceFailure);
+                    throw new InvalidOperationException("injected file-scan parser fault");
                 }
                 if (call == 4)
                 {
@@ -1500,10 +1497,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 }
                 ChartInfoParser.ChartInfoParseResult parsed = ChartInfoParser.ParseBytesDetailed(
                     bytes, path, md5, sha256, timeout: timeout, retainChartString: false);
-                if (call <= 2)
-                {
-                    successfulPaths.Add(path);
-                }
+                successfulPaths.Add(path);
                 return parsed;
             }
             finally
@@ -1546,40 +1540,28 @@ public sealed class BmsLibraryInitializationFileScanTests
             await AwaitFileScanFaultStage(faultEntered.Task, operation);
             await AwaitFileScanFaultStage(healthyEntered.Task, operation);
             releaseFault.Set();
-            // 最終Flushの公開は、故障workerが結果queueを閉じた後の観測点です。
-            await AwaitFileScanFaultStage(writerEntered.Task, operation);
+            Assert.IsFalse(operation.IsCompleted, "開始済み健全解析の実終端を待ちます。");
             releaseHealthy.Set();
             await AwaitFileScanFaultStage(healthyExited.Task, operation);
-            Assert.IsFalse(operation.IsCompleted, "開始済みwriterの公開callbackを待つ必要があります。");
+            await AwaitFileScanFaultStage(writerEntered.Task, operation);
+            Assert.IsFalse(operation.IsCompleted, "開始済みwriterの公開callbackを待ちます。");
             releaseWriter.Set();
-            Exception? failure = null;
-            try
-            {
-                await operation;
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-            Assert.IsNotNull(failure);
-            Exception cause = failure.GetBaseException();
-            Assert.AreEqual(resourceFailure ? typeof(OutOfMemoryException) : typeof(InvalidOperationException), cause.GetType());
-            Assert.AreEqual("injected file-scan parser fault", cause.Message);
-            Assert.IsNotNull(cause.StackTrace);
-            StringAssert.Contains(cause.StackTrace, nameof(ThrowFileScanParserFault));
+            await operation;
             Assert.AreEqual(4, parseCalls);
             Assert.AreEqual(0, activeCallbacks);
             Assert.AreEqual(2, result.FileDiffPostParseWorkerDegree);
             Assert.AreEqual(1, result.DbCommitChunks);
-            Assert.AreEqual(2, result.InlineChartInfoIndexPublishedCount);
-            Assert.AreEqual(0, result.InlineChartInfoParseFailedCount);
+            Assert.AreEqual(3, result.InlineChartInfoIndexPublishedCount);
+            Assert.AreEqual(1, result.InlineChartInfoParseFailedCount);
             Assert.AreEqual(0, result.InlineChartInfoFailurePersistedCount);
-            Assert.AreEqual(2, publishedRows.Count);
-            CollectionAssert.AreEquivalent(successfulPaths.ToArray(), result.CommittedLr2SongDbSyncBmsPaths.ToArray());
-            Assert.IsFalse(progress.Contains(4));
+            Assert.AreEqual(3, publishedRows.Count);
+            CollectionAssert.AreEquivalent(successfulPaths.Select(path => ChartFileContentReader.ReadSnapshot(path).Sha256).ToArray(), publishedRows.Select(row => row.sha256).ToArray());
+            CollectionAssert.AreEquivalent(paths.ToArray(), result.CommittedLr2SongDbSyncBmsPaths.ToArray());
+            Assert.IsTrue(progress.Contains(4));
             using var verify = new LR2SongDBExtended(scope.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
-            CollectionAssert.AreEquivalent(successfulPaths.ToArray(), verify.Query<LR2SongDB.song>("SELECT * FROM song;").Select(row => row.path).ToArray());
-            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+            CollectionAssert.AreEquivalent(paths.ToArray(), verify.Query<LR2SongDB.song>("SELECT * FROM song;").Select(row => row.path).ToArray());
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE level = 9;"));
             Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
         }
         finally
@@ -1601,23 +1583,13 @@ public sealed class BmsLibraryInitializationFileScanTests
 
     private static async Task AwaitFileScanFaultStage(Task stage, Task operation)
     {
-        Task completed = await Task.WhenAny(stage, operation).WaitAsync(TimeSpan.FromSeconds(60));
+        Task completed = await Task.WhenAny(stage, operation);
         if (completed == operation)
         {
             await operation;
             Assert.Fail("必要なgate観測前に操作が完了しました。");
         }
         await stage;
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ChartInfoParser.ChartInfoParseResult ThrowFileScanParserFault(bool resourceFailure)
-    {
-        if (resourceFailure)
-        {
-            throw new OutOfMemoryException("injected file-scan parser fault");
-        }
-        throw new InvalidOperationException("injected file-scan parser fault");
     }
 
     /// <summary>

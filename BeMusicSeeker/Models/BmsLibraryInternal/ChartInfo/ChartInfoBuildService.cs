@@ -64,10 +64,11 @@ internal sealed class ChartInfoBuildService
     /// <summary>
     /// 不足または古い chart_info 行と、不足している BMS SHA-256 digest を構築します。
     /// ファイル読み取り reader は byte[] の取得だけを行い、hash 計算と chart_info 解析は worker 側で行います。
+    /// 通常の独立入力故障はその対象だけ今回非採用にし、開始済み各段階の実終端まで待ちます。DB保存・必須公開の失敗は操作へ返します。
     /// </summary>
     /// <param name="dbGateway">song.db へのアクセス手段。</param>
     /// <param name="currentCharts">現在所持している譜面。</param>
-    /// <param name="reportProgress">進捗通知 callback。total, processed, currentPath を渡します。</param>
+    /// <param name="reportProgress">表示専用の進捗通知 callback。total, processed, currentPath を渡し、通常の通知失敗は処理を中断しません。</param>
     /// <param name="logInstallPerformance">性能ログ callback。</param>
     /// <param name="logInstallPerformanceWarn">解析を継続できない譜面を逐次 WARN 出力する callback。</param>
     /// <param name="storageCommitPublished">DB commit 成功後に canonical owner へ適用済みの publication facts を通知する callback。</param>
@@ -98,7 +99,8 @@ internal sealed class ChartInfoBuildService
     /// <summary>
     /// 呼出元が確定した現行情報に対して不変の譜面スナップショットを評価します。
     /// ファイル・DBへアクセスせず現行解析行を優先し、入力解析失敗・期限切れだけを永続失敗へ変換します。
-    /// 診断先の失敗は成功行や入力失敗の結果を変更しません。
+    /// 未知の通常解析失敗は今回だけ非採用とし、恒久失敗行を作りません。
+    /// 診断先の通常失敗は結果を変更せず、捕捉したメモリ不足は直ちにプロセスを終了します。
     /// </summary>
     internal ChartInfoSnapshotBuildResult EvaluateSnapshot(
         ChartFileSnapshot snapshot,
@@ -140,6 +142,16 @@ internal sealed class ChartInfoBuildService
             // the parser's beatoraja-compatible default BMS decoding instead of that UI hint.
             parseResult = parseBytes(snapshot.Bytes, target.Path, md5, sha256, resolvedParseTimeout);
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面解析中にメモリが不足しました。", ex);
+            throw;
+        }
+        catch (JsonException ex) when (ex.InnerException is OutOfMemoryException)
+        {
+            Environment.FailFast("詳細譜面のJSON変換中にメモリが不足しました。", ex.InnerException);
+            throw;
+        }
         catch (Exception ex) when (ex is InvalidDataException or ChartInfoParser.ChartInfoParseTimeoutException
             || ex is JsonException jsonFailure && BmsonJsonParser.IsInputFailure(jsonFailure))
         {
@@ -165,6 +177,12 @@ internal sealed class ChartInfoBuildService
                 timeoutFailed,
                 stopwatch.ElapsedMilliseconds,
                 byteCount);
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildParseFailureLogMessage(target, md5, sha256, ex, "internal_failed"));
+            return ChartInfoSnapshotBuildResult.CreateParseFailure(null, false, stopwatch.ElapsedMilliseconds, byteCount);
         }
         stopwatch.Stop();
         LogParseDiagnostics(logInstallPerformance, target, md5, sha256, parseResult.Diagnostics);
@@ -225,7 +243,7 @@ internal sealed class ChartInfoBuildService
         result.WorkerCount = ResolveWorkerCount();
         result.ReaderCount = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
         result.QueueCapacity = ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.WorkerCount, result.ReaderCount);
-        reportProgress?.Invoke(result.TargetCount, 0, string.Empty);
+        ReportProgressBestEffort(reportProgress, result.TargetCount, 0, string.Empty, logInstallPerformanceWarn);
         ReportDiagnosticBestEffort(logInstallPerformance, () => BuildStartLogMessage(result, existingRowsLogValue, existingRowsSource, existingRowsStopwatch.ElapsedMilliseconds, targetBuildStopwatch.ElapsedMilliseconds, commitChunkSize, parseTimeout, mode));
         if (targets.Count == 0)
         {
@@ -295,6 +313,11 @@ internal sealed class ChartInfoBuildService
                         itemResult.ByteCount = item.Bytes.LongLength;
                         itemResults.Add(itemResult);
                     }
+                    catch (OutOfMemoryException ex)
+                    {
+                        Environment.FailFast("詳細譜面解析結果の受渡し中にメモリが不足しました。", ex);
+                        throw;
+                    }
                     catch (Exception ex)
                     {
                         parseFailure = ExceptionDispatchInfo.Capture(ex);
@@ -318,26 +341,29 @@ internal sealed class ChartInfoBuildService
                     }
 
                     ChartInfoBuildTarget target = targets[targetIndex];
+                    byte[] bytes;
+                    var readStopwatch = Stopwatch.StartNew();
                     try
                     {
-                        var readStopwatch = Stopwatch.StartNew();
-                        byte[] bytes = readAllBytes(target.Path);
-                        readStopwatch.Stop();
-                        Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
-                        Interlocked.Increment(ref fileReadCount);
-                        Interlocked.Add(ref fileReadBytes, bytes?.LongLength ?? 0L);
-                        queue.Add(new QueuedChartBytes(target, bytes));
+                        bytes = readAllBytes(target.Path);
                     }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    catch (OutOfMemoryException ex)
                     {
-                        ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildReadFailureLogMessage(target, ex));
-                        itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
+                        Environment.FailFast("詳細譜面の読取り中にメモリが不足しました。", ex);
+                        throw;
                     }
                     catch (Exception ex)
                     {
                         ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildReadFailureLogMessage(target, ex));
-                        throw;
+                        itemResults.Add(ChartInfoBuildItemResult.CreateReadFailed(target));
+                        continue;
                     }
+                    readStopwatch.Stop();
+                    Interlocked.Add(ref readTicks, readStopwatch.ElapsedTicks);
+                    Interlocked.Increment(ref fileReadCount);
+                    Interlocked.Add(ref fileReadBytes, bytes?.LongLength ?? 0L);
+                    // queue基盤の故障を入力の取得失敗として読み替えません。
+                    queue.Add(new QueuedChartBytes(target, bytes));
                 }
             }))];
 
@@ -345,6 +371,11 @@ internal sealed class ChartInfoBuildService
         try
         {
             Task.WaitAll(readers);
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面readerの終端待機中にメモリが不足しました。", ex);
+            throw;
         }
         catch (Exception ex)
         {
@@ -359,6 +390,11 @@ internal sealed class ChartInfoBuildService
         {
             Task.WaitAll([.. workers]);
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面workerの終端待機中にメモリが不足しました。", ex);
+            throw;
+        }
         catch (Exception ex)
         {
             workerException = ex;
@@ -372,6 +408,11 @@ internal sealed class ChartInfoBuildService
         {
             resultCollector.Wait();
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面結果集約の終端待機中にメモリが不足しました。", ex);
+            throw;
+        }
         catch (Exception ex)
         {
             pipelineException = ex;
@@ -380,6 +421,11 @@ internal sealed class ChartInfoBuildService
         try
         {
             commitWriter.Wait();
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面writerの終端待機中にメモリが不足しました。", ex);
+            throw;
         }
         catch (Exception ex)
         {
@@ -420,8 +466,24 @@ internal sealed class ChartInfoBuildService
         TimeSpan parseTimeout)
     {
         ChartInfoBuildTarget target = item.Target;
-        string md5 = string.IsNullOrWhiteSpace(target.Md5) ? ComputeHash(item.Bytes, MD5.Create()) : target.Md5;
-        string sha256 = string.IsNullOrWhiteSpace(target.Sha256) ? ComputeHash(item.Bytes, SHA256.Create()) : target.Sha256;
+        string md5 = target.Md5;
+        string sha256 = target.Sha256;
+        try
+        {
+            // 詳細解析に必要なMD5の計算に失敗しても、取得済みSHA-256の保存候補を保ちます。
+            if (string.IsNullOrWhiteSpace(sha256)) { sha256 = ComputeHash(item.Bytes, SHA256.Create()); }
+            if (string.IsNullOrWhiteSpace(md5)) { md5 = ComputeHash(item.Bytes, MD5.Create()); }
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面のハッシュ計算中にメモリが不足しました。", ex);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ReportDiagnosticBestEffort(logInstallPerformanceWarn, () => BuildParseFailureLogMessage(target, md5, sha256, ex, "hash_failed"));
+            return new ChartInfoBuildItemResult(target, sha256, null, reusedExistingRow: false, parseFailed: true);
+        }
         BeMusicSeeker.Models.ChartDetails currentRow = null;
         existingRows?.TryGetValue(sha256, out currentRow);
         var snapshot = new ChartFileSnapshot(target.Path, item.Bytes, DateTime.MinValue, md5, sha256);
@@ -463,7 +525,7 @@ internal sealed class ChartInfoBuildService
             ApplyBuildResult(itemResult, result, commitBuffer, parseDurations, slowParseRecords, ref parseSucceededCount);
             int processed = Interlocked.Increment(ref processedCount[0]);
             result.ProcessedCount = processed;
-            reportProgress?.Invoke(result.TargetCount, processed, itemResult.Target?.Path ?? string.Empty);
+            ReportProgressBestEffort(reportProgress, result.TargetCount, processed, itemResult.Target?.Path ?? string.Empty, logInstallPerformance);
             if (commitBuffer.TargetCount >= commitChunkSize)
             {
                 EnqueueCommitBuffer(commitChunks, commitBuffer);
@@ -600,6 +662,11 @@ internal sealed class ChartInfoBuildService
                 throw new InvalidOperationException("Chart-info backfill persistence returned no receipt.");
             }
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面保存要求の作成・確定中にメモリが不足しました。", ex);
+            throw;
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -732,7 +799,27 @@ internal sealed class ChartInfoBuildService
         }
     }
 
-    private static void ReportDiagnosticBestEffort(Action<string> report, Func<string> createMessage)
+    /// <summary>表示専用の進捗通知の通常故障で入力集約・必須保存・終端待機を中断しません。</summary>
+    private static void ReportProgressBestEffort(Action<int, int, string> report, int total, int processed, string path, Action<string> diagnostic)
+    {
+        if (report == null) { return; }
+        try
+        {
+            report(total, processed, path);
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面の進捗通知中にメモリが不足しました。", ex);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            ReportDiagnosticBestEffort(diagnostic, () => "chart_info_backfill progress_failed exception=" + ex.GetType().Name);
+        }
+    }
+
+    /// <summary>詳細譜面の任意診断を生成・通知し、通常故障から入力結果と必須処理を保護します。捕捉したメモリ不足は即時終了します。</summary>
+    internal static void ReportDiagnosticBestEffort(Action<string> report, Func<string> createMessage)
     {
         if (report == null)
         {
@@ -741,6 +828,11 @@ internal sealed class ChartInfoBuildService
         try
         {
             report(createMessage());
+        }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("詳細譜面の診断中にメモリが不足しました。", ex);
+            throw;
         }
         catch (Exception)
         {

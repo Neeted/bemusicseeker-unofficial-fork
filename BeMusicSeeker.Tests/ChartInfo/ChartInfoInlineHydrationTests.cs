@@ -5,7 +5,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
-using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -195,7 +194,7 @@ public sealed class ChartInfoInlineHydrationTests
     }
 
     /// <summary>
-    /// 対象失敗のparser版とtimeout条件を照合し、古いparserや短い期限の失敗を現行失敗として再利用する誤りを検出する。
+    /// 対象失敗のparser版とtimeout条件を照合し、古いparserや短い期限の失敗の再利用と、旧未知例外名による現行記録の救済削除を検出する。
     /// </summary>
     /// <remarks>実SQLiteの対象検索を使う。SQL観測/共有Monitor保持条件は、結果配列だけでは分からない対象読取りの境界を確かめるために必要。</remarks>
     [TestMethod]
@@ -216,7 +215,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Path.Combine(tempRootPath, "current.bms"),
                     BmsLibraryDbGateway.CurrentChartInfoParserVersion,
                     "parse_failed",
-                    "InvalidDataException",
+                    "InvalidOperationException",
                     "current",
                     null),
                 CreateChartInfoParseFailureRow(
@@ -247,6 +246,17 @@ public sealed class ChartInfoInlineHydrationTests
             Assert.IsTrue(result.ContainsKey(currentMd5));
             Assert.IsFalse(result.ContainsKey(staleParserMd5));
             Assert.IsFalse(result.ContainsKey(shortTimeoutMd5));
+            ChartFile current = ChartTestValues.Empty() with { Path = result[currentMd5].path, Md5 = currentMd5, Sha256 = result[currentMd5].sha256 };
+            var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => throw new AssertFailedException("現行失敗は再評価しません。"));
+            var snapshot = new ChartFileSnapshot(current.Path, Encoding.ASCII.GetBytes("#BPM 120\r\n#00111:01\r\n"), DateTime.UtcNow, current.Md5, current.Sha256);
+            ChartInfoBuildService.ChartInfoSnapshotBuildResult skipped = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(current), null, result.ContainsKey(currentMd5));
+            Assert.IsTrue(skipped.SkippedPersistedFailure);
+            Assert.IsFalse(skipped.ParseFailed);
+            Assert.IsNull(skipped.ParseFailureRow);
+            Assert.IsTrue(string.IsNullOrEmpty(skipped.ParseFailureDeleteMd5));
+            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual("InvalidOperationException", verify.ExecuteScalar<string>("SELECT exception_type FROM chart_info_parse_failure WHERE md5 = ?;", currentMd5));
+            Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
         });
     }
 
@@ -1568,33 +1578,67 @@ public sealed class ChartInfoInlineHydrationTests
         });
     }
 
-    /// <summary>実snapshotの解析境界に内部/資源故障を注入し、永続失敗結果へ変換せず元の発生stackで伝播する。</summary>
-    [DataTestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void ChartInfoSnapshotEvaluator_InternalFaultPropagatesWithoutPersistentFailure(bool resourceFailure)
+    /// <summary>実snapshotの未知の解析故障は今回の非採用にし、失敗事実を残して恒久失敗行・削除候補・取消へ変換しない。</summary>
+    [TestMethod]
+    public void ChartInfoSnapshotEvaluator_InternalFaultSkipsWithoutPersistentFailure()
     {
         string md5 = new('a', 32);
         string sha256 = new('b', 64);
         ChartFile file = ChartTestValues.Empty() with { Path = "valid.bms", Md5 = md5, Sha256 = sha256 };
         var snapshot = new ChartFileSnapshot(file.Path, Encoding.ASCII.GetBytes("#BPM 120\r\n#00111:01\r\n"), DateTime.UtcNow, md5, sha256);
-        var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => ThrowSnapshotParserFault(resourceFailure));
-        ChartInfoBuildService.ChartInfoSnapshotBuildResult? result = null;
+        var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => throw new InvalidOperationException("injected internal fault"));
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false);
 
-        Exception failure = resourceFailure
-            ? Assert.ThrowsException<OutOfMemoryException>(() => result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false))
-            : Assert.ThrowsException<InvalidOperationException>(() => result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false));
-
-        Assert.IsNull(result);
-        Assert.IsNotNull(failure.StackTrace);
-        StringAssert.Contains(failure.StackTrace, nameof(ThrowSnapshotParserFault));
+        Assert.IsNull(result.Row);
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.TimeoutFailed);
+        Assert.IsFalse(result.ShouldPersistRow);
+        Assert.IsFalse(result.SkippedPersistedFailure);
+        Assert.IsNull(result.ParseFailureRow);
+        Assert.IsTrue(string.IsNullOrEmpty(result.ParseFailureDeleteMd5));
     }
 
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ChartInfoParser.ChartInfoParseResult ThrowSnapshotParserFault(bool resourceFailure)
+    /// <summary>配置先の未知の取得不能と警告先故障が重なっても正常対象を集約・保存し、既存基本値と恒久失敗表を保持する。</summary>
+    /// <remarks>固有の実ファイル・SQLite・保存ownerを使う。NULを含むpathの取得失敗を使い、基本解析やDB保存の故障へ置き換えない。</remarks>
+    [TestMethod]
+    public void ChartInfoInlineBuildService_UnknownReadFailurePreservesSiblingAndStoredBasic()
     {
-        if (resourceFailure) { throw new OutOfMemoryException("injected resource fault"); }
-        throw new InvalidOperationException("injected internal fault");
+        WithTemporarySongDb((root, songDbPath) =>
+        {
+            List<ChartFile> charts = [];
+            for (int index = 0; index < 2; index++)
+            {
+                string path = Path.Combine(root, index + ".bms");
+                File.WriteAllText(path, "#TITLE inline" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+                charts.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)) with { Level = 2 });
+            }
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertSongs(charts);
+            gateway.EnsureChartInfoBackfillSchema();
+            var service = new ChartInfoInlineBuildService(new ChartInfoBuildService(), parserDegree: 1);
+            ChartInfoInlineBuildResult result = service.BuildForExistingCharts(gateway,
+                [charts[0] with { Path = charts[0].Path + "\0" }, charts[1]],
+                logInstallPerformanceWarn: _ => throw new InvalidOperationException("warning sink failed"));
+
+            Assert.AreEqual(1, result.ReadFailedCount);
+            Assert.AreEqual(1, result.SuccessCount);
+            Assert.AreEqual(0, result.FailurePersistedCount);
+            Assert.AreEqual(1, result.StorageApplications.Count);
+            Assert.AreEqual(charts[1].Path, result.StorageApplications.Single().Chart.Path);
+            Assert.AreEqual(1, result.ChartInfoRows.Count);
+            var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
+            CatalogChartInfoStorageWriteReceipt receipt = owner.ApplyChartInfoStorageWrite(new CatalogChartInfoStorageWriteRequest(
+                result.StorageApplications.Select(application => application.CreateCurrentValue()),
+                new CatalogChartInfoWriteRequest(chartInfoRows: result.ChartInfoRows,
+                    parseFailureRows: result.ParseFailureRows, parseFailureDeleteMd5s: result.ParseFailureDeleteMd5s)));
+            Assert.IsTrue(receipt.Applied);
+            using var verify = new LR2SongDBExtended(songDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false);
+            Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[0].Path));
+            Assert.AreEqual(9, verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[1].Path));
+            Assert.AreEqual(charts[0].Md5, verify.ExecuteScalar<string>("SELECT hash FROM song WHERE path = ?;", charts[0].Path));
+            Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", charts[1].Sha256));
+            Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+        });
     }
 
     /// <summary>実snapshotの成功診断が入力失敗型を投げても、成功行と失敗履歴削除の事実を保つことを確かめる。</summary>

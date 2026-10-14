@@ -2,7 +2,6 @@ using System;
 using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Tests.Helpers;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json;
 
@@ -14,7 +13,8 @@ public sealed class BmsonInputFailureBoundaryTests
 {
     /// <summary>
     /// オブジェクト欄の異なる型・nullイベント・nullノート・表現不能な長さを実解析へ渡し、例外で操作を中断せず解析失敗の結果を返すことを確認します。
-    /// 配列や任意チャンネル自体のnullは別ケースで許容を確認し、内部故障の伝播は既存のsnapshot評価テストが分担します。
+    /// 配列や任意チャンネル自体のnullは別ケースで許容を確認し、未知の通常内部故障の非恒久な非採用はsnapshot評価テストが分担します。
+    /// 捕捉したメモリ不足の即時終了は、ホストへ注入せず静的確認で扱います。
     /// </summary>
     [DataTestMethod]
     [DataRow("42")]
@@ -76,18 +76,16 @@ public sealed class BmsonInputFailureBoundaryTests
         Assert.IsNull(result.ParseFailureRow);
     }
 
-    /// <summary>JSON例外に包まれた内部故障を入力不正と誤認せず、詳細解析でも元の原因を返して永続失敗結果を作りません。</summary>
+    /// <summary>JSON例外に包まれた内部・引数契約故障は今回だけ非採用にし、形式不正の恒久失敗行を作りません。</summary>
     [DataTestMethod]
     [DataRow("internal")]
-    [DataRow("resource")]
     [DataRow("argument")]
     [DataRow("null")]
     [DataRow("range")]
-    public void EvaluateSnapshot_WrappedInternalFailureIsNotInputFailure(string failureKind)
+    public void EvaluateSnapshot_WrappedInternalFailureSkipsWithoutPersistentFailure(string failureKind)
     {
         Exception cause = failureKind switch
         {
-            "resource" => new OutOfMemoryException("parser resource failure"),
             "argument" => new ArgumentException("parser argument failure", "contract"),
             "null" => new ArgumentNullException("contract"),
             "range" => new ArgumentOutOfRangeException("contract"),
@@ -99,14 +97,15 @@ public sealed class BmsonInputFailureBoundaryTests
         ChartFile file = ChartTestValues.Empty() with { Path = "input.bmson", Md5 = md5, Sha256 = sha256 };
         var snapshot = new ChartFileSnapshot(file.Path, Encoding.UTF8.GetBytes("{}"), DateTime.UtcNow, md5, sha256);
         var service = new ChartInfoBuildService(null, parseBytes: (_, _, _, _, _) => throw failure);
-        ChartInfoBuildService.ChartInfoSnapshotBuildResult? result = null;
+        ChartInfoBuildService.ChartInfoSnapshotBuildResult result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false);
 
-        JsonSerializationException observed = Assert.ThrowsException<JsonSerializationException>(() =>
-            result = service.EvaluateSnapshot(snapshot, ChartInfoBuildTargetMapper.Create(file), null, false));
-
-        Assert.AreSame(failure, observed);
-        Assert.AreSame(cause, observed.InnerException);
-        Assert.IsNull(result);
+        Assert.IsNull(result.Row);
+        Assert.IsTrue(result.ParseFailed);
+        Assert.IsFalse(result.ShouldPersistRow);
+        Assert.IsFalse(result.TimeoutFailed);
+        Assert.IsFalse(result.SkippedPersistedFailure);
+        Assert.IsNull(result.ParseFailureRow);
+        Assert.IsTrue(string.IsNullOrEmpty(result.ParseFailureDeleteMd5));
     }
 
     private static ChartInfoBuildService.ChartInfoSnapshotBuildResult Evaluate(string json)

@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>短命な入力snapshotから詳細の保存候補を集約し、ファイル差分と導入で同じ評価契約を使います。</summary>
 internal sealed class ChartInfoInlineBuildService(
     ChartInfoBuildService chartInfoBuildService,
     int parserDegree,
@@ -26,6 +26,7 @@ internal sealed class ChartInfoInlineBuildService(
 
     public int BatchSize => batchSize;
 
+    /// <summary>読取り済みsnapshotを評価し、正常詳細と既知入力失敗だけを保存候補へ集約します。DB確定と必須公開は呼出元が担います。</summary>
     public ChartInfoInlineBuildResult BuildForSnapshots(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<InlineChartSnapshotTarget> charts,
@@ -112,6 +113,7 @@ internal sealed class ChartInfoInlineBuildService(
         return result;
     }
 
+    /// <summary>配置済み譜面を読み、通常の独立入力取得失敗は今回だけ除外して正常対象の保存候補を作ります。捕捉したメモリ不足は即時終了します。</summary>
     public ChartInfoInlineBuildResult BuildForExistingCharts(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<ChartFile> charts,
@@ -126,16 +128,24 @@ internal sealed class ChartInfoInlineBuildService(
             List<InlineChartSnapshotTarget> snapshots = [];
             foreach (ChartFile target in batch)
             {
+                ChartFileSnapshot snapshot;
                 try
                 {
-                    ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
-                    snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
+                    snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                catch (OutOfMemoryException ex)
+                {
+                    Environment.FailFast("配置済み譜面の詳細入力取得中にメモリが不足しました。", ex);
+                    throw;
+                }
+                catch (Exception ex)
                 {
                     total.ReadFailedCount++;
-                    logInstallPerformanceWarn?.Invoke("chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
+                    ChartInfoBuildService.ReportDiagnosticBestEffort(logInstallPerformanceWarn,
+                        () => "chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
+                    continue;
                 }
+                snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
             }
             Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures = dbGateway?.LoadCurrentChartInfoParseFailuresByMd5(
                 snapshots
