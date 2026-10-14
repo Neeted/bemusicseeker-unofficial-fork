@@ -126,18 +126,20 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
         };
         LibraryFileInitializationResult initializationInput;
+        Action? scoreNotification = null;
         var parent = new StartupLibraryInitializationWorkflowOwner(new SemaphoreSlim(1, 1));
         using StartupRequiredOperationLease accepted = parent.AcquireRequiredOperation(library.OperationAdmission, library.Lr2Synchronization.PlaylistOperationAdmission);
         library.PropertyChanged += scanNotificationSubscriber;
         try
         {
-            initializationInput = library.InitializeStartup([], null, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(songDbPath), repairNotificationObserver: _ => { });
+            initializationInput = library.InitializeStartup([], null, PerformanceInteraction.Start("test_required_startup"), accepted.Capability, leapYearRepairApproval: new(songDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: notification => scoreNotification = notification);
         }
         finally
         {
             library.PropertyChanged -= scanNotificationSubscriber;
+            accepted.Dispose();
+            scoreNotification?.Invoke();
         }
-
         Assert.IsTrue(Volatile.Read(ref scanNotificationObserved) != 0);
         Assert.IsFalse(initializationWriterHeldAtNotification);
         Assert.IsFalse(mutationAdmissionAvailable);

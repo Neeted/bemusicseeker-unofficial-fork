@@ -3092,16 +3092,17 @@ public partial class MainWindowViewModel : ViewModel,
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
+        Action scoreNotification = null;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("score_reload");
             LibraryFileInitializationResult result = await Task.Run(() => files.InitializeScoresOnlyUnderAdmission(capability,
-                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "score_only", operationToken)));
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "score_only", operationToken), notification => scoreNotification = notification));
             PublishLatestLr2PlayHistorySchemaStatusSnapshotFromLibrary();
             return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
-                RequiredResult: new(result, null), OperationKind: StartupProgressOperationKind.ScoreOnly);
+                RequiredResult: new(result, null), OperationKind: StartupProgressOperationKind.ScoreOnly, ScoreNotification: scoreNotification);
         }
-        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ScoreOnly, failure); }
+        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ScoreOnly, failure) with { ScoreNotification = scoreNotification }; }
         finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
     }
 
@@ -3202,19 +3203,20 @@ public partial class MainWindowViewModel : ViewModel,
         var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
         IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
             .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
+        Action scoreNotification = null;
         try
         {
             playHistoryWorkflowOwner.InvalidateReadCache("full_reinitialize");
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree
                 | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
             StartupRequiredInitializationResult required = await startupLibraryInitializationWorkflowOwner.ReinitializeAsync(files, tables, Lr2SongDbSyncWorkflow, capability,
-                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning));
+                new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "reinitialize", operationToken), approval, repairNotificationObserver, warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification);
             if (required.Lr2Failure != null) { UpdateLr2SongDbSyncRuntimeStatus(files.GetLr2SongDbSyncStatusSnapshot()); }
             startupReadyDataReached = true;
             return new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
-                RequiredResult: required, OperationKind: StartupProgressOperationKind.FullReinitialize, BackupNotifications: CaptureNotifications());
+                RequiredResult: required, OperationKind: StartupProgressOperationKind.FullReinitialize, BackupNotifications: CaptureNotifications(), ScoreNotification: scoreNotification);
         }
-        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.FullReinitialize, failure) with { BackupNotifications = CaptureNotifications() }; }
+        catch (Exception failure) { return CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.FullReinitialize, failure) with { BackupNotifications = CaptureNotifications(), ScoreNotification = scoreNotification }; }
         finally
         {
             EndUiUpdateSuppression(scheduleFlush: false);
@@ -3312,6 +3314,9 @@ public partial class MainWindowViewModel : ViewModel,
         try
         {
             if (result == null) { return null; }
+            Action scoreNotification = result.ScoreNotification;
+            result = result with { ScoreNotification = null };
+            scoreNotification?.Invoke();
             if (result.Failure != null)
             {
                 CompleteStartupFailureAfterAdmission(result.OperationToken, result.Failure);
@@ -3491,6 +3496,7 @@ public partial class MainWindowViewModel : ViewModel,
         LibraryDirectoryPreflightException directoryFailure = null;
         StartupSettingsSnapshot initializedSettings = null;
         LeapYearFolderRepairNotification repairNotification = null;
+        Action scoreNotification = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
         StartupInitializationOutcome outcome;
@@ -3504,7 +3510,7 @@ public partial class MainWindowViewModel : ViewModel,
                     phase => directoryWarningPhase = phase,
                     settings => initializedSettings = settings, capability, exception => constructionFailure = exception, leapYearRepairApproval,
                     notification => { repairNotification = notification; repairNotificationObserver?.Invoke(notification); },
-                    warning => scanWarnings.TryAdd(warning.Kind, warning));
+                    warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification);
                 outcome = initializationResult.Outcome;
             }
         }
@@ -3527,6 +3533,7 @@ public partial class MainWindowViewModel : ViewModel,
         initializationResult = initializationResult with
         {
             RepairNotification = repairNotification,
+            ScoreNotification = scoreNotification,
             BackupNotifications = Array.AsReadOnly((initializationResult.BackupNotifications ?? [])
                 .Concat(scanWarnings.Values.OrderBy(warning => warning.Kind).Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification)).ToArray()),
             ShowRootWarning = isNormalStartup && initializedSettings?.OperationModeLR2DB == true && string.IsNullOrWhiteSpace(initializedSettings.LR2RootPath)
@@ -3595,7 +3602,7 @@ public partial class MainWindowViewModel : ViewModel,
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability,
         Action<Exception> recordLibraryConstructionFailure, LeapYearFolderRepairApproval leapYearRepairApproval,
-        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver)
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<Action> scoreNotificationObserver)
     {
         if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
         if (capability == null && (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter))
@@ -3853,7 +3860,7 @@ public partial class MainWindowViewModel : ViewModel,
             () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
                 files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
                 new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
-                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver));
+                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
         if (IsRequiredInitializationShutdownRequested) { return new(StartupInitializationOutcome.ShutdownRequested); }
         return new(StartupInitializationOutcome.Succeeded, startupSettings, operationToken, RequiredResult: requiredResult, BackupNotifications: backupNotifications);
     }

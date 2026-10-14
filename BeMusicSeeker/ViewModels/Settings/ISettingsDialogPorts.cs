@@ -32,10 +32,11 @@ internal enum StartupInitializationOutcome
 /// <param name="OperationKind">今回必要な実UIと後続を選ぶ、既存の操作種別。</param>
 /// <param name="ShowRootWarning">通常起動でLR2ルート未設定の既存警告を成功公開後に提示するか。</param>
 /// <param name="BackupNotifications">バックアップ・走査で得た既存案内。新しい通知は開始前と成功後に寿命を確認します。</param>
+/// <param name="ScoreNotification">本体で採用済みのスコア純通知。実親L/P解放後の共通終端で取り出し、実行後の結果へ再保存しません。</param>
 internal sealed record StartupInitializationResult(StartupInitializationOutcome Outcome,
     StartupSettingsSnapshot Settings = null, long OperationToken = 0L, bool CompletionPublished = false, Exception Failure = null, string ValidationFailure = null,
     StartupRequiredInitializationResult RequiredResult = null, LeapYearFolderRepairNotification RepairNotification = null,
-    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null);
+    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, Action ScoreNotification = null);
 
 internal interface ISettingsDialogStatePort
 {
@@ -60,7 +61,7 @@ internal interface ISettingsDialogStatePort
     /// <summary>設定の外側L/P解放後に、捕捉済み実修復結果を既存の通知経路へ渡します。</summary>
     Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification notification);
 
-    /// <summary>親受付解放後に必須UI・hostの実Taskを待ち、同じ結果の初回完了・解禁・任意登録と開始を終えます。</summary>
+    /// <summary>実親受付解放後に採用済みスコア純通知を結果から取り出し、必須UI・hostの実Taskと同じ結果の初回完了・解禁・後続登録を終えます。後段失敗の結果でも採用済み純通知を実行します。</summary>
     Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result);
 
     /// <summary>外側の同owner生存権限でスコアだけを更新し、処理と後片付けの実終端を待ちます。処理失敗は元原因を伴うOperationFailed、終了による取消はShutdownRequestedで返します。</summary>

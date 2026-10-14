@@ -4428,11 +4428,12 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 現在の正本からlookup snapshotと実体購読を採用してから、純通知の通常失敗を個別に局所化します。
-    /// 初期化の借用leaseを保持する呼出元の通知時点は、ここでは変更しません。
+    /// 現在の正本からlookup snapshotと実体購読を採用し、採用済み状態の純通知を返します。
+    /// 必要な採用を通知の失敗境界に含めず、通知の時点は呼出元が所有します。
     /// </summary>
     /// <param name="reason">ログ出力用の更新理由。</param>
-    private void RefreshScoreSnapshotFromCurrentScores(string reason)
+    /// <returns>採用済みsnapshotの純通知。通常の通知故障は確定状態と元の操作結果を変更しません。</returns>
+    private Action RefreshScoreSnapshotFromCurrentScores(string reason)
     {
         List<BMSScore> scoresSnapshot;
         Dictionary<string, BMSScore> beatorajaScoresSnapshot;
@@ -4487,13 +4488,17 @@ public partial class BMSLibrary : ObservableObject
             [.. beatorajaScoresSnapshot.Keys.Concat((IEnumerable<string>)previous?.ScoresBySha256.Keys ?? []).Distinct(StringComparer.OrdinalIgnoreCase)]);
         bool wasReady = previous != null && previous.ActiveScoreSource != ActiveScoreSource.None
             && previous.LoadStatus == ScoreTableLoadStatus.Loaded;
-        if (wasReady != ScoreSnapshotReady)
-        {
-            TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotReady)), "score_snapshot_ready_notification_failed");
-        }
-        TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotVersion)), "score_snapshot_version_notification_failed");
-        TryInvokePostLeaseNotification(() => ScoreSnapshotChanged?.Invoke(change), "score_snapshot_change_notification_failed");
+        bool readyChanged = wasReady != ScoreSnapshotReady;
         LogInstallPerformance("score_snapshot_load completed reason=" + (reason ?? "unknown") + " version=" + version + " source=" + sourceSnapshot + " count=" + scoresSnapshot.Count + " beatorajaCount=" + beatorajaScoresSnapshot.Count + " buildMs=" + stopwatch.ElapsedMilliseconds);
+        return () =>
+        {
+            if (readyChanged)
+            {
+                TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotReady)), "score_snapshot_ready_notification_failed");
+            }
+            TryInvokePostLeaseNotification(() => RaisePropertyChanged(nameof(ScoreSnapshotVersion)), "score_snapshot_version_notification_failed");
+            TryInvokePostLeaseNotification(() => ScoreSnapshotChanged?.Invoke(change), "score_snapshot_change_notification_failed");
+        };
     }
 
     /// <summary>
@@ -4512,7 +4517,7 @@ public partial class BMSLibrary : ObservableObject
         {
             return snapshot;
         }
-        RefreshScoreSnapshotFromCurrentScores("on_demand");
+        RefreshScoreSnapshotFromCurrentScores("on_demand")();
         lock (lockScoreSnapshot)
         {
             return scoreSnapshot;
@@ -4770,36 +4775,39 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="originatingRequest">保存済みスコアの受付と実終端へ引き継ぐ親の表示識別。</param>
     /// <param name="leapYearRepairApproval">親受付前の限定読取・YesNo判断。借用経路では同じDBの要求を必須とします。</param>
     /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
+    /// <param name="scoreNotificationObserver">借用時は必須。採用済み純通知を保存するだけの受渡し先で、実親L/P解放後に実行します。後段失敗時も受け渡します。</param>
     internal LibraryFileInitializationResult InitializeStartup(
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
         in PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
     {
         return InitializeCore(
             tasksContinuation,
             semaphore,
             LibraryInitializeMode.Startup,
-            performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver);
+            performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver);
     }
 
     /// <summary>受理済み共通権限の内部継続として再初期化します。</summary>
     /// <param name="originatingRequest">保存済みスコアの受付と実終端へ引き継ぐ親の表示識別。</param>
     /// <param name="leapYearRepairApproval">親受付前の限定読取・YesNo判断。借用経路では同じDBの要求を必須とします。</param>
     /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
+    /// <param name="scoreNotificationObserver">借用時は必須。採用済み純通知を保存するだけの受渡し先で、実親L/P解放後に実行します。後段失敗時も受け渡します。</param>
     internal LibraryFileInitializationResult ReinitializeUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
-        => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver);
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver);
 
     public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
     {
         Initialize(tasksContinuation, semaphore, LibraryInitializeMode.FullReinitialize);
     }
 
-    /// <summary>受理済みの同owner生存権限を借用してスコアだけを更新し、公開と後片付けの終端後に戻ります。</summary>
+    /// <summary>受理済みの同owner生存権限を借用してスコアを採用し、純通知を親の局所結果へ渡して後片付けの終端後に戻ります。</summary>
     /// <param name="capability">呼出元が終端まで保持する共通受付の権限。nullは新規の非待機受付です。</param>
-    internal LibraryFileInitializationResult InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null)
-        => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability, originatingRequest);
+    /// <param name="scoreNotificationObserver">借用時は必須。採用済み純通知を保存するだけの受渡し先で、実親解放後に実行します。後段失敗時も受け渡します。</param>
+    internal LibraryFileInitializationResult InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, Action<Action> scoreNotificationObserver = null)
+        => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability, originatingRequest, scoreNotificationObserver: scoreNotificationObserver);
 
     public void InitializeScoresOnly(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
     {
@@ -4865,8 +4873,9 @@ public partial class BMSLibrary : ObservableObject
         SemaphoreSlim semaphore,
         LibraryInitializeMode mode,
         PerformanceInteraction? parentPerformanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
     {
+        if (capability != null) { ArgumentNullException.ThrowIfNull(scoreNotificationObserver); }
         using var progressScope = new LibraryInitializationProgressScope(
             libraryInitializationProgressContext, Interlocked.Read(ref libraryInitializationProgressOperationToken));
         PerformanceInteraction performanceInteraction =
@@ -4979,6 +4988,7 @@ public partial class BMSLibrary : ObservableObject
         InitializationExecutionResult initializeResult;
         IDisposable installTableCollectionMutationScope = null;
         List<Action> initializationPostLeaseEffects = [];
+        Action scoreNotification = null;
         LeapYearFolderRepairResult leapYearRepairResult = new();
         LeapYearFolderRepairNotification repairNotification = null;
         bool initializationFailed = false;
@@ -5029,7 +5039,7 @@ public partial class BMSLibrary : ObservableObject
                             using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                             {
                                 if (songTblLoad) { LoadSavedCatalog(options, leapYearRepairApproval, result => initialSongTableLoadResult = result, initializationPostLeaseEffects.Add); }
-                                LoadSavedScores(options);
+                                scoreNotification = LoadSavedScores(options);
                                 if (songTblLoad)
                                 {
                                     packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
@@ -5118,6 +5128,8 @@ public partial class BMSLibrary : ObservableObject
             publicPlaylistCapability?.Dispose();
             publicPlaylistReservation?.Dispose();
             mutationReservation?.Dispose();
+            if (capability != null) { scoreNotificationObserver(scoreNotification); }
+            else { scoreNotification?.Invoke(); }
             if (!isScoreOnly)
             {
                 repairNotification = LeapYearFolderRepairNotification.Capture(leapYearRepairApproval, leapYearRepairResult,
@@ -5371,8 +5383,9 @@ public partial class BMSLibrary : ObservableObject
         CompleteLibraryDatabaseLoadProgress();
     }
 
-    /// <summary>保存済みスコアを一度読込み、表示用の正本を置換します。IRは後続の明示要求です。</summary>
-    private void LoadSavedScores(BmsLibraryOptionsSnapshot options)
+    /// <summary>保存済みスコアを一度読み、正本・lookup・購読を採用して純通知を返します。IRは後続の明示要求です。</summary>
+    /// <returns>実親解放後に実行する採用済みスコアの純通知。</returns>
+    private Action LoadSavedScores(BmsLibraryOptionsSnapshot options)
     {
         long scoreTblLoadMs;
         var stopwatchScoreTblLoad = Stopwatch.StartNew();
@@ -5437,9 +5450,10 @@ public partial class BMSLibrary : ObservableObject
         {
             ClearScoreUnsentStatus();
         }
-        RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
+        Action notification = RefreshScoreSnapshotFromCurrentScores("score_tbl_load");
         stopwatchScoreTblLoad.Stop();
         scoreTblLoadMs = stopwatchScoreTblLoad.ElapsedMilliseconds;
+        return notification;
     }
 
     /// <summary>先行走査の実結果を確定し、保存済み譜面情報に必要なdigestとスコア投影を直接完了します。</summary>
@@ -7844,7 +7858,7 @@ public partial class BMSLibrary : ObservableObject
                     scoreTable, BMSScores, ownedIndex.ContainsBmsMd5, detectUnsentScores);
             }
         }
-        return () => RefreshScoreSnapshotFromCurrentScores("update_ir_score_table");
+        return () => RefreshScoreSnapshotFromCurrentScores("update_ir_score_table")();
     }
 
     /// <summary>未送信状態だけを解除します。LoadSavedScoresの最終snapshotへまとめて公開します。</summary>
@@ -7923,7 +7937,7 @@ public partial class BMSLibrary : ObservableObject
             + " upsertMs=" + result.UpsertMs
             + " bulkInsertUsed=" + result.BulkInsertUsed
             + " offlineEstimateXmlLoads=" + result.OfflineEstimateXmlLoadCount);
-        uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache"));
+        uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("refresh_ranking_cache")());
         return result;
     }
 
@@ -7998,7 +8012,7 @@ public partial class BMSLibrary : ObservableObject
 
                 }
             }
-            uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("download_ir_data"));
+            uiScheduler.Invoke(() => RefreshScoreSnapshotFromCurrentScores("download_ir_data")());
             return applyResult.Failed;
         }
         finally

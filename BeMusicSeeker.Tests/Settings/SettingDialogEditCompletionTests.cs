@@ -4174,7 +4174,8 @@ public sealed partial class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>標準設定portから保存と実Close後に同じL/Pを実ScoreOnlyモデルへ渡し、受理Taskの生存と公開済み実snapshotを確認します。</summary>
+    /// <summary>標準設定portから保存と実Close後に同じL/Pを実ScoreOnlyモデルへ渡し、実親解放後のスコア純通知と必須UIの実終端までの受理Task生存を確認します。</summary>
+    /// <remarks>画面を作らず既存Dispatcherで実設定port・モデル・UI完了を接続し、純通知を保持点にせず既存UI gateで実Taskを待ちます。</remarks>
     [TestMethod]
     public void ApplySettingsAsync_DefaultScoreOnlyPublishesChangedRealScoreAfterClosing()
     {
@@ -4194,7 +4195,6 @@ public sealed partial class SettingDialogEditCompletionTests
             db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
             db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, score);
         }
-        using var release = new ManualResetEventSlim();
         var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         try
         {
@@ -4207,9 +4207,10 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.BeatorajaScoreDbPath = Path.Combine(beatoraja, "player", "playerA", "score.db");
                 var session = new CountingSettingsEditSession(values);
                 var failures = new List<Exception>();
+                var completionUi = new MainWindowViewModelStartupProgressTests.CompletionUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
                 var composition = new ApplicationComposition(settingsEditSession: session,
                     reportSettingsApplyFailure: failures.Add,
-                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    uiScheduler: completionUi,
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge,
@@ -4221,7 +4222,19 @@ public sealed partial class SettingDialogEditCompletionTests
                 viewModel.SettingDialog.AttachPresentationPort(presentation);
                 Task? apply = null;
                 BMSLibrary? library = null;
-                Action<ScoreSnapshotChange> observer = _ => { published.TrySetResult(); release.Wait(); };
+                var observations = new List<(bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score, bool Closed)>();
+                Action<ScoreSnapshotChange> observer = _ =>
+                {
+                    BMSLibrary actual = library ?? throw new InvalidOperationException("Score library was not attached.");
+                    BMSLibrary.ScoreRuntimeState state = actual.GetScoreRuntimeStateForDiagnostics();
+                    observations.Add((!actual.IsWriteLockHeldInitializeAll, !actual.IsWriteLockHeldInitializeMin,
+                        !composition.OperationAdmission.IsActive, !composition.PlaylistOperationAdmission.IsActive,
+                        state.SnapshotReady && actual.ScoreSnapshotReady, actual.ScoreSnapshotVersion, state.SnapshotVersion,
+                        actual.ScoreSubscriptionCount, actual.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score,
+                        presentation.Requests.Contains("close")));
+                    published.TrySetResult();
+                };
+                completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive;
                 try
                 {
                     Task<bool> initialize = viewModel.InitializeAsync();
@@ -4240,17 +4253,29 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(20, library!.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score);
                     library.ScoreSnapshotChanged += observer;
                     viewModel.SettingDialog.BeatorajaPlayerId = "playerB";
+                    completionUi.Arm();
                     apply = viewModel.SettingDialog.ApplySettingsAsync();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(published.Task, apply), "score-only-real-publish-or-failure");
-                    if (!published.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "score-only-real-publish-or-failure");
+                    if (!completionUi.Entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
                     Assert.IsFalse(apply.IsCompleted);
-                    Assert.IsTrue(composition.OperationAdmission.IsActive);
-                    Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.IsTrue(published.Task.IsCompleted);
+                    Assert.IsTrue(observations.Count > 0);
+                    foreach ((bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score, bool Closed) observation in observations)
+                    {
+                        Assert.IsTrue(observation.AllFree && observation.MinFree && observation.LibraryFree && observation.PlaylistFree);
+                        Assert.IsTrue(observation.Ready && observation.Closed);
+                        Assert.IsTrue(observation.Version > 0);
+                        Assert.AreEqual(observation.Version, observation.RuntimeVersion);
+                        Assert.AreEqual(1, observation.Subscriptions);
+                        Assert.AreEqual(80, observation.Score);
+                    }
                     Assert.AreEqual(1, session.SaveCount);
                     CollectionAssert.Contains(presentation.Requests, "close");
                     Assert.AreEqual(80, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score,
                         "公開済みsnapshotの実値を読み、on-demandで未実行を補いません。");
-                    release.Set();
+                    completionUi.Release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-terminal");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                     CollectionAssert.Contains(presentation.Requests, "close");
@@ -4258,7 +4283,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 finally
                 {
-                    release.Set();
+                    completionUi.Release.TrySetResult();
                     if (library != null) { library.ScoreSnapshotChanged -= observer; }
                     try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-cleanup-task"); } }
                     finally
@@ -4269,7 +4294,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
             });
         }
-        finally { release.Set(); Directory.Delete(root, recursive: true); }
+        finally { Directory.Delete(root, recursive: true); }
     }
 
     /// <summary>
@@ -4493,7 +4518,8 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { releaseNotification.Set(); Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>旧IR通信中の実All再構築を受理し、親解放後の実UIを待ち、新DBの実値・旧組停止・旧IR結果の非保存を確認します。</summary>
+    /// <summary>旧IR通信中の実All再構築を受理し、採用後の失敗・純通知故障でも主原因を保ち、親解放後の実UI・新DB・旧組停止・旧IR非保存を確認します。</summary>
+    /// <remarks>通常起動と設定Allの実接続を既存Dispatcherで観測します。Failedは採用後の走査故障と通知故障、Shutdownは開始済み処理と親cleanupを回収します。</remarks>
     [DataTestMethod]
     [DataRow("Succeeded")]
     [DataRow("Failed")]
@@ -4562,14 +4588,35 @@ public sealed partial class SettingDialogEditCompletionTests
                     applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge,
                     rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner,
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                Task? scoreParentLibraryTerminal = null;
+                Task? scoreParentPlaylistTerminal = null;
+                var scoreSubscriptions = new List<(BMSLibrary Library, Action<ScoreSnapshotChange> Handler)>();
+                var scoreObservations = new System.Collections.Concurrent.ConcurrentQueue<(BMSLibrary Library, bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree,
+                    bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score)>();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
                     InitialSearchTargets = [music],
-                    LibraryCreator = profile => new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigProvider,
+                    LibraryCreator = profile =>
+                    {
+                        var library = new BMSLibrary(profile.SongDbPath, profile.Lr2ConfigProvider,
                         profile.Lr2ScoreDbPath, profile.StartupRequiredFileScanReason,
                         composition.BmsLibraryOptionsProvider, completionUi, composition.ApplicationPathSnapshot,
                         chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), irClient: irClient,
-                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                        Action<ScoreSnapshotChange> scoreHandler = _ =>
+                        {
+                            BMSLibrary.ScoreRuntimeState state = library.GetScoreRuntimeStateForDiagnostics();
+                            scoreObservations.Enqueue((library, !library.IsWriteLockHeldInitializeAll, !library.IsWriteLockHeldInitializeMin,
+                                scoreParentLibraryTerminal?.IsCompletedSuccessfully ?? !composition.OperationAdmission.IsActive,
+                                scoreParentPlaylistTerminal?.IsCompletedSuccessfully ?? !composition.PlaylistOperationAdmission.IsActive,
+                                state.SnapshotReady && library.ScoreSnapshotReady, library.ScoreSnapshotVersion, state.SnapshotVersion,
+                                library.ScoreSubscriptionCount, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, chartPath, irHash, string.Empty).Score));
+                            if (hold && completion == "Failed") { throw new InvalidOperationException("controlled All score notification failure"); }
+                        };
+                        library.ScoreSnapshotChanged += scoreHandler;
+                        scoreSubscriptions.Add((library, scoreHandler));
+                        return library;
+                    }
                 };
                 var owner = new MainWindowViewModel(composition, factory);
                 var presentation = new RecordingSettingsDialogPresentationPort
@@ -4580,6 +4627,21 @@ public sealed partial class SettingDialogEditCompletionTests
                 owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                 completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive
                     && owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked && !owner.IsInitializationCompleted;
+                void AssertAdoptedScoreNotification(BMSLibrary current)
+                {
+                    (BMSLibrary Library, bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score) observation = scoreObservations.First(item => ReferenceEquals(item.Library, current));
+                    Assert.IsTrue(observation.AllFree && observation.MinFree && observation.LibraryFree && observation.PlaylistFree, observation.ToString());
+                    Assert.IsTrue(observation.Ready);
+                    Assert.IsTrue(observation.Version > 0);
+                    Assert.AreEqual(observation.Version, observation.RuntimeVersion);
+                    Assert.AreEqual(1, observation.Subscriptions);
+                    Assert.AreEqual(687, observation.Score);
+                    BMSLibrary.ScoreRuntimeState state = current.GetScoreRuntimeStateForDiagnostics();
+                    Assert.IsTrue(state.SnapshotReady);
+                    Assert.AreEqual(state.SnapshotVersion, current.ScoreSnapshotVersion);
+                    Assert.AreEqual(1, current.ScoreSubscriptionCount);
+                    Assert.AreEqual(687, current.ResolveChartScoreSnapshot(ChartFileKind.Bms, chartPath, irHash, string.Empty).Score);
+                }
                 Task? apply = null;
                 Task? shutdown = null;
                 try
@@ -4587,6 +4649,12 @@ public sealed partial class SettingDialogEditCompletionTests
                     Task<bool> initialize = owner.InitializeAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "all-reconstruction-first-initialize");
                     Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    (BMSLibrary Library, bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score) initialScore = scoreObservations.First();
+                    Assert.IsTrue(initialScore.AllFree && initialScore.MinFree && initialScore.LibraryFree && initialScore.PlaylistFree);
+                    Assert.IsTrue(initialScore.Ready);
+                    Assert.AreEqual(initialScore.Version, initialScore.RuntimeVersion);
+                    Assert.AreEqual(1, initialScore.Subscriptions);
+                    Assert.AreEqual(687, initialScore.Score);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(irClient.Started.Task, "all-reconstruction-old-ir-started");
                     Assert.IsFalse(owner.IsLibraryOperationInProgress, "完了余韻・IR通信を新設定のBusy条件にしません。");
                     BMSLibrary original = factory.CreatedLibrary ?? throw new InvalidOperationException("Initial library was not attached.");
@@ -4645,8 +4713,8 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(1, session.SaveCount);
                     CollectionAssert.Contains(presentation.Requests, "close");
                     // この実走査を所有する親の終端を捕捉し、解放後に別の任意workerがLを取得しても同じ親だけを検査します。
-                    Task parentLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
-                    Task parentPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                    Task parentLibraryTerminal = scoreParentLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                    Task parentPlaylistTerminal = scoreParentPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseB).OpenSongDbReadOnly())
                     {
                         int headersBefore = db.Table<LR2SongDBExtended.playlist>().Count();
@@ -4671,7 +4739,11 @@ public sealed partial class SettingDialogEditCompletionTests
                         Assert.AreEqual(1, presentation.Requests.Count(request => request == "close"));
                         Assert.AreEqual(databaseB, values.LR2SongDBPath);
                         Assert.AreEqual(outputB, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
-                        if (completion == "Failed") { Assert.AreEqual(1, failures.Count); Assert.AreSame(originalFailure, failures[0]); }
+                        if (completion == "Failed")
+                        {
+                            Assert.AreEqual(1, failures.Count); Assert.AreSame(originalFailure, failures[0]);
+                            AssertAdoptedScoreNotification(current);
+                        }
                         else { Assert.AreEqual(0, failures.Count); TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown!, "all-reconstruction-shutdown-terminal"); }
                         Assert.IsTrue(parentLibraryTerminal.IsCompletedSuccessfully);
                         Assert.IsTrue(parentPlaylistTerminal.IsCompletedSuccessfully);
@@ -4681,6 +4753,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, apply, "all-reconstruction-required-ui"), "all-reconstruction-required-ui");
                     Assert.IsTrue(parentLibraryTerminal.IsCompletedSuccessfully);
                     Assert.IsTrue(parentPlaylistTerminal.IsCompletedSuccessfully);
+                    AssertAdoptedScoreNotification(current);
                     Assert.IsFalse(owner.IsInitializationCompleted);
                     Assert.IsTrue(owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
                     completionUi.Release.TrySetResult();
@@ -4719,6 +4792,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     finally
                     {
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown ?? owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "all-reconstruction-cleanup-close");
+                        foreach ((BMSLibrary Library, Action<ScoreSnapshotChange> Handler) subscription in scoreSubscriptions) { subscription.Library.ScoreSnapshotChanged -= subscription.Handler; }
                         owner.SettingDialog.Dispose();
                     }
                 }

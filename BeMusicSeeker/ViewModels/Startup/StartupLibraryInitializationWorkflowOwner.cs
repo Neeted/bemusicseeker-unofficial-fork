@@ -311,11 +311,12 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     }
 
     /// <summary>独立した保存ヘッダーとファイル走査を並列に読み、ローカル出力、必要LR2同期を順に直接待ちます。</summary>
+    /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
     internal async Task<StartupRequiredInitializationResult> InitializeRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot customFolderSettings = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
     {
-        Task<LibraryFileInitializationResult> filesTask = Task.Run(() => library.InitializeStartup([], null, performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver));
+        Task<LibraryFileInitializationResult> filesTask = Task.Run(() => library.InitializeStartup([], null, performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
         Task<bool> headersTask;
         try { headersTask = playlist.LoadStartupHeadersAsync(capability.PlaylistCapability); }
         catch (Exception failure) { headersTask = Task.FromException<bool>(failure); }
@@ -326,11 +327,12 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     }
 
     /// <summary>再初期化の既存のファイル更新範囲を保ち、今回の結果で必要出力と同期を完了します。</summary>
+    /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
     internal async Task<StartupRequiredInitializationResult> ReinitializeAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
     {
-        LibraryFileInitializationResult result = await Task.Run(() => library.ReinitializeUnderAdmission(capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver)).ConfigureAwait(false);
+        LibraryFileInitializationResult result = await Task.Run(() => library.ReinitializeUnderAdmission(capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver)).ConfigureAwait(false);
         return await CompleteRequiredAsync(library, playlist, lr2Workflow, result, false, capability, originatingRequest).ConfigureAwait(false);
     }
 
