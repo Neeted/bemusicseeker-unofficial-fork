@@ -9,8 +9,8 @@
 | [plan-clarifier.toml](plan-clarifier.toml) | 実装直前の引継ぎ点検。 |
 | [implementation-worker.toml](implementation-worker.toml) | 確定した範囲の実装・差し戻し修正。 |
 | [issue-resolver.toml](issue-resolver.toml) | 通常修正を試した担当が報告した技術的な行き詰まりの解決。 |
-| [preflight-static-review.toml](preflight-static-review.toml) | 最終レビュー前の反復予備レビュー。 |
+| [preflight-static-review.toml](preflight-static-review.toml) | 新規担当の全体予備レビューと、その指摘への局所修正の再確認。 |
 | [repo-static-review.toml](repo-static-review.toml) | 通常変更の独立レビュー。 |
 | [critical-static-review.toml](critical-static-review.toml) | 重大変更の独立レビュー。 |
 
-予備レビューは新規コンテキストの `preflight-static-review` で開始し、契約を保つ局所修正は同じ独立担当が再確認します。再計画後の新規担当と領域単位の凍結は、開発作業の仕様に従います。指摘がなくなってから通常用または重大用の最終レビューへ進みます。最終レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。`developer_instructions` には役割固有の補足だけを書き、共通契約・順序・検証規則を複製しません。
+全体予備レビューは毎回別の新しい `preflight-static-review` を新規コンテキストで使います。その指摘への局所修正は同じ担当が再確認できますが、解消後は新しい担当による全体予備レビューへ戻し、その全体確認で指摘がない場合だけ最終レビューへ進みます。最終レビューの契約を保つ局所修正は、同じ最終レビュー担当で指摘が解消するまで確認できます。再計画・領域単位の凍結と反復回数の扱いは、開発作業の仕様に従います。最終レビューの通常用と重大用は代替の入口であり、両方を毎回呼びません。`developer_instructions` には役割固有の補足だけを書き、共通契約・順序・検証規則を複製しません。
