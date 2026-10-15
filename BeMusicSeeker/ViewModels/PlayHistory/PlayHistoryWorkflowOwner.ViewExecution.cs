@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -61,7 +63,9 @@ public sealed partial class PlayHistoryWorkflowOwner
     {
         if (!TrySnapshotCurrentView(request.ViewRequest, out PlayHistoryViewState state))
         {
-            return PlayHistoryViewExecutionResult.NoCurrentMatchingState(request, fromSortOnly: true);
+            return request.RequestedMode == MainViewUpdateMode.KeywordFilterUpdated
+                ? ExecuteRead(request, dependencies)
+                : PlayHistoryViewExecutionResult.NoCurrentMatchingState(request, fromSortOnly: true);
         }
 
         long keywordRevision = request.ViewRequest.KeywordFilterRevision > 0
@@ -70,16 +74,34 @@ public sealed partial class PlayHistoryWorkflowOwner
         long displayTargetRevision = request.ViewRequest.DisplayTargetRevision > 0
             ? request.ViewRequest.DisplayTargetRevision
             : DisplayTargetRevision;
-        PlayHistoryPresentationOnlyBuildResult buildResult = BuildPresentationOnly(
-            new PlayHistoryPresentationOnlyBuildRequest(
-                request.RequestedMode,
-                state,
-                request.KeywordFilter,
-                keywordRevision,
-                request.DisplayTarget,
-                displayTargetRevision,
-                SnapshotSummaryFilterTexts(state.Provider)),
-            dependencies.PlaylistProvider());
+        PlayHistoryPresentationOnlyBuildResult buildResult;
+        try
+        {
+            buildResult = BuildPresentationOnly(
+                new PlayHistoryPresentationOnlyBuildRequest(
+                    request.RequestedMode,
+                    state,
+                    request.KeywordFilter,
+                    keywordRevision,
+                    request.DisplayTarget,
+                    displayTargetRevision,
+                    SnapshotSummaryFilterTexts(state.Provider)),
+                dependencies.PlaylistProvider());
+        }
+        catch (OperationCanceledException)
+        {
+            return PlayHistoryViewExecutionResult.Stale(request);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            PlayHistoryDiagnostic diagnostic = CreateReadFailureDiagnostic(
+                state.AllProjectedRows.FirstOrDefault()?.SourceProfile ?? new PlayHistorySourceProfile(state.Provider, string.Empty),
+                "presentation", failure);
+            var failed = new PlayHistoryReadWorkflowResult(false, string.Empty, request.Stopwatch.ElapsedMilliseconds,
+                read: null, periodIndex: null, projection: null, presentation: null,
+                failedStage: "presentation", diagnostics: [diagnostic]);
+            return ApplyReadFailure(request, failed, dependencies);
+        }
         if (buildResult.Status != PlayHistoryPresentationOnlyBuildStatus.Built)
         {
             QueueRefreshIfNeeded(buildResult.QueueRefresh, buildResult.Status);
@@ -125,16 +147,35 @@ public sealed partial class PlayHistoryWorkflowOwner
         {
             DetailSourceRetirement = request.ViewRequest.DetailSourceRetirement
         };
-        PlayHistoryReadWorkflowResult readResult = BuildReadView(
-            new PlayHistoryReadWorkflowRequest(
-                activeViewRequest,
-                source,
-                request.KeywordFilter,
-                request.DisplayTarget,
-                SnapshotSummaryFilterTexts(source.Provider),
-                progress => dependencies.ReportProgress(activeViewRequest, progress)),
-            dependencies.LibraryProvider(),
-            dependencies.PlaylistProvider());
+        PlayHistoryReadWorkflowResult readResult;
+        try
+        {
+            readResult = BuildReadView(
+                new PlayHistoryReadWorkflowRequest(
+                    activeViewRequest,
+                    source,
+                    request.KeywordFilter,
+                    request.DisplayTarget,
+                    SnapshotSummaryFilterTexts(source.Provider),
+                    progress => dependencies.ReportProgress(activeViewRequest, progress)),
+                dependencies.LibraryProvider(),
+                dependencies.PlaylistProvider());
+        }
+        catch (OperationCanceledException)
+        {
+            return PlayHistoryViewExecutionResult.ReadCanceled(request, null);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            PlayHistoryDiagnostic diagnostic = CreateReadFailureDiagnostic(ResolveSourceProfile(source), "presentation", failure);
+            readResult = new PlayHistoryReadWorkflowResult(false, string.Empty, request.Stopwatch.ElapsedMilliseconds,
+                read: null, periodIndex: null, projection: null, presentation: null,
+                failedStage: "presentation", diagnostics: [diagnostic]);
+        }
+        if (!string.IsNullOrEmpty(readResult.FailedStage))
+        {
+            return ApplyReadFailure(request, readResult, dependencies);
+        }
         if (!readResult.Built)
         {
             return PlayHistoryViewExecutionResult.ReadCanceled(request, readResult);
@@ -162,6 +203,62 @@ public sealed partial class PlayHistoryWorkflowOwner
             archivePeriodTree: presentation.ArchivePeriodTree,
             sortMs: presentation.SortMs);
     }
+
+    /// <summary>現在要求の失敗を既存終端へ適用し、行・カード・選択を失敗表示へ更新します。</summary>
+    private PlayHistoryViewExecutionResult ApplyReadFailure(
+        PlayHistoryViewExecutionRequest request,
+        PlayHistoryReadWorkflowResult readResult,
+        PlayHistoryViewExecutionDependencies dependencies)
+    {
+        bool applied = false;
+        bool invoked = dependencies.InvokePresentationSynchronously(() =>
+        {
+            string diagnosticText = BeMusicSeeker.Properties.Resources.Play_history_read_failed;
+            lock (PresentationState.SyncRoot)
+            {
+                if (!IsCurrentRequestUnsafe(request.ViewRequest.RequestId)
+                    || request.ViewRequest.KeywordFilterRevision != PresentationState.KeywordRevision
+                    || request.ViewRequest.DisplayTargetRevision != PresentationState.DisplayTargetRevision
+                    || !string.Equals(PlaylistRequestFactory.NormalizeKeywordFilter(request.KeywordFilter),
+                        PresentationState.CurrentKeywordIdentity, StringComparison.Ordinal)
+                    || !string.Equals(request.DisplayTarget.Identity, PresentationState.CurrentDisplayTargetIdentity, StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+
+            MainChartListColumnSelection columns = dependencies.MainChartList.ResolveColumnSettingForViewUpdate(
+                request.Mode, dependencies.ResolveColumnFilterMode());
+            PlayHistoryTerminalCommitResult terminal = ApplyTerminal(new PlayHistoryTerminalRequest
+            {
+                FailedViewRequest = request.ViewRequest,
+                ColumnSelection = columns,
+                ArchivePeriodTree = [],
+                SummaryCards = [],
+                DiagnosticText = diagnosticText,
+                DetailSourceRetirement = request.ViewRequest.DetailSourceRetirement,
+                MainRowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = Array.Empty<PlayHistoryRow>(),
+                    ColumnsSettings = columns.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                    Summary = MainChartListSummaryUpdate.Explicit(diagnosticText),
+                    Stopwatch = request.Stopwatch,
+                    OperationContextMode = columns.AppliedMode
+                }
+            }, dependencies.MainChartList, dependencies.PlaylistWorkspace);
+            applied = terminal.Applied;
+        });
+        return invoked && applied
+            ? PlayHistoryViewExecutionResult.ReadFailed(request, readResult)
+            : PlayHistoryViewExecutionResult.Stale(request, readResult, null, fromSortOnly: false);
+    }
+
+    private static PlayHistorySourceProfile ResolveSourceProfile(PlayHistoryReadSourceContext source)
+        => source.Provider == PlayHistoryProvider.Beatoraja
+            ? PlayHistorySourceProfile.Beatoraja(BeatorajaPlayHistoryReader.ResolveRequestPaths(
+                new BeatorajaPlayHistoryReadRequest { ScoreDbPath = source.ScoreDbPath }).ScoreLogDbPath)
+            : PlayHistorySourceProfile.Lr2(source.ScoreDbPath);
 
     private PlayHistoryViewExecutionResult ApplySortedRows(
         PlayHistoryViewExecutionRequest request,
@@ -339,7 +436,8 @@ internal enum PlayHistoryViewExecutionStatus
     Applied,
     Stale,
     NoCurrentMatchingState,
-    ReadCanceled
+    ReadCanceled,
+    ReadFailed
 }
 
 internal sealed class PlayHistoryViewExecutionResult
@@ -400,6 +498,10 @@ internal sealed class PlayHistoryViewExecutionResult
     internal static PlayHistoryViewExecutionResult NoCurrentMatchingState(PlayHistoryViewExecutionRequest request, bool fromSortOnly)
         => new(request, PlayHistoryViewExecutionStatus.NoCurrentMatchingState, null, null, default, fromSortOnly, 0L, 0L, false, 0, 0L, 0L, 0L, 0, 0L);
 
+    /// <summary>取得失敗の終端を、取消し・空表示の成功と区別して報告します。</summary>
+    internal static PlayHistoryViewExecutionResult ReadFailed(PlayHistoryViewExecutionRequest request, PlayHistoryReadWorkflowResult readResult)
+        => new(request, PlayHistoryViewExecutionStatus.ReadFailed, readResult, null, default, false, readResult?.Read?.ElapsedMs ?? 0L, 0L, false, 0, 0L, 0L, 0L, 0, 0L);
+
     internal static PlayHistoryViewExecutionResult ReadCanceled(PlayHistoryViewExecutionRequest request, PlayHistoryReadWorkflowResult readResult)
         => new(request, PlayHistoryViewExecutionStatus.ReadCanceled, readResult, null, default, false, readResult?.Read?.ElapsedMs ?? 0L, 0L, false, 0, 0L, 0L, 0L, 0, 0L);
 
@@ -414,7 +516,7 @@ internal sealed class PlayHistoryViewExecutionResult
         PlayHistoryReadWorkflowResult readResult,
         PlayHistoryPresentationOnlyBuildResult presentationOnlyResult,
         bool fromSortOnly)
-        => new(request, PlayHistoryViewExecutionStatus.Stale, readResult, presentationOnlyResult, default, fromSortOnly, readResult?.Read.ElapsedMs ?? 0L, readResult?.Projection.IndexMs ?? 0L, readResult?.Projection.IndexCacheHit ?? false, readResult?.Projection.IndexStaleRetries ?? 0, readResult?.Projection.ProjectionMs ?? 0L, readResult?.PeriodIndex.ElapsedMs ?? 0L, presentationOnlyResult?.KeywordMs ?? readResult?.Presentation?.KeywordMs ?? 0L, presentationOnlyResult?.KeywordCount ?? readResult?.Presentation?.KeywordCount ?? 0, presentationOnlyResult?.SortMs ?? readResult?.Presentation?.SortMs ?? 0L);
+        => new(request, PlayHistoryViewExecutionStatus.Stale, readResult, presentationOnlyResult, default, fromSortOnly, readResult?.Read?.ElapsedMs ?? 0L, readResult?.Projection?.IndexMs ?? 0L, readResult?.Projection?.IndexCacheHit ?? false, readResult?.Projection?.IndexStaleRetries ?? 0, readResult?.Projection?.ProjectionMs ?? 0L, readResult?.PeriodIndex?.ElapsedMs ?? 0L, presentationOnlyResult?.KeywordMs ?? readResult?.Presentation?.KeywordMs ?? 0L, presentationOnlyResult?.KeywordCount ?? readResult?.Presentation?.KeywordCount ?? 0, presentationOnlyResult?.SortMs ?? readResult?.Presentation?.SortMs ?? 0L);
 
     internal static PlayHistoryViewExecutionResult Stale(
         PlayHistoryViewExecutionRequest request,
@@ -422,7 +524,7 @@ internal sealed class PlayHistoryViewExecutionResult
         PlayHistoryPresentationOnlyBuildResult presentationOnlyResult,
         PlayHistorySortedRowsApplyResult applyResult,
         bool fromSortOnly)
-        => new(request, PlayHistoryViewExecutionStatus.Stale, readResult, presentationOnlyResult, applyResult, fromSortOnly, readResult?.Read.ElapsedMs ?? 0L, readResult?.Projection.IndexMs ?? 0L, readResult?.Projection.IndexCacheHit ?? false, readResult?.Projection.IndexStaleRetries ?? 0, readResult?.Projection.ProjectionMs ?? 0L, readResult?.PeriodIndex.ElapsedMs ?? 0L, presentationOnlyResult?.KeywordMs ?? readResult?.Presentation?.KeywordMs ?? 0L, presentationOnlyResult?.KeywordCount ?? readResult?.Presentation?.KeywordCount ?? 0, presentationOnlyResult?.SortMs ?? readResult?.Presentation?.SortMs ?? 0L);
+        => new(request, PlayHistoryViewExecutionStatus.Stale, readResult, presentationOnlyResult, applyResult, fromSortOnly, readResult?.Read?.ElapsedMs ?? 0L, readResult?.Projection?.IndexMs ?? 0L, readResult?.Projection?.IndexCacheHit ?? false, readResult?.Projection?.IndexStaleRetries ?? 0, readResult?.Projection?.ProjectionMs ?? 0L, readResult?.PeriodIndex?.ElapsedMs ?? 0L, presentationOnlyResult?.KeywordMs ?? readResult?.Presentation?.KeywordMs ?? 0L, presentationOnlyResult?.KeywordCount ?? readResult?.Presentation?.KeywordCount ?? 0, presentationOnlyResult?.SortMs ?? readResult?.Presentation?.SortMs ?? 0L);
 
     internal static PlayHistoryViewExecutionResult Applied(
         PlayHistoryViewExecutionRequest request,

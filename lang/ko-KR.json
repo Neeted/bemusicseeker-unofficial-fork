@@ -1,4 +1,5 @@
 {
+  "Play_history_read_failed": "플레이 기록을 가져오지 못했습니다.",
   "_language_name": "한국어",
   "Msg_warn_preview_temporary_files_remain": "미리듣기용 임시 파일을 삭제하지 못해 파일이 남아 있습니다.\n저장 위치: {0}\n자세한 내용은 로그를 확인하세요.",
   "PlaylistProp_sync_description": "원본 URI를 설정합니다. 외부 동기화 중에는 원본과 충돌하는 항목을 편집할 수 없습니다.",

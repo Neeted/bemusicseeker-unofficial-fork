@@ -177,6 +177,14 @@ internal sealed class PlayHistoryRuntimeEventReporter
         PlayHistoryPeriodRequest periodRequest = RequirePayload(viewRequest.PeriodRequest, "execution.Request.ViewRequest.PeriodRequest");
         RequirePayload(request.Stopwatch, "execution.Request.Stopwatch");
         ValidateExecutionPayloads(execution);
+        if (execution.Status == PlayHistoryViewExecutionStatus.ReadFailed)
+        {
+            Report("play_history_view_read_failed", "period=" + periodRequest.Kind
+                + " requestId=" + viewRequest.RequestId + " stage=" + execution.ReadResult?.FailedStage,
+                isWarning: true);
+            ReportDiagnostics(periodRequest, string.Empty, execution.ReadResult?.Diagnostics ?? []);
+            return;
+        }
         if (execution.Status == PlayHistoryViewExecutionStatus.NoCurrentMatchingState)
         {
             Report(

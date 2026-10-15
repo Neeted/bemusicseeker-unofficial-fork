@@ -44,7 +44,7 @@ internal sealed class BeatorajaPlayHistoryReader
                     sourceProfile,
                     [],
                     diagnostics,
-                    Lr2PlayHistorySchemaStatus.Installed,
+                    Lr2PlayHistorySchemaStatus.Unreadable,
                     playerSnapshots,
                     playerSnapshotsAvailable);
             }
@@ -94,7 +94,7 @@ internal sealed class BeatorajaPlayHistoryReader
         var diagnostics = new List<PlayHistoryDiagnostic>();
         if (!EnsureScoreLogExists(resolved.ScoreLogDbPath, diagnostics))
         {
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
+            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
         }
 
         try

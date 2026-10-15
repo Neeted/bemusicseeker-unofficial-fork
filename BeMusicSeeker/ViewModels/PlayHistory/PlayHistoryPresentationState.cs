@@ -17,6 +17,7 @@ internal sealed class PlayHistoryPresentationState
     internal CancellationTokenSource RequestCancellation;
     internal long KeywordRevision;
     internal long DisplayTargetRevision;
+    /// <summary>現在要求の再絞込みに使う変換済み表示。未採用の候補も含みます。</summary>
     internal PlayHistoryViewState CurrentView;
     internal SortSnapshot CurrentSortSnapshot;
     internal string CurrentKeywordIdentity = string.Empty;
@@ -90,7 +91,17 @@ internal sealed class PlayHistoryPresentationState
 
         lock (SyncRoot)
         {
-            if (!IsFresh(request.ViewState))
+            if (request.ViewState == null)
+            {
+                PlayHistoryViewRequest failed = request.FailedViewRequest;
+                if (failed == null || failed.RequestId <= 0 || failed.RequestId != RequestGeneration
+                    || failed.KeywordFilterRevision != KeywordRevision
+                    || failed.DisplayTargetRevision != DisplayTargetRevision)
+                {
+                    return false;
+                }
+            }
+            else if (!IsFresh(request.ViewState))
             {
                 return false;
             }
@@ -374,6 +385,8 @@ internal sealed class PlayHistoryPresentationState
 internal sealed class PlayHistoryTerminalRequest
 {
     internal PlayHistoryViewState ViewState { get; set; }
+    /// <summary>失敗表示終端の要求IDと表示条件の版を捕捉し、同じ条件へ戻った後も古い失敗を確定しません。</summary>
+    internal PlayHistoryViewRequest FailedViewRequest { get; set; }
     internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
 
     internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
@@ -499,6 +512,7 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
 
 internal sealed class PlayHistoryViewState
 {
+    /// <summary>同じ期間の行を再絞込みするため、変換済み行と表示条件を捕捉します。</summary>
     internal PlayHistoryViewState(
         long requestId,
         PlayHistoryPeriodRequest periodRequest,

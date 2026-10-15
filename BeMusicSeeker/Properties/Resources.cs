@@ -638,6 +638,9 @@ public class Resources
 
     public static string Play_history_period_archive => ResourceManager.GetString("Play_history_period_archive", resourceCulture);
 
+    /// <summary>履歴の取得失敗を、正常な0件の集計と区別する案内。</summary>
+    public static string Play_history_read_failed => ResourceManager.GetString("Play_history_read_failed", resourceCulture);
+
     public static string Play_history_period_diagnostics => ResourceManager.GetString("Play_history_period_diagnostics", resourceCulture);
 
     public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);

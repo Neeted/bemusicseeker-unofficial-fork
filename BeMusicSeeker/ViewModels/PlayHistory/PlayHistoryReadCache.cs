@@ -79,7 +79,7 @@ internal sealed class PlayHistoryReadCache
         try
         {
             Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(cacheRequest, CancellationToken.None);
-            if (ShouldCache(result.SchemaStatus))
+            if (!result.HasErrors && ShouldCache(result.SchemaStatus))
             {
                 lock (syncRoot)
                 {
@@ -150,7 +150,7 @@ internal sealed class PlayHistoryReadCache
         try
         {
             BeatorajaPlayHistoryReadResult result = new BeatorajaPlayHistoryReader().Read(cacheRequest, CancellationToken.None);
-            if (ShouldCache(result.SchemaStatus))
+            if (!result.HasErrors && ShouldCache(result.SchemaStatus))
             {
                 lock (syncRoot)
                 {
@@ -194,11 +194,16 @@ internal sealed class PlayHistoryReadCache
             },
             cancellationToken,
             out cacheHit);
-        return new Lr2PlayHistoryPeriodIndexResult(
-            read.SourceProfile,
-            BuildPeriodIndex(read.Rows.Select(row => row.played_at)),
-            read.Diagnostics,
-            read.SchemaStatus);
+        try
+        {
+            return new Lr2PlayHistoryPeriodIndexResult(read.SourceProfile,
+                BuildPeriodIndex(read.Rows.Select(row => row.played_at)), read.Diagnostics, read.SchemaStatus);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            return new Lr2PlayHistoryPeriodIndexResult(read.SourceProfile, [],
+                [CreatePeriodIndexFailure(read.SourceProfile, failure)], Lr2PlayHistorySchemaStatus.Unreadable);
+        }
     }
 
     internal BeatorajaPlayHistoryPeriodIndexResult ReadBeatorajaPeriodIndex(
@@ -219,7 +224,7 @@ internal sealed class PlayHistoryReadCache
             if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
             {
                 cacheHit = true;
-                return CreateBeatorajaPeriodIndexResult(beatorajaEntry);
+                return beatorajaEntry.PeriodIndex;
             }
         }
 
@@ -239,14 +244,10 @@ internal sealed class PlayHistoryReadCache
         {
             if (beatorajaEntry != null && beatorajaEntry.Key.IsSameSource(key))
             {
-                return CreateBeatorajaPeriodIndexResult(beatorajaEntry);
+                return beatorajaEntry.PeriodIndex;
             }
         }
-        return new BeatorajaPlayHistoryPeriodIndexResult(
-            read.SourceProfile,
-            BuildPeriodIndex(read.Rows.Select(row => row.played_at)),
-            read.Diagnostics,
-            read.SchemaStatus);
+        return BuildBeatorajaPeriodIndex(read);
     }
 
     private static Lr2PlayHistoryReadResult FilterLr2(Lr2PlayHistoryReadResult source, Lr2PlayHistoryReadRequest request)
@@ -330,13 +331,32 @@ internal sealed class PlayHistoryReadCache
         return [.. latestByLocalDate.Values.OrderByDescending(playedAt => playedAt)];
     }
 
-    private static BeatorajaPlayHistoryPeriodIndexResult CreateBeatorajaPeriodIndexResult(BeatorajaCacheEntry entry)
+    private static BeatorajaPlayHistoryPeriodIndexResult BuildBeatorajaPeriodIndex(BeatorajaPlayHistoryReadResult read)
     {
-        return new BeatorajaPlayHistoryPeriodIndexResult(
-            entry?.Result?.SourceProfile ?? PlayHistorySourceProfile.Beatoraja(string.Empty),
-            entry?.PeriodIndex ?? [],
-            entry?.Result?.Diagnostics ?? [],
-            entry?.Result?.SchemaStatus ?? Lr2PlayHistorySchemaStatus.Unreadable);
+        try
+        {
+            return new BeatorajaPlayHistoryPeriodIndexResult(read.SourceProfile,
+                BuildPeriodIndex(read.Rows.Select(row => row.played_at)), read.Diagnostics, read.SchemaStatus);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException)
+        {
+            return new BeatorajaPlayHistoryPeriodIndexResult(read.SourceProfile, [],
+                [CreatePeriodIndexFailure(read.SourceProfile, failure)], Lr2PlayHistorySchemaStatus.Unreadable);
+        }
+    }
+
+    private static PlayHistoryDiagnostic CreatePeriodIndexFailure(PlayHistorySourceProfile source, Exception failure)
+    {
+        PlayHistoryReadDiagnostics.Report(failure, source.Provider.ToString(), "period_index", source.SourcePath);
+        return new PlayHistoryDiagnostic
+        {
+            Provider = source.Provider,
+            Stage = "period_index",
+            Severity = PlayHistoryDiagnosticSeverity.Error,
+            Code = "play_history_period_index_failed",
+            Message = failure.Message,
+            SourcePath = source.SourcePath
+        };
     }
 
     private static bool ShouldCache(Lr2PlayHistorySchemaStatus status)
@@ -427,13 +447,13 @@ internal sealed class PlayHistoryReadCache
         {
             Key = key;
             Result = result;
-            PeriodIndex = BuildPeriodIndex(result?.Rows?.Select(row => row.played_at));
+            PeriodIndex = BuildBeatorajaPeriodIndex(result);
         }
 
         internal BeatorajaCacheKey Key { get; }
 
         internal BeatorajaPlayHistoryReadResult Result { get; }
 
-        internal IReadOnlyList<long> PeriodIndex { get; }
+        internal BeatorajaPlayHistoryPeriodIndexResult PeriodIndex { get; }
     }
 }

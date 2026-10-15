@@ -1,4 +1,5 @@
 {
+  "Play_history_read_failed": "無法取得遊玩紀錄。",
   "_language_name": "繁體中文",
   "Msg_warn_preview_temporary_files_remain": "試聽用的暫存檔案未能刪除，仍保留在磁碟上。\n位置：{0}\n詳細資訊請查看記錄。",
   "PlaylistProp_sync_description": "設定來源 URI。外部同步期間無法編輯與來源資料衝突的項目。",

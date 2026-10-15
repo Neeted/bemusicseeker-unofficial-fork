@@ -419,6 +419,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
+    /// <summary>生の読取り失敗を非採用とし、期間索引の失敗は正常な行の表示構築から分けます。</summary>
     internal PlayHistoryReadWorkflowResult BuildReadView(
         PlayHistoryReadWorkflowRequest request,
         BMSLibrary library,
@@ -525,9 +526,17 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 presentation: null);
         }
 
+        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
+        // 非連携の適用外スキップは読取り失敗ではなく、DB照会なしの空行と情報診断を表示する。
+        if ((!canReadPeriodIndex && schemaStatus != Lr2PlayHistorySchemaStatus.SkippedProfile)
+            || lr2ReadResult?.HasErrors == true || beatorajaReadResult?.HasErrors == true)
+        {
+            return new PlayHistoryReadWorkflowResult(false, string.Empty, readMs,
+                readStage, periodStage, projectionStage, presentation: null, failedStage: "read", readDiagnostics);
+        }
+
         IReadOnlyList<long> periodIndexPlayedAt = [];
         IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
-        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
         if (canReadPeriodIndex)
         {
             var periodStopwatch = Stopwatch.StartNew();
@@ -562,7 +571,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     periodIndexDiagnostics = periodResult.Diagnostics;
                 }
                 periodStage = new PlayHistoryPeriodIndexStageMetrics(
-                    PlayHistoryPeriodIndexStageStatus.Completed,
+                    periodIndexDiagnostics.Any(diagnostic => diagnostic?.Severity == PlayHistoryDiagnosticSeverity.Error)
+                        ? PlayHistoryPeriodIndexStageStatus.Failed : PlayHistoryPeriodIndexStageStatus.Completed,
                     periodCacheHit,
                     periodIndexPlayedAt?.Count ?? 0,
                     periodIndexDiagnostics?.Count ?? 0,
@@ -585,17 +595,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     projectionStage,
                     presentation: null);
             }
-            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
-            if (!IsCurrentRequest(requestId))
+            if (periodStage.Status == PlayHistoryPeriodIndexStageStatus.Failed)
             {
-                return new PlayHistoryReadWorkflowResult(
-                    built: false,
-                    canceledStage: "after_period_index",
-                    readMs + periodStage.ElapsedMs,
-                    readStage,
-                    periodStage,
-                    projectionStage,
-                    presentation: null);
+                periodIndexPlayedAt = null;
             }
         }
         else
@@ -606,7 +608,18 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 dayCount: 0,
                 diagnosticCount: 0,
                 elapsedMs: 0L);
-            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+        }
+        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+        if (!IsCurrentRequest(requestId))
+        {
+            return new PlayHistoryReadWorkflowResult(
+                built: false,
+                canceledStage: "after_period_index",
+                readMs + periodStage.ElapsedMs,
+                readStage,
+                periodStage,
+                projectionStage,
+                presentation: null);
         }
 
         PlayHistoryProjectionResult projectionResult;
@@ -614,7 +627,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         bool projectionIndexCacheHit = false;
         int projectionIndexStaleRetries = 0;
         long projectionMs = 0L;
-        Exception projectionFailure = null;
         if (rawReadCount > 0)
         {
             try
@@ -624,7 +636,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         library,
                         beatorajaReadResult,
                         cancellationToken,
-                        ex => projectionFailure = ex,
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
@@ -633,7 +644,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         library,
                         lr2ReadResult,
                         cancellationToken,
-                        ex => projectionFailure = ex,
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
@@ -682,8 +692,14 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             projectionIndexCacheHit,
             projectionIndexStaleRetries,
             projectionMs,
-            projectionFailure);
+            failure: null);
         request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ProjectionCompleted(readStage, periodStage, projectionStage));
+        if (projectionFallback)
+        {
+            return new PlayHistoryReadWorkflowResult(false, string.Empty,
+                readMs + periodStage.ElapsedMs + projectionIndexMs + projectionMs, readStage, periodStage,
+                projectionStage, presentation: null, failedStage: "projection", projectionResult.Diagnostics);
+        }
         PlayHistoryPeriodSummaryOverride summaryOverride = request.Source.Provider == PlayHistoryProvider.Beatoraja
             ? ResolveBeatorajaPeriodSummaryOverride(periodRequest, beatorajaReadResult)
             : null;
@@ -703,7 +719,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 request.DisplayTarget,
                 request.ViewRequest.DisplayTargetRevision > 0 ? request.ViewRequest.DisplayTargetRevision : DisplayTargetRevision,
                 request.SummaryFilterTexts,
-                summaryOverride),
+                summaryOverride,
+                beatorajaReadResult?.SourceProfile ?? lr2ReadResult?.SourceProfile),
             playlist);
         return new PlayHistoryReadWorkflowResult(
             presentation.Built,
@@ -715,12 +732,14 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             presentation);
     }
 
+    /// <summary>履歴の成功表示または未取得を、行・選択・詳細sourceと同じ既存終端で確定します。</summary>
     internal PlayHistoryTerminalCommitResult ApplyTerminal(
         PlayHistoryTerminalRequest request,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace)
     {
-        if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
+        if (request == null || (request.ViewState == null && (request.FailedViewRequest?.RequestId ?? 0L) <= 0)
+            || request.MainRowsRequest?.Rows == null)
         {
             throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
         }
@@ -764,7 +783,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 playlistDetailActive: false,
                 playlistSummaryActive: false);
             mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-            PruneSummaryFilters(request.ViewState.Provider);
+            if (request.ViewState != null)
+            {
+                PruneSummaryFilters(request.ViewState.Provider);
+            }
             return true;
         }
 
@@ -1151,9 +1173,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             return PlayHistoryReadPresentationBuildResult.Stale();
         }
 
-        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
-            request.PeriodIndexPlayedAt,
-            TimeZoneInfo.Local);
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = [];
+        if (request.PeriodIndexPlayedAt != null)
+        {
+            try
+            {
+                archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(request.PeriodIndexPlayedAt, TimeZoneInfo.Local);
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                PlayHistoryDiagnostic diagnostic = CreateReadFailureDiagnostic(request.SourceProfile, "period_tree", failure);
+                diagnostics = MergeDiagnostics(diagnostics, [diagnostic]);
+            }
+        }
         if (!IsCurrentRequest(request.RequestId))
         {
             return PlayHistoryReadPresentationBuildResult.Stale();
@@ -1198,6 +1230,20 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             request.ProjectedRows.Count,
             targetRows.Count,
             archivePeriodTree);
+    }
+
+    private static PlayHistoryDiagnostic CreateReadFailureDiagnostic(PlayHistorySourceProfile source, string stage, Exception failure)
+    {
+        PlayHistoryReadDiagnostics.Report(failure, source?.Provider.ToString(), stage, source?.SourcePath);
+        return new PlayHistoryDiagnostic
+        {
+            Provider = source?.Provider ?? PlayHistoryProvider.Lr2,
+            Stage = stage,
+            Severity = PlayHistoryDiagnosticSeverity.Error,
+            Code = "play_history_" + stage + "_failed",
+            Message = failure.Message,
+            SourcePath = source?.SourcePath ?? string.Empty
+        };
     }
 
     private static IReadOnlyList<PlayHistoryDiagnostic> MergeDiagnostics(
@@ -1989,7 +2035,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         BMSLibrary library,
         Lr2PlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
-        Action<Exception> logProjectionFailure,
         out long projectionIndexMs,
         out bool projectionIndexCacheHit,
         out int projectionIndexStaleRetries,
@@ -2019,13 +2064,13 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             projectionMs = 0L;
+            PlayHistoryReadDiagnostics.Report(ex, readResult.SourceProfile.Provider.ToString(), "projection", readResult.SourceProfile.SourcePath);
             PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
             List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
             diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Lr2, ex.Message, readResult?.SourceProfile?.SourcePath));
-            logProjectionFailure?.Invoke(ex);
             return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
         }
     }
@@ -2034,7 +2079,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         BMSLibrary library,
         BeatorajaPlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
-        Action<Exception> logProjectionFailure,
         out long projectionIndexMs,
         out bool projectionIndexCacheHit,
         out int projectionIndexStaleRetries,
@@ -2064,13 +2108,13 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             projectionMs = 0L;
+            PlayHistoryReadDiagnostics.Report(ex, readResult.SourceProfile.Provider.ToString(), "projection", readResult.SourceProfile.SourcePath);
             PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectBeatorajaRows(readResult, PlayHistoryProjectionIndex.Empty);
             List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
             diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Beatoraja, ex.Message, readResult?.SourceProfile?.SourcePath));
-            logProjectionFailure?.Invoke(ex);
             return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
         }
     }

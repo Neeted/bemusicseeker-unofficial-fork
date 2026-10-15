@@ -208,7 +208,8 @@ internal enum PlayHistoryPeriodIndexStageStatus
     NotStarted,
     Completed,
     SkippedSchemaUnavailable,
-    Canceled
+    Canceled,
+    Failed
 }
 
 internal sealed class PlayHistoryProjectionStageMetrics
@@ -257,6 +258,7 @@ internal enum PlayHistoryProjectionStageStatus
 
 internal sealed class PlayHistoryReadWorkflowResult
 {
+    /// <summary>成功、取消し、取得失敗を区別し、未採用の失敗診断だけを表示側へ渡します。</summary>
     internal PlayHistoryReadWorkflowResult(
         bool built,
         string canceledStage,
@@ -264,7 +266,9 @@ internal sealed class PlayHistoryReadWorkflowResult
         PlayHistoryReadStageMetrics read,
         PlayHistoryPeriodIndexStageMetrics periodIndex,
         PlayHistoryProjectionStageMetrics projection,
-        PlayHistoryReadPresentationBuildResult presentation)
+        PlayHistoryReadPresentationBuildResult presentation,
+        string failedStage = null,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = null)
     {
         Built = built;
         CanceledStage = canceledStage ?? string.Empty;
@@ -273,7 +277,14 @@ internal sealed class PlayHistoryReadWorkflowResult
         PeriodIndex = periodIndex;
         Projection = projection;
         Presentation = presentation;
+        FailedStage = failedStage ?? string.Empty;
+        Diagnostics = diagnostics ?? [];
     }
+
+    /// <summary>失敗を取消しや正常0件へ読み替えず、採用側へ渡します。</summary>
+    internal string FailedStage { get; }
+    /// <summary>非採用となった段階の診断。元例外を表示用に保存しません。</summary>
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
 
     internal bool Built { get; }
     internal string CanceledStage { get; }

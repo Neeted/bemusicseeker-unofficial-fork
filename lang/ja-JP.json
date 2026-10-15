@@ -1,4 +1,5 @@
 {
+  "Play_history_read_failed": "履歴の取得に失敗しました。",
   "_language_name": "日本語",
   "Msg_warn_preview_temporary_files_remain": "試聴用の一時ファイルが残りました。\n保存先: {0}\n詳細はログを確認してください。",
   "PlaylistProp_sync_description": "参照元 URI を設定します。外部同期中は参照元と競合する項目を編集できません。",

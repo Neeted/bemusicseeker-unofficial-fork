@@ -24,7 +24,9 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 スキーマ検査を先に行い、読めない状態では行を問い合わせず診断を返します。`AllowRepairableIndexRead` が`false` なら不足・不一致の索引で停止し、`true` なら警告付きで読めます。期間索引の専用取得は索引不備で常に停止します。`RequireCompleteHistoryTriggers` は独立した条件で、`true` ならトリガー不足・不一致で行照会前に停止します。読込み中に修復しません。
 
-期間索引は日別の代表時刻で、通常一覧の件数上限に影響されません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaの診断表示は空で、通常の更新履歴を未確定扱いにしません。
+期間索引は日別の代表時刻で、通常一覧の件数上限に影響されません。UIでは全件キャッシュの確定行をローカル日付別にまとめ、各日の最大時刻を使います。beatorajaでは「未確定／診断」期間の履歴行は空で、通常の更新履歴を未確定扱いにしません。この期間の扱いは、取得失敗の診断表示を抑止する意味ではありません。
+
+履歴行の読取りと、全履歴からの期間索引・過去日付ツリーの生成は採否を分けます。索引・ツリーだけが失敗しても、正常な選択期間の行・集計は表示します。過去日付の項目を外して利用不可にし、索引の取得失敗を示します。旧日付ツリーの保存・取得元照合は行わず、固定期間の選択は続けられます。
 
 ### キャッシュと表示用変換
 
@@ -32,7 +34,11 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 LR2のキーはスコアDBパスと連携判定、beatorajaはスコアDB・履歴DBパスとスコアの版です。スコア再読込み、履歴スキーマ操作、取得元・パス変更で破棄し、次回表示時に読み直します。現在のLR2プロファイルと一致する検査結果は設定の状態表示へ共有しますが、設定画面を開くためにDB照会しません。
 
+正常に読めた0件は採用・キャッシュします。読取り不能やエラーを伴う失敗結果は成功キャッシュへ入れず、同じ要求の中で再読取りしません。次の通常要求が成功すれば、その結果を採用します。beatorajaの履歴DB欠落も読取り不能であり、正常な0件とは区別します。
+
 `PlayHistoryProjectionIndex` が生の記録を現在の所持譜面とプレイリストへ解決します。古い要求・取消で構築が中断したら表示を更新しません。譜面を解決できない行は生のハッシュと診断を持つ未解決行として残せます。これはスキーマ不備や取得失敗を成功へ変える意味ではありません。
+
+読取り・表示生成が失敗した場合は、現在要求の結果領域を取得失敗へ更新します。旧行・選択・集計カードを外し、行・カードに依存する操作だけを止めます。失敗表示に空の表示コレクションを使っても、正常0件の取得成功とは区別します。旧表示の保存・条件照合・復元は行わず、期間・表示対象の変更や他画面は利用できます。取消し・旧世代の拒否と取得失敗を区別し、古い成功・失敗結果は新しい要求へ適用しません。日付別の旧結果保存や自動再試行は行いません。
 
 ### 行の意味
 
@@ -49,6 +55,8 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 一覧とは別の集計帯に判定数、プレイ数、演奏時間、スコア/BP/COMBO/CLEAR更新数とクリア更新内訳を表示します。beatorajaだけEXH内訳を加えます。更新カードの複数選択はOR、キーワードとはANDで絞ります。カード選択を検索文字列や履歴へ書き込みません。
 
 演奏時間は期間の値で、検索・カード・表示対象による行数変化に追従しません。beatorajaの期間実績は `score.db.player` の累計から、終了境界前の最新値－開始境界前の最新値で求めます。すべてでは最新累計を使います。未確定診断・未対応・読取不能は `-` で、別の値へ代用しません。
+
+`score.db.player` だけが読めない場合は、この3実績を利用不可にし、正常に読めた更新履歴と更新数の表示は維持します。履歴全体の読取り失敗へ広げず、履歴行数から実績を作りません。期間実績も同じ取得時点のキャッシュを使い、期間変更だけでは再照会しません。既存のスコア再読込みなどでキャッシュを破棄した次の取得で、実績の取得もやり直します。
 
 ### 検索と整列
 
@@ -104,6 +112,8 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadSourceSelectorTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadSourceSelectorTests.cs) |
+| 取得失敗の表示・正常空との区別・次の成功へ復帰 | [`PlayHistoryWorkflowOwner.ViewExecution`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.ViewExecution.cs)、[`PlayHistoryPresentationState`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryPresentationState.cs) | [`PlayHistoryReadModelTests`](../../../BeMusicSeeker.Tests/PlayHistory/PlayHistoryReadModelTests.cs)で実DBの照会失敗から一覧・カード・選択の退役と失敗表示、次の正常0件の採用まで確認する。投影DB故障、条件が一周した古い失敗の拒否、通常画面移動後の非上書きも同テスト群で分担する。 |
+| 索引だけの失敗・正常行と集計の採用 | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs)、`PlayHistoryWorkflowOwner.BuildReadPresentation` | `PlayHistoryReadModelTests`で期間外の不正日時と正常な現在期間を使い、更新後の行・非ゼロ集計・過去日項目の除去・固定期間の継続を確認する。player表だけの障害は同テスト群で正常一覧と3実績の利用不可、既存キャッシュ失効後の復帰を確認する。 |
 | 読取り失敗の一次診断 | 両reader、[`Lr2PlayHistorySchemaService.Check`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs)、[`PlayHistoryReadDiagnostics`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/PlayHistoryReadDiagnostics.cs) | 上記reader・スキーマの実DB失敗テストを回帰実行し、元例外・取得元・段階・パスの局所ログ接続は静的に確認する。例外の表示用輸送やログ故障の組合せを保証に加えない。 |
 | 検索構文・日時範囲・表示フィルター | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs) | [`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs) |
 | 実画面の期間・明示メニュー操作・対象変更 | [`PlayHistoryWorkflowOwner`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.cs) | [`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs)、[`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)で実WPFの期間・明示メニュー操作・対象変更を自動検証する。実入力とフォーカスは[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |

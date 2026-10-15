@@ -3709,4 +3709,7 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Error_PreparedChartTargetMismatch" xml:space="preserve">
     <value>準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。</value>
   </data>
+  <data name="Play_history_read_failed" xml:space="preserve">
+    <value>履歴の取得に失敗しました。</value>
+  </data>
 </root>
