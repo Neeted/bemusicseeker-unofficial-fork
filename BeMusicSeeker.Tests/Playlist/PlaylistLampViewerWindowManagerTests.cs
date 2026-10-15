@@ -48,7 +48,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
         });
     }
 
-    /// <summary>初回Deletedは所有者付き通知一回を維持し、未表示Windowの実Closed・両所有集合からの除去と情報源解放を一回行います。不可視Windowを回収済みとする誤りを検出します。</summary>
+    /// <summary>初回Deletedは所有者付き通知一回を維持し、未表示Windowの実Closed・両所有集合からの除去と開始済み処理を回収します。不可視Windowを回収済みとする誤りを検出します。</summary>
     [TestMethod]
     public void Manager_initialDeletedShowsOneLocalizedDialogAndNoWindow()
     {
@@ -71,107 +71,46 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     dialogs.Messages.Single().MessageBoxText);
                 Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
                 fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
-                Assert.AreEqual(1, source.ChangedRemoveAttemptCount);
-                Assert.AreEqual(1, source.DisposeAttemptCount);
-                Assert.AreEqual(1, source.SyncDisposeCallCount);
-                Assert.AreEqual(1, source.DisposeCount);
             },
             prepareWindowPresentation: false);
     }
 
-    /// <summary>
-    /// 初回Failedは原因付き通知を一回表示して未表示Windowを実回収します。先に表示した正常viewerの
-    /// 表示・segment操作・sourceを維持し、不可視Windowの残留と別viewerの巻込みを検出します。
-    /// </summary>
+    /// <summary>初回取得失敗でも窓を表示し、依存操作を止めて正常な別窓を維持する。Failedをcloseへ流す誤りを検出する。</summary>
     [TestMethod]
-    public void Manager_initialFailedShowsOneLocalizedDialogAndNoWindow()
+    public void Manager_initialFailedKeepsWindowAndIndependentHealthyViewer()
     {
-        var source = new ControlledLampSource(
-            PlaylistLampAggregationRequest.Failed("1", "initial aggregation failure"));
+        var source = new ControlledLampSource(PlaylistLampAggregationRequest.Failed("1", "initial aggregation failure"));
         var healthySource = new ControlledLampSource(CreateReadyRequest("2"));
         int sourceCount = 0;
         var dialogs = new RecordingDialogService();
-        RunScenario(
-            dialogs,
-            _ => ++sourceCount == 1 ? healthySource : source,
-            fixture =>
-            {
-                Task<PlaylistLampViewerWindow> healthyOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext());
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(healthyOpen, "manager.initial-failed.healthy-open");
-                PlaylistLampViewerWindow healthy = healthyOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("初回Failedと独立した正常viewerが開かなかった。");
-                Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.initial-failed.open");
-
-                Assert.IsNull(open.GetAwaiter().GetResult());
-                Assert.AreEqual(1, fixture.Manager.Count);
-                Assert.AreEqual(2, fixture.PreparedWindowCount);
-                Assert.AreEqual(1, dialogs.MessageCount);
-                StringAssert.Contains(
-                    dialogs.Messages.Single().MessageBoxText,
-                    "initial aggregation failure");
-                Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
-                fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
-                Assert.AreEqual(1, source.ChangedRemoveAttemptCount);
-                Assert.AreEqual(1, source.DisposeAttemptCount);
-                Assert.AreEqual(1, source.SyncDisposeCallCount);
-                Assert.AreEqual(1, source.DisposeCount);
-                Assert.IsTrue(healthy.IsVisible);
-                Assert.IsTrue(Application.Current.Windows.OfType<Window>().Contains(healthy));
-                PlaylistLampViewerSegmentViewModel segment = healthy.ViewModel.RankSegments.First(item => item.IsInvokable);
-                healthy.ViewModel.InvokeSegment(segment);
-                Assert.IsTrue(segment.IsSelected);
-                Assert.AreEqual(0, healthySource.ChangedRemoveAttemptCount);
-                Assert.AreEqual(0, healthySource.DisposeAttemptCount);
-            },
-            shouldPrepareWindowPresentation: window => window.ViewModel.PlaylistId == "2");
-    }
-
-    /// <summary>初回Failed/Deletedの通知がthrowまたはFailedでも、未表示Windowの実Closed・両集合からの除去とsource解放を一回確認し、通知故障が後続drainを汚染しません。</summary>
-    [DataTestMethod]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
-    public void Manager_initialTerminalNotificationFailureStillCleansSource(bool deleted, bool notificationThrows)
-    {
-        var source = new ControlledLampSource(deleted
-            ? PlaylistLampAggregationRequest.Deleted("1")
-            : PlaylistLampAggregationRequest.Failed("1", "initial failure"));
-        var dialogs = new RecordingDialogService
+        RunScenario(dialogs, _ => ++sourceCount == 1 ? healthySource : source, fixture =>
         {
-            MessageFailure = notificationThrows ? new IOException("optional initial notice") : null,
-            MessageResult = UiDialogResult.NotShown(UiDialogStatus.Failed)
-        };
-        RunScenario(dialogs, _ => source, fixture =>
-        {
+            Task<PlaylistLampViewerWindow> healthyOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(healthyOpen, "manager.failed.healthy");
+            PlaylistLampViewerWindow healthy = healthyOpen.GetAwaiter().GetResult();
             Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "initial optional notice terminal");
-            Assert.IsNull(open.GetAwaiter().GetResult());
-            Assert.AreEqual(1, dialogs.MessageCount);
-            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "initial optional notice clean drain");
-            fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
-            Assert.AreEqual(1, source.ChangedRemoveAttemptCount);
-            Assert.AreEqual(1, source.DisposeAttemptCount);
-            Assert.AreEqual(1, source.SyncDisposeCallCount);
-            Assert.AreEqual(1, source.DisposeCount);
-            Assert.AreEqual(0, fixture.Manager.Count);
-        }, prepareWindowPresentation: false);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.failed.open");
+            PlaylistLampViewerWindow failed = open.GetAwaiter().GetResult();
+            Assert.IsNotNull(failed);
+            Assert.IsTrue(failed.IsVisible);
+            Assert.IsTrue(failed.ViewModel.IsFailure);
+            Assert.IsFalse(failed.ViewModel.IsGraphVisible);
+            Assert.AreEqual(0, failed.ViewModel.RankSegments.Count);
+            Assert.AreEqual(2, fixture.Manager.Count);
+            Assert.IsTrue(healthy.IsVisible);
+            Assert.IsTrue(healthy.ViewModel.RankSegments.Any(item => item.IsInvokable));
+            Assert.AreEqual(0, dialogs.MessageCount);
+        });
     }
 
-    /// <summary>factory失敗はWindowを生成せず、prepare失敗は未表示Windowを実Closed・両集合除去まで回収します。元故障と必須解放故障を保持し、成功した回収へ通常open故障を持ち越しません。</summary>
+    /// <summary>factory失敗はWindowを生成せず、prepare失敗は未表示Windowを実Closed・両集合除去まで回収する。元の生成失敗を呼出元へ返し、回収後の通常終了は成功する。</summary>
     [DataTestMethod]
     [DataRow(0)] // factory自体がthrow。
     [DataRow(1)] // factory成功後のwindow準備がthrow。
-    [DataRow(2)] // 準備とsource解放の両方がthrow。
     public void Manager_creationFailurePreservesRequiredFailureAndAttemptsCleanup(int failureStage)
     {
         var failure = new IOException("required lamp creation marker");
-        var cleanupFailure = new IOException("required lamp source cleanup marker");
-        var source = new ControlledLampSource(CreateReadyRequest("1"))
-        {
-            DisposeFailure = failureStage == 2 ? cleanupFailure : null
-        };
+        var source = new ControlledLampSource(CreateReadyRequest("1"));
         var dialogs = new RecordingDialogService();
         RunScenario(dialogs,
             _ => failureStage == 0 ? throw failure : source,
@@ -180,28 +119,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
                 Exception observed = CaptureTaskFailure(open, "lamp creation failure");
                 Assert.IsTrue(GetFailureLeaves(observed).Any(cause => ReferenceEquals(cause, failure)));
-                if (failureStage == 2)
-                {
-                    Assert.IsTrue(GetFailureLeaves(observed).Any(cause => ReferenceEquals(cause, cleanupFailure)));
-                    Exception drainFailure = CaptureTaskFailure(fixture.Manager.WaitForCompletionAsync(), "lamp failed creation cleanup drain");
-                    AssertCleanupCauses(drainFailure, [cleanupFailure]);
-                    fixture.RecordObservedManagerCleanupFailure(drainFailure);
-                }
-                else
-                {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "lamp ordinary creation failure clean drain");
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.DisposeAsync().AsTask(), "lamp ordinary creation failure clean shutdown");
-                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "lamp ordinary creation failure clean drain");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.DisposeAsync().AsTask(), "lamp ordinary creation failure clean shutdown");
                 if (failureStage == 0) { Assert.AreEqual(0, fixture.PreparedWindowCount); }
                 else
                 {
                     Assert.AreEqual(1, fixture.PreparedWindowCount);
                     fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
                 }
-                Assert.AreEqual(failureStage == 0 ? 0 : 1, source.ChangedRemoveAttemptCount);
-                Assert.AreEqual(failureStage == 0 ? 0 : 1, source.DisposeAttemptCount);
-                Assert.AreEqual(failureStage == 0 ? 0 : 1, source.SyncDisposeCallCount);
-                Assert.AreEqual(failureStage == 1 ? 1 : 0, source.DisposeCount);
                 Assert.AreEqual(0, dialogs.MessageCount, "実生成・解放故障は呼出元のowning境界へ伝えます。");
                 Assert.AreEqual(0, fixture.Manager.Count);
             },
@@ -246,20 +171,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
         Assert.IsFalse(activatedForShow);
     }
 
-    /// <summary>実プレイリスト集合から一対象を削除すると、その情報源の通知で対象ビューアだけを一回閉じ、他の窓は保持して通知ダイアログを出さない。対象外の巻込みと解除漏れを検出する。</summary>
+    /// <summary>実プレイリスト集合から一対象を削除すると、Workspaceのcatalog通知で対象ビューアだけを一回閉じ、他の窓は保持して通知ダイアログを出さない。対象外の巻込みと閉鎖漏れを検出する。</summary>
     [TestMethod]
     public void Manager_collectionRemovalSilentlyClosesOnlyTargetViewer()
     {
-        var createdSources = new List<ActualReadySource>();
         var dialogs = new RecordingDialogService();
         RunScenario(
             dialogs,
-            context =>
-            {
-                var source = new ActualReadySource(context.Playlist, context.Library, context.PlaylistId);
-                createdSources.Add(source);
-                return source;
-            },
+            context => new ActualReadySource(context.Playlist, context.Library, context.PlaylistId),
             fixture =>
             {
                 PlaylistLampViewerOpenContext otherContext = fixture.CreateOtherContext();
@@ -285,7 +204,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(2, fixture.Manager.Count);
                 Assert.AreEqual(PlaylistLampViewerState.Ready, firstWindow.ViewModel.State);
 
-                // 実情報源が購読する正本集合を変更し、手動イベント注入ではなく対象削除から終了へ接続する。
+                // Workspaceが購読する正本集合を変更し、手動イベント注入ではなく対象削除から終了へ接続する。
                 Assert.IsTrue(fixture.Playlist.BMSTables.Remove(fixture.Table));
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(
                     firstClosed.Task,
@@ -297,7 +216,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.IsTrue(otherWindow.IsVisible);
                 Assert.AreEqual(0, dialogs.MessageCount);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "lamp closed source actual drain");
-                Assert.AreEqual(1, createdSources[0].DisposeCount);
             });
     }
 
@@ -367,9 +285,157 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(1, fixture.Manager.Count);
                 Assert.IsTrue(secondWindow.IsVisible);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "lamp closed source actual drain");
-                Assert.AreEqual(1, createdSources[0].DisposeCount);
-                Assert.AreEqual(0, createdSources[1].DisposeCount);
             });
+    }
+
+    /// <summary>表示後の明示日付取得が失敗しても対象窓と別窓を維持し、最新への明示変更で復帰する。FailedをDeletedの終了経路へ流す誤りを実Windowで検出する。</summary>
+    [TestMethod]
+    public void Manager_dateFailureKeepsWindowsAndLatestRecovers()
+    {
+        var source = new ControlledLampSource(CreateReadyRequest("1"));
+        var dialogs = new RecordingDialogService();
+        RunScenario(dialogs, _ => source, fixture =>
+        {
+            Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "date failure initial open");
+            PlaylistLampViewerWindow target = open.GetAwaiter().GetResult();
+            Task<PlaylistLampViewerWindow> otherOpen = fixture.Manager.TryOpenAsync(fixture.Context);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "date failure independent open");
+            PlaylistLampViewerWindow other = otherOpen.GetAwaiter().GetResult();
+            source.CaptureOverride = (query, _) => ValueTask.FromResult(query.SelectedLocalDate.HasValue
+                ? PlaylistLampAggregationRequest.Failed("1", "date unavailable", query: query)
+                : CreateReadyRequest("1", query));
+            TaskCompletionSource<bool> failed = Completion<bool>();
+            System.ComponentModel.PropertyChangedEventHandler handler = (_, _) =>
+            {
+                if (target.ViewModel.IsFailure) { failed.TrySetResult(true); }
+            };
+            target.ViewModel.PropertyChanged += handler;
+            try
+            {
+                target.ViewModel.SelectedAsOfDate = new DateTime(2026, 8, 27);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(failed.Task, "date failure projection");
+                Assert.IsTrue(target.IsVisible);
+                Assert.IsFalse(target.ViewModel.IsGraphVisible);
+                Assert.AreEqual(0, target.ViewModel.RankSegments.Count);
+                Assert.IsTrue(other.IsVisible);
+                Assert.IsTrue(other.ViewModel.IsGraphVisible);
+                Assert.AreEqual(2, fixture.Manager.Count);
+                Assert.AreEqual(0, dialogs.MessageCount);
+                TaskCompletionSource<bool> recovered = Completion<bool>();
+                System.ComponentModel.PropertyChangedEventHandler recoveredHandler = (_, _) =>
+                {
+                    if (target.ViewModel.State == PlaylistLampViewerState.Ready) { recovered.TrySetResult(true); }
+                };
+                target.ViewModel.PropertyChanged += recoveredHandler;
+                try
+                {
+                    target.ViewModel.LatestCommand.Execute();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(recovered.Task, "date failure latest recovery");
+                    Assert.IsTrue(target.ViewModel.IsGraphVisible);
+                    Assert.IsNull(target.ViewModel.SelectedAsOfDate);
+                }
+                finally { target.ViewModel.PropertyChanged -= recoveredHandler; }
+            }
+            finally { target.ViewModel.PropertyChanged -= handler; }
+        });
+    }
+
+    /// <summary>同じUI操作で正本集合をClearして同IDを戻した場合は窓を維持する。途中Resetを削除確定へ読み替える接続を検出する。</summary>
+    [TestMethod]
+    public void Manager_catalogReloadWithSameIdKeepsViewer()
+    {
+        RunScenario(new RecordingDialogService(), _ => new ControlledLampSource(CreateReadyRequest("1")), fixture =>
+        {
+            Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "reload viewer open");
+            PlaylistLampViewerWindow window = open.GetAwaiter().GetResult();
+            fixture.Playlist.BMSTables.Clear();
+            fixture.Playlist.BMSTables.Add(fixture.Table);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(window.IsVisible);
+            Assert.AreEqual(1, fixture.Manager.Count);
+            Assert.AreEqual(PlaylistLampViewerState.Ready, window.ViewModel.State);
+        });
+    }
+
+    /// <summary>初回捕捉中の表削除も既存catalog通知でDeletedへ確定し、捕捉を取り消して一回だけ案内する。表示前lifetimeの削除見落としを検出する。</summary>
+    [TestMethod]
+    public void Manager_catalogRemovalDuringInitialCaptureDoesNotShowViewer()
+    {
+        var source = new ControlledLampSource(CreateReadyRequest("1"), waitForCapture: true);
+        var dialogs = new RecordingDialogService();
+        RunScenario(dialogs, _ => source, fixture =>
+        {
+            Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(source.CaptureStarted.Task, "deleted initial capture started");
+                fixture.Playlist.BMSTables.Remove(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "deleted initial capture completed");
+                Assert.IsNull(open.GetAwaiter().GetResult());
+                Assert.AreEqual(0, fixture.Manager.Count);
+                Assert.AreEqual(1, dialogs.MessageCount);
+                Assert.AreEqual(Resources.PlaylistLampViewer_initial_deleted, dialogs.Messages.Single().MessageBoxText);
+                fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
+            }
+            finally
+            {
+                source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "deleted initial capture drain");
+            }
+        }, prepareWindowPresentation: false);
+    }
+
+    /// <summary>初回Readyの公開後、open継続より先に実catalog削除を配送し、Deletedを一度案内して未表示のまま回収する。初回結果だけで表示可否を決める誤りを検出する。</summary>
+    [TestMethod]
+    public void Manager_catalogRemovalAfterFirstResultBeforeOpenContinuationDoesNotShowViewer()
+    {
+        var source = new ControlledLampSource(CreateReadyRequest("1"), waitForCapture: true);
+        var dialogs = new RecordingDialogService();
+        RunScenario(dialogs, _ => source, fixture =>
+        {
+            // 実catalog通知をopenの通常継続より先に配送し、問題の順序を固定します。
+            fixture.ConfigureCatalogNotificationQueue(action => fixture.Owner.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Send, action));
+            Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
+            PlaylistLampViewerViewModel viewModel = fixture.PreparedWindow.ViewModel;
+            var publishedStates = new List<PlaylistLampViewerState>();
+            bool deletedBeforePresentation = false;
+            System.ComponentModel.PropertyChangedEventHandler handler = (_, _) =>
+            {
+                if (viewModel.State == PlaylistLampViewerState.Ready && publishedStates.Count == 0)
+                {
+                    // VMのReady通知はfirstPresentableの公開後です。実集合を削除して次のUI通知を作ります。
+                    publishedStates.Add(viewModel.State);
+                    fixture.Playlist.BMSTables.Remove(fixture.Table);
+                }
+                else if (viewModel.State == PlaylistLampViewerState.Deleted)
+                {
+                    publishedStates.Add(viewModel.State);
+                    deletedBeforePresentation = !fixture.PreparedWindow.IsVisible && !open.IsCompleted;
+                }
+            };
+            viewModel.PropertyChanged += handler;
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(source.CaptureStarted.Task, "deleted after first result capture started");
+                source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "deleted after first result open completed");
+                CollectionAssert.AreEqual(new[] { PlaylistLampViewerState.Ready, PlaylistLampViewerState.Deleted }, publishedStates);
+                Assert.IsTrue(deletedBeforePresentation);
+                Assert.IsNull(open.GetAwaiter().GetResult());
+                Assert.AreEqual(0, fixture.Manager.Count);
+                Assert.AreEqual(1, dialogs.MessageCount);
+                Assert.AreEqual(Resources.PlaylistLampViewer_initial_deleted, dialogs.Messages.Single().MessageBoxText);
+                fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
+            }
+            finally
+            {
+                viewModel.PropertyChanged -= handler;
+                source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "deleted after first result drain");
+            }
+        }, prepareWindowPresentation: false);
     }
 
     /// <summary>初回捕捉gate中はビューアも通知も表示せず、Ready捕捉の完了後に一窓だけ表示する。初期Loadingの早期表示と完了後の接続漏れを検出する。</summary>
@@ -418,236 +484,9 @@ public sealed class PlaylistLampViewerWindowManagerTests
             });
     }
 
-    /// <summary>表示中の失敗通知gateへ重複終端信号を送り、通知を一回に抑えて対象窓を一回閉じ、情報源を解放する。重複ダイアログと終了処理の重複・漏れを検出する。</summary>
-    [DataTestMethod]
-    [DataRow(0)] // 成功通知。
-    [DataRow(1)] // gate後にFailed。
-    [DataRow(2)] // gate後にfaulted Task。
-    [DataRow(3)] // 呼出し自体が同期throw。
-    public void Manager_liveFailedShowsOneDialogAndClosesTargetAfterRepeatedSignals(int notificationFailureKind)
-    {
-        var source = new ControlledLampSource(CreateReadyRequest("1"));
-        var otherSource = new ControlledLampSource(CreateReadyRequest("2"));
-        int sourceCount = 0;
-        var dialogs = new RecordingDialogService();
-        RunScenario(
-            dialogs,
-            _ => ++sourceCount == 1 ? source : otherSource,
-            fixture =>
-            {
-                Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.live-failed.open");
-                PlaylistLampViewerWindow window = open.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("表示中の失敗を確認するビューアが開かなかった。");
-
-                Task<PlaylistLampViewerWindow> otherOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext());
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "manager.live-failed.other-open");
-                PlaylistLampViewerWindow otherWindow = otherOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("別対象の窓が開かなかった。");
-                int closedCount = 0;
-                TaskCompletionSource<bool> closed = Completion<bool>();
-                window.Closed += (_, _) =>
-                {
-                    closedCount++;
-                    closed.TrySetResult(true);
-                };
-                TaskCompletionSource<UiDialogResult> blockedMessage = Completion<UiDialogResult>();
-                dialogs.BlockedMessageResult = notificationFailureKind == 3 ? null : blockedMessage;
-                dialogs.MessageFailure = notificationFailureKind == 3 ? new IOException("optional live notice") : null;
-
-                try
-                {
-                    source.Replace(PlaylistLampAggregationRequest.Failed("1", "live aggregation failure"));
-                    source.Raise("1", 1);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                        dialogs.FirstMessage.Task,
-                        "manager.live-failed.dialog-presented");
-
-                    // 通知が未完了のまま重複終端を受けても、新しい通知を作らず元の対象だけを閉じる。
-                    source.Raise("1", 2);
-                    Assert.AreEqual(1, dialogs.MessageCount);
-
-                    if (notificationFailureKind == 2)
-                    {
-                        blockedMessage.TrySetException(new IOException("optional live notice task"));
-                    }
-                    else
-                    {
-                        blockedMessage.TrySetResult(notificationFailureKind == 1
-                            ? UiDialogResult.NotShown(UiDialogStatus.Failed)
-                            : UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-                    }
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.closed");
-
-                    Assert.AreEqual(1, closedCount);
-                    Assert.AreEqual(1, fixture.Manager.Count);
-                    Assert.IsTrue(otherWindow.IsVisible);
-                    Assert.AreEqual(0, otherSource.DisposeCount);
-                    Assert.AreEqual(1, dialogs.MessageCount);
-                    Assert.AreSame(fixture.Owner, dialogs.Messages.Single().Owner);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "lamp terminal source actual drain");
-                    Assert.AreEqual(1, source.DisposeCount);
-                }
-                finally
-                {
-                    blockedMessage.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-                    dialogs.MessageFailure = null;
-                    fixture.Manager.Dispose();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Manager.WaitForCompletionAsync(), "manager.live-failed.finally-tasks");
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "manager.live-failed.finally-closed");
-                }
-            });
-    }
-
-    /// <summary>live Failedと実native Closeの実解放故障をownerに残し、取消を無視する捕捉をdrainした後も重複・後続shutdownへ返して再試行しません。</summary>
-    [DataTestMethod]
-    [DataRow(true)] // live通知のgate後故障と実VM/source解放故障を区別します。
-    [DataRow(false)] // 実Closeの同期漏れを防ぎ、同じ解放結果をshutdownへ残します。
-    public void Manager_requiredCleanupFailureSurvivesCloseAndOverlappingShutdown(bool liveFailure)
-    {
-        var viewModelCleanupFailure = new IOException("required lamp subscription release marker");
-        var sourceCleanupFailure = new IOException("required lamp source release marker");
-        var optionalLiveNoticeFailure = new IOException("optional live notice gate failure");
-        var optionalOperationNoticeFailure = new IOException("optional operation notice failure");
-        ControlledLampSource targetSource = liveFailure
-            ? new AsyncControlledLampSource(CreateReadyRequest("1"))
-            : new ControlledLampSource(CreateReadyRequest("1"));
-        targetSource.ChangedRemoveFailure = viewModelCleanupFailure;
-        targetSource.DisposeFailure = sourceCleanupFailure;
-        var healthySource = new ControlledLampSource(CreateReadyRequest("2"));
-        var pendingSource = new ControlledLampSource(CreateReadyRequest("3"), waitForCapture: true,
-            ignoreCaptureCancellation: true);
-        int sourceCount = 0;
-        var dialogs = new RecordingDialogService();
-        RunScenario(dialogs,
-            _ => (++sourceCount) switch
-            {
-                1 => targetSource,
-                2 => healthySource,
-                _ => pendingSource
-            },
-            fixture =>
-            {
-                Task<PlaylistLampViewerWindow>? targetOpen = null;
-                Task<PlaylistLampViewerWindow>? healthyOpen = null;
-                Task<PlaylistLampViewerWindow>? pendingOpen = null;
-                Task? firstShutdown = null;
-                Task? secondShutdown = null;
-                TaskCompletionSource<UiDialogResult> releaseLiveNotice = Completion<UiDialogResult>();
-                try
-                {
-                    targetOpen = fixture.Manager.TryOpenAsync(fixture.Context);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(targetOpen, "cleanup regression target open");
-                    PlaylistLampViewerWindow target = targetOpen.GetAwaiter().GetResult()
-                        ?? throw new AssertFailedException("Target viewer was not shown.");
-                    healthyOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext());
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(healthyOpen, "cleanup regression healthy open");
-                    PlaylistLampViewerWindow healthy = healthyOpen.GetAwaiter().GetResult()
-                        ?? throw new AssertFailedException("Healthy viewer was not shown.");
-                    int closedCount = 0;
-                    int detachedCount = 0;
-                    TaskCompletionSource<bool> targetClosed = Completion<bool>();
-                    target.Closed += (_, _) => { closedCount++; targetClosed.TrySetResult(true); };
-                    target.DataContextChanged += (_, args) => { if (args.NewValue == null) { detachedCount++; } };
-                    if (liveFailure)
-                    {
-                        dialogs.BlockedMessageResult = releaseLiveNotice;
-                        targetSource.Replace(PlaylistLampAggregationRequest.Failed("1", "live aggregation failure"));
-                        targetSource.Raise("1", 1);
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(dialogs.FirstMessage.Task, "cleanup regression live notice started");
-                        Assert.IsFalse(targetClosed.Task.IsCompleted);
-                        targetSource.Raise("1", 2);
-                        Assert.AreEqual(1, dialogs.MessageCount);
-                        dialogs.BlockedMessageResult = null;
-                        dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.Failed);
-                        releaseLiveNotice.TrySetException(optionalLiveNoticeFailure);
-                    }
-                    else
-                    {
-                        dialogs.MessageFailure = optionalOperationNoticeFailure;
-                        Exception? closeFailure = null;
-                        try { target.Close(); }
-                        catch (Exception exception) { closeFailure = exception; }
-                        Assert.IsNull(closeFailure, "実Closedの回収故障をDispatcherへ漏らしません。");
-                    }
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(targetClosed.Task, "cleanup regression actual target closed");
-                    Assert.AreEqual(1, closedCount);
-                    Assert.AreEqual(1, detachedCount);
-                    Assert.IsNull(target.DataContext);
-                    Assert.IsFalse(target.IsVisible);
-                    Exception targetDrainFailure = CaptureTaskFailure(fixture.Manager.WaitForCompletionAsync(), "cleanup regression target actual drain");
-                    AssertCleanupCauses(targetDrainFailure, [viewModelCleanupFailure, sourceCleanupFailure]);
-                    Assert.AreEqual(1, targetSource.ChangedRemoveAttemptCount);
-                    Assert.AreEqual(1, targetSource.DisposeAttemptCount);
-                    Assert.AreEqual(0, targetSource.DisposeCount, "実解放前に失敗した情報源を解放済みにしません。");
-                    Assert.IsTrue(healthy.IsVisible);
-                    Assert.AreEqual(0, healthySource.DisposeAttemptCount);
-                    Assert.AreEqual(1, fixture.Manager.Count);
-
-                    pendingOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext(3));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(pendingSource.CaptureStarted.Task, "cleanup regression pending capture started");
-                    firstShutdown = fixture.Manager.DisposeAsync().AsTask();
-                    secondShutdown = fixture.Manager.DisposeAsync().AsTask();
-                    Assert.IsFalse(firstShutdown.IsCompleted);
-                    Assert.IsFalse(secondShutdown.IsCompleted);
-                    Assert.IsFalse(pendingOpen.IsCompleted);
-                    Assert.IsFalse(healthy.IsVisible);
-                    Assert.AreEqual(0, pendingSource.DisposeAttemptCount);
-                    pendingSource.CaptureRelease.TrySetResult(CreateReadyRequest("3"));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(pendingOpen, "cleanup regression pending open terminal");
-                    Assert.IsNull(pendingOpen.GetAwaiter().GetResult());
-                    Exception firstFailure = CaptureTaskFailure(firstShutdown, "cleanup regression first shutdown");
-                    Exception secondFailure = CaptureTaskFailure(secondShutdown, "cleanup regression overlapping shutdown");
-                    Exception laterFailure = CaptureTaskFailure(fixture.Manager.WaitForCompletionAsync(), "cleanup regression later drain");
-                    foreach (Exception observed in new[] { firstFailure, secondFailure, laterFailure })
-                    {
-                        AssertCleanupCauses(observed, [viewModelCleanupFailure, sourceCleanupFailure]);
-                        Assert.IsFalse(GetFailureLeaves(observed).Any(cause => ReferenceEquals(cause, optionalLiveNoticeFailure)
-                            || ReferenceEquals(cause, optionalOperationNoticeFailure)));
-                    }
-                    fixture.RecordObservedManagerCleanupFailure(laterFailure);
-                    Assert.AreEqual(1, pendingSource.DisposeAttemptCount);
-                    Assert.AreEqual(1, pendingSource.DisposeCount);
-                    Assert.AreEqual(1, targetSource.ChangedRemoveAttemptCount);
-                    Assert.AreEqual(1, targetSource.DisposeAttemptCount, "後続drainで実解放を再試行しません。");
-                    if (targetSource is AsyncControlledLampSource asyncSource)
-                    {
-                        Assert.AreEqual(1, asyncSource.AsyncDisposeCallCount);
-                        Assert.AreEqual(0, asyncSource.SyncDisposeCallCount);
-                    }
-                    else { Assert.AreEqual(1, targetSource.SyncDisposeCallCount); }
-                    Assert.AreEqual(1, healthySource.DisposeAttemptCount);
-                    Assert.AreEqual(1, closedCount);
-                    Assert.AreEqual(1, detachedCount);
-                    Assert.AreEqual(0, fixture.Manager.Count);
-                }
-                finally
-                {
-                    dialogs.BlockedMessageResult = null;
-                    dialogs.MessageFailure = null;
-                    releaseLiveNotice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
-                    pendingSource.CaptureRelease.TrySetResult(CreateReadyRequest("3"));
-                    var joins = new List<Task> { fixture.Manager.DisposeAsync().AsTask() };
-                    if (targetOpen != null) { joins.Add(targetOpen); }
-                    if (healthyOpen != null) { joins.Add(healthyOpen); }
-                    if (pendingOpen != null) { joins.Add(pendingOpen); }
-                    if (firstShutdown != null) { joins.Add(firstShutdown); }
-                    if (secondShutdown != null) { joins.Add(secondShutdown); }
-                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(joins), "cleanup regression finally actual tasks"); }
-                    catch (Exception exception) when (GetFailureLeaves(exception).Any()
-                        && GetFailureLeaves(exception).All(cause => ReferenceEquals(cause, viewModelCleanupFailure)
-                        || ReferenceEquals(cause, sourceCleanupFailure)))
-                    {
-                        // このケースが注入した実解放故障だけを区別し、全Taskのjoinを終えています。
-                    }
-                }
-            },
-            shouldPrepareWindowPresentation: window => window.ViewModel.PlaylistId is "1" or "2");
-    }
-
     /// <summary>
     /// 初回capture中のowner終了またはcaller取消は、取消に応じないcaptureも実終端まで所有します。
-    /// gate解放後にopen/drain・未表示Windowの実Closed/両集合除去・source解放を確認し、遅い表示や通知を禁止します。
+    /// gate解放後にopen/drain・未表示Windowの実Closed/両集合除去・capture回収を確認し、遅い表示や通知を禁止します。
     /// </summary>
     [DataTestMethod]
     [DataRow("dispose", false)] // 同期owner終了、captureは取消を遵守。
@@ -655,7 +494,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     [DataRow("dispose", true)] // 同期owner終了でも取消を無視するcaptureの実終端を待つ。
     [DataRow("disposeAsync", true)] // 非同期owner終了でも取消を無視するcaptureの実終端を待つ。
     [DataRow("caller", false)] // caller tokenから初回openを取り消す。
-    [DataRow("caller", true)] // caller取消後もcaptureが返るまでsourceを保持。
+    [DataRow("caller", true)] // caller取消後もcaptureが返るまで実captureを保持。
     public void Manager_pendingOpenCancellationReclaimsUnshownWindowWithoutDialog(string cancellationMethod, bool ignoreCaptureCancellation)
     {
         var source = new ControlledLampSource(CreateReadyRequest("1"), waitForCapture: true,
@@ -690,7 +529,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     {
                         Assert.IsFalse(drain.IsCompleted);
                         Assert.IsFalse(open.IsCompleted);
-                        Assert.AreEqual(0, source.DisposeAttemptCount, "実captureの終端前にsource解放を開始しません。");
                         source.CaptureRelease.TrySetResult(CreateReadyRequest("1"));
                     }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "manager.pending-cancel.open-canceled");
@@ -700,10 +538,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     Assert.AreEqual(0, fixture.Manager.Count);
                     Assert.AreEqual(0, dialogs.MessageCount);
                     fixture.AssertUnshownWindowReclaimed(fixture.PreparedWindow);
-                    Assert.AreEqual(1, source.ChangedRemoveAttemptCount);
-                    Assert.AreEqual(1, source.DisposeAttemptCount);
-                    Assert.AreEqual(1, source.SyncDisposeCallCount);
-                    Assert.AreEqual(1, source.DisposeCount);
                 }
                 finally
                 {
@@ -718,8 +552,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
     }
 
     /// <summary>
-    /// 実live ChangedとVMの日付変更で取消を無視するcaptureを二つ受理し、native Close/owner終了を先行させます。
-    /// 最新だけを返してもsourceを解放せず、旧captureまで回収後に一回解放し、遅いReady/Failedを再表示しません。
+    /// VMの異なる二つの日付変更で取消を無視するcaptureを二つ受理し、native Close/owner終了を先行させます。
+    /// 最新だけを返してもdrainを完了せず、旧captureまで回収し、遅いReady/Failedを再表示しません。
     /// </summary>
     /// <remarks>実WindowのClosed、VMの日付入口と別窓の表示/操作を観測するため、同じpresentation scopeを使います。</remarks>
     [DataTestMethod]
@@ -727,9 +561,9 @@ public sealed class PlaylistLampViewerWindowManagerTests
     [DataRow(false, true)] // 手動閉鎖後の遅い失敗でも通知を再表示しません。
     [DataRow(true, false)] // owner終了後の遅い成功。
     [DataRow(true, true)] // owner終了後の遅い失敗。
-    public void Manager_closeDrainsLiveAndSupersededDateCapturesBeforeSourceRelease(bool shutdown, bool lateFailure)
+    public void Manager_closeDrainsSupersededDateCaptures(bool shutdown, bool lateFailure)
     {
-        var source = new AsyncControlledLampSource(CreateReadyRequest("1"));
+        var source = new ControlledLampSource(CreateReadyRequest("1"));
         var otherSource = new ControlledLampSource(CreateReadyRequest("2"));
         int sourceCount = 0;
         var held = new List<(PlaylistLampViewerQuery Query, TaskCompletionSource<PlaylistLampAggregationRequest> Completion)>();
@@ -741,13 +575,13 @@ public sealed class PlaylistLampViewerWindowManagerTests
             try
             {
                 Task<PlaylistLampViewerWindow> open = fixture.Manager.TryOpenAsync(fixture.Context);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "live drain target open");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "date drain target open");
                 PlaylistLampViewerWindow target = open.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("live drain対象が開かなかった。");
+                    ?? throw new AssertFailedException("date drain対象が開かなかった。");
                 Task<PlaylistLampViewerWindow> otherOpen = fixture.Manager.TryOpenAsync(fixture.CreateOtherContext());
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "live drain independent open");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(otherOpen, "date drain independent open");
                 PlaylistLampViewerWindow other = otherOpen.GetAwaiter().GetResult()
-                    ?? throw new AssertFailedException("live drain別窓が開かなかった。");
+                    ?? throw new AssertFailedException("date drain別窓が開かなかった。");
                 source.CaptureOverride = (query, _) =>
                 {
                     TaskCompletionSource<PlaylistLampAggregationRequest> completion = Completion<PlaylistLampAggregationRequest>();
@@ -759,7 +593,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     }
                     return new ValueTask<PlaylistLampAggregationRequest>(completion.Task);
                 };
-                source.Raise("1", 1);
+                target.ViewModel.SelectedAsOfDate = new DateTime(2026, 8, 26);
                 waitForCaptures(1);
                 target.ViewModel.SelectedAsOfDate = new DateTime(2026, 8, 27);
                 waitForCaptures(2);
@@ -771,30 +605,24 @@ public sealed class PlaylistLampViewerWindowManagerTests
                     target.Close();
                     drain = fixture.Manager.WaitForCompletionAsync();
                 }
-                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "live drain actual native close");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "date drain actual native close");
                 Assert.IsFalse(drain.IsCompleted);
-                Assert.AreEqual(0, source.DisposeAttemptCount);
                 if (!shutdown)
                 {
                     Assert.IsTrue(other.IsVisible);
                     PlaylistLampViewerSegmentViewModel segment = other.ViewModel.RankSegments.First(item => item.IsInvokable);
                     other.ViewModel.InvokeSegment(segment);
                     Assert.IsTrue(segment.IsSelected);
-                    Assert.AreEqual(0, otherSource.DisposeAttemptCount);
                 }
                 held[1].Completion.TrySetResult(lateFailure
                     ? PlaylistLampAggregationRequest.Failed("1", "late date failure", query: held[1].Query)
                     : CreateReadyRequest("1", held[1].Query));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(held[1].Completion.Task, "live drain latest actual capture");
-                Assert.IsFalse(drain.IsCompleted, "取消を無視する旧live captureも実終端まで所有します。");
-                Assert.AreEqual(0, source.DisposeAttemptCount);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(held[1].Completion.Task, "date drain latest actual capture");
+                Assert.IsFalse(drain.IsCompleted, "取消を無視する旧日付captureも実終端まで所有します。");
                 held[0].Completion.TrySetResult(lateFailure
-                    ? PlaylistLampAggregationRequest.Failed("1", "late live failure", query: held[0].Query)
+                    ? PlaylistLampAggregationRequest.Failed("1", "late earlier date failure", query: held[0].Query)
                     : CreateReadyRequest("1", held[0].Query));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(held.Select(item => (Task)item.Completion.Task).Append(drain)), "live drain all actual captures and cleanup");
-                Assert.AreEqual(1, source.AsyncDisposeCallCount);
-                Assert.AreEqual(0, source.SyncDisposeCallCount);
-                Assert.AreEqual(1, source.DisposeCount);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(held.Select(item => (Task)item.Completion.Task).Append(drain)), "date drain all actual captures and cleanup");
                 Assert.IsNull(target.DataContext);
                 Assert.IsFalse(target.IsVisible);
                 Assert.AreEqual(0, dialogs.MessageCount);
@@ -809,7 +637,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 }
                 IEnumerable<Task> joins = held.Select(item => (Task)item.Completion.Task).Append(fixture.Manager.DisposeAsync().AsTask());
                 if (drain != null) { joins = joins.Append(drain); }
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(joins), "live drain finally actual tasks");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(joins), "date drain finally actual tasks");
             }
 
             void waitForCaptures(int count)
@@ -822,7 +650,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                         if (held.Count >= count) { return; }
                         changed = captureChanged.Task;
                     }
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(changed, "live drain accepted capture");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(changed, "date drain accepted capture");
                 }
             }
         });
@@ -830,7 +658,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
 
     /// <summary>
     /// 初回open token由来の取消callbackをholdしても、実Close/DisposeAsyncはnative Closedと
-    /// Dispatcher pulseを先に実行し、source解放とdrainはcallback・captureの実終端まで待ちます。
+    /// Dispatcher pulseを先に実行し、drainはcallback・captureの実終端まで待ちます。
     /// </summary>
     /// <remarks>UI外driverが実DispatcherOperationを期限付き観測し、旧同期Cancelでもfinallyからgateを解放できる構成です。</remarks>
     [DataTestMethod]
@@ -886,7 +714,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
                         Assert.IsTrue(pulseExecuted, "経過時間ではなく実DispatcherOperationの実行を確認します。");
                         Assert.IsNotNull(drain);
                         Assert.IsFalse(drain.IsCompleted);
-                        Assert.AreEqual(0, source.DisposeAttemptCount);
                     }
                     finally
                     {
@@ -898,10 +725,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(open, drain ?? fixture.Manager.WaitForCompletionAsync()), "callback drain all actual tasks");
                 Assert.IsNull(open.GetAwaiter().GetResult());
                 fixture.AssertUnshownWindowReclaimed(pendingWindow);
-                Assert.AreEqual(1, source.ChangedRemoveAttemptCount);
-                Assert.AreEqual(1, source.DisposeAttemptCount);
-                Assert.AreEqual(1, source.SyncDisposeCallCount);
-                Assert.AreEqual(1, source.DisposeCount);
                 Assert.AreEqual(0, dialogs.MessageCount);
             }
             finally
@@ -1067,7 +890,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 scoreByHash,
                 scoreBySha256),
             new DateTime(2026, 8, 28, 1, 2, 3, DateTimeKind.Utc),
-            query: query);
+            query: query,
+            historicalDateRange: new PlaylistLampHistoricalDateRange(new DateTime(2026, 8, 26), DateTime.Today));
     }
 
     private static Exception CaptureTaskFailure(Task task, string context)
@@ -1092,14 +916,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
             foreach (Exception cause in GetFailureLeaves(failure.InnerException)) { yield return cause; }
         }
         else { yield return failure; }
-    }
-
-    private static void AssertCleanupCauses(Exception failure, IReadOnlyCollection<Exception> expected)
-    {
-        Exception[] causes = GetFailureLeaves(failure).ToArray();
-        foreach (Exception cause in expected) { Assert.IsTrue(causes.Any(actual => ReferenceEquals(actual, cause))); }
-        Assert.IsTrue(causes.All(actual => expected.Any(cause => ReferenceEquals(actual, cause))),
-            "任意通知や通常openの元故障を実解放結果へ混入しません。");
     }
 
     private static TaskCompletionSource<T> Completion<T>()
@@ -1140,6 +956,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             Table = CreateTable(1, "Manager fixture");
             Playlist.BMSTables = new ObservableCollection<BMSTable> { Table };
             workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(Playlist, Library);
+            workspace.ConfigureCatalogNotificationQueue(action => Owner.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind, action));
             Context = CreateContext(Playlist, Table, Library);
             Manager = new PlaylistLampViewerWindowManager(
                 Owner,
@@ -1149,6 +966,10 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 prepareWindowForShow,
                 activateWindowForInitialPresentation);
         }
+
+        /// <summary>通知の優先順位を制御し、実catalog通知とopen継続の境界を検証します。</summary>
+        internal void ConfigureCatalogNotificationQueue(Action<Action> queueAction)
+            => workspace.ConfigureCatalogNotificationQueue(queueAction);
 
         internal BMSLibrary Library { get; }
 
@@ -1229,35 +1050,16 @@ public sealed class PlaylistLampViewerWindowManagerTests
         /// <summary>別窓または保留初回捕捉の独立した対象を作ります。</summary>
         internal PlaylistLampViewerOpenContext CreateOtherContext(int playlistId = 2)
         {
-            BMSPlaylist otherPlaylist = BmsPlaylistTestSupport.CreatePlaylist(
-                Path.Combine(root, "song.db"));
             BMSTable otherTable = CreateTable(playlistId, "Other manager fixture");
-            otherPlaylist.BMSTables = new ObservableCollection<BMSTable> { otherTable };
-            return CreateContext(otherPlaylist, otherTable, Library);
-        }
-
-        private readonly HashSet<Exception> observedManagerCleanupCauses = new(ReferenceEqualityComparer.Instance);
-
-        /// <summary>テスト本体が表明済みの実解放結果だけを、fixture終了時の期待故障として記録します。</summary>
-        internal void RecordObservedManagerCleanupFailure(Exception failure)
-        {
-            foreach (Exception cause in GetFailureLeaves(failure)) { observedManagerCleanupCauses.Add(cause); }
+            Playlist.BMSTables.Add(otherTable);
+            return CreateContext(Playlist, otherTable, Library);
         }
 
         public void Dispose()
         {
             var failures = new List<Exception>();
             try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Manager.DisposeAsync().AsTask(), "lamp fixture dispose"); }
-            catch (Exception exception)
-            {
-                Exception[] causes = GetFailureLeaves(exception).ToArray();
-                if (observedManagerCleanupCauses.Count == 0 || causes.Length == 0
-                    || !causes.All(observedManagerCleanupCauses.Contains)
-                    || !observedManagerCleanupCauses.All(expected => causes.Any(cause => ReferenceEquals(cause, expected))))
-                {
-                    failures.Add(exception);
-                }
-            }
+            catch (Exception exception) { failures.Add(exception); }
             try { workspace.Dispose(); }
             catch (Exception exception) { failures.Add(exception); }
             try { if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
@@ -1296,202 +1098,42 @@ public sealed class PlaylistLampViewerWindowManagerTests
         }
     }
 
-    private class ControlledLampSource : IPlaylistLampViewerDataSource, IDisposable
+    private sealed class ControlledLampSource : IPlaylistLampViewerDataSource
     {
-        private readonly object gate = new();
-
+        private readonly PlaylistLampAggregationRequest request;
         private readonly bool waitForCapture;
-
         private readonly bool ignoreCaptureCancellation;
 
-        private PlaylistLampAggregationRequest request;
-
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
-
-        private int disposed;
-
-        private int changedRemoveAttemptCount;
-
-        private int disposeAttemptCount;
-
-        /// <summary>初回捕捉gateを所有し、終了取消を即時に観測する場合と実Taskを待つ場合を分ける情報源を作ります。</summary>
-        internal ControlledLampSource(PlaylistLampAggregationRequest request, bool waitForCapture = false,
-            bool ignoreCaptureCancellation = false)
+        internal ControlledLampSource(PlaylistLampAggregationRequest request, bool waitForCapture = false, bool ignoreCaptureCancellation = false)
         {
-            this.request = request ?? throw new ArgumentNullException(nameof(request));
+            this.request = request;
             this.waitForCapture = waitForCapture;
             this.ignoreCaptureCancellation = ignoreCaptureCancellation;
         }
-
         internal TaskCompletionSource<bool> CaptureStarted { get; } = Completion<bool>();
-
-        internal TaskCompletionSource<PlaylistLampAggregationRequest> CaptureRelease { get; } =
-            Completion<PlaylistLampAggregationRequest>();
-
-        internal int DisposeCount { get; private set; }
-
-        internal Exception? DisposeFailure { get; set; }
-
+        internal TaskCompletionSource<PlaylistLampAggregationRequest> CaptureRelease { get; } = Completion<PlaylistLampAggregationRequest>();
         internal Func<PlaylistLampViewerQuery, CancellationToken, ValueTask<PlaylistLampAggregationRequest>>? CaptureOverride { get; set; }
-
-        internal int SyncDisposeCallCount { get; private set; }
-
-        internal Exception? ChangedRemoveFailure { get; set; }
-
-        internal int ChangedRemoveAttemptCount => Volatile.Read(ref changedRemoveAttemptCount);
-
-        internal int DisposeAttemptCount => Volatile.Read(ref disposeAttemptCount);
-
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed
-        {
-            add
-            {
-                lock (gate)
-                {
-                    changed += value;
-                }
-            }
-            remove
-            {
-                Interlocked.Increment(ref changedRemoveAttemptCount);
-                lock (gate)
-                {
-                    if (ChangedRemoveFailure != null) { throw ChangedRemoveFailure; }
-                    changed -= value;
-                }
-            }
-        }
-
-        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-            PlaylistLampViewerQuery query,
-            CancellationToken cancellationToken)
+        public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(PlaylistLampViewerQuery query, CancellationToken cancellationToken)
         {
             CaptureStarted.TrySetResult(true);
             if (CaptureOverride != null) { return CaptureOverride(query, cancellationToken); }
             if (waitForCapture)
             {
-                return new ValueTask<PlaylistLampAggregationRequest>(
-                    ignoreCaptureCancellation ? CaptureRelease.Task : CaptureRelease.Task.WaitAsync(cancellationToken));
+                return new ValueTask<PlaylistLampAggregationRequest>(ignoreCaptureCancellation ? CaptureRelease.Task : CaptureRelease.Task.WaitAsync(cancellationToken));
             }
-            lock (gate)
-            {
-                return ValueTask.FromResult(request);
-            }
-        }
-
-        internal void Replace(PlaylistLampAggregationRequest next)
-        {
-            lock (gate)
-            {
-                request = next ?? throw new ArgumentNullException(nameof(next));
-            }
-        }
-
-        internal void Raise(string playlistId, long sequence)
-        {
-            EventHandler<PlaylistLampViewerSourceChangedEventArgs>? handler;
-            lock (gate)
-            {
-                handler = changed;
-            }
-            handler?.Invoke(
-                this,
-                new PlaylistLampViewerSourceChangedEventArgs(playlistId, sequence));
-        }
-
-        public void Dispose()
-        {
-            SyncDisposeCallCount++;
-            ReleaseSource();
-        }
-
-        protected void ReleaseSource()
-        {
-            Interlocked.Increment(ref disposeAttemptCount);
-            if (DisposeFailure != null) { throw DisposeFailure; }
-            if (Interlocked.Exchange(ref disposed, 1) != 0)
-            {
-                return;
-            }
-            DisposeCount++;
-            lock (gate)
-            {
-                changed = null;
-            }
+            return ValueTask.FromResult(new PlaylistLampAggregationRequest(
+                query.PlaylistId, request.FolderOrder, request.Entries, request.ScoreSnapshot,
+                request.PlaylistLastUpdated, request.InputState, request.FailureMessage, query: query));
         }
     }
 
-    private sealed class AsyncControlledLampSource : ControlledLampSource, IAsyncDisposable
+    private sealed class ActualReadySource(BMSPlaylist playlist, BMSLibrary library, string playlistId) : IPlaylistLampViewerDataSource
     {
-        internal AsyncControlledLampSource(PlaylistLampAggregationRequest request) : base(request) { }
-
-        internal int AsyncDisposeCallCount { get; private set; }
-
-        public ValueTask DisposeAsync()
+        private readonly BmsLibraryPlaylistLampDataSource inner = new(playlist, library);
+        public async ValueTask<PlaylistLampAggregationRequest> CaptureAsync(PlaylistLampViewerQuery query, CancellationToken cancellationToken)
         {
-            AsyncDisposeCallCount++;
-            ReleaseSource();
-            return ValueTask.CompletedTask;
-        }
-    }
-
-    private sealed class ActualReadySource : IPlaylistLampViewerDataSource, IDisposable, IAsyncDisposable
-    {
-        private readonly BmsLibraryPlaylistLampDataSource inner;
-
-        private readonly string playlistId;
-
-        private int disposed;
-
-        internal ActualReadySource(BMSPlaylist playlist, BMSLibrary library, string playlistId)
-        {
-            inner = new BmsLibraryPlaylistLampDataSource(playlist, library);
-            this.playlistId = playlistId;
-            inner.Changed += InnerChanged;
-        }
-
-        internal int DisposeCount { get; private set; }
-
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs>? Changed;
-
-        public async ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
-            PlaylistLampViewerQuery requestedQuery,
-            CancellationToken cancellationToken)
-        {
-            PlaylistLampAggregationRequest captured = await inner
-                .CaptureAsync(requestedQuery, cancellationToken)
-                .ConfigureAwait(false);
-            return captured.InputState == PlaylistLampInputState.Loaded
-                ? CreateReadyRequest(playlistId, requestedQuery)
-                : captured;
-        }
-
-        public void Dispose()
-        {
-            if (Interlocked.Exchange(ref disposed, 1) != 0)
-            {
-                return;
-            }
-            inner.Changed -= InnerChanged;
-            inner.Dispose();
-            DisposeCount++;
-            Changed = null;
-        }
-
-        public async ValueTask DisposeAsync()
-        {
-            if (Interlocked.Exchange(ref disposed, 1) == 0)
-            {
-                inner.Changed -= InnerChanged;
-                Changed = null;
-                DisposeCount++;
-            }
-            await inner.DisposeAsync().ConfigureAwait(false);
-        }
-
-        private void InnerChanged(object? sender, PlaylistLampViewerSourceChangedEventArgs e)
-        {
-            Changed?.Invoke(this, e);
+            PlaylistLampAggregationRequest captured = await inner.CaptureAsync(query, cancellationToken).ConfigureAwait(false);
+            return captured.InputState == PlaylistLampInputState.Loaded ? CreateReadyRequest(playlistId, query) : captured;
         }
     }
 
@@ -1500,18 +1142,6 @@ public sealed class PlaylistLampViewerWindowManagerTests
         private readonly object gate = new();
 
         internal List<UiMessageRequest> Messages { get; } = [];
-
-        internal TaskCompletionSource<UiMessageRequest> FirstMessage { get; } =
-            Completion<UiMessageRequest>();
-
-        internal TaskCompletionSource<UiDialogResult>? BlockedMessageResult { get; set; }
-
-        /// <summary>要求を記録した後、通知呼出しそのものへ注入する元故障を取得・設定します。</summary>
-        internal Exception? MessageFailure { get; set; }
-
-        /// <summary>gateを使わない通知の実表示結果を取得・設定します。</summary>
-        internal UiDialogResult MessageResult { get; set; } =
-            UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK);
 
         internal int MessageCount
         {
@@ -1532,14 +1162,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             {
                 Messages.Add(request);
             }
-            FirstMessage.TrySetResult(request);
-            if (MessageFailure != null) { throw MessageFailure; }
-            TaskCompletionSource<UiDialogResult>? blocked = BlockedMessageResult;
-            if (blocked != null)
-            {
-                return blocked.Task.WaitAsync(cancellationToken);
-            }
-            return Task.FromResult(MessageResult);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
         }
 
         public Task<UiDialogResult> ConfirmAsync(

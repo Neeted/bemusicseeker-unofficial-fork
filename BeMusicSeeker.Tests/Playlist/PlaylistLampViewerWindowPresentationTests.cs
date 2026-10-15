@@ -230,8 +230,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
                 source.EnableHistory();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    session.RefreshAsync(),
-                    "playlist lamp historical date range refresh");
+                    session.UpdateSelectedAsOfDateAsync(earliest),
+                    "playlist lamp historical date range capture");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
@@ -825,8 +825,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
                 source.Replace(CreateFolderWidthRequest(shortName, longName));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    viewModel.StartAsync(),
-                    "playlist lamp viewer folder width live refresh");
+                    session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)),
+                    "playlist lamp viewer folder width explicit date capture");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
@@ -912,8 +912,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
                 source.Replace(CreateCountWidthRequest(cappedCount, "capped"));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    viewModel.StartAsync(),
-                    "playlist lamp viewer count width live refresh");
+                    session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)),
+                    "playlist lamp viewer count width explicit date capture");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
 
@@ -1022,8 +1022,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 PlaylistLampAggregationRequest degraded = CreateRequest(ActiveScoreSource.None);
                 source.Replace(degraded);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
-                    viewModel.StartAsync(),
-                    "playlist lamp viewer degraded refresh");
+                    session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)),
+                    "playlist lamp viewer degraded date capture");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.IsTrue(viewModel.IsCountMode);
@@ -1049,7 +1049,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         Resources.PlaylistLampViewer_playlist_last_update
                     });
                 source.Replace(CreateRequest(ActiveScoreSource.Lr2));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "LR2 score recovery");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)), "LR2 score recovery");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 window.UpdateLayout();
                 Assert.IsTrue(viewModel.IsCountMode);
@@ -1072,7 +1072,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>画面外の最大フォルダを含む共通件数尺度を切り替え、選択・スクロール・既存投影を保って再捕捉と再集計をせず、データ更新時だけ尺度を再計算することを確認します。</summary>
+    /// <summary>画面外の最大フォルダを含む共通件数尺度を切り替え、選択・スクロール・既存投影を保って再捕捉と再集計をせず、明示日付変更で新入力を捕捉したときだけ尺度を再計算することを確認します。</summary>
     [TestMethod]
     public void Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh()
     {
@@ -1194,7 +1194,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     AssertOverallLabel(window, count, 100);
                 }
                 source.Replace(CreateScaleRequest(200));
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "common scale changed maximum");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)), "common scale changed maximum");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 scroll.ScrollToHome();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -1314,7 +1314,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 foreach (string[] folders in new[] { new[] { "zero-one", "zero-two" }, Array.Empty<string>() })
                 {
                     source.Replace(new PlaylistLampAggregationRequest("playlist", folders, [], CreateWidthAwareRequest().ScoreSnapshot));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(session.RefreshAsync(), "empty scale refresh");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(session.UpdateSelectedAsOfDateAsync(session.Query.SelectedLocalDate.HasValue ? null : DateTime.Today.AddDays(-1)), "empty scale refresh");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     window.UpdateLayout();
                     Assert.IsTrue(viewer.IsCountMode);
@@ -1998,7 +1998,6 @@ public sealed class PlaylistLampViewerWindowPresentationTests
     {
         private readonly object stateGate = new();
 
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
 
         private bool historyAvailable;
 
@@ -2006,11 +2005,6 @@ public sealed class PlaylistLampViewerWindowPresentationTests
 
         private TaskCompletionSource<PlaylistLampViewerQuery>? expectedQuery;
 
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed
-        {
-            add => changed += value;
-            remove => changed -= value;
-        }
 
         internal void EnableHistory()
         {
@@ -2111,18 +2105,12 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         internal int CaptureCount => Volatile.Read(ref captureCount);
         private PlaylistLampAggregationRequest request;
 
-        private EventHandler<PlaylistLampViewerSourceChangedEventArgs>? changed;
 
         internal FixedLampSource(PlaylistLampAggregationRequest request)
         {
             this.request = request;
         }
 
-        public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed
-        {
-            add => changed += value;
-            remove => changed -= value;
-        }
 
         public ValueTask<PlaylistLampAggregationRequest> CaptureAsync(
             PlaylistLampViewerQuery query,
@@ -2130,7 +2118,11 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref captureCount);
-            return ValueTask.FromResult(request);
+            return ValueTask.FromResult(new PlaylistLampAggregationRequest(
+                query.PlaylistId, request.FolderOrder, request.Entries, request.ScoreSnapshot,
+                request.PlaylistLastUpdated, request.InputState, request.FailureMessage, query: query,
+                historicalDateRange: request.HistoricalDateRange, historicalStatus: request.HistoricalStatus,
+                historicalFailureMessage: request.HistoricalFailureMessage));
         }
 
         internal void Replace(PlaylistLampAggregationRequest request)

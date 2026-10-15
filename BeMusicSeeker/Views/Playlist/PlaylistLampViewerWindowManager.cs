@@ -16,7 +16,7 @@ namespace BeMusicSeeker.Views;
 
 /// <summary>
 /// 一つのメイン画面のモードレスランプビューアを所有します。初回確定結果まで表示せず、
-/// 各窓の全session仕事とsource解放を独立した一つの回収Taskへ合流させます。
+/// 各窓の全session仕事と取消資源解放を独立した一つの回収Taskへ合流させます。
 /// </summary>
 internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDisposable
 {
@@ -24,20 +24,16 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
     {
         internal WindowLifetime(
             PlaylistLampViewerWindow window,
-            IPlaylistLampViewerDataSource source,
             PlaylistLampViewerViewModel viewModel,
             CancellationToken inheritedCancellation)
         {
             Window = window;
-            Source = source;
             ViewModel = viewModel;
             OpenCancellation = new CancellationTokenSource();
             InheritedCancellationRegistration = inheritedCancellation.Register(() => RequestCancellation());
         }
 
         internal PlaylistLampViewerWindow Window { get; }
-
-        internal IPlaylistLampViewerDataSource Source { get; }
 
         internal PlaylistLampViewerViewModel ViewModel { get; }
 
@@ -73,7 +69,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
 
         internal bool IsShown;
 
-        internal int FailureHandled;
+        internal int DeletionHandled;
 
         internal int Cleaned;
 
@@ -154,6 +150,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         this.prepareWindowForShow = prepareWindowForShow;
         this.activateWindowForInitialPresentation = activateWindowForInitialPresentation
             ?? ActivateWindowForInitialPresentation;
+        workspace.PlaylistCatalogChanged += PlaylistCatalogChanged;
     }
 
     /// <summary>Gets the number of currently shown child viewer windows.</summary>
@@ -238,6 +235,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         {
             return;
         }
+        workspace.PlaylistCatalogChanged -= PlaylistCatalogChanged;
         // shutdown由来のlinked取消も同期callbackを持ち得るため、実Taskを先に所有します。
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         activeOperations.Add(completion.Task);
@@ -331,7 +329,6 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
             return null;
         }
 
-        IPlaylistLampViewerDataSource source = null;
         PlaylistLampViewerSession session = null;
         PlaylistLampViewerViewModel viewModel = null;
         WindowLifetime lifetime = null;
@@ -340,7 +337,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
             cancellationToken);
         try
         {
-            source = dataSourceFactory(context)
+            IPlaylistLampViewerDataSource source = dataSourceFactory(context)
                 ?? throw new InvalidOperationException("The playlist lamp viewer source factory returned null.");
             session = new PlaylistLampViewerSession(context.PlaylistId, source);
             viewModel = new PlaylistLampViewerViewModel(
@@ -350,7 +347,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
                 owner.Dispatcher,
                 request => workspace.TryRequestPlaylistLampNavigation(request));
             PlaylistLampViewerWindow window = new(owner, viewModel);
-            lifetime = new WindowLifetime(window, source, viewModel, openCancellation.Token);
+            lifetime = new WindowLifetime(window, viewModel, openCancellation.Token);
             lifetimes.Add(lifetime);
             window.Tag = lifetime;
             window.Closed += WindowClosed;
@@ -369,21 +366,16 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
                 ThrowLifetimeCleanupFailure(lifetime);
                 return null;
             }
-            if (firstResult.State == PlaylistLampViewerState.Deleted)
+            // 初回結果の公開からこの継続までにもcatalog通知が進むため、表示直前の削除を確認します。
+            if (firstResult.State == PlaylistLampViewerState.Deleted
+                || session.Current.State == PlaylistLampViewerState.Deleted
+                || workspace.FindActivePlaylistTableById(context.PlaylistId) == null)
             {
                 await BeginCleanup(lifetime, closeWindow: true).ConfigureAwait(true);
                 ThrowLifetimeCleanupFailure(lifetime);
                 await ShowInitialDeletedAsync(openCancellation.Token).ConfigureAwait(true);
                 return null;
             }
-            if (firstResult.State == PlaylistLampViewerState.Failed)
-            {
-                await BeginCleanup(lifetime, closeWindow: true).ConfigureAwait(true);
-                ThrowLifetimeCleanupFailure(lifetime);
-                await ShowFailureAsync(firstResult, initial: true, openCancellation.Token).ConfigureAwait(true);
-                return null;
-            }
-
             lifetime.IsShown = true;
             window.Show();
             activateWindowForInitialPresentation(window);
@@ -416,8 +408,6 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
                     try { await session.DisposeAsync().ConfigureAwait(true); }
                     catch (Exception exception) { cleanupFailures.Add(exception); }
                 }
-                try { await DisposeSourceAsync(source).ConfigureAwait(true); }
-                catch (Exception exception) { cleanupFailures.Add(exception); }
                 if (cleanupFailures.Count > 0)
                 {
                     RetainManagerCleanupFailure(CreateCleanupFailure(cleanupFailures));
@@ -473,18 +463,18 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         {
             return;
         }
-        if (e.Result.State is not (PlaylistLampViewerState.Deleted or PlaylistLampViewerState.Failed)
-            || Interlocked.Exchange(ref lifetime.FailureHandled, 1) != 0)
+        if (e.Result.State != PlaylistLampViewerState.Deleted
+            || Interlocked.Exchange(ref lifetime.DeletionHandled, 1) != 0)
         {
             return;
         }
         // close/回収が失敗した場合の所有通知も含め、async voidの実終端まで待機対象へ残します。
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         activeOperations.Add(completion.Task);
-        try { await HandleLiveTerminalAsync(lifetime, e.Result).ConfigureAwait(true); }
+        try { await HandleDeletedAsync(lifetime).ConfigureAwait(true); }
         catch (Exception exception)
         {
-            // 表示だけの失敗はShowFailureAsyncが処理済みです。ここは実close/資源回収の失敗です。
+            // 実closeと開始済み処理の回収の失敗を所有者へ通知します。
             await ShowOperationFailureAsync(exception).ConfigureAwait(true);
         }
         finally
@@ -494,60 +484,21 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         }
     }
 
-    private async Task HandleLiveTerminalAsync(WindowLifetime lifetime, PlaylistLampAggregationResult result)
+    private async Task HandleDeletedAsync(WindowLifetime lifetime)
     {
-        try
-        {
-            if (result.State == PlaylistLampViewerState.Failed)
-            {
-                await ShowFailureAsync(result, initial: false, lifetime.OpenCancellation.Token).ConfigureAwait(true);
-            }
-        }
-        finally
-        {
-            await BeginCleanup(lifetime, closeWindow: true).ConfigureAwait(true);
-            ThrowLifetimeCleanupFailure(lifetime);
-        }
+        await BeginCleanup(lifetime, closeWindow: true).ConfigureAwait(true);
+        ThrowLifetimeCleanupFailure(lifetime);
     }
 
-    private async Task ShowFailureAsync(
-        PlaylistLampAggregationResult result,
-        bool initial,
-        CancellationToken cancellationToken)
+    private void PlaylistCatalogChanged(object sender, PlaylistCatalogChangedEventArgs e)
     {
-        if (Volatile.Read(ref disposed) != 0 || cancellationToken.IsCancellationRequested)
+        foreach (WindowLifetime lifetime in lifetimes.ToArray())
         {
-            return;
-        }
-        string message = initial
-            ? Resources.PlaylistLampViewer_initial_failure
-            : Resources.PlaylistLampViewer_live_failure;
-        if (!string.IsNullOrWhiteSpace(result?.FailureMessage))
-        {
-            message += Environment.NewLine + result.FailureMessage;
-        }
-        try
-        {
-            UiDialogResult dialogResult = await dialogs.ShowMessageAsync(
-                new UiMessageRequest(
-                    message,
-                    Resources.PlaylistLampViewer_failure_title,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Hand,
-                    MessageBoxResult.OK,
-                    owner: owner),
-                cancellationToken).ConfigureAwait(true);
-            UiDialogRoute.ThrowIfNotShown(dialogResult, initial
-                ? "playlist lamp viewer initial failure"
-                : "playlist lamp viewer live failure");
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // この窓またはownerの取消だけを静かな通知終端として扱います。
-        }
-        catch (Exception notificationFailure)
-        {
-            TryLogFailure(notificationFailure, "playlist lamp viewer notification");
+            if (Volatile.Read(ref lifetime.Cleaned) == 0
+                && workspace.FindActivePlaylistTableById(lifetime.ViewModel.PlaylistId) == null)
+            {
+                lifetime.ViewModel.SessionDeleted();
+            }
         }
     }
 
@@ -632,9 +583,6 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         try { await lifetime.ViewModel.DisposeAsync().ConfigureAwait(true); }
         catch (Exception exception) { failures.Add(exception); }
         try { await lifetime.CancellationTask.ConfigureAwait(true); }
-        catch (Exception exception) { failures.Add(exception); }
-        // Capture/buildと両取消経路のcallbackが実終端になってからsourceを一度だけ解放します。
-        try { await DisposeSourceAsync(lifetime.Source).ConfigureAwait(true); }
         catch (Exception exception) { failures.Add(exception); }
         TryCleanup(() => DisposeOpenCancellationIfSafe(lifetime), failures);
         TryCleanup(() => lifetime.Window.Tag = null, failures);
@@ -724,15 +672,4 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         }
     }
 
-    private static Task DisposeSourceAsync(IPlaylistLampViewerDataSource source)
-    {
-        return Task.Run(async () =>
-        {
-            if (source is IAsyncDisposable asyncSource)
-            {
-                await asyncSource.DisposeAsync().ConfigureAwait(false);
-            }
-            else { (source as IDisposable)?.Dispose(); }
-        });
-    }
 }

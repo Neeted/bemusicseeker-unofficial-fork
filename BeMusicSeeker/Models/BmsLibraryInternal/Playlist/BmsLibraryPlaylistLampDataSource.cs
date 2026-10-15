@@ -1,19 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Specialized;
-using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// BMSPlaylist と BMSLibrary の current owner state を immutable lamp input へ投影します。
 /// </summary>
-internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerDataSource, IDisposable, IAsyncDisposable
+internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerDataSource
 {
     private readonly BMSPlaylist playlist;
 
@@ -21,27 +18,11 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
 
     private readonly Func<PlaylistLampHistoricalScoreSourceContext> historicalSourceContextFactory;
 
-    private readonly object subscriptionGate = new();
-
-    private readonly HashSet<BMSTable> subscribedTables = [];
-
-    private INotifyCollectionChanged subscribedTablesCollection;
-
     private readonly record struct RawEntrySnapshot(
         string Folder,
         string Md5,
         string Sha256,
         bool IsRemoved);
-
-    private long changeSequence;
-
-    private int disposed;
-
-    private readonly object activityGate = new();
-
-    private readonly HashSet<TaskCompletionSource> activities = [];
-
-    private Task stopTask;
 
     /// <summary>
     /// production playlist lamp source を生成します。
@@ -59,19 +40,11 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
         this.library = library ?? throw new ArgumentNullException(nameof(library));
         this.historicalSourceContextFactory = historicalSourceContextFactory;
-        playlist.PlaylistTablesReplaced += PlaylistTablesReplaced;
-        playlist.PlaylistEntriesHydrationCompleted += PlaylistEntriesHydrationCompleted;
-        library.PropertyChanged += LibraryPropertyChanged;
-        SynchronizeTableCollectionSubscription();
-        SynchronizeTableSubscriptions();
     }
-
-    /// <inheritdoc />
-    public event EventHandler<PlaylistLampViewerSourceChangedEventArgs> Changed;
 
     /// <summary>
     /// immutable入力を捕捉します。開始済みcaptureの実終端は呼出元sessionが所有し、
-    /// 全captureを待ってからこのsourceを破棄する必要があります。
+    /// 捕捉内の資源は通常の所有者が解放し、source自体は購読や解放対象を保持しません。
     /// </summary>
     /// <param name="query">捕捉するplaylistと基準日。</param>
     /// <param name="cancellationToken">捕捉の取消token。</param>
@@ -80,24 +53,33 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         PlaylistLampViewerQuery query,
         CancellationToken cancellationToken)
     {
-        if (Volatile.Read(ref disposed) != 0)
-        {
-            throw new ObjectDisposedException(nameof(BmsLibraryPlaylistLampDataSource));
-        }
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
-        return new ValueTask<PlaylistLampAggregationRequest>(
-            Task.Run(() => CaptureCore(query, cancellationToken), cancellationToken));
+        return new ValueTask<PlaylistLampAggregationRequest>(Task.Run(async () =>
+        {
+            BMSTable table = FindTable(query.PlaylistId);
+            bool pending = false;
+            if (table != null)
+            {
+                using (table.ReaderWriterLock.GetReaderGuard())
+                {
+                    pending = table.PlaylistEntriesLoadState is PlaylistEntriesLoadState.NotLoaded or PlaylistEntriesLoadState.Loading;
+                }
+            }
+            if (pending)
+            {
+                // 準備の所有権は起動側に残し、この捕捉の待機だけを取消可能にします。
+                await playlist.StartupReadiness.WaitForRequiredPlaylistReadinessAsync(cancellationToken).ConfigureAwait(false);
+            }
+            // 準備中の置換・削除も含め、安定IDで現在の表を取り直します。
+            return CaptureCore(query, cancellationToken);
+        }, cancellationToken));
     }
 
     private PlaylistLampAggregationRequest CaptureCore(
         PlaylistLampViewerQuery query,
         CancellationToken cancellationToken)
     {
-        if (Volatile.Read(ref disposed) != 0)
-        {
-            throw new ObjectDisposedException(nameof(BmsLibraryPlaylistLampDataSource));
-        }
         cancellationToken.ThrowIfCancellationRequested();
         BMSTable table = FindTable(query.PlaylistId);
         if (table == null)
@@ -106,7 +88,6 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         }
 
         PlaylistEntriesLoadState entriesLoadState;
-        int entriesRevision;
         string failureMessage;
         string[] folderOrder;
         RawEntrySnapshot[] entries;
@@ -115,7 +96,6 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         {
             cancellationToken.ThrowIfCancellationRequested();
             entriesLoadState = table.PlaylistEntriesLoadState;
-            entriesRevision = table.PlaylistEntriesRevision;
             failureMessage = table.EntriesLoadErrorMessage;
             if (entriesLoadState == PlaylistEntriesLoadState.Loading
                 || entriesLoadState == PlaylistEntriesLoadState.NotLoaded
@@ -141,28 +121,11 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (entriesLoadState == PlaylistEntriesLoadState.Loading
-            || entriesLoadState == PlaylistEntriesLoadState.NotLoaded)
+        if (entriesLoadState is PlaylistEntriesLoadState.Loading or PlaylistEntriesLoadState.NotLoaded or PlaylistEntriesLoadState.Failed)
         {
-            return new PlaylistLampAggregationRequest(
+            return PlaylistLampAggregationRequest.Failed(
                 query.PlaylistId,
-                [],
-                [],
-                null,
-                inputState: PlaylistLampInputState.Loading,
-                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision),
-                query: query);
-        }
-        if (entriesLoadState == PlaylistEntriesLoadState.Failed)
-        {
-            return new PlaylistLampAggregationRequest(
-                query.PlaylistId,
-                [],
-                [],
-                null,
-                inputState: PlaylistLampInputState.Failed,
-                failureMessage: failureMessage,
-                dependencyStamp: CreateUnavailableDependencyStamp(entriesRevision),
+                string.IsNullOrWhiteSpace(failureMessage) ? "Playlist entries are unavailable after initialization." : failureMessage,
                 query: query);
         }
 
@@ -212,17 +175,6 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
                 chartInfoSha256));
         }
 
-        OwnedChartCollectionVersionSnapshot storageRowsVersion = library.CatalogStorageRowsVersion;
-        int catalogVersion = HashCode.Combine(storageRowsVersion.OwnedCollectionVersion);
-        PlaylistLampDependencyStamp dependencyStamp = new(
-            entriesRevision,
-            catalogVersion,
-            library.OwnedCollectionVersion,
-            lampScoreSnapshot.Version,
-            lampScoreSnapshot.SourceGeneration,
-            lampScoreSnapshot.Source,
-            lampScoreSnapshot.LoadStatus,
-            library.ChartInfoIndexVersion);
         DateTime? playlistLastUpdatedValue = playlistLastUpdated == default ? null : playlistLastUpdated;
         return new PlaylistLampAggregationRequest(
             query.PlaylistId,
@@ -231,7 +183,6 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             lampScoreSnapshot,
             playlistLastUpdatedValue,
             inputState: PlaylistLampInputState.Loaded,
-            dependencyStamp: dependencyStamp,
             query: query,
             historicalDateRange: historicalResult.DateRange,
             historicalStatus: historicalResult.Status,
@@ -317,104 +268,6 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
             message);
     }
 
-    private PlaylistLampDependencyStamp CreateUnavailableDependencyStamp(int entriesRevision)
-    {
-        return new PlaylistLampDependencyStamp(
-            entriesRevision,
-            0,
-            library.OwnedCollectionVersion,
-            0,
-            0L,
-            ActiveScoreSource.None,
-            ScoreTableLoadStatus.NotConfigured,
-            library.ChartInfoIndexVersion);
-    }
-
-    /// <summary>
-    /// 新しいsource通知活動を拒否し、購読解除と受理済み活動の回収を一度要求します。
-    /// model lock待ちや既取得Changed delegateを同期的に待ちません。
-    /// </summary>
-    public void Dispose()
-    {
-        TaskCompletionSource completion;
-        Task[] accepted;
-        lock (activityGate)
-        {
-            if (stopTask != null) { return; }
-            disposed = 1;
-            completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            stopTask = completion.Task;
-            accepted = activities.Select(activity => activity.Task).ToArray();
-        }
-        _ = Task.Run(() => StopCoreAsync(accepted, completion));
-    }
-
-    /// <summary>
-    /// 購読解除自身、キュー前score reader、queued playlist readerと既取得通知の実終端を待ちます。
-    /// captureは呼出元が先に待ちます。購読解除の故障は後続呼出しにも保持し、再試行しません。
-    /// </summary>
-    public ValueTask DisposeAsync()
-    {
-        Dispose();
-        lock (activityGate) { return new ValueTask(stopTask); }
-    }
-
-    private async Task StopCoreAsync(Task[] accepted, TaskCompletionSource completion)
-    {
-        var failures = new List<Exception>();
-        void unsubscribe(Action action)
-        {
-            try { action(); }
-            catch (Exception exception) { failures.Add(exception); }
-        }
-        unsubscribe(() => playlist.PlaylistTablesReplaced -= PlaylistTablesReplaced);
-        unsubscribe(() => playlist.PlaylistEntriesHydrationCompleted -= PlaylistEntriesHydrationCompleted);
-        unsubscribe(() => library.PropertyChanged -= LibraryPropertyChanged);
-        BMSTable[] tables;
-        INotifyCollectionChanged collection;
-        lock (subscriptionGate)
-        {
-            collection = subscribedTablesCollection;
-            subscribedTablesCollection = null;
-            tables = subscribedTables.ToArray();
-            subscribedTables.Clear();
-        }
-        if (collection != null) { unsubscribe(() => collection.CollectionChanged -= PlaylistTablesCollectionChanged); }
-        foreach (BMSTable table in tables) { unsubscribe(() => table.PropertyChanged -= TablePropertyChanged); }
-        Changed = null;
-        await Task.WhenAll(accepted).ConfigureAwait(false);
-        if (failures.Count == 0) { completion.TrySetResult(); }
-        else { completion.TrySetException(new AggregateException(failures)); }
-    }
-
-    private TaskCompletionSource ReserveActivity()
-    {
-        lock (activityGate)
-        {
-            if (disposed != 0) { return null; }
-            var activity = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            activities.Add(activity);
-            return activity;
-        }
-    }
-
-    private void CompleteActivity(TaskCompletionSource activity)
-    {
-        lock (activityGate)
-        {
-            activity.TrySetResult();
-            activities.Remove(activity);
-        }
-    }
-
-    private void RunSourceActivity(Action action)
-    {
-        TaskCompletionSource activity = ReserveActivity();
-        if (activity == null) { return; }
-        try { action(); }
-        finally { CompleteActivity(activity); }
-    }
-
     private BMSTable FindTable(string playlistId)
     {
         if (!int.TryParse(playlistId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numericId))
@@ -433,146 +286,4 @@ internal sealed class BmsLibraryPlaylistLampDataSource : IPlaylistLampViewerData
         }
     }
 
-    private void SynchronizeTableSubscriptions()
-    {
-        if (Volatile.Read(ref disposed) != 0)
-        {
-            return;
-        }
-        List<BMSTable> currentTables;
-        playlist.AcquireReaderLockBMSTables();
-        try
-        {
-            if (Volatile.Read(ref disposed) != 0) { return; }
-            currentTables = [.. (playlist.BMSTables ?? []).Where(table => table != null)];
-        }
-        finally
-        {
-            playlist.FreeReaderLockBMSTables();
-        }
-        lock (subscriptionGate)
-        {
-            if (Volatile.Read(ref disposed) != 0)
-            {
-                return;
-            }
-            foreach (BMSTable table in subscribedTables.Where(table => !currentTables.Contains(table)).ToArray())
-            {
-                table.PropertyChanged -= TablePropertyChanged;
-                subscribedTables.Remove(table);
-            }
-            foreach (BMSTable table in currentTables.Where(table => !subscribedTables.Contains(table)))
-            {
-                table.PropertyChanged += TablePropertyChanged;
-                subscribedTables.Add(table);
-            }
-        }
-    }
-
-    private void PlaylistTablesReplaced(object sender, EventArgs e)
-    {
-        RunSourceActivity(() =>
-        {
-            SynchronizeTableCollectionSubscription();
-            SynchronizeTableSubscriptions();
-            NotifyChanged(string.Empty);
-        });
-    }
-
-    private void PlaylistTablesCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
-        => RunSourceActivity(() => NotifyChanged(string.Empty));
-
-    private void PlaylistEntriesHydrationCompleted(object sender, PlaylistHydrationVersionEventArgs e)
-        => RunSourceActivity(() => NotifyChanged(string.Empty));
-
-    private void TablePropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        RunSourceActivity(() =>
-        {
-            if (e == null || string.IsNullOrEmpty(e.PropertyName)
-                || e.PropertyName is nameof(BMSTable.PlaylistEntriesRevision)
-                    or nameof(BMSTable.PlaylistEntriesLoadState)
-                    or nameof(BMSTable.EntriesLoadErrorMessage)
-                    or nameof(BMSTable.Folder_order)
-                    or nameof(BMSTable.folder_list)
-                    or nameof(BMSTable.last_update))
-            {
-                NotifyChanged((sender as BMSTable)?.playlist_id?.ToString(CultureInfo.InvariantCulture));
-            }
-        });
-    }
-
-    private void LibraryPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        RunSourceActivity(() =>
-        {
-            if (e == null || string.IsNullOrEmpty(e.PropertyName)
-                || e.PropertyName is nameof(BMSLibrary.ScoreSnapshotVersion)
-                    or nameof(BMSLibrary.ScoreSnapshotReady)
-                    or nameof(BMSLibrary.BmsCharts)
-                    or nameof(BMSLibrary.BmsonCharts)
-                    or nameof(BMSLibrary.BMSParentFolderListCacheVersion)
-                    or nameof(BMSLibrary.OwnedCollectionVersion)
-                    or nameof(BMSLibrary.ChartInfoIndexVersion))
-            {
-                NotifyChanged(string.Empty);
-            }
-        });
-    }
-
-    private void NotifyChanged(string playlistId)
-    {
-        if (Volatile.Read(ref disposed) != 0) { return; }
-        long sequence = Interlocked.Increment(ref changeSequence);
-        PlaylistLampViewerSourceChangedEventArgs args = new(
-            playlistId,
-            sequence,
-            sourceIdentity: library.GetActiveScoreSourceForDiagnostics().ToString());
-        // 同期callbackがscore readerを使う期間から、worker予約までに所有の切れ目を作りません。
-        TaskCompletionSource activity = ReserveActivity();
-        if (activity == null) { return; }
-        _ = Task.Run(() =>
-        {
-            try
-            {
-                if (Volatile.Read(ref disposed) != 0) { return; }
-                SynchronizeTableCollectionSubscription();
-                SynchronizeTableSubscriptions();
-                if (Volatile.Read(ref disposed) == 0) { Changed?.Invoke(this, args); }
-            }
-            catch (Exception exception)
-            {
-                // 任意通知の診断も活動終端より前に試み、終了後の別ログ継続を作りません。
-                try { NLogWrapper.FileLogger?.Warn(exception, "BmsLibraryPlaylistLampDataSource.NotifyChanged"); }
-                catch { /* 任意診断の故障を未確認解放へ混ぜません。 */ }
-            }
-            finally { CompleteActivity(activity); }
-        });
-    }
-
-    private void SynchronizeTableCollectionSubscription()
-    {
-        if (Volatile.Read(ref disposed) != 0)
-        {
-            return;
-        }
-        var currentCollection = playlist.BMSTables as INotifyCollectionChanged;
-        lock (subscriptionGate)
-        {
-            if (Volatile.Read(ref disposed) != 0
-                || ReferenceEquals(currentCollection, subscribedTablesCollection))
-            {
-                return;
-            }
-            if (subscribedTablesCollection != null)
-            {
-                subscribedTablesCollection.CollectionChanged -= PlaylistTablesCollectionChanged;
-            }
-            subscribedTablesCollection = currentCollection;
-            if (subscribedTablesCollection != null)
-            {
-                subscribedTablesCollection.CollectionChanged += PlaylistTablesCollectionChanged;
-            }
-        }
-    }
 }

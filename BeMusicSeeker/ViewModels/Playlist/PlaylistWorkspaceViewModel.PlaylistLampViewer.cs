@@ -246,7 +246,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             library);
     }
 
-    private BMSTable FindActivePlaylistTableById(string playlistId)
+    /// <summary>安定IDから現在の表を再解決します。削除通知と一覧移動で同じ正本を参照します。</summary>
+    internal BMSTable FindActivePlaylistTableById(string playlistId)
     {
         if (!int.TryParse(playlistId, NumberStyles.Integer, CultureInfo.InvariantCulture, out int numericId))
         {

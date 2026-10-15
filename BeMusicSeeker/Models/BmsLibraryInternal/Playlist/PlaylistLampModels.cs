@@ -731,96 +731,6 @@ internal sealed class PlaylistLampHistoricalScoreSourceContext
 }
 
 /// <summary>
-/// playlist lamp build の version stamp です。
-/// </summary>
-internal readonly struct PlaylistLampDependencyStamp : IEquatable<PlaylistLampDependencyStamp>
-{
-    /// <summary>依存 stamp を生成します。</summary>
-    public PlaylistLampDependencyStamp(
-        int entriesRevision,
-        int catalogVersion,
-        int ownedCollectionVersion,
-        int scoreSnapshotVersion,
-        long scoreSourceGeneration,
-        ActiveScoreSource scoreSource,
-        ScoreTableLoadStatus scoreLoadStatus,
-        int chartInfoIndexVersion = 0)
-    {
-        EntriesRevision = entriesRevision;
-        CatalogVersion = catalogVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
-        ScoreSnapshotVersion = scoreSnapshotVersion;
-        ScoreSourceGeneration = scoreSourceGeneration;
-        ScoreSource = scoreSource;
-        ScoreLoadStatus = scoreLoadStatus;
-        ChartInfoIndexVersion = chartInfoIndexVersion;
-    }
-
-    /// <summary>playlist entries revision。</summary>
-    public int EntriesRevision { get; }
-
-    /// <summary>catalog storage version。</summary>
-    public int CatalogVersion { get; }
-
-    /// <summary>owned collection version。</summary>
-    public int OwnedCollectionVersion { get; }
-
-    /// <summary>score snapshot version。</summary>
-    public int ScoreSnapshotVersion { get; }
-
-    /// <summary>score source generation。</summary>
-    public long ScoreSourceGeneration { get; }
-
-    /// <summary>active score source。</summary>
-    public ActiveScoreSource ScoreSource { get; }
-
-    /// <summary>score table load status。</summary>
-    public ScoreTableLoadStatus ScoreLoadStatus { get; }
-
-    /// <summary>chart_info index version。</summary>
-    public int ChartInfoIndexVersion { get; }
-
-    /// <inheritdoc />
-    public bool Equals(PlaylistLampDependencyStamp other)
-    {
-        return EntriesRevision == other.EntriesRevision
-            && CatalogVersion == other.CatalogVersion
-            && OwnedCollectionVersion == other.OwnedCollectionVersion
-            && ScoreSnapshotVersion == other.ScoreSnapshotVersion
-            && ScoreSourceGeneration == other.ScoreSourceGeneration
-            && ScoreSource == other.ScoreSource
-            && ScoreLoadStatus == other.ScoreLoadStatus
-            && ChartInfoIndexVersion == other.ChartInfoIndexVersion;
-    }
-
-    /// <inheritdoc />
-    public override bool Equals(object obj)
-    {
-        return obj is PlaylistLampDependencyStamp other && Equals(other);
-    }
-
-    /// <inheritdoc />
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(
-            EntriesRevision,
-            CatalogVersion,
-            OwnedCollectionVersion,
-            ScoreSnapshotVersion,
-            ScoreSourceGeneration,
-            ScoreSource,
-            ScoreLoadStatus,
-            ChartInfoIndexVersion);
-    }
-
-    /// <summary>stamp の等価演算子です。</summary>
-    public static bool operator ==(PlaylistLampDependencyStamp left, PlaylistLampDependencyStamp right) => left.Equals(right);
-
-    /// <summary>stamp の非等価演算子です。</summary>
-    public static bool operator !=(PlaylistLampDependencyStamp left, PlaylistLampDependencyStamp right) => !left.Equals(right);
-}
-
-/// <summary>
 /// pure aggregation service へ渡す immutable input です。
 /// </summary>
 internal sealed class PlaylistLampAggregationRequest
@@ -836,7 +746,6 @@ internal sealed class PlaylistLampAggregationRequest
         DateTime? playlistLastUpdated = null,
         PlaylistLampInputState inputState = PlaylistLampInputState.Loaded,
         string failureMessage = null,
-        PlaylistLampDependencyStamp dependencyStamp = default,
         PlaylistLampViewerQuery query = null,
         PlaylistLampHistoricalDateRange historicalDateRange = null,
         PlaylistLampHistoricalSnapshotStatus historicalStatus = PlaylistLampHistoricalSnapshotStatus.Latest,
@@ -854,7 +763,6 @@ internal sealed class PlaylistLampAggregationRequest
         PlaylistLastUpdated = playlistLastUpdated;
         InputState = inputState;
         FailureMessage = failureMessage ?? string.Empty;
-        DependencyStamp = dependencyStamp;
         Query = query ?? PlaylistLampViewerQuery.Latest(PlaylistId);
         HistoricalDateRange = historicalDateRange ?? new PlaylistLampHistoricalDateRange(null, DateTime.Today);
         HistoricalStatus = historicalStatus;
@@ -884,9 +792,6 @@ internal sealed class PlaylistLampAggregationRequest
     /// <summary>entry load failure の診断メッセージです。</summary>
     public string FailureMessage { get; }
 
-    /// <summary>build が観測した依存 version です。</summary>
-    public PlaylistLampDependencyStamp DependencyStamp { get; }
-
     /// <summary>source に渡された immutable query。</summary>
     public PlaylistLampViewerQuery Query { get; }
 
@@ -901,11 +806,9 @@ internal sealed class PlaylistLampAggregationRequest
 
     /// <summary>entry 読み込み中の request を生成します。</summary>
     /// <param name="playlistId">安定した playlist identity。</param>
-    /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Loading 状態の request。</returns>
     internal static PlaylistLampAggregationRequest Loading(
         string playlistId,
-        PlaylistLampDependencyStamp dependencyStamp = default,
         PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
@@ -914,17 +817,14 @@ internal sealed class PlaylistLampAggregationRequest
             [],
             null,
             inputState: PlaylistLampInputState.Loading,
-            dependencyStamp: dependencyStamp,
             query: query);
     }
 
     /// <summary>playlist が削除済みの request を生成します。</summary>
     /// <param name="playlistId">安定した playlist identity。</param>
-    /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Deleted 状態の request。</returns>
     internal static PlaylistLampAggregationRequest Deleted(
         string playlistId,
-        PlaylistLampDependencyStamp dependencyStamp = default,
         PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
@@ -933,19 +833,16 @@ internal sealed class PlaylistLampAggregationRequest
             [],
             null,
             inputState: PlaylistLampInputState.Deleted,
-            dependencyStamp: dependencyStamp,
             query: query);
     }
 
     /// <summary>entry snapshot の取得に失敗した request を生成します。</summary>
     /// <param name="playlistId">安定した playlist identity。</param>
     /// <param name="failureMessage">失敗理由。</param>
-    /// <param name="dependencyStamp">観測した依存 version。</param>
     /// <returns>Failed 状態の request。</returns>
     internal static PlaylistLampAggregationRequest Failed(
         string playlistId,
         string failureMessage,
-        PlaylistLampDependencyStamp dependencyStamp = default,
         PlaylistLampViewerQuery query = null)
     {
         return new PlaylistLampAggregationRequest(
@@ -955,7 +852,6 @@ internal sealed class PlaylistLampAggregationRequest
             null,
             inputState: PlaylistLampInputState.Failed,
             failureMessage: failureMessage,
-            dependencyStamp: dependencyStamp,
             query: query);
     }
 

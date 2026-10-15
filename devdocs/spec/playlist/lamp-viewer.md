@@ -20,24 +20,28 @@
 
 | 状態 | 表示前 | 表示後 |
 | --- | --- | --- |
-| `Loading` | 最初の確定結果を待つ。 | 新しい集計結果を待つ。 |
+| `Loading` | 最初の確定結果を待つ。 | 明示操作による新しい集計結果を待つ。 |
 | `Ready` / `Empty` | 表示する。 | 内容を更新する。 |
 | `Deleted` | 一回通知し、表示しない。 | 対象のビューアだけを通知なしで閉じる。 |
-| `Failed` | 一回通知し、表示しない。 | 一回通知し、対象のビューアだけを閉じる。 |
+| `Failed` | 未取得として表示し、結果に依存する表示・操作を無効にする。 | 同じ表・日付の有効な旧結果があれば保持し、なければ未取得とする。 |
 
-購読は開始前に行います。初回の `Deleted` / `Failed` と表示中の `Failed` の通知は任意案内です。通知の例外や `Failed` を局所診断しても、対象の窓と資源を一度回収し、別の窓を維持します。生成・準備・閉鎖・資源解放の故障は通知故障へ格下げせず、残りの回収も試みて所有入口で失敗として終端します。終端通知の重複や手動閉鎖でも、データ源、セッション、`DataContext` の破棄は一回です。メインウィンドウ終了時は開く途中の処理を取り消して全ビューアを閉じ、後から窓や通知を表示しません。位置・大きさ・選択を保存せず、ウィンドウ間キャッシュも設けません。
+取得・集計の失敗だけでビューアを閉じず、正常な空集計・ゼロ件・全件未プレイへ置き換えません。別の日付の旧結果は流用しません。失敗後も別の日付や過去日から「最新」への変更で取得できます。他の窓の表示・操作は独立しています。
 
-メイン画面の終了経路は `DisposeAsync` を待ちます。同期 `Dispose` は新規受付と閉鎖済み画面への公開を即時停止し、実ウィンドウの閉鎖を先に要求します。取消コールバック、モデルのロック待ち、捕捉・集計、購読解除、データ源解放をUIスレッドで同期的に待ちません。管理主体の終了トークンと各窓の初回表示用トークンから生じる取消も、Taskとして終端まで所有します。呼出元が自身のトークンを明示的に取り消す操作には、UI応答性の追加保証を設けません。
+対象削除は、既存のプレイリスト一覧変更通知を管理主体が受け、安定した `playlist_id` で現在の対象を再解決して判断します。この通知で捕捉・再集計は行いません。一覧の再読込みに伴う同じ対象の一時的な除去・再追加を削除と誤認しません。初回の削除案内に失敗しても対象窓の回収を妨げません。
 
-セッションは停止前に受理した全更新を終端まで所有します。初回、明示更新、表示中の更新、基準日変更に加え、キュー待ちと後続要求で置き換えられた更新も含みます。受付と停止は同じ短いロック内で判定し、捕捉・結果通知・取消コールバックより先に仕事を予約します。世代番号・依存情報の失効・最新要求以外の公開拒否は維持します。停止後の新要求や取得済みのデータ源ハンドラーは新しい捕捉を起こしません。セッションの停止・要求の置換では、捕捉・集計が使う専有トークンを即時に取消状態へ変えます。取消を無視した捕捉が後から戻っても後続集計を開始しません。非同期回収は全更新と取消コールバック、呼出元の取消登録と専有する取消元の解放、購読解除自身の終端を待ちます。
+### 取得の契機と通常の終了
 
-各窓の手動閉鎖、初回失敗、表示中の `Deleted` / `Failed`、所有者の終了は一つの回収Taskへ合流します。初回の `Deleted` / `Failed`、呼出元の取消、所有者の終了、表示準備失敗で未表示のまま残った生成済み `Window` も、一回の `Close` / `Closed` で `Application.Windows` と `Owner.OwnedWindows` の両方から除去します。不可視、`DataContext` 解除、管理中の表示件数0だけを回収済みとはしません。回収Taskは実閉鎖・購読解除・停止要求より先に登録し、`Closed` からの再入も同じTaskへ合流させます。初回表示や終端通知自身を逆方向に待ちません。
+開くとき、別の基準日へ変更するとき、過去日から「最新」へ戻すときに、その時点の表所属・フォルダ・所持状態・アプリ内スコアと、使用する情報源の履歴を捕捉します。同じ日付の再設定と、既に最新の状態での「最新」は何もしません。
 
-全セッション処理が終端した後にデータ源を一度だけ解放し、残余資源も回収します。データ源が `IAsyncDisposable` を持つ場合は `DisposeAsync` だけ、それ以外は同期 `Dispose` を一回呼びます。初回表示用トークンは初回表示処理と取消コールバックの終端前に解放しません。`WindowLifetime` 作成前の部分初期化でも、セッションを停止して全処理の終端を待ってからデータ源を解放します。他の窓の表示・操作・データ源寿命は独立しています。
+開いているだけの窓は、スコア・表所属・所持状況の変更へ自動追随しません。これらの変更用の購読、通知ワーカー、更新予約は持ちません。外部スコアDBの自動再読込みや監視、更新ボタン、古さの警告、日付別の結果キャッシュも設けません。表エントリが初回準備中の場合だけ既存の準備完了を非同期で待ち、対象を再解決して捕捉します。窓の取消しは待機を終え、共有の準備処理そのものは停止しません。
 
-データ源の非同期回収は、キュー投入前の通知コールバックによるスコア識別情報の読取り、投入後のワーカーによるプレイリスト読取りと購読整備、取得済みの `Changed` 購読処理を含む全受理済み通知と、購読解除自身の終端を待ちます。同期コールバックからワーカーへの引渡しでも所有の空白を作りません。停止後の未開始処理はモデル読取りを省けますが、ワーカーの終端までは回収を待ちます。既にモデルのロック待ちなら、取得後の停止再確認と解放まで待ちます。通知と任意診断はロック外で、通知活動の終端前に行います。捕捉はセッションが所有するため、利用側は全捕捉の終端を待ってからデータ源を破棄します。
+セッションは初回取得と、明示操作で受理した全ての捕捉・集計を終端まで所有します。後の要求で置き換えられた処理も含みます。要求の世代番号で古い結果を拒否し、Dispatcherへ投入した後も、画面へ適用する時点で世代と閉鎖状態を確認します。取消しを無視した古い捕捉が後から戻っても後続集計を開始しません。
 
-回収の故障で解放を確認できない資源は管理主体の所有下に残し、手動の `Closed` からDispatcherへ例外を漏らしません。購読解除などの一段が失敗しても残りの回収を試みます。管理主体は初回表示・終端通知から後で生まれた回収Taskも含め、全Taskの終端を待ちます。重複・後続の `DisposeAsync` / `WaitForCompletionAsync` も同じ未確認結果を返し、解放を自動再試行しません。任意通知・診断の故障履歴は未解放結果として保存しません。通常の `Open` が失敗しても回収が成功した場合は、終了の失敗へ加えません。
+手動閉鎖、対象削除、初回取得の取消し、表示準備失敗、所有者の終了は、各窓の一つの回収Taskへ合流します。未表示のままの生成済み `Window` も実際に閉じ、`Application.Windows` と `Owner.OwnedWindows` から除去します。`Closed` からの再入は同じ回収へ合流し、初回表示・通知自身を逆方向に待ちません。
+
+同期 `Dispose` は受付・結果公開を止め、実ウィンドウの閉鎖を先に要求します。取消コールバックや捕捉・集計をUIスレッドで同期的に待ちません。メイン画面の終了経路は `DisposeAsync` で開始済み処理と通常回収の終端を待ち、閉鎖後の窓や通知を表示しません。初回表示用トークンは、その処理と取消コールバックが終端してから解放します。資源を持たない捕捉データ源に、通知活動や専用の破棄契約は設けません。
+
+生成・表示準備・閉鎖・必要な回収の失敗は、任意案内の失敗へ読み替えません。既存の回収経路で残りを試み、所有者へ失敗を返します。解放を確認できなかった資源は所有者の管理下に残し、同じ終了待機から確認できるようにします。自動再試行や通知失敗の履歴保存は行いません。位置・大きさ・選択は保存しません。
 
 ### 統計とカテゴリ
 
@@ -73,9 +77,9 @@
 
 読取りは使用中の情報源だけで行い、失敗しても別の情報源へ切り替えません。LR2では必要な履歴トリガーがすべて一致することを要求します。修復可能な索引だけの不具合は警告付きで読めますが、この読取りでは修復・書込みをしません。
 
-履歴の欠落、不正、読取り不能、日付範囲外はスコア情報だけの利用不可とし、「最新」や有効な日付への変更で復帰できます。取消に応じない処理でも、要求と情報源の世代番号で古い結果の公開を抑えます。
+履歴の欠落、不正、読取り不能、日付範囲外はスコア情報だけの利用不可とし、「最新」や有効な日付への変更で復帰できます。取消に応じない処理でも、明示要求の世代番号で古い結果の公開を抑えます。
 
-過去日に変わるのはスコア依存の数・割合・グラフだけです。プレイリスト所属、フォルダ順、所持・欠落状態、最終更新は常に現在の情報を使います。
+過去日に変わるのはスコア依存の数・割合・グラフだけです。プレイリスト所属、フォルダ順、所持・欠落状態、最終更新には、その明示操作時に捕捉した現在の情報を使います。
 
 ### グラフと操作性
 
@@ -115,21 +119,16 @@
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 集計の分母・カテゴリ・更新日時 | [`BmsLibraryPlaylistLampDataSource`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs)、[`PlaylistLampAggregationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampAggregationService.cs) | [`BmsLibraryPlaylistLampDataSourceTests`](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs)、[`PlaylistLampAggregationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampAggregationTests.cs) |
-| 過去日の復元、旧値欠落、情報源の障害 | [`PlaylistLampHistoricalScoreSnapshotReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs)、[`PlaylistLampHistoricalScoreSnapshotBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs) | [`PlaylistLampHistoricalScoreSnapshotTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampHistoricalScoreSnapshotTests.cs) |
-| 世代番号・状態の更新・破棄 | [`PlaylistLampViewerSession`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampViewerSession.cs) | [`PlaylistLampViewerSessionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerSessionTests.cs) |
-| 表示前の待機、複数窓、終端通知、終了 | [`PlaylistLampViewerWindowManager`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [`PlaylistLampViewerWindowManagerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs) |
-| 列幅、選択、キーボード・Automation、一覧移動 | [`PlaylistLampViewerWindow`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs)、[`PlaylistLampViewerViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs) | [`PlaylistLampViewerWindowPresentationTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs) |
-| トグルのフォーカス装飾なし、NPと未使用領域の判別 | `PlaylistLampViewerWindow.xaml` の局所トグルスタイルと左右4箇所のバー背景 | 既存表示テストでモード選択・グラフ操作の維持を確認し、一時WPF描画でLight/Dark・820/1290 DIPの曲数表示を確認する。実機入力・DPIは自動検査の対象外。 |
-| 表示モード、共通尺度、幅不変の即時ラベル、切替の副作用なし、更新 | `PlaylistLampViewerViewModel`、`PlaylistLampWeightedStackPanel`、`PlaylistLampSegmentLabelConverter` | `Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` は100/50/0件と特殊行、未実体化最大行、左右、参照・通知・捕捉／集計回数・一覧要求・選択・スクロール不変、最大100→200を確認する。 |
-| 複数窓の表示モードの独立、全0件・フォルダなし | `PlaylistLampViewerViewModel`、`PlaylistLampViewerWindow` | `Viewer_displayModeIsIndependentAcrossWindows`、`Viewer_countModeRetainsZeroRowsAndHandlesNoFoldersAfterRefresh`。 |
-| 両モードのラベル収容、基準日・最新・LR2・利用不可からの復帰 | `PlaylistLampSegmentLabelConverter`、`PlaylistLampViewerViewModel` | `Viewer_widthAwareLabelsShowSelectedModeOnlyWhenTheSegmentCanContainIt`、既存の基準日・LR2表示テストでモード保持を確認する。翻訳対応は `LocalizationResourceParityTests` の共通検査を使う。 |
-| 任意通知と必須回収の故障分離、初回取消後の終端 | [`PlaylistLampViewerWindowManager`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [`PlaylistLampViewerWindowManagerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs) の初回・表示中の終端ケースは通知の例外・`Failed` と別窓の保持を確認する。`Manager_requiredCleanupFailureSurvivesCloseAndOverlappingShutdown` は表示中の非同期解放失敗と手動閉鎖の同期解放失敗、購読解除失敗後の残余回収、後続の終了要求への失敗保持を確認する。`Manager_pendingOpenCancellationReclaimsUnshownWindowWithoutDialog` は管理主体の同期・非同期終了と呼出元の取消について、捕捉処理が取消に従う・従わない各条件で終端後の実閉鎖・所有集合からの除去・通知なし・一回解放を確認する。 |
-| 未表示ウィンドウの実終端と正常なビューアの独立性 | [`PlaylistLampViewerWindowManager`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [`PlaylistLampViewerWindowManagerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs) の `Manager_initialDeletedShowsOneLocalizedDialogAndNoWindow` / `Manager_initialFailedShowsOneLocalizedDialogAndNoWindow` は、一回の `Closed` と `Application.Windows` / `Owner.OwnedWindows` からの除去、購読解除・解放を確認する。失敗の代表条件では別窓の表示・操作・データ源を保持する。`Manager_initialTerminalNotificationFailureStillCleansSource` は `Deleted` / `Failed` と通知例外 / `Failed` の組合せでも同じ回収を確認する。`Manager_creationFailurePreservesRequiredFailureAndAttemptsCleanup` は生成失敗、表示準備失敗、表示準備と解放の両失敗を分担し、未生成・実回収と原因の保持を確認する。 |
-| 全受理更新と取消処理の終端 | [`PlaylistLampViewerSession`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampViewerSession.cs)、[`PlaylistLampViewerViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs) | [`PlaylistLampViewerSessionTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerSessionTests.cs) の `Session_disposeDrainsLiveAndSupersededDateRefreshes` は捕捉・集計待機を分担し、最新だけでなく古い更新の終端待ちと、停止後の受付・公開拒否を確認する。捕捉待ちでは取消状態の即時反映と後続集計の未開始も確認する。`Session_disposeOwnsCancellationCallbacksAndAllowsStopReentry` は取消処理からの現在値取得・停止・終端待機への再入と、取消処理の終端までの回収待ちを確認する。`Session_failedSubscriberFailureFaultsRefreshWithoutPoisoningCleanup` は購読先の故障を更新Taskへ返し、回収結果に加えないことを確認する。世代番号と基準日の切替は同クラスの既存ケースが分担する。 |
-| 実閉鎖の先行、UI応答とデータ源の解放順序 | [`PlaylistLampViewerWindowManager`](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [`PlaylistLampViewerWindowManagerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs) の `Manager_closeDrainsLiveAndSupersededDateCapturesBeforeSourceRelease` は手動閉鎖・所有者終了と遅い成功・失敗の組合せで、実閉鎖後も新旧更新の終端までデータ源を保持し、再表示せず一回解放することを確認する。手動閉鎖では別窓の表示・操作を保つ。`Manager_initialCancellationCallbackDoesNotBlockNativeCloseOrDispatcher` は手動閉鎖・所有者終了の両条件で、取消処理が待機中でも実 `Closed` とUI処理が進み、取消・捕捉の終端後に所有集合からの除去とデータ源の一回解放が揃うことを確認する。 |
-| キュー投入前後のモデル読取りと受理済み通知の終端 | [`BmsLibraryPlaylistLampDataSource`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs) | [`BmsLibraryPlaylistLampDataSourceTests`](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs) の `Source_disposeAsyncDrainsQueuedPlaylistReaderBehindActualWriter` / `Source_disposeAsyncDrainsPreQueueScoreReaderBehindActualWriter` は、実書込みロック待ちのプレイリスト・スコア読取りが取得・解放して終端するまで回収を待つことを確認する。`Source_disposeAsyncDrainsRetainedChangedDelegateAndRejectsSessionRefresh` は通知からの停止への再入と後続通知の成功・例外を分担し、受理済み通知の終端と停止後の更新拒否を確認する。 |
-
+| 明示操作時の表・所持・スコアの捕捉、初回準備待ち | [データ源](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs) | [データ源テスト](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs)で当時点の入力と準備完了・取消を確認する。 |
+| 集計の分母・カテゴリ・更新日時 | [集計](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampAggregationService.cs) | [集計テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampAggregationTests.cs)で正常空、未所持、情報源別の計算を確認する。 |
+| 過去日の復元、旧値欠落、情報源の障害 | [履歴スコア](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs) | [履歴スコアテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampHistoricalScoreSnapshotTests.cs)で日付境界・巻戻し・利用不可を確認する。 |
+| 明示要求の競合、失敗結果の非採用、全受理処理の終端 | [セッション](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampViewerSession.cs) | [セッションテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerSessionTests.cs)で新旧日付の完了逆転、取消しを無視する捕捉と後続集計の抑止、停止後の受付・公開拒否を確認する。 |
+| Dispatcher配送後の古い結果・閉鎖後結果の非採用 | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs) | [ViewModelテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerViewModelTests.cs)で実Dispatcherを使い、投入済み旧結果による日付・表示・操作の巻戻りを防ぐことを確認する。 |
+| 初回・表示中の取得失敗、複数窓、対象削除、再読込み | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で未取得表示と別窓の独立、初回削除案内、表示中の対象だけの閉鎖、同じ対象の再読込みで閉じないことを確認する。 |
+| 実閉鎖の先行、初回取消し、開始済み日付取得の終端 | [窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [管理主体テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowManagerTests.cs)で実 `Closed`、所有集合からの除去、UI応答、受理済み処理の回収、遅い完了でも再表示しないことを確認する。 |
+| 表示モード、尺度、幅不変の即時ラベル、切替の副作用なし | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で100/50/0件・特殊行・未実体化最大行、左右の尺度、参照・選択・スクロールの保持、モード切替時の捕捉・集計・一覧要求がないことを確認する。 |
+| 日付変更・最新復帰・LR2・利用不可、複数窓とモードの独立 | [ViewModel](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistLampViewerViewModel.cs)、[画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)で操作による再取得と表示モード保持、全0件・フォルダなし、ラベル収容を確認する。翻訳は共通の `LocalizationResourceParityTests` で確認する。 |
+| 区間からの移動、現在の対象の再解決 | [ワークスペース](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistLampViewer.cs) | [ワークスペース操作テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)でカテゴリと対象範囲を、[MainWindow接続テスト](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)の `PlaylistLampNavigation` で実ツリーへの移動と完了を確認する。 |
 
 ## 関連資料
 

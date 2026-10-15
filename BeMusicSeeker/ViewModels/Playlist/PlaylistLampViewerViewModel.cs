@@ -178,7 +178,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         result = session.Current;
         selectedAsOfDate = result?.Query?.SelectedLocalDate;
         session.ResultChanged += SessionResultChanged;
-        ApplyResult(result);
+        ApplyResult(session.Generation, result);
     }
 
     /// <summary>Stable playlist identity.</summary>
@@ -205,7 +205,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             selectedAsOfDate = normalized;
             RaisePropertyChanged(nameof(SelectedAsOfDate));
-            session.RequestSelectedAsOfDate(normalized);
+            _ = session.UpdateSelectedAsOfDateAsync(normalized);
         }
     }
 
@@ -269,6 +269,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     {
         get
         {
+            if (IsFailure) { return Unavailable; }
             PlaylistLampScoreSnapshot snapshot = result?.ScoreSnapshot;
             string source = snapshot?.LampSource switch
             {
@@ -341,8 +342,8 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     internal PlaylistLampAggregationResult CurrentResult => result;
 
     /// <summary>
-    /// Raised on the viewer dispatcher when a deleted or failed terminal result arrives.
-    /// The owner uses this to close one child window without changing other windows.
+    /// 対象表の削除が現在世代で受理されたとき、ビューアDispatcherで通知します。
+    /// 所有者は対象窓だけを閉じ、他の窓を維持します。
     /// </summary>
     internal event EventHandler<PlaylistLampAggregationResultChangedEventArgs> TerminalResultChanged;
 
@@ -420,13 +421,16 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         return session.DisposeAsync();
     }
 
+    /// <summary>正本集合から対象表が消えたことを既存セッションへ通知します。</summary>
+    internal void SessionDeleted() => session.NotifyDeleted();
+
     private void SessionResultChanged(object sender, PlaylistLampAggregationResultChangedEventArgs e)
     {
         if (e?.Result == null || Volatile.Read(ref disposed) != 0)
         {
             return;
         }
-        void apply() => ApplyResult(e.Result);
+        void apply() => ApplyResult(e.Generation, e.Result);
         if (dispatcher.CheckAccess())
         {
             apply();
@@ -446,15 +450,16 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    private void ApplyResult(PlaylistLampAggregationResult next)
+    private void ApplyResult(long generation, PlaylistLampAggregationResult next)
     {
-        if (next == null || Volatile.Read(ref disposed) != 0)
+        if (next == null || Volatile.Read(ref disposed) != 0 || session.IsDisposed
+            || generation != session.Generation || !ReferenceEquals(next, session.Current))
         {
             return;
         }
         if (!dispatcher.CheckAccess())
         {
-            SessionResultChanged(this, new PlaylistLampAggregationResultChangedEventArgs(0L, next));
+            SessionResultChanged(this, new PlaylistLampAggregationResultChangedEventArgs(generation, next));
             return;
         }
         result = next;
@@ -497,11 +502,11 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             firstPresentable.TrySetResult(next);
         }
         RaisePropertyChanged(string.Empty);
-        if (next.State is PlaylistLampViewerState.Deleted or PlaylistLampViewerState.Failed)
+        if (next.State == PlaylistLampViewerState.Deleted)
         {
             TerminalResultChanged?.Invoke(
                 this,
-                new PlaylistLampAggregationResultChangedEventArgs(0L, next));
+                new PlaylistLampAggregationResultChangedEventArgs(generation, next));
         }
     }
 
@@ -515,7 +520,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private void AddStatisticsCards(PlaylistLampAggregationResult next)
     {
-        PlaylistLampStatistics statistics = next.Statistics;
+        PlaylistLampStatistics statistics = next.State == PlaylistLampViewerState.Failed ? null : next.Statistics;
         statisticsCards.Add(Card(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)));
         statisticsCards.Add(Card(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)));
         statisticsCards.Add(Card(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)));
