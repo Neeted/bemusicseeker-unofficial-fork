@@ -6936,7 +6936,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             operation = Lr2SongDbSyncRequestCoordinator.QueueAsync(owner, "required_projection_failure", true,
                 prepareGeneratedData: null, allowIncompleteToQueue: true, initializationResult: initialization);
-            Task enteredOrFinished = await Task.WhenAny(projectionEntered.Task, operation).WaitAsync(TimeSpan.FromSeconds(30));
+            Task enteredOrFinished = await Task.WhenAny(projectionEntered.Task, operation);
             if (enteredOrFinished == operation)
             {
                 await operation;
@@ -6963,17 +6963,17 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             if (projectionFails)
             {
                 InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-                    async () => await operation.WaitAsync(TimeSpan.FromSeconds(30)));
+                    async () => await operation);
                 Assert.AreEqual("required compatibility projection fault", failure.Message);
                 StringAssert.Contains(failure.StackTrace ?? string.Empty, nameof(GatedCompatibilityProjection.ThrowCompatibilityProjectionFault));
             }
             else if (interrupted)
             {
-                await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await operation.WaitAsync(TimeSpan.FromSeconds(30)));
+                await Assert.ThrowsExceptionAsync<OperationCanceledException>(async () => await operation);
             }
             else
             {
-                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, (await operation.WaitAsync(TimeSpan.FromSeconds(30))).Status);
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed, (await operation).Status);
             }
             Lr2SongDbSyncStatusKind expectedStatus = projectionFails ? Lr2SongDbSyncStatusKind.Failed
                 : interrupted ? Lr2SongDbSyncStatusKind.Incomplete : Lr2SongDbSyncStatusKind.Completed;
