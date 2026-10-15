@@ -20,24 +20,59 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryIrStartupTests
 {
     /// <summary>
-    /// 起動時IR先読みが通信失敗したら一度報告して再試行せず、既存scoreとIR保存値・更新metadataを保持する。
+    /// 起動時IR先読みの判別不能なHTTP200応答は一度報告して再試行せず、既存score・未送信判定・保存値を保持する。
+    /// 独立順位cacheを同周で反映し、次の通常要求では正常な本人IR成績を採用する。
     /// </summary>
-    /// <remarks>実起動・score DB・IR XML解析・ranking workerを接続し、通信と保存の受付分離および終了時の資源回収を確認する。</remarks>
+    /// <remarks>実起動・所有譜面・score DB・IR解析・順位cache・worker実終端の接続を確認する代表例。応答条件表はサービス試験に集約する。</remarks>
     [TestMethod]
     public async Task InitializeStartup_FailedPrefetchIsReportedWithoutRetryOrScoreMutation()
     {
-        await using var fixture = new StartupFixture(waitForCancellation: false);
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseUnrecognizedResponse: true);
         await fixture.InitializeAsync();
-        await fixture.Client.Started.Task;
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
         BMSScore before = fixture.Library.GetBMSScores().Single();
-        fixture.Client.Release.TrySetResult();
-        await fixture.RankingCompleted.Task;
+        Assert.IsTrue(fixture.Library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _)
+            .ContainsBmsMd5(before.hash));
+        Assert.IsFalse(before.IsLr2IrScoreUnsent);
+        string databaseBefore = fixture.CaptureRawIrDatabase();
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
 
-        Assert.AreEqual(1, fixture.Client.RequestCount);
-        Assert.IsTrue(fixture.FailedReport);
-        Assert.AreSame(before, fixture.Library.GetBMSScores().Single());
-        Assert.AreEqual(321, before.perfect);
-        fixture.AssertDatabaseRetained();
+            Assert.AreEqual(1, fixture.Client.RequestCount);
+            Assert.IsTrue(fixture.FailedReport);
+            Assert.AreEqual("parse_failed", fixture.FailureDetail);
+            Assert.AreSame(before, fixture.Library.GetBMSScores().Single());
+            Assert.AreEqual(321, before.perfect);
+            Assert.AreEqual(45, before.great);
+            Assert.IsFalse(before.IsLr2IrScoreUnsent);
+            Assert.AreEqual(databaseBefore, fixture.CaptureRawIrDatabase());
+            fixture.AssertDatabaseRetained();
+            Assert.AreEqual(1, before.ranking);
+            Assert.AreEqual(1, before.rankingNum, "判別不能な本人成績を採用せず、独立した順位cacheは反映します。");
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+
+            fixture.FailedReport = false;
+            await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(2, fixture.Client.RequestCount);
+            Assert.IsFalse(fixture.FailedReport);
+            BMSScore current = fixture.Library.GetBMSScores().Single();
+            Assert.AreEqual(500, current.perfect);
+            Assert.AreEqual(100, current.great);
+            Assert.IsFalse(current.IsLr2IrScoreUnsent);
+            fixture.AssertDatabaseCommitted();
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+        }
+        finally
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+        }
     }
 
     /// <summary>
@@ -354,6 +389,7 @@ public sealed class BmsLibraryIrStartupTests
 
             Assert.AreEqual(1, fixture.Client.RequestCount, "同じ失敗更新をその場で再要求しません。");
             Assert.IsTrue(fixture.FailedReport);
+            Assert.AreEqual("db_read_failed", fixture.FailureDetail, "空応答の解析失敗でDB読取りの検証を迂回しません。");
             Assert.AreSame(before, fixture.Library.GetBMSScores().Single());
             Assert.AreEqual(321, before.perfect);
             Assert.AreEqual(45, before.great);
@@ -573,13 +609,14 @@ public sealed class BmsLibraryIrStartupTests
         internal readonly TaskCompletionSource RankingCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly ConcurrentQueue<(string Status, bool Failed)> RankingReports = new();
         internal bool FailedReport;
+        internal string FailureDetail;
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false, bool exerciseUnrecognizedResponse = false)
         {
             this.exercisePublication = exercisePublication;
-            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure;
+            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure || exerciseUnrecognizedResponse;
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
             string scorePath = exerciseRankingCache
@@ -634,7 +671,8 @@ public sealed class BmsLibraryIrStartupTests
                 string cachePath = Path.Combine(root, "Ir", CacheHash + ".xml");
                 File.WriteAllText(cachePath, File.ReadAllText(cachePath).Replace("<pg>321</pg>", "<pg>500</pg>").Replace("<gr>45</gr>", "<gr>100</gr>"), Encoding.UTF8);
             }
-            Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure, extraScoreHash: exercisePublication ? IrHash : null);
+            Client = new ControlledIrClient(waitForCancellation, failFirstRequest, emptyFirstRequest: exerciseReadFailure,
+                extraScoreHash: exercisePublication ? IrHash : null, unrecognizedFirstResponse: exerciseUnrecognizedResponse);
             var options = new BmsLibraryOptionsSnapshot
             {
                 OperationModeLR2DB = true,
@@ -652,7 +690,7 @@ public sealed class BmsLibraryIrStartupTests
                 scheduledWorkers.Add(Task.Run(process));
                 return true;
             };
-            Library.StartupBackgroundTaskReporter = (name, status, _, failed, _) =>
+            Library.StartupBackgroundTaskReporter = (name, status, _, failed, detail) =>
             {
                 if (name != "ranking_refresh_deferred")
                 {
@@ -668,6 +706,7 @@ public sealed class BmsLibraryIrStartupTests
                 if (failed)
                 {
                     FailedReport = true;
+                    FailureDetail = detail;
                 }
             };
             Library.PropertyChanged += (_, args) =>
@@ -801,7 +840,7 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
-    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false, bool emptyFirstRequest = false, string extraScoreHash = null) : IBmsLibraryIrClient
+    internal sealed class ControlledIrClient(bool waitForCancellation, bool failFirstRequest, bool ignoreCancellation = false, bool emptyFirstRequest = false, string extraScoreHash = null, bool unrecognizedFirstResponse = false) : IBmsLibraryIrClient
     {
         internal readonly TaskCompletionSource Started = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource Cancelled = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -834,7 +873,12 @@ public sealed class BmsLibraryIrStartupTests
 
                 if (RequestCount == 1 && emptyFirstRequest)
                 {
-                    return "<root></root>";
+                    return "<scorelist/>";
+                }
+
+                if (RequestCount == 1 && unrecognizedFirstResponse)
+                {
+                    return "<html><body>Service unavailable</body></html>";
                 }
 
                 string xml = "<root>\n\t<score>\n\t\t<hash>abcdefabcdefabcdefabcdefabcdefab</hash>\n"

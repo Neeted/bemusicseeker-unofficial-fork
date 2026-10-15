@@ -213,7 +213,7 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 取得XMLのclear2はoptionビットでASSIST/EASYを区別し、異なる意味を同じclearへ潰さない。
+    /// 複数root断片・不正行・途中切断の混在でも有効行を採用し、clear2のoption区別と重複hashの先頭優先を保つ。
     /// </summary>
     [TestMethod]
     public void UpdateIrScoreTable_ParsesLr2Clear2ByOptionHistory()
@@ -223,13 +223,20 @@ public sealed class BmsLibraryIrServiceTests
         string assistHash = "16161616161616161616161616161616";
         string easyHash = "17171717171717171717171717171717";
         string xml = BuildPlayerScoreXml(assistHash, pg: 100, gr: 20, clear: 2, option: 0)
-            + BuildPlayerScoreXml(easyHash, pg: 120, gr: 30, clear: 2, option: ClearTypeStorageConverter.OptionHistoryEasy);
+            + BuildPlayerScoreXml("18181818181818181818181818181818", pg: 1, gr: 1).Replace("<pg>1</pg>", "<pg>2147483648</pg>")
+            + BuildPlayerScoreXml(assistHash, pg: 999, gr: 1, clear: 2, option: ClearTypeStorageConverter.OptionHistoryEasy)
+            + BuildPlayerScoreXml(easyHash, pg: 120, gr: 30, clear: 2, option: ClearTypeStorageConverter.OptionHistoryEasy)
+                .Replace("</root>\n", "")
+            + "\t<score>\n\t\t<hash>";
         var client = new FakeIrClient(xml);
 
         List<LR2IRScore> scores = service.UpdateIrScoreTable(123, env.CreateGateway(), client, PlayerScoreRegex);
 
+        Assert.AreEqual(2, scores.Count);
         LR2IRScore assistScore = scores.Single(score => score.hash == assistHash);
         LR2IRScore easyScore = scores.Single(score => score.hash == easyHash);
+        Assert.AreEqual(100, assistScore.pg);
+        Assert.AreEqual(20, assistScore.gr);
         Assert.AreEqual(ClearType.INVALID, assistScore.clear);
         Assert.AreEqual(ClearType.EASY, easyScore.clear);
     }
@@ -1684,31 +1691,63 @@ public sealed class BmsLibraryIrServiceTests
     }
 
     /// <summary>
-    /// 先行取得失敗は再要求せず失敗を返し、実成績行とdigest/保存時刻を保持する。
+    /// 実取得の失敗・判別不能応答は再要求せず失敗を返し、成績全列と全IDのmetadata・保存時刻・構造を保持する。
+    /// 正常0件との判別条件はここへ集約し、起動試験は非採用・独立cache・次要求の接続を分担する。
     /// </summary>
-    [TestMethod]
-    public void UpdateIrScoreTableWithMetrics_FailedPrefetchPreservesNonemptyDatabaseWithoutRetry()
+    [DataTestMethod]
+    [DataRow("fetch_failure")]
+    [DataRow("null_body")]
+    [DataRow("empty_body")]
+    [DataRow("unknown_root")]
+    [DataRow("html_error")]
+    [DataRow("wrapped_empty_list")]
+    [DataRow("malformed_declaration")]
+    [DataRow("unreadable_rows")]
+    [DataRow("truncated_row")]
+    public void UpdateIrScoreTableWithMetrics_FailedPrefetchPreservesNonemptyDatabaseWithoutRetry(string responseKind)
     {
         using var env = TempIrEnvironment.Create();
         var service = new BmsLibraryIrService();
         BmsLibraryDbGateway gateway = env.CreateGateway();
         const string hash = "12345678901234567890123456789012";
-        gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore { hash = hash, pg = 321, gr = 45 }], 123, "retained-digest");
-        LR2SongDBExtended.ir_score_refresh_metadata beforeMetadata = gateway.LoadIrScoreRefreshMetadata(123);
-        var client = new FakeIrClient(BuildPlayerScoreXml(hash, pg: 999, gr: 1));
-        var prefetch = new IrScorePrefetchResult { Lr2Id = 123, FailureReason = "fetch_failed" };
+        gateway.ReplaceIrScoreTableAndRefreshMetadata([new LR2IRScore(hash)
+        {
+            clearValue = 4, notes = 1000, combo = 900, pg = 321, gr = 45,
+            gd = 10, bd = 2, pr = 1, minbp = 12, option = 32, lastupdate = 20261010
+        }], 123, "retained-digest");
+        gateway.UpsertIrScoreRefreshMetadata(456, "other-player-digest");
+        string before = CaptureRawIrDatabase(env.SongDbPath);
+        string? xml = responseKind switch
+        {
+            "fetch_failure" => null,
+            "null_body" => null,
+            "empty_body" => "",
+            "unknown_root" => "<root></root>",
+            "html_error" => "<html><body>Service unavailable</body></html>",
+            "wrapped_empty_list" => "<unknown><scorelist/></unknown>",
+            "malformed_declaration" => "<?xml garbage?><scorelist/>",
+            "unreadable_rows" => BuildPlayerScoreXml(hash, pg: 1, gr: 1).Replace("<pg>1</pg>", "<pg>2147483648</pg>"),
+            "truncated_row" => "<scorelist>\n\t<score>\n\t\t<hash>" + hash + "</hash>\n\t\t<clear>4</clear>",
+            _ => throw new AssertFailedException("未定義の応答条件です。")
+        };
+        var client = new FakeIrClient(xml);
+        if (responseKind == "fetch_failure")
+        {
+            client.FetchFailure = new IOException("controlled unavailable IR");
+        }
+        IrScorePrefetchResult prefetch = service.PrefetchIrScoreTableWithMetrics(123, client, PlayerScoreRegex);
 
         IrScoreTableUpdateResult result = service.UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex, prefetch);
 
-        Assert.AreEqual(0, client.PlayerScoreXmlRequestCount, "失敗済みの同じ要求を再取得しない。");
+        Assert.AreEqual(1, client.PlayerScoreXmlRequestCount, "失敗済みの同じ要求を再取得しない。");
+        Assert.IsFalse(prefetch.Succeeded);
+        Assert.AreEqual(responseKind == "fetch_failure" ? "fetch_failed" : "parse_failed", prefetch.FailureReason);
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
-        LR2IRScore retained = gateway.LoadIrScoreRows().Single();
-        Assert.AreEqual(hash, retained.hash);
-        Assert.AreEqual(321, retained.pg);
-        Assert.AreEqual(45, retained.gr);
-        Assert.AreEqual(beforeMetadata.score_digest_sha256, gateway.LoadIrScoreRefreshMetadata(123).score_digest_sha256);
-        Assert.AreEqual(beforeMetadata.updated_at, gateway.LoadIrScoreRefreshMetadata(123).updated_at);
+        Assert.IsTrue(result.PrefetchUsed);
+        Assert.IsNull(result.ScoreTable);
+        Assert.IsFalse(result.MetadataUpdated);
+        Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
     }
 
     /// <summary>
@@ -1732,26 +1771,41 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(shutdown ? IrScoreFailure.Cancelled : IrScoreFailure.TimedOut, result.Failure);
     }
 
-    /// <summary>準備済みDBの未記録metadataと正常空スコアは有効で、空の取得を失敗として扱わない。</summary>
-    [TestMethod]
-    public void CommitPreparedIrScoreTable_NormalEmptyDatabaseAndFetchSucceeds()
+    /// <summary>
+    /// 既知の空scorelist応答は実取得から採用し、空DBの未記録metadataを保存でき、旧成績があれば空へ置換して対象IDの履歴だけ更新する。
+    /// 自己終了・内部空白・BOM/#/XML宣言/rivalnameの代表を分担し、外枠の違いを取得失敗と混同しない。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow(false, "<scorelist/>")]
+    [DataRow(true, "<scorelist> \r\n\t</scorelist>")]
+    [DataRow(true, "\uFEFF \n#\n<?xml version=\"1.0\" encoding=\"Shift_JIS\"?>\n<scorelist/>\n<rivalname>Player</rivalname>\n\uFEFF")]
+    public void UpdateIrScoreTableWithMetrics_RecognizedEmptyResponseCommitsEmptyScores(bool existingScores, string xml)
     {
         using var env = TempIrEnvironment.Create();
         BmsLibraryDbGateway gateway = env.CreateGateway();
         Assert.IsNull(gateway.LoadIrScoreRefreshMetadata(123));
-        var fetched = new IrScorePrefetchResult
+        if (existingScores)
         {
-            Lr2Id = 123,
-            ScoreDigestSha256 = BmsLibraryIrService.ComputeScoreDigest([])
-        };
+            gateway.ReplaceIrScoreTableAndRefreshMetadata(
+                [new LR2IRScore { hash = "12345678901234567890123456789012", pg = 321, gr = 45 }], 123, "retained-digest");
+        }
+        gateway.UpsertIrScoreRefreshMetadata(456, "other-player-digest");
+        LR2SongDBExtended.ir_score_refresh_metadata otherMetadata = gateway.LoadIrScoreRefreshMetadata(456);
+        var client = new FakeIrClient(xml);
 
         IrScoreTableUpdateResult result = new BmsLibraryIrService()
-            .CommitPreparedIrScoreTableWithMetrics(123, gateway, fetched);
+            .UpdateIrScoreTableWithMetrics(123, gateway, client, PlayerScoreRegex);
 
+        Assert.AreEqual(1, client.PlayerScoreXmlRequestCount);
         Assert.IsTrue(result.Succeeded);
         Assert.AreEqual(IrScoreFailure.None, result.Failure);
         Assert.AreEqual(0, result.ScoreTable.Count);
         Assert.AreEqual(0, gateway.LoadIrScoreRows().Count);
+        Assert.IsTrue(result.MetadataUpdated);
+        Assert.AreEqual(existingScores ? "changed" : "score_digest_same", result.SkipReason);
+        Assert.AreEqual(BmsLibraryIrService.ComputeScoreDigest([]), gateway.LoadIrScoreRefreshMetadata(123).score_digest_sha256);
+        Assert.AreEqual(otherMetadata.score_digest_sha256, gateway.LoadIrScoreRefreshMetadata(456).score_digest_sha256);
+        Assert.AreEqual(otherMetadata.updated_at, gateway.LoadIrScoreRefreshMetadata(456).updated_at);
     }
 
     /// <summary>metadata表の読取りが不成立なら異なる取得成績も採用せず、旧スコア・退避metadata・構造を保持する。</summary>
@@ -1799,7 +1853,7 @@ public sealed class BmsLibraryIrServiceTests
         var service = new BmsLibraryIrService();
         string xml = matchingMetadata
             ? BuildPlayerScoreXml("12345678901234567890123456789012", pg: 999, gr: 1)
-            : "<root></root>";
+            : "<scorelist/>";
         IrScorePrefetchResult fetched = service.PrefetchIrScoreTableWithMetrics(123, new FakeIrClient(xml), PlayerScoreRegex);
         Assert.IsTrue(fetched.Succeeded);
         if (matchingMetadata)
@@ -1820,6 +1874,7 @@ public sealed class BmsLibraryIrServiceTests
 
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(IrScoreFailure.Unavailable, result.Failure);
+        Assert.AreEqual("db_read_failed", result.SkipReason);
         Assert.IsNull(result.ScoreTable);
         Assert.IsFalse(result.MetadataUpdated);
         Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
@@ -2014,17 +2069,17 @@ public sealed class BmsLibraryIrServiceTests
         public int MinBp { get; set; }
     }
 
-    private sealed class FakeIrClient(string playerScoreXml) : IBmsLibraryIrClient
+    private sealed class FakeIrClient(string? playerScoreXml) : IBmsLibraryIrClient
     {
         private readonly Dictionary<string, string> rankingXmlByHash = new(StringComparer.OrdinalIgnoreCase);
 
-        public string PlayerScoreXml { get; set; } = playerScoreXml;
+        public string? PlayerScoreXml { get; set; } = playerScoreXml;
 
         public int PlayerScoreXmlRequestCount { get; private set; }
 
         public Exception? FetchFailure { get; set; }
 
-        public string GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
+        public string? GetPlayerScoresXml(int lr2Id, CancellationToken cancellationToken = default)
         {
             PlayerScoreXmlRequestCount++;
             if (FetchFailure != null)

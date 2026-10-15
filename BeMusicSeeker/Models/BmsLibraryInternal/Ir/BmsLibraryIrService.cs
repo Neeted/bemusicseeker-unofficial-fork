@@ -465,9 +465,10 @@ internal sealed class BmsLibraryIrService
         }
     }
 
+    /// <summary>従来の有効行抽出を保ち、0件の応答だけは既知の空一覧と確認できる場合に限り採用します。</summary>
     private static List<LR2IRScore> ParsePlayerScoreXml(string playerXml, Regex lr2IrScoreRegex)
     {
-        return [.. (from e in lr2IrScoreRegex.Matches(playerXml ?? string.Empty).Cast<Match>().Select(delegate (Match m)
+        List<LR2IRScore> scores = [.. (from e in lr2IrScoreRegex.Matches(playerXml ?? string.Empty).Cast<Match>().Select(delegate (Match m)
                 {
                     try
                     {
@@ -494,6 +495,16 @@ internal sealed class BmsLibraryIrService
                 where e != null
                 group e by e.hash into e
                 select e.First())];
+        // 有効行がある部分応答は従来どおり受理し、空のときだけ応答全体の既知外枠を識別します。
+        const string xmlDeclaration = """<\?xml\s+version\s*=\s*(?:"1\.[0-9]+"|'1\.[0-9]+')"""
+            + """(?:\s+encoding\s*=\s*(?:"[A-Za-z][A-Za-z0-9._-]*"|'[A-Za-z][A-Za-z0-9._-]*'))?"""
+            + """(?:\s+standalone\s*=\s*(?:"(?:yes|no)"|'(?:yes|no)'))?\s*\?>""";
+        if (scores.Count == 0 && !Regex.IsMatch(playerXml ?? string.Empty,
+            @"\A[\s\uFEFF]*(?:#\s*)?(?:" + xmlDeclaration + @"\s*)?<scorelist\s*(?:/>|>\s*</scorelist>)(?:\s*<rivalname>[^<]*</rivalname>)?[\s\uFEFF]*\z"))
+        {
+            throw new FormatException("本人IR応答を正常な空成績一覧と判別できません。");
+        }
+        return scores;
     }
 
     internal static string ComputeScoreDigest(IEnumerable<LR2IRScore> scoreTable)
