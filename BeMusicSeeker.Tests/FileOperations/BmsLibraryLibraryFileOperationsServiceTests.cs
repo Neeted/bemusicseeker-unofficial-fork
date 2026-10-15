@@ -130,40 +130,6 @@ public sealed class BmsLibraryLibraryFileOperationsServiceTests
         });
     }
 
-    /// <summary>全譜面が選択された通常packageだけを返し、部分選択や単一ファイルpackageをフォルダ削除対象へ誤分類する誤りを検出する。</summary>
-    [TestMethod]
-    public void GetPendingPackagesFullyCoveredBySelection_ReturnsOnlyFullySelectedPackages()
-    {
-        var service = new BmsLibraryLibraryFileOperationsService();
-        ChartFile selectedA = CreateFile("C:\\Pending\\Pkg1\\a.bms");
-        ChartFile selectedB = CreateFile("C:\\Pending\\Pkg1\\b.bms");
-        ChartFile partial = CreateFile("C:\\Pending\\Pkg2\\a.bms");
-        ChartFile partialUnselected = CreateFile("C:\\Pending\\Pkg2\\b.bms");
-        ChartPackage pkg1 = ChartPackageTestExtensions.CreatePackage([selectedA, selectedB]);
-        pkg1.path = "C:\\Pending\\Pkg1";
-        pkg1.delete_parent = false;
-        ChartPackage pkg2 = ChartPackageTestExtensions.CreatePackage([partial, partialUnselected]);
-        pkg2.path = "C:\\Pending\\Pkg2";
-        pkg2.delete_parent = false;
-
-        ChartFile singleA = CreateFile("C:\\Pending\\Singles\\a.bms");
-        ChartFile singleB = CreateFile("C:\\Pending\\Singles\\b.bms");
-        ChartPackage singlePackageA = ChartPackageTestExtensions.CreatePackage([singleA]);
-        singlePackageA.path = singleA.Path;
-        ChartPackage singlePackageB = ChartPackageTestExtensions.CreatePackage([singleB]);
-        singlePackageB.path = singleB.Path;
-        singlePackageB.delete_parent = true;
-
-        List<ChartPackage> result = service.GetPendingPackagesFullyCoveredBySelection(
-            [pkg1, pkg2, singlePackageA, singlePackageB],
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            {
-                selectedA.Path, selectedB.Path, partial.Path, singleA.Path, singleB.Path
-            });
-
-        CollectionAssert.AreEqual(new[] { pkg1 }, result);
-    }
-
     /// <summary>実フォルダ移動と資源索引更新から所持・pending・導入済み参照の変更事実を生成し、子パスや導入先の更新漏れ・旧索引の変質を検出する。</summary>
     /// <remarks>実filesystemの内容・存在・衝突を使い、機能窓口の判定と物理状態または変更事実を照合する。</remarks>
     [TestMethod]

@@ -50,6 +50,9 @@ internal sealed class PackageChartDiscoverySnapshot
 
     public string SourcePath { get; set; } = string.Empty;
 
+    /// <summary>列挙が完了し、見つかった全譜面の読取りに成功した場合に限り真です。部分的な譜面一覧は保持します。</summary>
+    public bool IsComplete { get; set; }
+
     public List<PackageChartEntry> ChartEntries
     {
         get
@@ -213,6 +216,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
         };
     }
 
+    /// <summary>対象の譜面一覧を取得し、フォルダ内の全譜面を確認できたかを同じ走査の結果として返します。</summary>
     internal static PackageChartDiscoverySnapshot BuildPackageChartDiscoverySnapshot(string packagePath)
     {
         if (string.IsNullOrWhiteSpace(packagePath))
@@ -233,19 +237,24 @@ internal static class PackageInstallEstimationSnapshotBuilder
         if (LongPathFileSystem.DirectoryExists(normalizedPath))
         {
             RootFileEnumerationResult enumerationResult = EnumerateChartsOnlyFastOnly(normalizedPath);
+            IReadOnlyCollection<string> chartPaths = enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName);
+            List<PackageChartEntry> entries = CreatePendingChartEntriesFromPaths(chartPaths);
             return new PackageChartDiscoverySnapshot
             {
                 SourcePath = normalizedPath,
-                ChartEntries = CreatePendingChartEntriesFromPaths(enumerationResult?.GetPaths(ChartDirectoryScanBuilder.ChartGroupName) ?? [])
+                IsComplete = enumerationResult.Success && enumerationResult.IsComplete && entries.Count == chartPaths.Count,
+                ChartEntries = entries
             };
         }
 
+        List<PackageChartEntry> fileEntries = LongPathFileSystem.FileExists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
+            ? [.. new List<PackageChartEntry> { PackageChartEntry.FromPath(normalizedPath) }.Where(entry => entry != null)]
+            : [];
         return new PackageChartDiscoverySnapshot
         {
             SourcePath = normalizedPath,
-            ChartEntries = LongPathFileSystem.FileExists(normalizedPath) && ChartFileKindResolver.IsSupportedChartFilePath(normalizedPath)
-                ? [.. new List<PackageChartEntry> { PackageChartEntry.FromPath(normalizedPath) }.Where(entry => entry != null)]
-                : []
+            IsComplete = fileEntries.Count == 1,
+            ChartEntries = fileEntries
         };
     }
 

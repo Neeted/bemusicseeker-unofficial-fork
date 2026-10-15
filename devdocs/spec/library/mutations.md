@@ -175,7 +175,11 @@ sequenceDiagram
 - 入れ子のBMSONを含む、残存する全譜面が選択されている。
 - フォルダ全体を削除する設定が有効である。
 
+削除前に対象フォルダを一回走査し、列挙と各譜面の読取り・基本解析がすべて成立した一覧で全選択を確認します。事前の管理列や、個別譜面をまとめ直した列をフォルダ全体の根拠にしません。確認できない場合はフォルダ一括削除の対象から外し、選択した既知のファイルだけを従来の個別削除へ渡します。フォルダ削除の処理件数・成功パスも、同じ確認済み一覧から作ります。
+
 対象は `ChartPackage.path` のフォルダそのものです。単一ファイルのパッケージは、この条件を満たしたように見えても親を削除しません。一部選択または設定無効では選択ファイルだけを削除します。全体削除が失敗した場合は、選択譜面を失敗として数え、ディレクトリのエラーを一件残します。個別削除へ切り替えず、パッケージの所属と導入行を保持します。OSが行った部分削除の原子性までは保証しません。
+
+導入済み譜面だけを含む保留入力の削除も、対象フォルダを走査して完全な一覧と全譜面の所持を確認します。不完全・読取り不能・未所持譜面を含むフォルダを対象へ加えず、独立した完全な全所持入力の削除は続けます。単一ファイルの対象範囲は維持します。ライブラリ全体の再走査や、確認後の外部変更を防ぐ保証は追加しません。
 
 ### 保留入力と登録ルート
 
@@ -223,6 +227,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 保留フォルダ削除前の全譜面確認と部分管理列 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) の全所持判定・`DeletePendingChartTargets` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `DeletePendingCharts_IncompleteDiscoveredPackagesDeleteOnlySelectedFiles` は発見・復元相当の不完全入力と管理列外の未選択BMSONを保持し、選択BMSだけを実削除する。`DeletePendingCharts_DeletesWholePackageDirectoryWhenSelectionCoversPackage` は管理列外の譜面も選択した場合のフォルダ削除と実件数・成功パスを確認する。全所持削除は高度保留操作の実owner試験へ分担する。 |
 | 高度保留操作の実owner・store・FS・DBの正常接続 | `PendingPackageWorkflowOwner`、`BmsLibraryPendingPackageStore` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerNormalMutationTests.cs) の `DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources` は全所持folder・単体だけを削除し、混在・未所持、install行、所持実体と単体の兄弟を保つ。`RenamePendingZeroNoteChartsAsync_RealStoreInvalidatesOnlyZeroNoteBmsAndPms` は実0note BMS/PMSだけを無効化し、非0note・BMSON・既無効と異内容ファイル・directory衝突先を保つ。操作終端後の正本・DBと受付解放を観測し、resource-only上書きと衝突の詳細条件は既存系列へ分担する。 |
 | 通常・追加・root基点とsrc/dst/親再帰の実交差、表0基点 | `Lr2SynchronizationOwner` | [`FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 操作の排他、確認、通知解放 | [`SelectedChartMutationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartMutationWorkflowOwner.cs)、[`LibraryFileOperationSynchronization`](../../../BeMusicSeeker/Models/BmsLibraryInternal/FileOperations/LibraryFileOperationSynchronization.cs) | [`SelectedChartMutationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartMutationWorkflowOwnerTests.cs)、[`BmsLibraryMutationBoundaryTests`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs)、[`ChartMutationActivityOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/ChartMutationActivityOwnerTests.cs) |

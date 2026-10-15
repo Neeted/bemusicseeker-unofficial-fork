@@ -6391,7 +6391,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 全譜面を選択しフォルダ削除を指定すると同梱資源も実削除して対象結果を返し、空になった入力フォルダの残存を検出する。
+    /// 管理一覧に一譜面しかなくても実在する二譜面を全選択すると資源ごと削除し、再走査した集合と成功件数・除去pathの不一致を検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
@@ -6405,17 +6405,20 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Directory.CreateDirectory(packageDirectoryPath);
             string chartPath = Path.Combine(packageDirectoryPath, "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n");
+            string secondChartPath = Path.Combine(packageDirectoryPath, "second.bms");
+            File.WriteAllText(secondChartPath, "#PLAYER 1\r\n#TITLE second\r\n");
             File.WriteAllText(Path.Combine(packageDirectoryPath, "sound.wav"), "resource");
             string resourceDirectoryPath = Path.Combine(packageDirectoryPath, "images");
             Directory.CreateDirectory(resourceDirectoryPath);
             File.WriteAllText(Path.Combine(resourceDirectoryPath, "stage.png"), "image");
             ChartFile chart = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            ChartFile secondChart = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", secondChartPath);
             ChartPackage package = ChartPackageTestExtensions.CreatePackage([chart]);
             package.path = packageDirectoryPath;
             package.delete_parent = false;
 
             PendingFileDeletionResult result = service.DeletePendingCharts(
-                [(chart)],
+                [chart, secondChart],
                 [package],
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: true,
@@ -6423,13 +6426,63 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 null,
                 null);
 
+            Assert.AreEqual(2, result.Requested);
+            Assert.AreEqual(2, result.Processed);
+            Assert.AreEqual(2, result.Removed);
+            Assert.AreEqual(0, result.Failed);
+            Assert.AreEqual(0, result.Skipped);
+            CollectionAssert.AreEquivalent(new[] { chartPath, secondChartPath }, result.ChartPathsToRemove);
+            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+        });
+    }
+
+    /// <summary>
+    /// 不正BMSONが欠けた発見・復元一覧と、有効な未選択BMSONを含まない管理一覧でも、既知の選択BMSだけを削除し非対象の譜面・資源を保つ。
+    /// </summary>
+    /// <remarks>小さい実FSと本番の発見・削除サービスを使い、全体skipと誤ったフォルダ削除をともに検出する。</remarks>
+    [DataTestMethod]
+    [DataRow("discovered-invalid")]
+    [DataRow("restored-invalid")]
+    [DataRow("managed-subset")]
+    public void DeletePendingCharts_IncompleteDiscoveredPackagesDeleteOnlySelectedFiles(string provenance)
+    {
+        WithTemporaryDirectory(tempDirectoryPath =>
+        {
+            string packagePath = Path.Combine(tempDirectoryPath, "package");
+            string nested = Path.Combine(packagePath, "nested");
+            Directory.CreateDirectory(nested);
+            string selectedPath = Path.Combine(packagePath, "selected.bms");
+            File.WriteAllText(selectedPath, "#PLAYER 1\r\n#TITLE selected\r\n#BPM 120\r\n#00111:01\r\n");
+            string unselectedPath = Path.Combine(nested, "unselected.bmson");
+            File.WriteAllText(unselectedPath, provenance == "managed-subset" ? CreateBmsonJsonWithSound("sound.wav") : "{invalid json");
+            string resourcePath = Path.Combine(nested, "sound.wav");
+            File.WriteAllBytes(resourcePath, [3, 1, 4]);
+            byte[] unselectedBytes = File.ReadAllBytes(unselectedPath);
+            byte[] resourceBytes = File.ReadAllBytes(resourcePath);
+            var service = new BmsLibraryPackageInstallService();
+            ChartPackage package = provenance switch
+            {
+                "restored-invalid" => new ChartPackage { path = packagePath },
+                "managed-subset" => ChartPackage.FromChartEntries([PackageChartEntry.FromPath(selectedPath)]),
+                _ => service.SearchChartPackagesRecursivelyWithMetadata(packagePath, 0.6).Packages.Single()
+            };
+            package.path = packagePath;
+            ChartFile selected = package.ChartEntries.Single().Chart;
+
+            PendingFileDeletionResult result = service.DeletePendingCharts(
+                [selected], [package], sendToRecycleBin: false, deleteContainingPackageFoldersWhenNoBms: true,
+                new RealFileMutationService(), null, null);
+
             Assert.AreEqual(1, result.Requested);
             Assert.AreEqual(1, result.Processed);
             Assert.AreEqual(1, result.Removed);
             Assert.AreEqual(0, result.Failed);
             Assert.AreEqual(0, result.Skipped);
-            CollectionAssert.AreEqual(new[] { chartPath }, result.ChartPathsToRemove);
-            Assert.IsFalse(Directory.Exists(packageDirectoryPath));
+            CollectionAssert.AreEqual(new[] { selectedPath }, result.ChartPathsToRemove);
+            Assert.IsFalse(File.Exists(selectedPath));
+            Assert.IsTrue(Directory.Exists(packagePath));
+            CollectionAssert.AreEqual(unselectedBytes, File.ReadAllBytes(unselectedPath));
+            CollectionAssert.AreEqual(resourceBytes, File.ReadAllBytes(resourcePath));
         });
     }
 

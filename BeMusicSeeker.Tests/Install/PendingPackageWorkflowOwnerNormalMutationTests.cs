@@ -14,7 +14,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PendingPackageWorkflowOwnerTests
 {
-    /// <summary>全所持folderと単体の元を実owner・storeで削除し、混在・未所持の保留元とinstall行、所持コピー、単体の無関係な兄弟ファイルを保ちます。</summary>
+    /// <summary>確認済みの全所持folderと単体だけを実owner・storeで削除し、不完全な発見・復元一覧や部分管理列から対象外の譜面・資源・install行を失う誤りを検出します。</summary>
     /// <remarks>実解析結果から対象を分類し、本番storeを介した物理変更・SQLite・公開集合への反映を観測する。衝突先や対象外のbytesは実FSで保全を確認する。</remarks>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources()
@@ -53,9 +53,29 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             ChartPackage mixed = Package(mixedRoot, WriteChart(mixedRoot, "owned.bms", "owned A"), WriteChart(mixedRoot, "new.bms", "unowned mixed"));
             string unownedRoot = Path.Combine(root, "unowned");
             ChartPackage unowned = Package(unownedRoot, WriteChart(unownedRoot, "new.bms", "unowned standalone"));
-            ChartPackage[] packages = [all, single, mixed, unowned];
+            // 発見時に解析できた一部だけを持つ場合と、DB復元相当の遅延取得を使う場合を区別する。
+            ChartPackage IncompletePackage(string name, bool restored)
+            {
+                string directory = Path.Combine(root, name);
+                WriteChart(directory, "owned.bms", "owned A");
+                string nested = Path.Combine(directory, "nested");
+                Directory.CreateDirectory(nested);
+                File.WriteAllText(Path.Combine(nested, "unreadable.bmson"), "{invalid json");
+                File.WriteAllBytes(Path.Combine(nested, "sound.wav"), [1, 3, 5]);
+                return restored
+                    ? new ChartPackage { path = directory }
+                    : new BmsLibraryPackageInstallService().SearchChartPackagesRecursivelyWithMetadata(directory, 0.6).Packages.Single();
+            }
+            ChartPackage discoveredPartial = IncompletePackage("discovered-partial", false);
+            ChartPackage restoredPartial = IncompletePackage("restored-partial", true);
+            string hiddenUnownedRoot = Path.Combine(root, "hidden-unowned");
+            ChartPackage hiddenUnowned = Package(hiddenUnownedRoot, WriteChart(hiddenUnownedRoot, "owned.bms", "owned A"));
+            File.WriteAllText(Path.Combine(hiddenUnownedRoot, "unowned.bmson"), "{\"version\":\"1.0.0\",\"info\":{\"title\":\"unowned BMSON\",\"init_bpm\":120},\"sound_channels\":[]}");
+            File.WriteAllBytes(Path.Combine(hiddenUnownedRoot, "sound.wav"), [2, 4, 6]);
+            ChartPackage[] retained = [mixed, unowned, discoveredPartial, restoredPartial, hiddenUnowned];
+            ChartPackage[] packages = [all, single, .. retained];
             var preserved = new[] { ownedA.Path, ownedB.Path, ownedC.Path, sibling }
-                .Concat(mixed.ChartEntries.Select(entry => entry.Chart.Path)).Concat(unowned.ChartEntries.Select(entry => entry.Chart.Path))
+                .Concat(retained.SelectMany(package => Directory.GetFiles(package.path, "*", SearchOption.AllDirectories)))
                 .ToDictionary(path => path, File.ReadAllBytes);
             library = CreateNormalPendingLibrary(root, packages, [ownedA, ownedB, ownedC]);
             PendingPackageWorkflowOwner owner = CreateOwner(() => library, [], new BmsLibraryPendingPackageStore(), AcceptedDialogs(),
@@ -65,9 +85,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
             Assert.IsFalse(Directory.Exists(allRoot));
             Assert.IsFalse(File.Exists(singleChart.Path));
-            CollectionAssert.AreEquivalent(new[] { mixed.path, unowned.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(retained.Select(package => package.path).ToArray(), library.ChartPackagesPending.Select(package => package.path).ToArray());
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(Path.Combine(root, "song.db")).OpenSongDbReadOnly();
-            CollectionAssert.AreEquivalent(new[] { mixed.path, unowned.path }, verify.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
+            CollectionAssert.AreEquivalent(retained.Select(package => package.path).ToArray(), verify.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
             foreach ((string path, byte[] bytes) in preserved) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
             CollectionAssert.AreEquivalent(new[] { ownedA.Path, ownedB.Path, ownedC.Path }, library.BmsCharts.Select(chart => chart.Path).ToArray());
             Assert.IsFalse(library.OperationAdmission.IsActive);

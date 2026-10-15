@@ -443,12 +443,35 @@ internal sealed class BmsLibraryPackageInstallService
         return deduplicated;
     }
 
+    /// <summary>削除対象フォルダを再走査して全譜面が所持済みと確認できたパッケージと、所持済みの単体入力を返します。</summary>
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts(IEnumerable<ChartPackage> pendingPackages, Func<ChartFile, bool> isInstalledChart)
     {
         List<ChartPackage> result = [];
         foreach (ChartPackage package in pendingPackages ?? [])
         {
-            List<PackageChartEntry> entries = package?.ChartEntries ?? [];
+            if (package == null || string.IsNullOrWhiteSpace(package.path))
+            {
+                continue;
+            }
+            List<PackageChartEntry> entries;
+            if (LongPathFileSystem.DirectoryExists(package.path))
+            {
+                PackageChartDiscoverySnapshot discovery = PackageInstallEstimationSnapshotBuilder.BuildPackageChartDiscoverySnapshot(package.path);
+                if (!discovery.IsComplete)
+                {
+                    continue;
+                }
+                entries = discovery.ChartEntries;
+            }
+            else
+            {
+                entries = package.ChartEntries;
+                // フォルダの存在を確認できない場合に、配下の部分一覧を単体入力へ読み替えない。
+                if (entries.Any(entry => !string.Equals(package.path, entry.Chart.Path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+            }
             if (entries.Count == 0)
             {
                 continue;
@@ -3682,11 +3705,8 @@ internal sealed class BmsLibraryPackageInstallService
     }
 
     /// <summary>
-    /// Deletes selected pending charts.  With whole-package deletion enabled,
-    /// fully selected directory packages (including resources) are deleted in
-    /// one shell operation using the requested recycle policy.  Failed package
-    /// operations retain their pending rows and do not fall back to file deletion.
-    /// Single-file packages and partial selections delete only selected files.
+    /// 選択した保留譜面を削除します。フォルダ削除指定時は対象を再走査し、全譜面の読取り成功と全選択を確認できたフォルダだけを資源ごと削除します。
+    /// 同じ確認済み集合を削除結果へ返し、フォルダ削除失敗時は個別削除へ進みません。単体入力や確認できないフォルダでは選択ファイルだけを削除します。
     /// </summary>
     public PendingFileDeletionResult DeletePendingCharts(
         IEnumerable<ChartFile> charts,
@@ -3733,20 +3753,43 @@ internal sealed class BmsLibraryPackageInstallService
 
         if (deleteContainingPackageFoldersWhenNoBms)
         {
-            foreach (ChartPackage package in libraryFileOperationsService.GetPendingPackagesFullyCoveredBySelection(
-                pendingPackages,
-                selectedPaths))
+            // 選択元の祖先だけを一度集め、無関係な保留フォルダの再走査と選択数×パッケージ数の照合を避ける。
+            // 文字列操作に限定し、無効な選択パスも後段の個別検査へ渡す。
+            var selectedAncestorPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string selectedPath in selectedPaths)
             {
-                // Directory packages are identified during discovery.  A single-file
-                // package never authorizes deleting its containing directory.
+                string ancestorPath = selectedPath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
+                int separatorIndex = ancestorPath.LastIndexOf(Path.DirectorySeparatorChar);
+                while (separatorIndex >= 0)
+                {
+                    ancestorPath = ancestorPath[..separatorIndex];
+                    if (!selectedAncestorPaths.Add(ancestorPath))
+                    {
+                        break;
+                    }
+                    separatorIndex = ancestorPath.LastIndexOf(Path.DirectorySeparatorChar);
+                }
+            }
+            foreach (ChartPackage package in (pendingPackages ?? []).Where(package => package != null))
+            {
                 if (string.IsNullOrWhiteSpace(package.path)
+                    || !selectedAncestorPaths.Contains(package.path.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar).TrimEnd(Path.DirectorySeparatorChar))
                     || !LongPathFileSystem.DirectoryExists(package.path))
                 {
                     continue;
                 }
-                List<string> packageChartPaths = [.. package.ChartEntries
+                PackageChartDiscoverySnapshot discovery = PackageInstallEstimationSnapshotBuilder.BuildPackageChartDiscoverySnapshot(package.path);
+                if (!discovery.IsComplete)
+                {
+                    continue;
+                }
+                List<string> packageChartPaths = [.. discovery.ChartEntries
                     .Select(entry => entry.Chart.Path)
                     .Distinct(StringComparer.OrdinalIgnoreCase)];
+                if (packageChartPaths.Count == 0 || !packageChartPaths.All(selectedPaths.Contains))
+                {
+                    continue;
+                }
                 handledByPackageDeletionPaths.UnionWith(packageChartPaths);
                 result.Processed += packageChartPaths.Count;
                 try
