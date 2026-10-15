@@ -906,26 +906,26 @@ public sealed class RegularChartViewBuildAndOrderingTests
     [TestMethod]
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
     {
-        var table = new MainChartListViewModel();
-        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-        ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
-        ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
-        var library = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        typeof(BMSLibrary)
-            .GetField("catalogChartInfoOwner", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .SetValue(library, new CatalogChartInfoOwner(_ => { }, () => false, (_, _) => false, () => null, _ => { }));
-        typeof(BMSLibrary)
-            .GetField("_DuplicateChartGroups", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
-            .SetValue(library, new List<DuplicateGroup> { new([bravo, alpha], [bravo.Folder, alpha.Folder]) });
-        RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected);
-        request.Library = library;
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
+            ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
+            var library = new TestBmsLibrary(songDbPath)
+            {
+                DuplicateChartGroups = [new([bravo, alpha], [bravo.Folder, alpha.Folder])]
+            };
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected);
+            request.Library = library;
 
-        RegularChartListEntryResult result = owner.ApplyRegularView(request);
+            RegularChartListEntryResult result = owner.ApplyRegularView(request);
 
-        Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
-        Assert.IsFalse(result.SortWasReset);
-        Assert.AreEqual(2, table.Rows.Count);
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
+            Assert.IsFalse(result.SortWasReset);
+            Assert.AreEqual(2, table.Rows.Count);
+        });
     }
 
 
