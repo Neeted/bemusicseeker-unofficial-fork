@@ -4518,11 +4518,11 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { releaseNotification.Set(); Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>旧IR通信中の実All再構築を受理し、採用後の失敗・純通知故障でも主原因を保ち、親解放後の実UI・新DB・旧組停止・旧IR非保存を確認します。</summary>
-    /// <remarks>通常起動と設定Allの実接続を既存Dispatcherで観測します。Failedは採用後の走査故障と通知故障、Shutdownは開始済み処理と親cleanupを回収します。</remarks>
+    /// <summary>旧IR通信中の実All再構築を受理し、親解放後の必須UI成功・失敗と終了で、保存済み設定・新組採用・旧組停止を保持します。</summary>
+    /// <remarks>通常起動と設定Allの実接続を既存Dispatcherで観測します。Succeededは新DB・実表示・次のPと旧IR非保存、RequiredUiFailedは実UI Taskの元失敗と採用済みscore、Shutdownは開始済み走査と親cleanupの回収を確認します。純score通知の故障耐性はStartupRequiredInitializationTestsへ分担します。</remarks>
     [DataTestMethod]
     [DataRow("Succeeded")]
-    [DataRow("Failed")]
+    [DataRow("RequiredUiFailed")]
     [DataRow("Shutdown")]
     public void ApplySettingsAsync_DefaultAllReconstructionBorrowsLivePlaylistAdmissionUntilActualInitializationEnds(string completion)
     {
@@ -4531,7 +4531,7 @@ public sealed partial class SettingDialogEditCompletionTests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var closeRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var originalFailure = new IOException("actual All scan failed after saved close");
+        var originalFailure = new IOException("actual All required UI failed after saved close");
         try
         {
             Settings values = CreateValidCustomFolderSettings(root, []);
@@ -4571,7 +4571,6 @@ public sealed partial class SettingDialogEditCompletionTests
                 if (hold)
                 {
                     entered.TrySetResult(); release.Wait();
-                    if (completion == "Failed") { throw originalFailure; }
                 }
             };
             TestUiDispatcherHost.Invoke(() =>
@@ -4611,7 +4610,6 @@ public sealed partial class SettingDialogEditCompletionTests
                                 scoreParentPlaylistTerminal?.IsCompletedSuccessfully ?? !composition.PlaylistOperationAdmission.IsActive,
                                 state.SnapshotReady && library.ScoreSnapshotReady, library.ScoreSnapshotVersion, state.SnapshotVersion,
                                 library.ScoreSubscriptionCount, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, chartPath, irHash, string.Empty).Score));
-                            if (hold && completion == "Failed") { throw new InvalidOperationException("controlled All score notification failure"); }
                         };
                         library.ScoreSnapshotChanged += scoreHandler;
                         scoreSubscriptions.Add((library, scoreHandler));
@@ -4688,8 +4686,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(1, session.SaveCount, "Close待機中の重複OKは保存・再初期化を増やしません。");
                     closeRelease.TrySetResult();
 
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(entered.Task, apply), "all-reconstruction-input-or-failure");
-                    if (!entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "all-reconstruction-input-or-failure"), "all-reconstruction-input-or-failure");
                     BMSLibrary current = factory.CreatedLibrary ?? throw new InvalidOperationException("New library was not attached.");
                     BMSPlaylist currentPlaylist = factory.CreatedPlaylist ?? throw new InvalidOperationException("New playlist was not attached.");
                     var currentRankingTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4723,28 +4720,21 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     Assert.IsFalse(Directory.EnumerateFiles(outputB, "*.lr2folder", SearchOption.AllDirectories).Any());
 
-                    if (completion != "Succeeded")
+                    if (completion == "Shutdown")
                     {
-                        if (completion == "Shutdown")
-                        {
-                            shutdown = owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
-                            Assert.IsFalse(shutdown.IsCompleted, "正常Close後も受理済み実走査を終了cleanupまで保持します。");
-                        }
+                        shutdown = owner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                        Assert.IsFalse(shutdown.IsCompleted, "正常Close後も受理済み実走査を終了cleanupまで保持します。");
                         release.Set();
                         irClient.Release.TrySetResult();
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-postsave-failure-or-shutdown");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-postsave-shutdown");
                         Assert.IsFalse(owner.IsInitializationCompleted);
                         Assert.IsFalse(completionUi.Entered.Task.IsCompleted);
                         CollectionAssert.DoesNotContain(presentation.Requests, "open");
                         Assert.AreEqual(1, presentation.Requests.Count(request => request == "close"));
                         Assert.AreEqual(databaseB, values.LR2SongDBPath);
                         Assert.AreEqual(outputB, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
-                        if (completion == "Failed")
-                        {
-                            Assert.AreEqual(1, failures.Count); Assert.AreSame(originalFailure, failures[0]);
-                            AssertAdoptedScoreNotification(current);
-                        }
-                        else { Assert.AreEqual(0, failures.Count); TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown!, "all-reconstruction-shutdown-terminal"); }
+                        Assert.AreEqual(0, failures.Count);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "all-reconstruction-shutdown-terminal");
                         Assert.IsTrue(parentLibraryTerminal.IsCompletedSuccessfully);
                         Assert.IsTrue(parentPlaylistTerminal.IsCompletedSuccessfully);
                         return;
@@ -4756,6 +4746,23 @@ public sealed partial class SettingDialogEditCompletionTests
                     AssertAdoptedScoreNotification(current);
                     Assert.IsFalse(owner.IsInitializationCompleted);
                     Assert.IsTrue(owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                    Assert.IsFalse(apply.IsCompleted, "親解放後も必須UI実Taskの終端までApplyを保持します。");
+                    if (completion == "RequiredUiFailed")
+                    {
+                        completionUi.Release.TrySetException(originalFailure);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-required-ui-failure-terminal");
+                        Assert.AreEqual(1, failures.Count);
+                        Assert.AreSame(originalFailure, failures[0]);
+                        Assert.IsFalse(owner.IsInitializationCompleted);
+                        CollectionAssert.DoesNotContain(presentation.Requests, "open");
+                        Assert.AreEqual(1, presentation.Requests.Count(request => request == "close"));
+                        Assert.AreEqual(databaseB, values.LR2SongDBPath);
+                        Assert.AreEqual(outputB, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
+                        AssertAdoptedScoreNotification(current);
+                        Assert.IsTrue(parentLibraryTerminal.IsCompletedSuccessfully);
+                        Assert.IsTrue(parentPlaylistTerminal.IsCompletedSuccessfully);
+                        return;
+                    }
                     completionUi.Release.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-actual-terminal");
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
