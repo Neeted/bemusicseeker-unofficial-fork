@@ -81,7 +81,7 @@ pwsh -NoProfile -File scripts/publish.ps1
 pwsh -NoProfile -File scripts/publish.ps1 -IncludeMetadata
 ```
 
-配布・更新・リリースに関わる変更は[検証仕様](testing.md)の `Full` を実行します。Fullは検証用の `SkipDocHtml` 配布物を隔離された出力先に生成・共有します。正式配布用のZIPは、検証済みのソースからHTMLを含めて生成し、ソースを変更した場合は再生成します。
+正式リリース前の公開候補に対して `Full` を実行します。通常開発のコミット・`dev` への統合と、変更の影響に応じた追加検証は[実行範囲の選択](testing.md#実行範囲の選択)に従います。Fullは検証用の `SkipDocHtml` 配布物を隔離された出力先に生成・共有します。正式配布用のZIPは、検証済みのソースからHTMLを含めて生成し、ソースを変更した場合は再生成します。
 
 実機確認の推奨と未実施の扱いは[検証方針](testing.md#検証方針)に従います。実機確認の結果待ちをリリース完了の条件にはしません。Fullの必須自動検証と、公開時のタグ・資産・リモートブランチの照合は維持します。
 
@@ -140,7 +140,7 @@ Releaseの公開に失敗したらmainを送信しません。mainへの送信�
 | --- | --- | --- |
 | ブランチと作業起点・統合方法 | [AGENTS.md](../../../AGENTS.md)、[CONTRIBUTING.md](../../../CONTRIBUTING.md)、[開発手順](../../setup.md)、GitHubのブランチ・タグ設定 | 文書と設定を照合する。統合手順は隔離したリポジトリの実Gitでfast-forward、分岐時の停止、作業ブランチのrebase、公開履歴のマージを確認する。 |
 | バージョンの正本・互換ファイル不変・公開順序 | [release.ps1](../../../scripts/release.ps1) | [ReleaseScriptVersionSourceTests](../../../BeMusicSeeker.Tests/Verification/ReleaseScriptVersionSourceTests.cs): 隔離repoと実Git、GitHub CLIの代替を使い、本番スクリプトの入口から生成物・参照・失敗時の副作用を確認する。 |
-| 配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | Fullで配布物生成、既存データ利用、更新・起動を確認する。 |
+| 正式リリース前の配布物生成と引渡し | [publish.ps1](../../../scripts/publish.ps1)、[verify-refactor.ps1](../../../scripts/verify-refactor.ps1) | 公開候補のFullで配布物生成、既存データ利用、更新・起動を確認する。 |
 | 表示リソースの整合 | [Resources.resx](../../../BeMusicSeeker/Properties/Resources.resx)、[翻訳](../../../lang) | [LocalizationResourceParityTests](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs)。履歴内容は差分で確認する。 |
 | 実公開 | [release.ps1](../../../scripts/release.ps1) | 自動テストでは実GitHubを変更しない。許可された公開でタグ・資産・リモートブランチの照合結果を確認する。 |
 

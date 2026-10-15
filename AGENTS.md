@@ -59,7 +59,7 @@
 
 変更ごとに[テスト設計](devdocs/spec/development/test-authoring.md)で必要な保証と既存テストの扱いを決め、[検証仕様](devdocs/spec/development/testing.md)で実行範囲を選びます。新しいテストを作らない判断は、既存の回帰検証を省略する理由にはなりません。
 
-標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
+標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常開発のコミット・`dev` への統合は `Functional`、正式リリース前の公開候補は `Full` を使います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
 Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `Functional` / `Full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 

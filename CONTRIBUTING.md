@@ -24,7 +24,7 @@
 
 通常の作業ブランチは、個々のコミットを残すfast-forwardを原則として `dev` へ統合します。分岐した場合の更新方法と例外は[通常の作業ブランチの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
 
-検証はローカルで行い、GitHubのCIは使用しません。標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行条件・回数・失敗時の扱いは[テスト検証](devdocs/spec/development/testing.md)、文書のみの変更は[文書変更の確認](devdocs/README.md#文書変更の確認)に従います。
+検証はローカルで行い、GitHubのCIは使用しません。標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。通常開発のコミット・`dev` への統合は `Functional`、正式リリース前の公開候補は `Full` を使います。区分の選択と変更に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行条件・回数・失敗時の扱いは同じ検証仕様、文書のみの変更は[文書変更の確認](devdocs/README.md#文書変更の確認)に従います。
 
 保守者は、仕様との整合、互換性、性能、保守負担をレビューし、統合する版のローカル検証結果を確認して受け入れを判断します。検証成功だけで採用が決まるわけではなく、修正や範囲の見直しをお願いする場合があります。
 

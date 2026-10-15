@@ -28,4 +28,4 @@
 
 残すケースには[保証コメント](../devdocs/spec/development/test-authoring.md#各ケースの保証コメント)を付け、データ駆動・ループ内の条件差と実際の表明・待機順序まで照合します。整理単位ごとに旧テストと不要になった補助処理・固定入力も退役させます。
 
-反復中は関連する条件に絞った `Quick`、最終統合はルートが `Functional`・`Full` を実行します。完了報告は[実装担当の完了報告](../devdocs/spec/development/agent-workflow.md#実装担当の完了報告)に従い、保証の分担・置換関係と、実行した範囲・結果・未確認点を返します。
+反復中は関連する条件に絞った `Quick`、最終検証はルートが[実行範囲の選択](../devdocs/spec/development/testing.md#実行範囲の選択)に従い、作業段階と変更の影響に応じて実行します。完了報告は[実装担当の完了報告](../devdocs/spec/development/agent-workflow.md#実装担当の完了報告)に従い、保証の分担・置換関係と、実行した範囲・結果・未確認点を返します。
