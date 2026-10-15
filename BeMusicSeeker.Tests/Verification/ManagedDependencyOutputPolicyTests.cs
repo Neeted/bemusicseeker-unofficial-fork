@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,6 +15,45 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ManagedDependencyOutputPolicyTests
 {
+    /// <summary>ビルド済みapphostの埋込みマニフェストを読み、ソースだけを変更してPerMonitorV2が配布実体へ届かない誤りを検出します。</summary>
+    [TestMethod]
+    public void ApplicationExecutableEmbedsPerMonitorV2Manifest()
+    {
+        string executable = Path.Combine(ResolveReleaseOutputDirectory(), "BeMusicSeeker.exe");
+        nint module = LoadLibraryExForManifest(executable, 0, 0x22);
+        Assert.AreNotEqual(nint.Zero, module, "構築済み実行ファイルをリソースとして開けません。");
+        try
+        {
+            nint resource = FindResourceForManifest(module, 1, 24);
+            Assert.AreNotEqual(nint.Zero, resource, "実行ファイルのマニフェストがありません。");
+            uint size = SizeofResourceForManifest(module, resource);
+            Assert.IsTrue(size > 0);
+            nint bytes = LockResourceForManifest(LoadResourceForManifest(module, resource));
+            Assert.AreNotEqual(nint.Zero, bytes);
+            byte[] data = new byte[checked((int)size)];
+            Marshal.Copy(bytes, data, 0, data.Length);
+            string xml = Encoding.UTF8.GetString(data).TrimStart('\uFEFF').TrimEnd('\0');
+            var manifest = XDocument.Parse(xml);
+            XNamespace settings = "http://schemas.microsoft.com/SMI/2016/WindowsSettings";
+            Assert.AreEqual("PerMonitorV2", manifest.Descendants(settings + "dpiAwareness").Single().Value);
+        }
+        finally { Assert.IsTrue(FreeLibraryForManifest(module)); }
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "LoadLibraryExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint LoadLibraryExForManifest(string path, nint file, uint flags);
+    [DllImport("kernel32.dll", EntryPoint = "FindResourceW", SetLastError = true)]
+    private static extern nint FindResourceForManifest(nint module, nint name, nint type);
+    [DllImport("kernel32.dll", EntryPoint = "SizeofResource", SetLastError = true)]
+    private static extern uint SizeofResourceForManifest(nint module, nint resource);
+    [DllImport("kernel32.dll", EntryPoint = "LoadResource", SetLastError = true)]
+    private static extern nint LoadResourceForManifest(nint module, nint resource);
+    [DllImport("kernel32.dll", EntryPoint = "LockResource")]
+    private static extern nint LockResourceForManifest(nint resource);
+    [DllImport("kernel32.dll", EntryPoint = "FreeLibrary")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FreeLibraryForManifest(nint module);
+
     /// <summary>
     /// 実アプリの構築設定と出力を照合し、ホスト管理の依存関係を旧framework資産や競合する隣接managed DLLへ戻す誤りを検出する。
     /// </summary>

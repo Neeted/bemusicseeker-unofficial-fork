@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -12,6 +13,7 @@ using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Interop;
 using System.Windows.Media;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -53,6 +55,91 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             }
         });
     }
+
+    /// <summary>製品配置を未表示の実HWNDへ適用し、最新Owner、状態別の中央基準、実DPIとWPF外形寸法の接続を確認します。任意の異DPIモニター間移動は保証しません。</summary>
+    [TestMethod]
+    public void Viewer_initialPlacementUsesCurrentOwnerAndSynchronizesHiddenNativeWindow()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var session = new PlaylistLampViewerSession("playlist", new FixedLampSource(CreateRequest(ActiveScoreSource.Beatoraja)));
+            var viewModel = new PlaylistLampViewerViewModel("playlist", "配置", session, TestUiDispatcherHost.Dispatcher, _ => { });
+            var owner = new Window { Width = 600, Height = 400, Left = 100, Top = 100 };
+            nint ownerHandle = new WindowInteropHelper(owner).EnsureHandle();
+            var window = new PlaylistLampViewerWindow(owner, viewModel);
+            try
+            {
+                // scopeによるタスクバー非表示・画面外配置の上書きより前に製品設定を確認します。
+                Assert.IsTrue(window.ShowInTaskbar);
+                Assert.AreEqual(WindowStartupLocation.Manual, window.WindowStartupLocation);
+                Assert.IsTrue(GetWindowRectForPlacement(ownerHandle, out PlacementNativeRect originalOwner));
+                Assert.IsTrue(SetWindowPosForPlacement(ownerHandle, 0, originalOwner.Left + 137, originalOwner.Top + 71,
+                    originalOwner.Right - originalOwner.Left, originalOwner.Bottom - originalOwner.Top, 0x214));
+                foreach (WindowState state in new[] { WindowState.Normal, WindowState.Maximized, WindowState.Minimized })
+                {
+                    owner.WindowState = state;
+                    window.PrepareInitialPlacement();
+                    nint handle = new WindowInteropHelper(window).Handle;
+                    Assert.AreNotEqual(nint.Zero, handle);
+                    Assert.IsFalse(window.IsVisible);
+                    Assert.IsFalse(IsWindowVisibleForPlacement(handle));
+                    Assert.IsFalse(window.IsLoaded);
+                    Assert.IsTrue(GetWindowRectForPlacement(handle, out PlacementNativeRect native));
+                    Assert.IsTrue(GetWindowRectForPlacement(ownerHandle, out PlacementNativeRect ownerRect));
+                    var info = new PlacementMonitorInfo { Size = Marshal.SizeOf<PlacementMonitorInfo>() };
+                    Assert.IsTrue(GetMonitorInfoForPlacement(MonitorFromWindowForPlacement(ownerHandle, 2), ref info));
+                    double scale = GetDpiForWindowForPlacement(handle) / 96d;
+                    Assert.IsTrue(scale > 0);
+                    Rect expected = WindowPlacementCalculator.Calculate(info.Work.Rect,
+                        state == WindowState.Normal ? ownerRect.Rect : info.Work.Rect, new Size(1290, 820), scale);
+                    Assert.AreEqual(expected, native.Rect);
+                    Assert.AreEqual(native.Rect.Width / scale, window.Width, 1d / scale);
+                    Assert.AreEqual(native.Rect.Height / scale, window.Height, 1d / scale);
+                    HwndSource hwndSource = HwndSource.FromHwnd(handle) ?? throw new AssertFailedException("HwndSourceがありません。");
+                    Assert.IsNull(hwndSource.RootVisual);
+                    Assert.AreEqual(scale, hwndSource.CompositionTarget.TransformToDevice.M11, 0.0001);
+                }
+            }
+            finally
+            {
+                window.Close();
+                owner.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.DisposeAsync().AsTask(), "未表示配置のセッション回収");
+            }
+        });
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PlacementNativeRect
+    {
+        internal int Left, Top, Right, Bottom;
+        internal readonly Rect Rect => new(Left, Top, Right - Left, Bottom - Top);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PlacementMonitorInfo
+    {
+        internal int Size;
+        internal PlacementNativeRect Monitor, Work;
+        internal uint Flags;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowRect")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRectForPlacement(nint handle, out PlacementNativeRect rect);
+    [DllImport("user32.dll", EntryPoint = "SetWindowPos")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPosForPlacement(nint handle, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", EntryPoint = "IsWindowVisible")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisibleForPlacement(nint handle);
+    [DllImport("user32.dll", EntryPoint = "GetDpiForWindow")]
+    private static extern uint GetDpiForWindowForPlacement(nint handle);
+    [DllImport("user32.dll", EntryPoint = "MonitorFromWindow")]
+    private static extern nint MonitorFromWindowForPlacement(nint handle, uint flags);
+    [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfoForPlacement(nint monitor, ref PlacementMonitorInfo info);
 
     /// <summary>丸めでゼロになるほど小さい正割合を入力し、ゼロ表示や最小値への切上げで実割合を失う誤りを検出します。</summary>
     [TestMethod]
@@ -1072,7 +1159,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
         });
     }
 
-    /// <summary>画面外の最大フォルダを含む共通件数尺度を切り替え、選択・スクロール・既存投影を保って再捕捉と再集計をせず、明示日付変更で新入力を捕捉したときだけ尺度を再計算することを確認します。</summary>
+    /// <summary>画面外の最大フォルダを含む共通件数尺度を切り替え、選択・スクロール・既存投影を保って再捕捉と再集計をせず、非整数DPI通知でも同じ状態を保って幅不変のラベルを再評価し、明示日付変更で新入力を捕捉したときだけ尺度を再計算することを確認します。</summary>
     [TestMethod]
     public void Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh()
     {
@@ -1172,6 +1259,34 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     Assert.AreSame(selected, viewModel.SelectedSegment);
                     Assert.IsTrue(selected.IsSelected);
                     Assert.AreEqual(offset, scroll.VerticalOffset);
+                    Assert.AreEqual(captures, source.CaptureCount);
+                    Assert.AreEqual(builds, executor.BuildCount);
+                    Assert.AreEqual(0, resultChanges);
+                    Assert.AreEqual(0, collectionChanges);
+                    Assert.AreEqual(1, requests.Count);
+                }
+                // 論理幅を変えず、実MultiBindingのDPI入力だけでラベルを再評価します。
+                Button dpiButton = FindDescendants<Button>(FindByAutomationId<Border>(window, "PlaylistLampViewerClearGraphHost")).First();
+                double unchangedWidth = dpiButton.ActualWidth;
+                MethodInfo dpiChanged = typeof(PlaylistLampViewerWindow).GetMethod("OnDpiChanged", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new AssertFailedException("DPI通知境界がありません。");
+                foreach (double density in new[] { 1.25d, 1d })
+                {
+                    dpiButton.SetCurrentValue(ContentControl.ContentProperty, "DPI再評価待ち");
+                    dpiChanged.Invoke(window, [new DpiScale(window.PixelsPerDip, window.PixelsPerDip), new DpiScale(density, density)]);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    Assert.AreEqual(unchangedWidth, dpiButton.ActualWidth, 0.01d);
+                    Assert.AreEqual(density, window.PixelsPerDip);
+                    var dpiSegment = (PlaylistLampViewerSegmentViewModel)dpiButton.DataContext;
+                    Assert.AreEqual(dpiSegment.Count.ToString("N0", CultureInfo.CurrentCulture), dpiButton.Content);
+                    Assert.AreSame(current, viewModel.CurrentResult);
+                    CollectionAssert.AreEqual(rows, viewModel.FolderRows.ToArray());
+                    CollectionAssert.AreEqual(segments, viewModel.FolderRows.SelectMany(row => row.ClearSegments.Concat(row.RankSegments))
+                        .Concat(viewModel.ClearSegments).Concat(viewModel.RankSegments).ToArray());
+                    Assert.AreSame(selected, viewModel.SelectedSegment);
+                    Assert.AreEqual(offset, scroll.VerticalOffset);
+                    Assert.IsTrue(viewModel.IsCountMode);
                     Assert.AreEqual(captures, source.CaptureCount);
                     Assert.AreEqual(builds, executor.BuildCount);
                     Assert.AreEqual(0, resultChanges);

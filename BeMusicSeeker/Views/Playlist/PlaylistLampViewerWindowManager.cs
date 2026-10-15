@@ -376,6 +376,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
                 await ShowInitialDeletedAsync(openCancellation.Token).ConfigureAwait(true);
                 return null;
             }
+            window.PrepareInitialPlacement();
             lifetime.IsShown = true;
             window.Show();
             activateWindowForInitialPresentation(window);
@@ -643,7 +644,8 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
         try
         {
             UiDialogResult notification = await dialogs.ShowMessageAsync(new UiMessageRequest(
-                Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
+                // 元例外の内部診断は上のログへ残し、表示は翻訳済みの一般エラーに統一します。
+                Resources.Msg_error_unexpected,
                 Resources.Error,
                 MessageBoxButton.OK,
                 MessageBoxImage.Hand,

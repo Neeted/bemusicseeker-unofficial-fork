@@ -7,6 +7,7 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Interop;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -107,6 +108,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     [DataTestMethod]
     [DataRow(0)] // factory自体がthrow。
     [DataRow(1)] // factory成功後のwindow準備がthrow。
+    [DataRow(2)] // 未表示HWND作成後の準備がthrow。
     public void Manager_creationFailurePreservesRequiredFailureAndAttemptsCleanup(int failureStage)
     {
         var failure = new IOException("required lamp creation marker");
@@ -131,7 +133,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 Assert.AreEqual(0, fixture.Manager.Count);
             },
             prepareWindowPresentation: false,
-            prepareAdditional: failureStage == 0 ? null : _ => throw failure);
+            prepareAdditional: failureStage == 0 ? null : window =>
+            {
+                if (failureStage == 2)
+                {
+                    Assert.AreNotEqual(nint.Zero, new WindowInteropHelper(window).EnsureHandle());
+                }
+                throw failure;
+            });
     }
 
     /// <summary>Readyの実Windowは表示後の最初のactivate時までOwnerを持ち、その後解除する。表示前activationと以後の重なり順をメインへ拘束する誤りを検出する。</summary>
@@ -657,7 +666,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
     }
 
     /// <summary>
-    /// 初回open token由来の取消callbackをholdしても、実Close/DisposeAsyncはnative Closedと
+    /// 初回openの未表示HWND生成後に取消callbackをholdしても、実Close/DisposeAsyncはnative Closedと
     /// Dispatcher pulseを先に実行し、drainはcallback・captureの実終端まで待ちます。
     /// </summary>
     /// <remarks>UI外driverが実DispatcherOperationを期限付き観測し、旧同期Cancelでもfinallyからgateを解放できる構成です。</remarks>
@@ -690,6 +699,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 open = fixture.Manager.TryOpenAsync(fixture.Context);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(source.CaptureStarted.Task, "callback drain initial capture started");
                 PlaylistLampViewerWindow pendingWindow = fixture.PreparedWindow;
+                Assert.AreNotEqual(nint.Zero, new WindowInteropHelper(pendingWindow).EnsureHandle());
                 TaskCompletionSource<bool> closed = Completion<bool>();
                 pendingWindow.Closed += (_, _) => closed.TrySetResult(true);
                 driver = Task.Run(async () =>
@@ -1043,6 +1053,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
             Assert.IsFalse(observation.BecameVisible);
             Assert.IsNull(window.DataContext);
             Assert.IsFalse(window.IsVisible);
+            Assert.AreEqual(nint.Zero, new WindowInteropHelper(window).Handle, "未表示でも生成したHWNDを解放します。");
             Assert.IsFalse(Application.Current.Windows.OfType<Window>().Contains(window));
             Assert.IsFalse(Owner.OwnedWindows.OfType<Window>().Contains(window));
         }

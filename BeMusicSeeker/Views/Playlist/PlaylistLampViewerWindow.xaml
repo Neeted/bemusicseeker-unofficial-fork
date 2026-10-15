@@ -10,9 +10,9 @@
  MinWidth="820"
  MinHeight="560"
  ResizeMode="CanResize"
- ShowInTaskbar="False"
+ ShowInTaskbar="True"
  ShowActivated="False"
- WindowStartupLocation="CenterOwner"
+ WindowStartupLocation="Manual"
  Title="{Binding WindowTitle, Mode=OneWay}">
   <views:ThemedWindow.Resources>
     <ResourceDictionary>
@@ -204,6 +204,7 @@
               <Binding RelativeSource="{RelativeSource Self}" Path="ActualWidth" />
               <Binding RelativeSource="{RelativeSource Self}" />
               <Binding ElementName="lampViewerWindow" Path="DataContext.IsCountMode" />
+              <Binding ElementName="lampViewerWindow" Path="PixelsPerDip" />
             </MultiBinding>
           </Button.Content>
         </Button>

@@ -29,6 +29,20 @@
 
 対象削除は、既存のプレイリスト一覧変更通知を管理主体が受け、安定した `playlist_id` で現在の対象を再解決して判断します。この通知で捕捉・再集計は行いません。一覧の再読込みに伴う同じ対象の一時的な除去・再追加を削除と誤認しません。初回の削除案内に失敗しても対象窓の回収を妨げません。
 
+### 初期配置とDPI
+
+プロセスは埋込みマニフェストでPerMonitorV2を宣言します。ビューアはそれぞれタスクバーへ表示し、初回のShowとアクティブ化の試行が終わったら一時的なOwnerを解除します。
+
+表示直前のOwnerと最大の面積で重なるモニターを選び、その作業領域を使います。通常状態はOwnerの現在の外形矩形、最大化・最小化状態は選んだ作業領域を中央の基準にします。復元用の位置は使いません。希望外形寸法は1290 × 820 DIP、通常の最小外形寸法は820 × 560 DIPです。
+
+希望寸法が収まる場合は基準の上下左右中央へ置き、はみ出す位置だけを作業領域内へ補正します。希望寸法が超過する場合は超過した軸だけを縮め、作業領域の左上へ置きます。位置は負座標も含む物理ピクセルで扱い、DPI倍率は寸法だけに掛けます。整数へ丸めた後も包含を保ちます。通常の最小寸法も収まらない軸は表示先に合わせて緩和しますが、OSの枠等が要求する最小寸法を超える極端に小さい領域まで保証しません。
+
+初回結果と取消・対象削除の確認後、同じUIスレッドで未表示HWNDを作り、一時的に最小寸法を緩和して対象作業領域内へ位置と寸法を同時に移します。移動後のHWNDとWPFの実DPI変換が一致することを確認し、仮配置で変わらない希望寸法から最終外形を適用してShowします。未表示のRootVisualは未接続なので、初期配置のDPIをVisualから取得しません。WPFの同期したDPI更新とWM_SIZEの寸法同期を使い、待機・ポーリングや最終寸法の二重適用は行いません。ネイティブ取得・配置の失敗は既存の表示失敗と同じ回収経路へ返します。
+
+表示後の移動・サイズ変更はWPFとユーザー操作を優先し、初期位置へ戻しません。最小寸法は現在のDPIと作業領域で更新し、広い画面では通常値へ戻します。表示先の大きさを恒久的な最大寸法にしません。同じDPIで作業領域だけが変わる移動では、最小寸法だけを更新します。
+
+DPI変更時はWPFの標準処理を維持し、独自のフォルダ名・件数の列幅を再計測します。区間ラベルは現在のPixelsPerDipをMultiBindingの明示入力とし、論理幅が同じでも収容判定を再評価します。この更新でDB読取り・再集計、行・区間の再生成、表示モード・選択・スクロールの初期化は行いません。ロード前・閉鎖後の列計測は既存の更新予約・解除で抑止します。
+
 ### 取得の契機と通常の終了
 
 開くとき、別の基準日へ変更するとき、過去日から「最新」へ戻すときに、その時点の表所属・フォルダ・所持状態・アプリ内スコアと、使用する情報源の履歴を捕捉します。同じ日付の再設定と、既に最新の状態での「最新」は何もしません。
@@ -41,7 +55,7 @@
 
 同期 `Dispose` は受付・結果公開を止め、実ウィンドウの閉鎖を先に要求します。取消コールバックや捕捉・集計をUIスレッドで同期的に待ちません。メイン画面の終了経路は `DisposeAsync` で開始済み処理と通常回収の終端を待ち、閉鎖後の窓や通知を表示しません。初回表示用トークンは、その処理と取消コールバックが終端してから解放します。資源を持たない捕捉データ源に、通知活動や専用の破棄契約は設けません。
 
-生成・表示準備・閉鎖・必要な回収の失敗は、任意案内の失敗へ読み替えません。既存の回収経路で残りを試み、所有者へ失敗を返します。解放を確認できなかった資源は所有者の管理下に残し、同じ終了待機から確認できるようにします。自動再試行や通知失敗の履歴保存は行いません。位置・大きさ・選択は保存しません。
+生成・表示準備・閉鎖・必要な回収の失敗は、任意案内の失敗へ読み替えません。既存の回収経路で残りを試み、所有者へ失敗を返します。所有する失敗の通知は既存の翻訳済み一般エラー文言を使い、元例外の詳細は既存のログへ記録します。解放を確認できなかった資源は所有者の管理下に残し、同じ終了待機から確認できるようにします。自動再試行や通知失敗の履歴保存は行いません。位置・大きさ・選択は保存しません。
 
 ### 統計とカテゴリ
 
@@ -87,7 +101,7 @@
 
 左をクリア、右をDJレベルとし、同じ幅の2領域に見出し・凡例・積上げバーを表示します。全体のバーの下には一つの縦スクロールと仮想化された行集合を置き、通常フォルダをその順序で表示します。0件の通常フォルダも残し、特殊な `[NO SONG]` 行は表示と共通尺度から除外します。
 
-右上の「割合」「曲数」は排他的な2択で、初期値は割合です。窓ごとに独立し保存しません。スコア利用不可では操作を無効にし、基準日・最新への変更、データ更新、利用不可からの復帰でも選択モードを保持します。右上は「基準日」ラベル、DatePicker、「最新」ボタン、間隔、隣接した「割合」「曲数」トグルを同じ水平行に配置し、日付の右側に状態ラベルは置きません。トグルはフォーカス時の装飾枠を表示せず、キーボード操作・フォーカス可能性・選択色・通常枠・ホバー・押下・Automationを維持します。ヘッダー左のプレイリスト名は18 DIP・SemiBoldとし、最小幅820 DIPと各言語・明暗テーマでも省略記号と全文のツールチップで長い名前を扱い、操作部との重なりを防ぎます。
+右上の「割合」「曲数」は排他的な2択で、初期値は割合です。窓ごとに独立し保存しません。スコア利用不可では操作を無効にし、基準日・最新への変更、データ更新、利用不可からの復帰でも選択モードを保持します。右上は「基準日」ラベル、DatePicker、「最新」ボタン、間隔、隣接した「割合」「曲数」トグルを同じ水平行に配置し、日付の右側に状態ラベルは置きません。トグルはフォーカス時の装飾枠を表示せず、キーボード操作・フォーカス可能性・選択色・通常枠・ホバー・押下・Automationを維持します。ヘッダー左のプレイリスト名は18 DIP・SemiBoldとし、通常最小幅820 DIPと各言語・明暗テーマでも省略記号と全文のツールチップで長い名前を扱い、操作部との重なりを防ぎます。
 
 | モード・対象 | 幅の尺度と区間ラベル |
 | --- | --- |
@@ -121,6 +135,10 @@
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 物理座標の中央・位置補正・片軸縮小、負原点、非整数DPI、最小寸法の緩和と復帰 | [配置計算](../../../BeMusicSeeker/Views/Playlist/WindowPlacementCalculator.cs) | [配置計算テスト](../../../BeMusicSeeker.Tests/Playlist/WindowPlacementCalculatorTests.cs)で代表条件、平行移動、丸め後の包含を確認する。 |
+| 未表示HWND、実DPIとWPF寸法、表示直前のOwnerと状態別基準、タスクバー | [配置](../../../BeMusicSeeker/Views/Playlist/WindowPlacementCalculator.cs)、[窓の管理](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindowManager.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)の `Viewer_initialPlacementUsesCurrentOwnerAndSynchronizesHiddenNativeWindow` でShow前の外形・不可視・実DPIと、scope適用前のタスクバー設定を確認する。集計後の配置からShowへの同期接続は静的確認する。実モニター間の異DPI移動とタスクバーの見た目は自動検証の保証に含めない。 |
+| DPI変更の独自計測、幅不変のラベル再評価、既存状態維持 | [画面](../../../BeMusicSeeker/Views/Playlist/PlaylistLampViewerWindow.xaml.cs) | [表示テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampViewerWindowPresentationTests.cs)の `Viewer_countModeUsesAllNormalFoldersAndPreservesProjectionUntilDataRefresh` で非整数DPI通知と実Binding、行・区間参照、選択・スクロール・モード、捕捉・集計件数の保持を確認する。 |
+| 配布実体のPerMonitorV2 | [マニフェスト](../../../BeMusicSeeker/app.manifest) | [出力ポリシーテスト](../../../BeMusicSeeker.Tests/Verification/ManagedDependencyOutputPolicyTests.cs)の `ApplicationExecutableEmbedsPerMonitorV2Manifest` で構築済みexeの埋込みXMLを確認する。 |
 | 明示操作時の表・所持・スコアの捕捉、初回準備待ち | [データ源](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/BmsLibraryPlaylistLampDataSource.cs) | [データ源テスト](../../../BeMusicSeeker.Tests/Playlist/BmsLibraryPlaylistLampDataSourceTests.cs)で当時点の入力と準備完了・取消を確認する。 |
 | 集計の分母・カテゴリ・更新日時 | [集計](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampAggregationService.cs) | [集計テスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampAggregationTests.cs)で正常空、未所持、情報源別の計算を確認する。 |
 | 過去日の復元、旧値欠落、情報源の障害 | [履歴スコア](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistLampHistoricalScoreSnapshot.cs) | [履歴スコアテスト](../../../BeMusicSeeker.Tests/Playlist/PlaylistLampHistoricalScoreSnapshotTests.cs)で日付境界・巻戻し・利用不可を確認する。 |

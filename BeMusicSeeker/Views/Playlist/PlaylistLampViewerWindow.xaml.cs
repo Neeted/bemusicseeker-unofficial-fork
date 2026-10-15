@@ -14,15 +14,18 @@ using BeMusicSeeker.ViewModels;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Modeless themed window that presents one playlist lamp aggregation session.
-/// The manager starts the session before showing the window so no loading placeholder
-/// is exposed as the first presentable state.
+/// 一つのプレイリストのランプ集計セッションを表示するモードレスのテーマ対応窓です。
+/// 管理主体が初回結果を確定してから表示し、表示直前のOwnerと実DPIで初期配置します。
 /// </summary>
 public partial class PlaylistLampViewerWindow : ThemedWindow
 {
     private const double MaximumFolderLabelColumnWidth = 170d;
 
     private readonly PlaylistLampViewerViewModel viewModel;
+
+    private readonly Size desiredSize;
+
+    private readonly Size normalMinimum;
 
     private DispatcherOperation folderColumnWidthUpdate;
 
@@ -31,9 +34,8 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
     private bool isClosed;
 
     /// <summary>
-    /// Gets the shared width of the clear and rank folder-label columns.
-    /// The view recalculates it from the current rendered typeface and caps it so bars
-    /// retain usable space for long folder names.
+    /// 左右のフォルダ名列で共有する幅です。
+    /// 現在の書体とDPIで再計測し、長い名前でもバーの領域を確保する上限を適用します。
     /// </summary>
     public static readonly DependencyProperty FolderLabelColumnWidthProperty =
         DependencyProperty.Register(
@@ -43,9 +45,8 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             new FrameworkPropertyMetadata(MaximumFolderLabelColumnWidth));
 
     /// <summary>
-    /// Gets the shared width of the clear and rank folder-count columns.
-    /// The view measures the current localized numeric count text and caps it at the
-    /// width needed for the localized N0 representation of 9999.
+    /// 左右のフォルダ件数列で共有する幅です。
+    /// 現在の書体とDPIで件数を測り、ローカライズしたN0形式の9999の幅を上限にします。
     /// </summary>
     public static readonly DependencyProperty FolderCountColumnWidthProperty =
         DependencyProperty.Register(
@@ -55,38 +56,74 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             new FrameworkPropertyMetadata(0d));
 
     /// <summary>
-    /// Creates a viewer temporarily owned by the supplied main window for initial placement.
-    /// The manager releases that owner after the first modeless presentation attempt.
+    /// 初期配置に使うメイン画面を一時Ownerとして、ビューアを作ります。
+    /// 希望寸法と通常の最小寸法を保持し、管理主体が初回表示を試みた後にOwnerを解除します。
     /// </summary>
-    /// <param name="owner">Main-window shell.</param>
-    /// <param name="viewModel">Dispatcher-bound viewer projection.</param>
+    /// <param name="owner">初期配置の基準となるメイン画面。</param>
+    /// <param name="viewModel">同じDispatcher上で更新される表示用モデル。</param>
     internal PlaylistLampViewerWindow(Window owner, PlaylistLampViewerViewModel viewModel)
     {
         this.viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
+        desiredSize = new Size(Width, Height);
+        normalMinimum = new Size(MinWidth, MinHeight);
         Owner = owner ?? throw new ArgumentNullException(nameof(owner));
         DataContext = viewModel;
         Loaded += WindowLoaded;
         Unloaded += WindowUnloaded;
         ContentRendered += WindowContentRendered;
         Closed += WindowClosed;
+        LocationChanged += WindowLocationChanged;
     }
 
-    /// <summary>Gets the projection displayed by this window.</summary>
+    /// <summary>この窓の表示用モデルです。</summary>
     internal PlaylistLampViewerViewModel ViewModel => viewModel;
 
-    /// <summary>Gets or sets the width shared by both folder-label columns.</summary>
+    /// <summary>両方のフォルダ名列が共有する計測幅です。</summary>
     public double FolderLabelColumnWidth
     {
         get => (double)GetValue(FolderLabelColumnWidthProperty);
         private set => SetValue(FolderLabelColumnWidthProperty, value);
     }
 
-    /// <summary>Gets or sets the width shared by both folder-count columns.</summary>
+    /// <summary>両方のフォルダ件数列が共有する計測幅です。</summary>
     public double FolderCountColumnWidth
     {
         get => (double)GetValue(FolderCountColumnWidthProperty);
         private set => SetValue(FolderCountColumnWidthProperty, value);
+    }
+
+    /// <summary>区間ラベルのBindingと独自文字計測で共有する現在のピクセル密度です。</summary>
+    public static readonly DependencyProperty PixelsPerDipProperty = DependencyProperty.Register(
+        nameof(PixelsPerDip), typeof(double), typeof(PlaylistLampViewerWindow), new PropertyMetadata(1d));
+
+    /// <summary>DPIだけが変化した場合にもラベルの収容判定を更新する現在値です。</summary>
+    public double PixelsPerDip
+    {
+        get => (double)GetValue(PixelsPerDipProperty);
+        private set => SetValue(PixelsPerDipProperty, value);
+    }
+
+    /// <summary>初回結果の確定後、Showの直前にOwnerの現在位置と実DPIで外形を配置します。</summary>
+    internal void PrepareInitialPlacement()
+        => PlaylistLampWindowPlacement.Prepare(this, desiredSize, normalMinimum);
+
+    /// <summary>WPFの標準DPI処理を保ち、独自の文字計測だけを現在の密度で更新します。</summary>
+    /// <param name="oldDpi">変更前のDPI。</param>
+    /// <param name="newDpi">変更後のDPI。</param>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        if (isClosed) { return; }
+        PixelsPerDip = newDpi.PixelsPerDip;
+        if (IsLoaded) { PlaylistLampWindowPlacement.UpdateMinimum(this, normalMinimum); }
+        QueueFolderColumnWidthUpdate();
+    }
+
+    private void WindowLocationChanged(object sender, EventArgs e)
+    {
+        // 同じDPIの別作業領域への移動も対象にします。列走査や初期位置への復帰は行いません。
+        if (!isClosed && IsLoaded) { PlaylistLampWindowPlacement.UpdateMinimum(this, normalMinimum); }
     }
 
     private void SegmentClick(object sender, RoutedEventArgs e)
@@ -99,6 +136,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
 
     private void WindowLoaded(object sender, RoutedEventArgs e)
     {
+        PixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         SubscribeFolderRows();
         QueueFolderColumnWidthUpdate();
     }
@@ -203,7 +241,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
                 textBlock.DataContext is PlaylistLampViewerFolderRowViewModel
                 && AutomationProperties.GetAutomationId(textBlock) == "PlaylistLampViewerFolderCount");
 
-        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
+        double pixelsPerDip = PixelsPerDip;
         double maximumLabelWidth = MeasureFolderTextColumn(
             labelFormatSource,
             row => row.FolderName,
@@ -270,9 +308,7 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             typeface,
             fontSize,
             Brushes.Black,
-            formatSource != null
-                ? VisualTreeHelper.GetDpi(formatSource).PixelsPerDip
-                : pixelsPerDip);
+            pixelsPerDip);
         return measuredText.WidthIncludingTrailingWhitespace;
     }
 
@@ -356,19 +392,21 @@ public sealed class PlaylistLampContrastForegroundConverter : IValueConverter
 public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
 {
     /// <summary>選択モードのラベルを、全体が切れずに収まる場合だけ返します。</summary>
-    /// <param name="values">区間、配置幅、ボタン、窓の曲数表示状態。</param>
+    /// <param name="values">区間、配置幅、ボタン、窓の曲数表示状態、現在のPixelsPerDip。</param>
     /// <param name="targetType">Binding先の型。</param>
     /// <param name="parameter">使用しないBinding引数。</param>
     /// <param name="culture">Bindingのカルチャ。</param>
     /// <returns>完全な割合または曲数。狭い区間は空文字列。</returns>
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        if (values is not { Length: >= 4 }
+        if (values is not { Length: >= 5 }
             || values[0] is not PlaylistLampViewerSegmentViewModel segment
             || !segment.HasPositiveWidth
             || values[1] is not double width
             || width <= 0d
-            || values[2] is not Button button)
+            || values[2] is not Button button
+            || values[4] is not double pixelsPerDip
+            || !double.IsFinite(pixelsPerDip) || pixelsPerDip <= 0d)
         {
             return string.Empty;
         }
@@ -384,7 +422,7 @@ public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
             new Typeface(button.FontFamily, button.FontStyle, button.FontWeight, button.FontStretch),
             double.IsNaN(button.FontSize) || button.FontSize <= 0d ? 12d : button.FontSize,
             Brushes.Black,
-            VisualTreeHelper.GetDpi(button).PixelsPerDip).WidthIncludingTrailingWhitespace;
+            pixelsPerDip).WidthIncludingTrailingWhitespace;
 
         // 枠線と余白も含めて収まる場合だけ表示し、狭い区間の文字切れを防ぎます。
         return width >= textWidth + 8d ? label : string.Empty;
