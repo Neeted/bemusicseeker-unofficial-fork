@@ -55,9 +55,21 @@ Taskの診断拡張は回復・終了の判断を代行しません。実処理�
 
 NLogの `FileTarget` で、一ファイル20 MiB超過時にローテーションし、種類ごとに最大5世代を `log/archive/` に保持します。独自の移動・削除処理は持ちません。
 
+通常診断のFileTarget実体は一つとし、NLog標準の `AsyncTargetWrapper` で包みます。FileLoggerと名前付き通常診断は同じ非同期経路を使い、性能ログの分離・書式・レベル設定を維持します。キュー上限は10,000件で、満杯時は標準の `Discard` により破棄し、呼出元をファイル保存待ちで止めません。独自の重要度別配送・再試行・欠落監視は行いません。
+
+通常起動中はフラッシュを待ちません。正常終了、起動失敗、未処理例外による最終終了では、NLog標準のフラッシュを最大2秒だけ試します。起動失敗も `Shutdown` による通常のExitイベントへ接続し、そこで一回だけフラッシュします。保存失敗は必要な終了やミューテックス解放を妨げません。出力先障害、キュー満杯、強制終了での完全保存は保証しません。
+
 計測範囲、対象件数、欠測は[性能仕様](performance-and-scale.md)に従います。集約した件数と時間を使い、リソースごとの同期ログや巨大集合の文字列化は追加しません。すべての推奨診断が既存の経路に実装済みという意味ではありません。
 
 通常起動でINFOが出るため、配布物に `LaunchWithInfoLog.bat` は含めません。既に配布済みの同ファイルが呼ぶ `--log-level=Info` は引き続き受け付けます。
+
+### 本体表示後の基本環境
+
+起動ごとに一回、本体の `Show` 後に基本環境をINFOでapplication.logへ記録します。INFO抑制時は通常のレベル設定に従います。本体HWNDの実際のDPI認識モードとDPIだけをUI上で捕捉し、実行中アプリのバージョン・取得できるビルド情報、Windowsのバージョンとビルド、.NETとロード済みWPFのバージョン、プロセスのアーキテクチャ、有効モニターの一覧を背景で取得します。モニター一覧は台数、主画面、物理ピクセル単位の矩形・解像度・作業領域、取得できた倍率を含みます。
+
+各取得の失敗は `unavailable` として明示し、DPIを96・倍率を100%へ補いません。倍率APIが失敗時に返す代替値も利用しません。背景でWPFオブジェクトを操作せず、診断Taskの失敗を観測します。取得・保存は起動完了条件にせず、終了時に収集完了を待ちません。定期再取得、操作履歴、機器識別子、端末名・利用者名、Git・ネットワークへの照会は追加しません。
+
+未処理例外は元のExceptionをローカルロガーへ渡し、内部例外・スタックを既存の例外書式で記録します。全文をメッセージにも重複連結せず、自動送信しません。既存の例外型による無記録抑止は再導入しません。続行・終了の判断と終了中の限定条件は[終了仕様](../runtime/shutdown.md#sqliteと失敗の観測)に従います。
 
 ### 初期化・探索・同期の記録
 
@@ -84,7 +96,8 @@ LR2のアプリ管理出力ディレクトリの探索除外と、組込みカ�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| ログ構成、文字コード、回転、出力先の失敗 | [`NLogWrapper`](../../../BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs) | [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) |
+| ログ構成、文字コード、回転、元例外、基本環境、レベルと配送 | [`NLogWrapper`](../../../BeMusicSeeker/Ribbit/Logging/NLogWrapper.cs)、[`ApplicationEnvironmentDiagnostics`](../../../BeMusicSeeker/Diagnostics/ApplicationEnvironmentDiagnostics.cs) | [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) は実ログの日本語UTF-8、形式、内部例外・スタック、基本環境、名前付き通常診断と性能の分離、レベル抑制、回転を確認する。出力ゲート未解除で呼出元と上限付きフラッシュが進み、解放後は保存できることを実配送で確認する。 |
+| 基本環境の背景収集と起動の非干渉 | [`App`](../../../BeMusicSeeker/App.cs)、[`ApplicationEnvironmentDiagnostics`](../../../BeMusicSeeker/Diagnostics/ApplicationEnvironmentDiagnostics.cs) | [`ApplicationStartupCompositionOwnerTests`](../../../BeMusicSeeker.Tests/Startup/ApplicationStartupCompositionOwnerTests.cs) の `ApplicationEnvironmentCollectionGateDoesNotDelayStartupCompletion` は収集ゲート未解除で起動Taskが完了し、取得失敗を欠測として記録することを確認する。Show後の一回だけの接続、UI所有値の捕捉、終了時に収集Taskを待たないことは静的に確認する。 |
 | 探索条件、確認対象・解析対象・保存結果の区別 | [`RootFileEnumerationService`](../../../BeMusicSeeker/Models/Utils/Scanning/RootFileEnumeration.cs)、[`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs)、[`Lr2SynchronizationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs) | [`LibraryFileScanPipelineOwnerTests`](../../../BeMusicSeeker.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs)、[`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryLr2SongDbSyncTests`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs) で処理対象と実結果を確認し、条件ログが実要求から出ることを静的に確認する。ログ全文の固定検査は設けない。 |
 | Taskの成功値、元の失敗集合、取消状態・トークン、診断失敗 | [`TaskEx`](../../../BeMusicSeeker/Ribbit/Util/Extensions/TaskEx.cs)、[アプリ診断のTask拡張](../../../BeMusicSeeker/Models/Utils/TaskEx.cs) | [`TaskLoggingTests`](../../../BeMusicSeeker.Tests/Runtime/TaskLoggingTests.cs) |
 | プレイリスト通知の順序、一次失敗、通知失敗時も再表示しない | [`PlaylistOperationNotificationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs) | [`PlaylistOperationNotificationOwnerTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistOperationNotificationOwnerTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |

@@ -25,6 +25,8 @@ public partial class App : System.Windows.Application
 {
     private static readonly TimeSpan PerformanceDiagnosticsDrainLimit = TimeSpan.FromSeconds(5);
 
+    private static readonly TimeSpan ApplicationLogFlushLimit = TimeSpan.FromSeconds(2);
+
     private const string MutexName = "a601b8c6-41c3-4182-950b-b96a0f0c8b0c";
 
     private static Mutex _mutex = null;
@@ -88,10 +90,6 @@ public partial class App : System.Windows.Application
                 defaultFileLogLevel, CommandLineSwitches.IsInfoLoggingEnabled);
         }, "startup_file_logging_failed");
         TryInitializeDiagnostic(Net10PerformanceLog.Start, "startup_performance_logging_failed");
-        TryInitializeDiagnostic(() => NLogWrapper.AddTarget(new NetworkTarget
-        {
-            Address = "http://www.ribbit.xyz/bms/tools/bemusicseeker/report.cgi"
-        }, LogLevel.Error, asDefault: false), "startup_network_logging_failed");
         TryInitializeDiagnostic(() =>
         {
             if (CommandLineSwitches.HasInvalidLogLevelValue)
@@ -144,7 +142,14 @@ public partial class App : System.Windows.Application
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
             createMainWindow: viewModel => new MainWindow(viewModel),
             assignApplicationMainWindow: mainWindow => MainWindow = mainWindow,
-            showMainWindow: mainWindow => mainWindow.Show(),
+            showMainWindow: mainWindow =>
+            {
+                mainWindow.Show();
+                // 表示そのものの失敗と任意診断の失敗は、異なる境界で扱います。
+                TryInitializeDiagnostic(() =>
+                    ApplicationEnvironmentDiagnostics.Start(mainWindow).ObserveFault(),
+                    "startup_environment_snapshot_failed");
+            },
             handleFailure: HandleStartupFailureAsync,
             acquireOwnership: AcquireSingleInstanceOwnership,
             prepareSettings: InitializeOwnedSettings)
@@ -239,6 +244,7 @@ public partial class App : System.Windows.Application
         }
         finally
         {
+            // Shutdownが発火するApplication_Exitで通常終了と同じ一回のフラッシュを行います。
             try { ReleaseSingleInstanceMutex(); }
             finally { Shutdown(1); }
         }
@@ -261,7 +267,8 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            ReleaseSingleInstanceMutex();
+            try { NLogWrapper.FlushBeforeExit(ApplicationLogFlushLimit); }
+            finally { ReleaseSingleInstanceMutex(); }
         }
     }
 
@@ -414,7 +421,7 @@ public partial class App : System.Windows.Application
                     MessageBoxImage.Asterisk, MessageBoxResult.Yes);
             }
             catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_exit_notification_failed"); }
-            if (closeMainWindow)
+            if (closeMainWindow && System.Windows.Application.Current?.Dispatcher.CheckAccess() == true)
             {
                 try { System.Windows.Application.Current?.MainWindow?.Close(); }
                 catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_window_close_failed"); }
@@ -422,7 +429,8 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            Environment.Exit(1);
+            try { NLogWrapper.FlushBeforeExit(ApplicationLogFlushLimit); }
+            finally { Environment.Exit(1); }
         }
     }
 
@@ -433,18 +441,11 @@ public partial class App : System.Windows.Application
         finally { ExitAfterUnhandledException(closeMainWindow: false); }
     }
 
-    /// <summary>元原因のファイル診断・既存network診断・案内を個別に試し、診断や表示の故障で終端を変えません。</summary>
+    /// <summary>元原因のローカル診断と案内を個別に試し、診断や表示の故障で終端を変えません。</summary>
     private void ExceptionLogger(Exception ex, bool showMessage = true)
     {
         try { NLogWrapper.FileLogger?.Error(ex, "unhandled_exception"); }
         catch (Exception) { /* 他の診断と必要終了を妨げません。 */ }
-        try
-        {
-            string version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
-            NLogWrapper.NetworkLogger?.Error(ex, version + " - UNKNOWN" + ((!showMessage) ? " IGNORED" : string.Empty)
-                + Environment.NewLine + ex);
-        }
-        catch (Exception) { /* logger取得や元例外の文字列化も任意診断の境界です。 */ }
         if (showMessage)
         {
             try

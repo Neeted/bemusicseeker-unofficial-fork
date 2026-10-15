@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -293,6 +295,49 @@ public sealed class ApplicationStartupCompositionOwnerTests
                 new[] { "create", "resource", "window-create", "main-window", "show", "failure" },
                 events);
             Assert.AreSame(expected, handled);
+        });
+    }
+
+    /// <summary>表示要求後の環境収集をゲートで保持しても、本体の起動Taskは完了します。収集失敗は診断内の欠測に留めます。</summary>
+    /// <remarks>既存VMとWindowの共通寿命を使うため非並列です。ゲートはfinallyで解放し、背景Taskも回収します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void ApplicationEnvironmentCollectionGateDoesNotDelayStartupCompletion()
+    {
+        RunWithViewModel((viewModel, window) =>
+        {
+            using var gate = new ManualResetEventSlim();
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task diagnostics = Task.CompletedTask;
+            string? recorded = null;
+            try
+            {
+                var owner = new ApplicationStartupCompositionOwner(
+                    () => viewModel, _ => { }, _ => window, _ => { },
+                    _ => diagnostics = ApplicationEnvironmentDiagnostics.Queue("main_window_dpi=unavailable", () =>
+                    {
+                        entered.TrySetResult();
+                        gate.Wait();
+                        throw new InvalidOperationException("collection unavailable");
+                    }, message => recorded = message),
+                    exception => throw new AssertFailedException(exception.ToString()));
+
+                Task startup = owner.StartAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, diagnostics, nameof(ApplicationEnvironmentDiagnostics)),
+                    nameof(ApplicationEnvironmentDiagnostics));
+                Assert.IsTrue(startup.IsCompletedSuccessfully);
+                Assert.IsFalse(diagnostics.IsCompleted);
+                Assert.IsFalse(gate.IsSet);
+            }
+            finally
+            {
+                gate.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(diagnostics, nameof(ApplicationEnvironmentDiagnostics));
+            }
+            Assert.IsNotNull(recorded);
+            StringAssert.Contains(recorded, "main_window_dpi=unavailable");
+            StringAssert.Contains(recorded, "unavailable(InvalidOperationException)");
         });
     }
 

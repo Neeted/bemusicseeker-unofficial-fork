@@ -6,12 +6,12 @@ using NLog;
 using NLog.Config;
 using NLog.Layouts;
 using NLog.Targets;
+using NLog.Targets.Wrappers;
 
 namespace Ribbit.Logging;
 
 /// <summary>
-/// Provides the application-wide NLog configuration surface so callers do not
-/// need to create file targets or logging rules directly.
+/// アプリ共通の出力先と規則を管理し、機能側の個別構成を不要にします。
 /// </summary>
 public static class NLogWrapper
 {
@@ -51,8 +51,10 @@ public static class NLogWrapper
 
     public static DebuggerTarget DebuggerTarget { get; private set; }
 
+    /// <summary>通常診断を有限の非同期キューへ渡すロガーを取得します。</summary>
     public static Logger FileLogger => _FileLogger?.Invoke();
 
+    /// <summary>非同期ラッパー内の通常ログ実体です。レベル変更と回転設定に利用します。</summary>
     public static FileTarget FileTarget { get; private set; }
 
     public static Logger NetworkLogger => _NetworkLogger?.Invoke();
@@ -83,9 +85,12 @@ public static class NLogWrapper
         });
     }
 
+    /// <summary>指定出力先を直接または非同期ラッパー経由で使う規則の下限を引き上げます。</summary>
     public static void SetMinLogLevel(this Target target, LogLevel minlevel)
     {
-        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where(r => r.Targets.Contains(target)))
+        foreach (LoggingRule item in LogManager.Configuration?.LoggingRules?.Where(r =>
+            r.Targets.Any(candidate => ReferenceEquals(candidate, target)
+                || candidate is AsyncTargetWrapper wrapper && ReferenceEquals(wrapper.WrappedTarget, target))))
         {
             foreach (LogLevel item2 in LogLevel.AllLoggingLevels.Where(l => l < minlevel))
             {
@@ -108,14 +113,11 @@ public static class NLogWrapper
     }
 
     /// <summary>
-    /// Configures the app-owned rolling file logs under the executable
-    /// directory. BeMusicSeeker keeps normal diagnostic logs and expensive
-    /// install/performance traces separate so daily troubleshooting can start
-    /// from the smaller file.
+    /// 実行ファイル配下の通常診断を非同期出力し、性能ログを別ファイルへ分離します。
     /// </summary>
-    /// <param name="applicationBaseDirectory">Directory that contains the running executable.</param>
-    /// <param name="minimumFileLogLevel">Minimum level written to the normal application log.</param>
-    /// <param name="enableInstallPerformanceLogging">Whether to write the separated install/performance log.</param>
+    /// <param name="applicationBaseDirectory">実行ファイルの所在ディレクトリ。</param>
+    /// <param name="minimumFileLogLevel">通常ログへ出力する最低レベル。</param>
+    /// <param name="enableInstallPerformanceLogging">性能ログも記録するか。</param>
     public static void ConfigureApplicationFileLogging(string applicationBaseDirectory, LogLevel minimumFileLogLevel, bool enableInstallPerformanceLogging)
     {
         if (string.IsNullOrWhiteSpace(applicationBaseDirectory))
@@ -128,11 +130,36 @@ public static class NLogWrapper
             "ApplicationFileTarget",
             Path.Combine(logDirectoryPath, ApplicationLogFileName),
             Path.Combine(logDirectoryPath, ArchiveDirectoryName, ApplicationLogFileName));
-        AddTarget(applicationFileTarget, effectiveMinimumFileLogLevel);
+        AddApplicationFileTarget(applicationFileTarget, effectiveMinimumFileLogLevel);
         SetDefaultConfigurationMinLogLevel(effectiveMinimumFileLogLevel);
         if (enableInstallPerformanceLogging)
         {
             AddInstallPerformanceFileTarget(logDirectoryPath);
+        }
+    }
+
+    /// <summary>単一の通常ログを有限・満杯時破棄の標準キューへ接続し、既存の名前付き経路も揃えます。</summary>
+    internal static void AddApplicationFileTarget(FileTarget target, LogLevel minimumLevel)
+    {
+        var asynchronousTarget = new AsyncTargetWrapper(target, 10000, AsyncTargetWrapperOverflowAction.Discard)
+        {
+            Name = "ApplicationFileAsyncTarget"
+        };
+        AddRule(asynchronousTarget, minimumLevel);
+        AddRule(asynchronousTarget, minimumLevel, typeof(FileTarget).ToString(), final: true);
+        _FileLogger = () => LogManager.GetLogger(typeof(FileTarget).ToString());
+        FileTarget = target;
+        LogManager.ReconfigExistingLoggers();
+    }
+
+    /// <summary>終了時だけ標準フラッシュを上限付きで試し、保存失敗が終端を妨げないようにします。</summary>
+    /// <param name="timeout">保存の完了を待つ上限。未保存の完全な回収は保証しません。</param>
+    internal static void FlushBeforeExit(TimeSpan timeout)
+    {
+        try { LogManager.Flush(timeout); }
+        catch (Exception)
+        {
+            // 出力先へ再記録すると同じ障害へ再入するため、終了を続けます。
         }
     }
 

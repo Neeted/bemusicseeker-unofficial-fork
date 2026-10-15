@@ -114,7 +114,9 @@ sequenceDiagram
 
 統制された終了中に限り、未解放の文・未完了バックアップを理由にしたSQLite接続終了エラーは非常用ダイアログを出さず記録します。通常動作中の同じエラーは抑止しません。CLRが終了を決定済みの`AppDomain`例外も、この条件で回復扱いにしません。
 
-未処理例外の最終防壁では、`NullReferenceException`・`InvalidOperationException`・`COMException`の型やHRESULTだけを理由に無記録で継続しません。元原因のファイル診断、既存ネットワーク診断、非常用案内を個別に試します。案内、`MainWindow`の不在・`Close`失敗にかかわらず、非デバッグ時は既存の最終終了へ到達します。通常終了では性能診断の失敗がミューテックス解放を飛ばさず、起動失敗ではミューテックス解放の失敗が`Shutdown`の呼出しを飛ばしません。
+未処理例外の最終防壁では、`NullReferenceException`・`InvalidOperationException`・`COMException`の型やHRESULTだけを理由に無記録で継続しません。元原因のローカル診断と非常用案内を個別に試し、自動送信しません。案内、`MainWindow`の不在・`Close`失敗にかかわらず、非デバッグ時は既存の最終終了へ到達します。窓のCloseはUIスレッドの場合だけ行い、非UIのAppDomain例外では窓を操作・待機せず最終終了へ進みます。
+
+通常診断の非同期保存は、正常終了・起動失敗・未処理例外による最終終了で標準フラッシュを最大2秒だけ試します。起動失敗も `Shutdown` が発火するExitイベントで一回だけフラッシュし、失敗処理内では重ねて待ちません。基本環境の収集Taskは終了待機へ加えません。ログ失敗は元例外を置換せず、再帰記録もしません。通常終了では性能診断と通常ログの保存失敗がミューテックス解放を飛ばさず、起動失敗ではミューテックス解放の失敗が`Shutdown`の呼出しを飛ばしません。通常のDB・ファイル・通信の整合性待ちを、この診断専用の上限で打ち切りません。
 
 ### 既存宛先の復元不能による終了
 
@@ -136,7 +138,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| アプリの起動失敗・最終防壁と、診断・終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備の終端は [`ApplicationStartupCompositionOwnerTests`](../../../BeMusicSeeker.Tests/Startup/ApplicationStartupCompositionOwnerTests.cs)、通常終了は [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs) が分担する。診断先ごとの捕捉、限定したSQLite抑止、CLR終端、通知・窓閉鎖の失敗後も最終終了へ進む制御とミューテックス解放は静的に確認する。致命的な終了の実行は自動テストでは未確認。 |
+| アプリの起動失敗・最終防壁と、診断・終了の分離 | [`App`](../../../BeMusicSeeker/App.cs) | 必須起動準備と収集待ちの非干渉は [`ApplicationStartupCompositionOwnerTests`](../../../BeMusicSeeker.Tests/Startup/ApplicationStartupCompositionOwnerTests.cs)、通常終了は [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、上限付きフラッシュは [`NLogWrapperTests`](../../../BeMusicSeeker.Tests/Runtime/NLogWrapperTests.cs) が分担する。ローカル診断の捕捉、限定したSQLite抑止、CLR終端、通知・窓閉鎖の失敗後も最終終了へ進む制御、非UIで窓を操作しないこと、各終端からのフラッシュ接続とミューテックス解放は静的に確認する。致命的な終了の実行は自動テストでは未確認。 |
 | 既存宛先の復元不能と通常終了の区別 | [標準構成](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)、[lifetime境界](../../../BeMusicSeeker/AppApplicationLifetime.cs)、[最終終了](../../../BeMusicSeeker/App.cs) | 操作所有者からの終了到達は[整合性のテスト分担](../library/file-db-consistency.md#実装とテストの対応)で確認する。Appの明示入口から非常用案内と最終終了への接続、通常Close・設定保存・一時領域削除・再起動を通さないことは静的に確認する。実プロセスの最終終了は代替しており、自動テストで実行しない。 |
 | 局所プレイリストの空の結果記録の配送終端を待つ終了 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs) | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs) は、ドロップの空の結果記録の購読処理中も受理Task・Pを保持し、競合拒否と終了要求の待機を確認する。配送後はドロップと `RequestWindowCloseAsync` が終端し、L/Pを解放する。実ダイアログの表示待ちを確認するケースではない。 |
 | 通常・更新時の終了、再入、UI応答、順序とTask共有 | [`ShellShutdownWorkflowOwner`](../../../BeMusicSeeker/ViewModels/MainWindow/ShellShutdownWorkflowOwner.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`ShellShutdownWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)、[`MainWindowViewHostTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewHostTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs)。`MainWindowShutdownCapturePrecedesShellCompletion` は終了受付後の即時表示要求と、受付前に予約した遅延表示要求の抑止も確認する。`TerminalAsyncPlayerCloseRunsOnWorkerBeforeUiSettingsSave` は非同期player停止の同期部分も作業スレッドで実行し、解放後の設定保存はUI上で行うことを確認する。 |
