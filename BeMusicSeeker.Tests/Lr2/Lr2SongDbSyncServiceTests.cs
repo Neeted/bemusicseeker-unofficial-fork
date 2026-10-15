@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -1592,35 +1591,140 @@ public sealed class Lr2SongDbSyncServiceTests
         }
     }
 
-    /// <summary>実LR2生成の一般reader故障と要求取消を区別し、欠番時の循環待ちを停止して全callback終端後に確定prefixと元原因を保持する。</summary>
-    /// <remarks>1001行の要求取消はCPU1でも実行する。9002行のreader欠番は実並列policyを前提にし、ordering window容量を本番診断から観測する。期限は故障検出とfinally cleanup開始だけに使う。非UIの同期fixtureでdefault接続の生成・解放threadとprocess lock所有を維持し、実Taskを回収してから同threadで接続を解放する。</remarks>
-    [DataTestMethod]
-    [DataRow("reader_gap")]
-    [DataRow("request_cancel")]
-    public void SyncService_PipelineTerminationPreservesFirstCauseAndCommittedPrefix(string mode)
+    /// <summary>基本読取りの未知失敗は今回だけ対象を飛ばし、旧基本値・利用者列と正常対象の保存、全処理位置、次の明示同期での再評価を保つ。</summary>
+    /// <remarks>少数の実譜面を実SQLiteと基本解析・writerへ通す。既存reader代替は未知読取り失敗と開始済み健全処理の待合せだけに使い、raw失敗表と保存行を外側から観測する。</remarks>
+    [TestMethod]
+    public void SyncService_UnknownBasicReadFailurePreservesOldRowAndCompletesNormalSiblings()
     {
-        bool gap = mode == "reader_gap";
-        int targetCount = gap ? 9002 : 1001;
-        if (gap && ChartFileReadPipelinePolicy.ResolveCpuWorkerDegree(Environment.ProcessorCount, int.MaxValue) < 2)
+        using var scope = TestDatabaseScope.Create();
+        using var releaseHealthy = new ManualResetEventSlim();
+        var healthyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        List<ChartFile> charts = [];
+        for (int index = 0; index < 4; index++)
         {
-            Assert.Inconclusive("欠番回収を保つ健全parserを同時実行するCPU並列度が必要です。");
+            string path = Path.Combine(scope.DirectoryPath, "basic" + index + ".bms");
+            File.WriteAllText(path, "#TITLE basic" + index + "\r\n#PLAYLEVEL 9\r\n#BPM 120\r\n#00111:01\r\n", Encoding.ASCII);
+            charts.Add(CreateSyncTestFile(path, ChartFileContentReader.ReadSnapshot(path)) with
+            {
+                Level = 2,
+                Title = "old",
+                RawTitle = "old"
+            });
         }
-        if (mode == "reader_gap" && ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targetCount) < 2)
+        int ownerThread = Environment.CurrentManagedThreadId;
+        using var songDb = new LR2SongDBExtended(scope.SongDbPath);
+        songDb.CreateTable<LR2SongDB.song>();
+        BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
+        songDb.RunInTransaction(() =>
         {
-            Assert.Inconclusive("reader欠番と後続window充填を同時観測するreader並列度が必要です。");
+            foreach (ChartFile chart in charts)
+            {
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song));
+            }
+            songDb.Execute("UPDATE song SET favorite = 3, tag = 'keep', adddate = 123;");
+        });
+        int activeReaders = 0;
+        var request = new Lr2SongDbSyncRequest
+        {
+            Signature = "basic-input-skip",
+            RunId = "basic-input-skip",
+            SongRows = charts,
+            ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+            ChartInfoResolver = _ => null,
+            ChartInfoResolverIsThreadSafe = true,
+            IsShutdownRequested = () => false,
+            ChartFileBufferReader = path =>
+            {
+                Interlocked.Increment(ref activeReaders);
+                try
+                {
+                    if (path == charts[1].Path) { throw new InvalidOperationException("unknown basic read failure"); }
+                    if (path == charts[3].Path)
+                    {
+                        healthyEntered.TrySetResult(true);
+                        releaseHealthy.Wait();
+                    }
+                    return ChartFileContentReader.ReadBuffer(path);
+                }
+                finally { Interlocked.Decrement(ref activeReaders); }
+            }
+        };
+        Task<Lr2SongDbSyncResult> operation = Task.Run(() => Lr2SongDbSyncService.Run(songDb, request));
+        try
+        {
+            Task completed = Task.WhenAny(healthyEntered.Task, operation).GetAwaiter().GetResult();
+            if (completed == operation)
+            {
+                operation.GetAwaiter().GetResult();
+                Assert.Fail("健全readerのgate到達前に操作が完了しました。");
+            }
+            healthyEntered.Task.GetAwaiter().GetResult();
+            Assert.IsFalse(operation.IsCompleted, "開始済み健全readerの実終端を待ちます。");
+            releaseHealthy.Set();
+            Lr2SongDbSyncResult result = operation.GetAwaiter().GetResult();
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, result.FinalStage);
+            Assert.AreEqual(4, result.SongRowProcessedCount);
+            Assert.AreEqual(1, result.SongRowSkippedCount);
+            Assert.AreEqual(0, result.SongRowParseFailureCount);
+            Assert.AreEqual(0, activeReaders);
+            using (var verify = new LR2SongDBExtended(scope.SongDbPath, SQLite.SQLiteOpenFlags.ReadOnly, acquireProcessLock: false))
+            {
+                Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE favorite = 3 AND tag = 'keep' AND adddate = 123;"));
+                for (int index = 0; index < charts.Count; index++)
+                {
+                    Assert.AreEqual(index == 1 ? "old" : "basic" + index,
+                        verify.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", charts[index].Path));
+                    Assert.AreEqual(index == 1 ? 2 : 9,
+                        verify.ExecuteScalar<int>("SELECT level FROM song WHERE path = ?;", charts[index].Path));
+                }
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info WHERE sha256 = ?;", charts[1].Sha256));
+                Assert.AreEqual(3, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+                Assert.AreEqual(0, verify.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
+                Assert.AreEqual(4, verify.ExecuteScalar<int>("SELECT processed_cursor FROM lr2_song_db_sync_status WHERE name = ?;", Lr2SongDbSyncStatusService.DefaultStatusName));
+                Assert.AreEqual("Running", verify.ExecuteScalar<string>("SELECT status FROM lr2_song_db_sync_status WHERE name = ?;", Lr2SongDbSyncStatusService.DefaultStatusName));
+                Assert.IsNull(verify.ExecuteScalar<string>("SELECT completed_at FROM lr2_song_db_sync_status WHERE name = ?;", Lr2SongDbSyncStatusService.DefaultStatusName));
+            }
+            Lr2SongDbSyncResult next = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+            {
+                Signature = "basic-input-next",
+                RunId = "basic-input-next",
+                SongRows = charts,
+                ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
+                ChartInfoResolver = _ => null,
+                ChartInfoResolverIsThreadSafe = true,
+                IsShutdownRequested = () => false
+            });
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, next.FinalStage);
+            Assert.AreEqual(0, next.SongRowSkippedCount);
+            Assert.AreEqual("basic1", songDb.ExecuteScalar<string>("SELECT title FROM song WHERE path = ?;", charts[1].Path));
+            Assert.AreEqual(4, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE level = 9 AND favorite = 3 AND tag = 'keep' AND adddate = 123;"));
+            Assert.AreEqual(4, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info;"));
+            Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
         }
+        finally
+        {
+            releaseHealthy.Set();
+            try { operation.GetAwaiter().GetResult(); }
+            catch (Exception) { /* 一次表明を保持し、全Task終端後にDBを解放します。 */ }
+        }
+        Assert.AreEqual(ownerThread, Environment.CurrentManagedThreadId);
+        Assert.IsTrue(LR2SongDBExtended.IsProcessLockEnteredByCurrentThread());
+    }
+
+    /// <summary>要求取消を伝播し、全callback終端後も確定済みチャンク・利用者列・処理位置を保持する。</summary>
+    /// <remarks>1001行で既定チャンクを確定後、末尾の実詳細解析を待たせて取り消す。CPU数によらず実行し、通常Taskを回収してから接続を生成threadで解放する。未知の基本入力は少数の対象スキップケースが分担する。</remarks>
+    [TestMethod]
+    public void SyncService_RequestCancellationPreservesCommittedPrefixAndJoinsWorkers()
+    {
+        const int targetCount = 1001;
         using var scope = TestDatabaseScope.Create();
         using var cleanupCancellation = new CancellationTokenSource();
         using var prefixCommitted = new ManualResetEventSlim();
         using var releasePrimary = new ManualResetEventSlim();
-        using var releaseHealthy = new ManualResetEventSlim();
         var primaryEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var healthyEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var lastWindowReaderEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var faultSignaled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         string logicalDirectory = Path.Combine(scope.DirectoryPath, "LogicalCharts");
         Directory.CreateDirectory(logicalDirectory);
-        var templates = new ChartFileReadBuffer[3];
+        var templates = new ChartFileReadBuffer[2];
         for (int index = 0; index < templates.Length; index++)
         {
             string path = Path.Combine(scope.DirectoryPath, "template" + index + ".bms");
@@ -1650,7 +1754,6 @@ public sealed class Lr2SongDbSyncServiceTests
                 }
                 songDb.Execute("UPDATE song SET favorite = 3, tag = 'keep', adddate = 123;");
             });
-            int capacity = 0;
             int? observedPrefixCursor = null;
             int activeCallbacks = 0;
             int publishedFailures = 0;
@@ -1660,15 +1763,10 @@ public sealed class Lr2SongDbSyncServiceTests
                 try
                 {
                     int index = indices[path];
-                    if (index == 1000 && mode != "reader_gap")
+                    if (index == 1000)
                     {
                         primaryEntered.TrySetResult(true);
                         releasePrimary.Wait();
-                    }
-                    else if (gap && index == 1000 + Volatile.Read(ref capacity) - 1)
-                    {
-                        healthyEntered.TrySetResult(true);
-                        releaseHealthy.Wait();
                     }
                     return ChartInfoParser.ParseBytesDetailed(bytes, path, md5, sha256,
                         timeout: timeout, retainChartString: false);
@@ -1680,15 +1778,13 @@ public sealed class Lr2SongDbSyncServiceTests
             });
             var request = new Lr2SongDbSyncRequest
             {
-                Signature = "pipeline-fault-" + mode,
+                Signature = "pipeline-request-cancel",
                 RunId = "pipeline-run",
                 SongRows = charts,
                 ChartInfoBuildService = parser,
                 ChartInfoChunkWriter = CreateDirectChartInfoWriter(songDb),
                 ChartInfoResolverIsThreadSafe = true,
-                ChartInfoResolver = chart => indices[chart.Path] == 1000
-                    || gap && indices[chart.Path] == 1000 + Volatile.Read(ref capacity) - 1
-                        ? null : currentInfo,
+                ChartInfoResolver = chart => indices[chart.Path] == 1000 ? null : currentInfo,
                 CancellationToken = cleanupCancellation.Token,
                 IsShutdownRequested = () => false,
                 ChartFileBufferReader = path =>
@@ -1701,18 +1797,7 @@ public sealed class Lr2SongDbSyncServiceTests
                         {
                             prefixCommitted.Wait(cleanupCancellation.Token);
                         }
-                        if (mode == "reader_gap" && index == 1000)
-                        {
-                            primaryEntered.TrySetResult(true);
-                            releasePrimary.Wait();
-                            return ThrowLr2ReaderFault();
-                        }
-                        bool lastWindowSlot = gap && index == 1000 + Volatile.Read(ref capacity) - 1;
-                        if (lastWindowSlot)
-                        {
-                            lastWindowReaderEntered.TrySetResult(true);
-                        }
-                        ChartFileReadBuffer template = templates[index == 1000 ? 1 : lastWindowSlot ? 2 : 0];
+                        ChartFileReadBuffer template = templates[index == 1000 ? 1 : 0];
                         return new ChartFileReadBuffer(path, template.Bytes, template.LastWriteTimeUtc);
                     }
                     finally
@@ -1723,22 +1808,10 @@ public sealed class Lr2SongDbSyncServiceTests
                 ChartInfoParseFailuresCommitted = (persisted, _, _) => Interlocked.Add(ref publishedFailures, persisted),
                 LogInstallPerformance = message =>
                 {
-                    if (message.StartsWith("lr2_song_db_sync pipeline_start", StringComparison.Ordinal))
-                    {
-                        Match match = Regex.Match(message, @"orderingWindowCapacity=(\d+)");
-                        if (match.Success)
-                        {
-                            Volatile.Write(ref capacity, int.Parse(match.Groups[1].Value));
-                        }
-                    }
                     if (message.StartsWith("lr2_song_db_sync chunk_done stage=song_rows offset=0 count=1000", StringComparison.Ordinal))
                     {
                         observedPrefixCursor = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).processed_cursor;
                         prefixCommitted.Set();
-                    }
-                    if (message.StartsWith("lr2_song_db_sync pipeline_failed", StringComparison.Ordinal))
-                    {
-                        faultSignaled.TrySetResult(true);
                     }
                 }
             };
@@ -1747,61 +1820,27 @@ public sealed class Lr2SongDbSyncServiceTests
             {
                 WaitForLr2FaultStage(primaryEntered.Task, operation);
                 Assert.AreEqual<int?>(1000, observedPrefixCursor);
-                if (gap)
-                {
-                    Assert.IsTrue(capacity > 0 && capacity < targetCount - 1000);
-                    WaitForLr2FaultStage(lastWindowReaderEntered.Task, operation);
-                    WaitForLr2FaultStage(healthyEntered.Task, operation);
-                }
-                if (mode == "request_cancel")
-                {
-                    cleanupCancellation.Cancel();
-                }
+                cleanupCancellation.Cancel();
                 releasePrimary.Set();
-                if (gap)
-                {
-                    WaitForLr2FaultStage(faultSignaled.Task, operation);
-                    Assert.IsFalse(operation.IsCompleted, "故障通知後も開始済み健全parserの終端を待ちます。");
-                    Assert.IsFalse(cleanupCancellation.IsCancellationRequested);
-                    releaseHealthy.Set();
-                }
                 Exception? failure = null;
                 try
                 {
-                    operation.WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult();
+                    operation.GetAwaiter().GetResult();
                 }
                 catch (Exception ex)
                 {
                     failure = ex;
                 }
                 Assert.IsNotNull(failure);
-                if (mode == "request_cancel")
-                {
-                    Assert.IsInstanceOfType<OperationCanceledException>(failure);
-                    Assert.AreEqual(cleanupCancellation.Token, ((OperationCanceledException)failure).CancellationToken);
-                }
-                else
-                {
-                    Assert.AreEqual(typeof(InvalidOperationException), failure.GetType());
-                    Assert.AreEqual("injected LR2 reader fault", failure.Message);
-                    Assert.IsNotNull(failure.StackTrace);
-                    StringAssert.Contains(failure.StackTrace, nameof(ThrowLr2ReaderFault));
-                    Assert.IsFalse(cleanupCancellation.IsCancellationRequested);
-                }
+                Assert.IsInstanceOfType<OperationCanceledException>(failure);
+                Assert.AreEqual(cleanupCancellation.Token, ((OperationCanceledException)failure).CancellationToken);
                 Assert.AreEqual(0, activeCallbacks);
                 Assert.AreEqual(0, publishedFailures);
                 LR2SongDBExtended.lr2_song_db_sync_status status = songDb.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
                 Assert.AreEqual("Failed", status.status);
                 Assert.AreEqual("song_rows", status.stage);
                 Assert.AreEqual(1000, status.processed_cursor);
-                if (mode == "request_cancel")
-                {
-                    StringAssert.Contains(status.last_error, "Unexpected operation cancellation.");
-                }
-                else
-                {
-                    Assert.AreEqual(failure.Message, status.last_error);
-                }
+                StringAssert.Contains(status.last_error, "Unexpected operation cancellation.");
                 Assert.AreEqual(0, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM chart_info_parse_failure;"));
                 Assert.AreEqual(targetCount, songDb.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE favorite = 3 AND tag = 'keep' AND adddate = 123;"));
                 for (int index = 0; index < charts.Count; index++)
@@ -1815,7 +1854,6 @@ public sealed class Lr2SongDbSyncServiceTests
                 cleanupCancellation.Cancel();
                 prefixCommitted.Set();
                 releasePrimary.Set();
-                releaseHealthy.Set();
                 try
                 {
                     operation.GetAwaiter().GetResult();
@@ -1833,19 +1871,13 @@ public sealed class Lr2SongDbSyncServiceTests
 
     private static void WaitForLr2FaultStage(Task stage, Task operation)
     {
-        Task completed = Task.WhenAny(stage, operation).WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult();
+        Task completed = Task.WhenAny(stage, operation).GetAwaiter().GetResult();
         if (completed == operation)
         {
             operation.GetAwaiter().GetResult();
             Assert.Fail("必要なgateの観測前に操作が完了しました。");
         }
         stage.GetAwaiter().GetResult();
-    }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
-    private static ChartFileReadBuffer ThrowLr2ReaderFault()
-    {
-        throw new InvalidOperationException("injected LR2 reader fault");
     }
 
     /// <summary>必須詳細/互換性callbackの失敗を元stack付きで返し、任意進捗・ログも故障している条件でもcommit済み行・利用者列・実cursorを保持する。</summary>

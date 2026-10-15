@@ -845,18 +845,19 @@ internal sealed class FileScanParseCommitOwner
 
     private static FileDiffReadCandidate ReadFileDiffTarget(FileDiffParseTarget target, ref long readTicks)
     {
+        var stopwatch = Stopwatch.StartNew();
+        ChartFileReadBuffer buffer;
         try
         {
-            var stopwatch = Stopwatch.StartNew();
-            ChartFileReadBuffer buffer = ChartFileContentReader.ReadBuffer(target.Path);
-            stopwatch.Stop();
-            Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
-            return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, buffer, target.ExistingBmsFile, target.TextFlag);
+            buffer = ChartFileContentReader.ReadBuffer(target.Path);
         }
-        catch (Exception ex) when (IsRecoverableChartFileIoException(ex))
+        catch (Exception ex) when (IsIndependentChartInputFailure(ex))
         {
             return FileDiffReadCandidate.CreateFailure(target.Kind, target.Path, target.ExistingBmsFile, target.TextFlag, ex);
         }
+        stopwatch.Stop();
+        Interlocked.Add(ref readTicks, stopwatch.ElapsedTicks);
+        return FileDiffReadCandidate.CreateSuccess(target.Kind, target.Path, buffer, target.ExistingBmsFile, target.TextFlag);
     }
 
     private static FileDiffParsedCandidate ParseFileDiffCandidate(
@@ -866,60 +867,74 @@ internal sealed class FileScanParseCommitOwner
         ref long bmsParseTicks,
         ref long bmsonParseTicks)
     {
-        ChartFileSnapshot snapshot = CreateFileDiffSnapshot(candidate, ref digestTicks);
-        if (candidate.Kind == FileDiffChartKind.Bms)
-        {
-            if (candidate.Exception != null)
-            {
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, candidate.Exception, "read"));
-            }
-            try
-            {
-                var stopwatch = Stopwatch.StartNew();
-                BmsEncodingDetectionResult detection = BmsEncodingDetector.Detect(snapshot.Bytes);
-                ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot, detection) with
-                {
-                    Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc),
-                    Txt = candidate.TextFlag,
-                    Favorite = candidate.ExistingBmsFile?.Favorite,
-                    AddDate = candidate.ExistingBmsFile?.AddDate,
-                    Tag = candidate.ExistingBmsFile?.Tag
-                };
-                stopwatch.Stop();
-                Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile, detection));
-            }
-            catch (Exception ex) when (IsRecoverableChartFileIoException(ex))
-            {
-                return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, ex, "parse"));
-            }
-        }
-
         if (candidate.Exception != null)
         {
-            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, candidate.Exception, "read"));
+            return CreateFileDiffInputFailure(candidate, candidate.Exception, "read");
         }
+        ChartFileSnapshot snapshot;
         try
         {
-            var stopwatch = Stopwatch.StartNew();
-            ChartFile song = BmsonChartFileParser.ParseSnapshot(snapshot);
-            stopwatch.Stop();
-            Interlocked.Add(ref bmsonParseTicks, stopwatch.ElapsedTicks);
-            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song));
+            snapshot = CreateFileDiffSnapshot(candidate, ref digestTicks);
         }
-        catch (JsonException ex) when (BmsonJsonParser.IsInputFailure(ex))
+        catch (Exception ex) when (IsIndependentChartInputFailure(ex))
         {
-            return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, ex, "parse"));
+            return CreateFileDiffInputFailure(candidate, ex, "hash");
         }
+        if (candidate.Kind == FileDiffChartKind.Bms)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            BmsEncodingDetectionResult detection;
+            ChartFile file;
+            try
+            {
+                detection = BmsEncodingDetector.Detect(snapshot.Bytes);
+                file = BmsChartFileParser.ParseSnapshot(snapshot, detection);
+            }
+            catch (Exception ex) when (IsIndependentChartInputFailure(ex))
+            {
+                return CreateFileDiffInputFailure(candidate, ex, "parse");
+            }
+            file = file with
+            {
+                Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc),
+                Txt = candidate.TextFlag,
+                Favorite = candidate.ExistingBmsFile?.Favorite,
+                AddDate = candidate.ExistingBmsFile?.AddDate,
+                Tag = candidate.ExistingBmsFile?.Tag
+            };
+            stopwatch.Stop();
+            Interlocked.Add(ref bmsParseTicks, stopwatch.ElapsedTicks);
+            return FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateSuccess(candidate.Path, snapshot, file, candidate.ExistingBmsFile, detection));
+        }
+
+        var bmsonStopwatch = Stopwatch.StartNew();
+        ChartFile song;
+        try
+        {
+            song = BmsonChartFileParser.ParseSnapshot(snapshot);
+        }
+        catch (Exception ex) when (IsIndependentChartInputFailure(ex))
+        {
+            return CreateFileDiffInputFailure(candidate, ex, "parse");
+        }
+        bmsonStopwatch.Stop();
+        Interlocked.Add(ref bmsonParseTicks, bmsonStopwatch.ElapsedTicks);
+        return FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateSuccess(candidate.Path, snapshot, song));
     }
 
-    private static bool IsRecoverableChartFileIoException(Exception ex)
+    /// <summary>未採用の基本入力だけを今回の失敗へ閉じ、取消とメモリ不足は既存の所有境界へ伝播させます。</summary>
+    private static bool IsIndependentChartInputFailure(Exception exception)
     {
-        return ex is IOException
-            || ex is UnauthorizedAccessException
-            || ex is ArgumentException
-            || ex is NotSupportedException
-            || ex is PathTooLongException;
+        // JSON変換で直近の原因が包まれる場合も、取消・メモリ不足を通常入力へ読み替えません。
+        return exception is not (OutOfMemoryException or OperationCanceledException)
+            && (exception is not JsonException || exception.InnerException is not (OutOfMemoryException or OperationCanceledException));
+    }
+
+    private static FileDiffParsedCandidate CreateFileDiffInputFailure(FileDiffReadCandidate candidate, Exception exception, string stage)
+    {
+        return candidate.Kind == FileDiffChartKind.Bms
+            ? FileDiffParsedCandidate.FromBms(InlineBmsParseCandidate.CreateFailure(candidate.Path, candidate.ExistingBmsFile, exception, stage))
+            : FileDiffParsedCandidate.FromBmson(InlineBmsonParseCandidate.CreateFailure(candidate.Path, exception, stage));
     }
 
     private static ChartFileSnapshot CreateFileDiffSnapshot(FileDiffReadCandidate candidate, ref long digestTicks)

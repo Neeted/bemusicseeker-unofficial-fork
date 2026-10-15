@@ -83,8 +83,8 @@ internal sealed class Lr2SongDbSyncRequest
     public ISet<string> CurrentChartInfoParseFailureMd5s { get; set; }
 
     /// <summary>
-    /// Gets the single-read boundary used by the song-row reader stage. Tests can observe
-    /// the contract without changing the worker, whose only chart input remains the buffer.
+    /// 楽曲行のバイト列を一回だけ取得する境界です。既知の取得失敗は旧行の互換処理を保ち、
+    /// 未知の通常失敗では今回の対象だけを非採用にします。取消・メモリ不足は伝播します。
     /// </summary>
     public Func<string, ChartFileReadBuffer> ChartFileBufferReader { get; init; }
 
@@ -161,6 +161,7 @@ internal sealed class Lr2SongDbSyncResult
 
     public int SongRowProcessedCount { get; set; }
 
+    /// <summary>確定済み入力との重複と、今回非採用の基本入力を合わせた対象数です。</summary>
     public int SongRowSkippedCount { get; set; }
 
     public int SongRowParseFailureCount { get; set; }
@@ -1036,6 +1037,7 @@ internal static class Lr2SongDbSyncService
         int chartInfoParseFailurePersistedCount = 0;
         int chartInfoParseFailureClearedCount = 0;
         int chartInfoParseFailureSkippedCount = 0;
+        int basicInputSkippedCount = 0;
         int chartInfoRunCacheHitCount = 0;
         int compatibilityApplied = 0;
         long totalReadTicks = 0L;
@@ -1349,6 +1351,7 @@ internal static class Lr2SongDbSyncService
                 parseFailureCount += chunkParseFailureCount;
                 chartInfoAppliedCount += chunkChartInfoAppliedCount;
                 committedPathSkipped += chunkCommittedPathSkippedCount;
+                basicInputSkippedCount += chunk.Count(item => !item.CommittedPathSkipped && item.Row == null);
                 LogSync(request, "lr2_song_db_sync chunk_done"
                     + " stage=song_rows"
                     + " offset=" + offset
@@ -1447,7 +1450,8 @@ internal static class Lr2SongDbSyncService
                                 : ReadSyncSongRowCandidate(
                                     index,
                                     targetRows[index],
-                                    request?.ChartFileBufferReader ?? ChartFileContentReader.ReadBuffer);
+                                    request?.ChartFileBufferReader ?? ChartFileContentReader.ReadBuffer,
+                                    LogChartInfoEvaluation);
                             AddWithWait(readQueue, candidate, ref readerOutputWaitTicks, pipelineToken);
                             windowSlotTransferred = true;
                             UpdateHighWatermark(ref readQueueHighWatermark, readQueue.Count);
@@ -1631,7 +1635,7 @@ internal static class Lr2SongDbSyncService
             + " readQueueHighWatermark=" + readQueueHighWatermark
             + " computedQueueHighWatermark=" + computedQueueHighWatermark
             + " pendingItemsHighWatermark=" + pendingItemsHighWatermark);
-        return new SongRowSyncResult(processed, committedPathSkipped, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
+        return new SongRowSyncResult(processed, committedPathSkipped + basicInputSkippedCount, parseFailureCount, chartInfoAppliedCount, compatibilityApplied);
     }
 
     private static void ApplyCommittedSongRowFacts(
@@ -1778,7 +1782,8 @@ internal static class Lr2SongDbSyncService
     private static SongRowSyncReadCandidate ReadSyncSongRowCandidate(
         int index,
         ChartFile existingSong,
-        Func<string, ChartFileReadBuffer> readBuffer)
+        Func<string, ChartFileReadBuffer> readBuffer,
+        Action<string> logInputFailure)
     {
         if (existingSong == null || string.IsNullOrWhiteSpace(existingSong.Path))
         {
@@ -1795,6 +1800,12 @@ internal static class Lr2SongDbSyncService
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is DecoderFallbackException)
         {
             return new SongRowSyncReadCandidate(index, existingSong, null, 0L);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            logInputFailure("lr2_song_db_sync basic_input_skipped stage=read path=" + QuoteLogValue(existingSong.Path) + " " + ex);
+            // 採番は保持し、旧行を再生成した成功入力にはしません。
+            return new SongRowSyncReadCandidate(index, null, null, 0L);
         }
     }
 
@@ -1822,13 +1833,24 @@ internal static class Lr2SongDbSyncService
             return SongRowSyncComputedItem.CreateCommittedPathSkipped(candidate.Index);
         }
 
-        ChartFileSnapshot snapshot = CreateSyncSongRowSnapshot(candidate, out long digestTicks);
-        ChartFile row = CreateSyncSongRow(
-            candidate,
-            snapshot,
-            textFileDirectories,
-            out bool parsedFromSnapshot,
-            out long parseTicks);
+        ChartFileSnapshot snapshot;
+        ChartFile row;
+        long digestTicks = 0L;
+        long parseTicks = 0L;
+        bool parsedFromSnapshot = false;
+        string inputStage = "hash";
+        try
+        {
+            snapshot = CreateSyncSongRowSnapshot(candidate, out digestTicks);
+            inputStage = "parse";
+            row = CreateSyncSongRow(candidate, snapshot, textFileDirectories, out parsedFromSnapshot, out parseTicks);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or OperationCanceledException))
+        {
+            logInstallPerformance("lr2_song_db_sync basic_input_skipped stage=" + inputStage + " path=" + QuoteLogValue(candidate.ExistingSong?.Path) + " " + ex);
+            snapshot = null;
+            row = null;
+        }
         bool chartInfoApplied = false;
         long chartInfoTicks = 0L;
         BeMusicSeeker.Models.ChartDetails generatedChartInfoRow = null;
