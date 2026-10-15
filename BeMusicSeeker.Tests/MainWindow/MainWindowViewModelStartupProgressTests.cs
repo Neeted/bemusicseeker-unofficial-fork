@@ -9,6 +9,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -1230,6 +1231,171 @@ public sealed class MainWindowViewModelStartupProgressTests
                 if (urlWork.Task.IsCompletedSuccessfully) { TestUiDispatcherHost.AwaitTaskOnDispatcher(urlWork.Task.Unwrap(), "settings-score-url-cleanup"); }
             }
         });
+    }
+
+    /// <summary>新しいportable DBの正常な作成・読取り後に走査が例外終了しても、警告して空の保存内容で操作可能になります。</summary>
+    /// <remarks>実MainWindowViewModelと標準compositionを使い、scannerだけを制御します。共有通知を所有するため非並列です。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupScan_NewPortableDatabaseFailureWarnsAndStartsWithSavedEmptyCatalog()
+        => AssertStartupScanFailureStartsWithSavedCatalog(deleteRootAfterDatabaseRead: false);
+
+    /// <summary>保存内容の読取り後にrootが消失した場合、先行取得済みの追加候補を採用せず保存済み譜面で操作可能になります。</summary>
+    /// <remarks>初期設定検査が正常な実構成を使い、DB読取り通知後に専用Songsだけを削除して後段再検査へ到達させます。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupScan_RootDeletedAfterDatabaseReadWarnsAndKeepsSavedCatalog()
+        => AssertStartupScanFailureStartsWithSavedCatalog(deleteRootAfterDatabaseRead: true);
+
+    private static void AssertStartupScanFailureStartsWithSavedCatalog(bool deleteRootAfterDatabaseRead)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string directory = Path.Combine(Path.GetTempPath(), "StartupScan-" + Guid.NewGuid().ToString("N"));
+            string songs = Path.Combine(directory, "Songs");
+            Directory.CreateDirectory(songs);
+            var scanner = new StartupScanGate(deleteRootAfterDatabaseRead, Path.Combine(songs, "candidate.bms"));
+            MainWindowViewModel? owner = null;
+            Task<bool>? initialization = null;
+            var dbRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                var path = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
+                Directory.CreateDirectory(path.DataDirectoryPath);
+                string savedPath = Path.Combine(songs, "saved.bms");
+                if (deleteRootAfterDatabaseRead)
+                {
+                    File.WriteAllText(savedPath, "#PLAYER 1\n#TITLE Saved\n#BPM 120\n#00111:01\n");
+                    File.WriteAllText(scanner.CandidatePath, "#PLAYER 1\n#TITLE Candidate\n#BPM 120\n#00111:01\n");
+                    using var db = new LR2SongDBExtended(path.StandaloneSongDbPath);
+                    db.RunInTransaction(() =>
+                    {
+                        db.CreateTable<LR2SongDB.song>();
+                        ChartFile saved = ChartTestValues.Empty() with { Path = savedPath, Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Title = "Saved" };
+                        db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(saved), typeof(LR2SongDB.song));
+                    });
+                }
+                else { Assert.IsFalse(File.Exists(path.StandaloneSongDbPath)); }
+                Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
+                {
+                    values.OperationModeLR2DB = false;
+                    values.BMSRootPath = songs;
+                    values.StandaloneBmsRootPaths = songs;
+                    values.BMSInstallDir = songs;
+                    values.ScanBmsFilesOnStartup = true;
+                    values.SkipInitPlaylistLoad = true;
+                    values.EnablePlaylistUrlCompletion = false;
+                    values.EnableBeatorajaBmtOutput = false;
+                    values.UseBeatorajaScoreDb = false;
+                    values.UsePlayeruBMplay = false;
+                    values.UsePlayerLR2body = false;
+                    values.UsePlayerBMIIDXView = false;
+                    values.IsLR2BackupEnabled = false;
+                    values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                });
+                var messages = new List<UiMessageRequest>();
+                var dialogs = new CompletionDialogs { MessageObservedAsync = message => { messages.Add(message); return Task.CompletedTask; } };
+                var failures = new RecordingStartupLibraryInitializationFailurePresenter();
+                var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: new TestApplicationLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), applicationPathSnapshot: path,
+                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, chartFileScanner: scanner);
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+                {
+                    LibraryCreator = profile =>
+                    {
+                        BMSLibrary library = composition.CreateBmsLibrary(profile);
+                        library.PropertyChanged += (_, args) =>
+                        {
+                            if (args.PropertyName == nameof(BMSLibrary.LibraryDatabaseLoadCompletedVersion)
+                                && library.LibraryDatabaseLoadCompletedVersion > 0) { dbRead.TrySetResult(); }
+                        };
+                        return library;
+                    }
+                };
+                owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failures);
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                owner.SettingDialog.AttachPresentationPort(presentation);
+                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+                initialization = owner.InitializeAsync();
+                AwaitArrival(scanner.Entered.Task, initialization, "startup-scan-entered");
+                AwaitArrival(dbRead.Task, initialization, "startup-scan-database-read");
+                if (deleteRootAfterDatabaseRead)
+                {
+                    Assert.AreEqual(Path.GetFullPath(directory) + Path.DirectorySeparatorChar,
+                        Path.GetDirectoryName(Path.GetFullPath(songs)) + Path.DirectorySeparatorChar);
+                    Directory.Delete(songs, recursive: true);
+                }
+                scanner.Release.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-scan-terminal");
+                Assert.IsTrue(initialization.GetAwaiter().GetResult(), string.Join(Environment.NewLine, failures.Presentations.Select(failure => failure.Exception.ToString())));
+                Assert.IsTrue(owner.IsInitializationCompleted);
+                Assert.IsTrue(owner.HasActiveLibraryProfile);
+                Assert.IsFalse(owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                Assert.IsFalse(owner.IsLibraryOperationInProgress);
+                Assert.AreEqual(0, failures.Presentations.Count);
+                Assert.AreEqual(1, scanner.ScanCount);
+                string expectedReason = deleteRootAfterDatabaseRead ? "BmsRoot" : "test_startup_scan_failed";
+                string[] warningParts = Resources.Warn_FileScanSkippedIncomplete.Split("{0}", StringSplitOptions.None);
+                Assert.AreEqual(1, messages.Count(message => message.MessageBoxText.StartsWith(warningParts[0], StringComparison.Ordinal)
+                    && message.MessageBoxText.EndsWith(warningParts[1], StringComparison.Ordinal)
+                    && message.MessageBoxText.Contains(expectedReason, StringComparison.Ordinal)));
+                using (var db = new LR2SongDBExtended(path.StandaloneSongDbPath))
+                {
+                    string[] saved = db.Table<LR2SongDB.song>().Select(row => row.path).ToArray();
+                    CollectionAssert.AreEqual(deleteRootAfterDatabaseRead ? new[] { savedPath } : Array.Empty<string>(), saved);
+                }
+                BMSLibrary createdLibrary = factory.CreatedLibrary ?? throw new AssertFailedException("実ライブラリが構成されませんでした。");
+                string[] owned = createdLibrary.CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics().Select(chart => chart.Path).ToArray();
+                CollectionAssert.AreEqual(deleteRootAfterDatabaseRead ? new[] { savedPath } : Array.Empty<string>(), owned);
+                Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable admission));
+                admission.Dispose();
+            }
+            finally
+            {
+                scanner.Release.TrySetResult();
+                try
+                {
+                    if (initialization != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-scan-owned-terminal"); }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (owner != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-scan-shutdown"); }
+                    }
+                    finally { owner?.SettingDialog.Dispose(); Directory.Delete(directory, recursive: true); }
+                }
+            }
+        });
+    }
+
+    /// <summary>実先行走査の完了だけを制御し、通常例外か取得済み候補を返します。</summary>
+    private sealed class StartupScanGate(bool returnCompleteCandidate, string candidatePath) : IChartFileScanner
+    {
+        internal string CandidatePath { get; } = candidatePath;
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal int ScanCount { get; private set; }
+        public ChartScanExecutionResult Scan(IEnumerable<string> rootDirectories, IEnumerable<string> chartExtensions,
+            bool verboseLog = false, bool includeTextSurface = true, bool includeDirectorySurface = false)
+        {
+            ScanCount++;
+            Entered.TrySetResult();
+            Release.Task.GetAwaiter().GetResult();
+            if (!returnCompleteCandidate) { throw new IOException("test_startup_scan_failed"); }
+            return new ChartScanExecutionResult
+            {
+                Success = true,
+                IsComplete = true,
+                Result = new ChartScanResult
+                {
+                    ChartFilePaths = new HashSet<string>([CandidatePath], StringComparer.Ordinal),
+                    ChartDirectories = new HashSet<string>(rootDirectories, StringComparer.OrdinalIgnoreCase)
+                }
+            };
+        }
     }
 
     private static void AwaitArrival(Task arrival, Task initialization, string name)

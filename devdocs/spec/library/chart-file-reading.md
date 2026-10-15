@@ -34,6 +34,10 @@
 
 ### ファイル差分の処理順序
 
+差分を作る前の走査取得は、完全性が成立した結果だけを採用します。先行走査の通常失敗を「先行結果なし」として同じ要求内で再走査せず、既存の不完全走査の警告と非反映へ渡します。Everythingを利用できない場合に、同じ完全性契約の管理された走査が正常に完了した結果は従来どおり採用します。
+
+正本DBの読取り後にBMSルートの再検査が失敗した場合も、保存済み内容を保持し、部分列挙からの追加・削除を行いません。初期の必須設定検証と出力先検査、DB保存と必須公開の成否は別の境界です。開始済みの走査・mtime取得Taskは既存の所有で終端まで待ち、早期の非反映結果にも捕捉した設定を渡します。起動の利用開始条件は[起動仕様](../runtime/startup.md#登録ディレクトリの検査)に従います。
+
 初期化、全体の再初期化、軽量差分更新で追加・更新したファイルは、読取り、ハッシュ生成、軽量解析、保守情報・譜面情報の準備、DB確定、メモリ公開の順に扱います。
 
 読取りは `ChartFileReadPipelinePolicy` に従い、対象が複数でCPUが十分なら最大2並列とします。件数上限のある待ち行列で入力を制御し、ハッシュ計算は解析側で行います。個別の回復可能なI/O失敗は `FileScanFailures` と診断へ集約し、譜面ごとに初期化ダイアログを出しません。詳細解析の失敗だけでは、軽量解析で得た共通基本値の登録を止めません。
@@ -137,6 +141,7 @@ LR2の `song_rows` も同じスナップショットと `Lr2SongRowEnricher.Crea
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 未採用走査の失敗・非再実行・通常終端と完全な代替走査 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs) | [`LibraryFileScanPipelineOwnerTests`](../../../BeMusicSeeker.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs) の `ApplyActiveFileScan_IncompletePrefetchWarnsAndJoinsWithoutApplyingBeforeNextRequest` は不完全結果と失敗した先行Task、mtime回収、保存済み目録と捕捉設定、次要求を確認する。先行Taskの故障代替は非再実行の識別に限り、通知の耐性保証にはしない。`ApplyActiveFileScan_EverythingUnavailableAppliesCompleteManagedFallback` は実ファイルによる完全な代替結果の採用・保存を確認する。 |
 | 読取り後のハッシュ生成と後処理の集約 | [`ChartFileContentReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartFileContentReader.cs)、[`ChartFileReadPipelinePolicy`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartFileReadPipelinePolicy.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の `ApplyFileScanDiff_AddsBmsWithLr2FolderAndParentHashes` と `ApplyFileScanDiff_AggregatesInlineRowsAcrossPostParseWorkers`、[`ChartInfoBackfillStorageTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoBackfillStorageTests.cs) の実補完・保存で確認する。CPU別の内部並列数・キュー容量の現在値を固定せず、実同時読取り数の上限は自動検証済みとは扱わない。 |
 | 明示取得、保守・互換性評価後の短命な参照解放 | [`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)、[`FileScanParseCommitOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) | [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) は取得済み結果の再利用、時刻変更・強制更新・解析失敗の非保存と、評価後の共通現在値の参照解放・Package側の必要期間共有を確認する。`UpdateMaintenanceInfo_BmsonDurableFailureRejectsUnappliedWrite` は通常・durableの保存失敗で未適用の新結果を拒否する保証を確認する。`ApplyFileScanDiff_AddsBmsPersistsInlineMaintenanceAndClearsResourceRefs` と `ApplyFileScanDiff_TracksBmsonAddsDeletesAndUpdatesDatabase` は保存後の両形式の解放を確認する。保存・解放までの同じバイト列と結果の共有、即座の再読取りがないことは静的に確認する。 |
 | 差分の順序、保存、進捗、個別失敗、保守と情報の同時生成 | [`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs)、[`BmsLibraryInitializationInlineChartInfoTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationInlineChartInfoTests.cs) |

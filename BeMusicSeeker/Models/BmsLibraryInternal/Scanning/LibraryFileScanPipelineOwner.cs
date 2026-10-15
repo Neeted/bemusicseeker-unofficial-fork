@@ -17,7 +17,7 @@ internal sealed class ChartScanPrefetchInfo
 }
 
 /// <summary>
-/// Owns the shared chart file scan, diff, parse, commit, and terminal apply route.
+/// 譜面走査の取得・差分・解析・保存・終端反映を一つの要求で接続します。
 /// </summary>
 internal sealed class LibraryFileScanPipelineOwner
 {
@@ -285,7 +285,8 @@ internal sealed class LibraryFileScanPipelineOwner
     }
 
     /// <summary>
-    /// 準備済み走査を適用し、全開始子Taskとcleanupを回収して今回の変更不能LR2入力を返します。
+    /// 準備済み走査の完全性を確認し、全開始子Taskとcleanupを回収して今回の変更不能LR2入力を返します。
+    /// 通常の取得失敗とBMS root再検査失敗は警告して非反映にし、出力base・保存・必須反映の失敗は伝播します。
     /// 呼出元の生存する共通権限を借用し、元失敗をcleanupの副次障害で隠しません。
     /// </summary>
     internal Lr2FolderFileDiffPreparationResult ApplyActiveFileScan(
@@ -317,9 +318,25 @@ internal sealed class LibraryFileScanPipelineOwner
             ChartScanPrefetchInfo chartScanPrefetchInfo = ResolveChartScanPrefetch(scan);
             if (scan.DirectoryPreflightRequest != null)
             {
+                LibraryDirectoryPreflightRequest request = scan.DirectoryPreflightRequest;
+                // rootの消失でも必須の出力base検査を省略しないよう、用途別に同じ検査を行います。
                 directoryPreflightService.EnsureAvailable(
-                    scan.DirectoryPreflightRequest,
+                    new LibraryDirectoryPreflightRequest([], request.ScanRootDirectories, request.OutputBaseTargets),
                     probeOutputBases: false);
+                try
+                {
+                    directoryPreflightService.EnsureAvailable(
+                        new LibraryDirectoryPreflightRequest(request.BmsRootDirectories, request.ScanRootDirectories, []),
+                        probeOutputBases: false);
+                }
+                catch (LibraryDirectoryPreflightException failure) when (
+                    failure.Use == LibraryDirectoryPreflightUse.BmsRoot && IsOrdinaryScanFailure(failure))
+                {
+                    chartScanPrefetchInfo = new ChartScanPrefetchInfo
+                    {
+                        ScanResult = CreateFailedChartScanResult("bms_root_recheck_failed:" + failure.Message)
+                    };
+                }
             }
             Lr2FolderFileDiffPreparationResult result = ApplyFileScanDiff(
                 scan.Options,
@@ -331,10 +348,6 @@ internal sealed class LibraryFileScanPipelineOwner
                 installDestinationCleanupSnapshot,
                 postLeaseEffectObserver, capability, scan.WarningObserver);
             return result;
-        }
-        catch
-        {
-            throw;
         }
         finally
         {
@@ -445,13 +458,14 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             return scan.ChartScanPrefetchTask.GetAwaiter().GetResult();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (IsOrdinaryScanFailure(ex))
         {
             logEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
-            return null;
+            return new ChartScanPrefetchInfo { ScanResult = CreateFailedChartScanResult("chart_scan_prefetch_failed:" + ex.Message) };
         }
     }
 
+    /// <summary>走査の通常失敗を不完全結果として返します。Everything不能時の完全なmanaged代替結果は採用します。</summary>
     internal ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
         List<string> bmsDirectories,
         bool includeTextSurface,
@@ -498,12 +512,21 @@ internal sealed class LibraryFileScanPipelineOwner
         }
 
         ReportScanner("Native");
-        ChartScanExecutionResult scanResult = scanner.Scan(
-            bmsDirectories,
-            ChartDirectoryScanBuilder.ChartExtensions,
-            everythingScanLoggingEnabled(),
-            includeTextSurface,
-            includeDirectorySurface);
+        bool verboseLog = everythingScanLoggingEnabled();
+        ChartScanExecutionResult scanResult;
+        try
+        {
+            scanResult = scanner.Scan(
+                bmsDirectories,
+                ChartDirectoryScanBuilder.ChartExtensions,
+                verboseLog,
+                includeTextSurface,
+                includeDirectorySurface);
+        }
+        catch (Exception failure) when (IsOrdinaryScanFailure(failure))
+        {
+            return CreateFailedChartScanResult("chart_file_scan_failed:" + failure.Message);
+        }
         if (IsAuthoritativeChartScan(scanResult))
         {
             return scanResult;
@@ -513,18 +536,26 @@ internal sealed class LibraryFileScanPipelineOwner
         if (IsNativeBridgeContractFailure(nativeFailureReason))
         {
             LogEverythingScan("chart native file scan failed reason=" + nativeFailureReason);
-            throw new InvalidOperationException("chart native file scan failed: " + nativeFailureReason);
+            return scanResult;
         }
 
         LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
         QueueEverythingFallbackWarning(nativeFailureReason);
         ReportScanner("Fallback");
-        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
-            bmsDirectories,
-            ChartDirectoryScanBuilder.ChartExtensions,
-            everythingScanLoggingEnabled(),
-            includeTextSurface,
-            includeDirectorySurface);
+        ChartScanExecutionResult fallbackResult;
+        try
+        {
+            fallbackResult = new FastDirectoryFileScanner().Scan(
+                bmsDirectories,
+                ChartDirectoryScanBuilder.ChartExtensions,
+                verboseLog,
+                includeTextSurface,
+                includeDirectorySurface);
+        }
+        catch (Exception failure) when (IsOrdinaryScanFailure(failure))
+        {
+            fallbackResult = CreateFailedChartScanResult("chart_fallback_file_scan_failed:" + failure.Message);
+        }
         if (!IsAuthoritativeChartScan(fallbackResult))
         {
             string fallbackFailureReason = GetChartScanFailureReason(fallbackResult);
@@ -622,7 +653,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 completeLibraryFileDiffProgress();
             }
             logInstallPerformance("song_tbl_file_check skipped reason=no_bms_directories operation=" + (reason ?? string.Empty));
-            return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(emptyResult);
+            return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(emptyResult, new LibraryFileInitializationResult(options: options));
         }
 
         logStartupMemoryCheckpoint("file_diff", "before");
@@ -682,7 +713,7 @@ internal sealed class LibraryFileScanPipelineOwner
             {
                 completeLibraryFileDiffProgress();
             }
-            return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(emptyResult);
+            return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(emptyResult, new LibraryFileInitializationResult(options: options));
         }
         Lr2NormalFolderMtimeSnapshot resolveNormalFolderMtimeSnapshot()
         {
@@ -811,7 +842,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 {
                     completeLibraryFileDiffProgress();
                 }
-                return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult);
+                return Lr2FolderFileDiffPreparationResult.FromFileCheckResult(fileCheckResult, new LibraryFileInitializationResult(options: options));
             }
             // Keep the catalog projection in this owner so the ordinary scan path
             // completes its catalog work before returning the immutable LR2 bridge
@@ -1043,6 +1074,14 @@ internal sealed class LibraryFileScanPipelineOwner
                 : (chart.Token != null && nextBmsonOwners.Contains(chart.Token)) || nextBmsonPaths.Contains(chart.Path);
         }
     }
+
+    /// <summary>未採用の取得失敗だけを不完全結果へ変換し、OOMと取消は直接の既知wrapperも含めて伝播します。</summary>
+    private static bool IsOrdinaryScanFailure(Exception failure)
+        => failure is not OutOfMemoryException and not OperationCanceledException
+            && failure.InnerException is not OutOfMemoryException and not OperationCanceledException;
+
+    private static ChartScanExecutionResult CreateFailedChartScanResult(string reason)
+        => new() { Success = false, IsComplete = false, ErrorReason = reason };
 
     private static bool IsAuthoritativeChartScan(ChartScanExecutionResult scanResult)
     {

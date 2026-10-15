@@ -225,10 +225,12 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
-    /// <summary>実scan失敗でも開始済みmtime Taskを回収するまで返さず、元の失敗と確定済み目録を保持することを確認します。</summary>
-    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
-    [TestMethod]
-    public async Task ApplyActiveFileScan_IncompletePrefetchPropagatesFailureWithoutReturningInputWithoutAdvancingVersion()
+    /// <summary>未採用scanの失敗を警告し、mtime実Taskの回収後に保存済み目録を保って次の明示要求を受理します。</summary>
+    /// <remarks>先行Task fault→Resolveの旧null再走査を識別するため既存進捗口を代替に使います。通知耐性は保証せず、scanner取得例外は上位の新規DB起動ケースが保証します。</remarks>
+    [DataTestMethod]
+    [DataRow(false)] // bridge不備の不完全結果を非採用にします。
+    [DataRow(true)] // 失敗した実先行Taskも再走査せず非採用にします。
+    public async Task ApplyActiveFileScan_IncompletePrefetchWarnsAndJoinsWithoutApplyingBeforeNextRequest(bool prefetchThrows)
     {
 
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
@@ -272,13 +274,17 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 },
                 EverythingObserved = message =>
                 {
-                    if (message.StartsWith("chart_scan_prefetch failed", StringComparison.Ordinal)) { scanFailed.TrySetResult(); }
+                    if (message.StartsWith("song_tbl_file_check skipped reason=incomplete_file_scan", StringComparison.Ordinal)
+                        || message.StartsWith("chart_scan_prefetch failed", StringComparison.Ordinal)) { scanFailed.TrySetResult(); }
                 }
             };
+            SequenceChartFileScanner scanner = prefetchThrows
+                ? new SequenceChartFileScanner(completeScan, completeScan)
+                : new SequenceChartFileScanner(completeScan, incompleteScan, completeScan);
             owner = CreateOwner(
                 callbacks,
                 lr2ModeEnabled: true,
-                chartFileScanner: new SequenceChartFileScanner(completeScan, incompleteScan), directoryPath: directoryPath);
+                chartFileScanner: scanner, directoryPath: directoryPath);
             BmsLibraryOptionsSnapshot options = new() { OperationModeLR2DB = true };
             int initialOwnedCollectionVersion = callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion;
 
@@ -293,7 +299,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             Assert.AreEqual(initialOwnedCollectionVersion + 1, committedOwnedCollectionVersion);
 
             using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"))) { db.CreateTable<LR2SongDB.folder>(); }
-            generation = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete");
+            generation = owner.BeginFileScanRequest(options, [directoryPath], "test_incomplete",
+                reportScanner: _ => { if (prefetchThrows) { throw new IOException("test_prefetch_failed"); } });
             mtime = owner.StartActiveNormalFolderMtimeSnapshot(generation);
             await Task.WhenAny(readEntered.Task, mtime);
             if (!readEntered.Task.IsCompleted) { await mtime; Assert.Fail("実mtime読取りの制御点へ到達しませんでした。"); }
@@ -302,14 +309,23 @@ public sealed class LibraryFileScanPipelineOwnerTests
             if (!scanFailed.Task.IsCompleted) { await apply; Assert.Fail("実scan失敗へ到達しませんでした。"); }
             Assert.IsFalse(apply.IsCompleted, "開始済みmtime Taskの回収前に実scan失敗を返しません。");
             readRelease.TrySetResult();
-            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(async () => await apply);
-            StringAssert.Contains(failure.Message, incompleteScan.ErrorReason);
+            Lr2FolderFileDiffPreparationResult skipped = await apply;
             await mtime;
+            Assert.IsFalse(skipped.FileCheckResult.HasDbDiff);
+            Assert.AreSame(options, skipped.SynchronizationInput.Options);
+            Assert.IsNull(skipped.SynchronizationInput.ScanSurface);
+            Assert.AreEqual(0, skipped.SynchronizationInput.CommittedBmsPaths.Count);
+            Assert.AreEqual(prefetchThrows ? 1 : 2, scanner.ScanCount, "失敗した同じ要求を再走査しません。");
+            Assert.AreEqual(1, callbacks.IncompleteWarningCount);
+            StringAssert.Contains(callbacks.LastIncompleteWarningReason, prefetchThrows ? "test_prefetch_failed" : incompleteScan.ErrorReason);
 
             Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
             Assert.AreEqual(committedOwnedCollectionVersion, callbacks.CatalogOwnedCollectionOwner.OwnedCollectionVersion);
-            Lr2SongDbSyncInput input = callbacks.Lr2Synchronization.CreateLr2SongDbSyncInput();
-
+            using (var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db")))
+            { Assert.AreEqual(bmsPath, db.Table<LR2SongDB.song>().Single().path); }
+            long nextGeneration = owner.BeginFileScanRequest(options, [directoryPath], "test_next_explicit_request");
+            owner.ApplyActiveFileScan(nextGeneration, true, InstallDestinationCleanupSnapshot.Empty);
+            Assert.AreEqual(prefetchThrows ? 2 : 3, scanner.ScanCount);
 
         }
         finally
@@ -320,13 +336,41 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 if (mtime != null) { await mtime; }
                 if (apply != null)
                 {
-                    try { await apply; }
-                    catch (InvalidOperationException) { }
+                    await apply;
                 }
                 else if (generation != 0) { owner?.AbortActiveFileScan(generation); }
             }
             finally { Directory.Delete(directoryPath, recursive: true); }
         }
+    }
+
+    /// <summary>Everythingを利用できなくても実managed走査が完全なら、小さい実譜面を採用してDBと所持集合へ反映します。</summary>
+    /// <remarks>不完全なnative入力と実filesystemの代替取得を、通常の走査要求・解析・保存へ接続します。</remarks>
+    [TestMethod]
+    public void ApplyActiveFileScan_EverythingUnavailableAppliesCompleteManagedFallback()
+    {
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            string bmsPath = Path.Combine(directoryPath, "managed.bms");
+            File.WriteAllText(bmsPath, "#PLAYER 1\n#TITLE Managed\n#BPM 120\n#00111:01\n");
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+            var scanner = new SequenceChartFileScanner(new ChartScanExecutionResult
+            { Success = false, IsComplete = false, ErrorReason = "everything_not_running" });
+            LibraryFileScanPipelineOwner owner = CreateOwner(callbacks, chartFileScanner: scanner, directoryPath: directoryPath);
+            long generation = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [directoryPath], "test_managed_fallback");
+            Lr2FolderFileDiffPreparationResult result = owner.ApplyActiveFileScan(generation, true, InstallDestinationCleanupSnapshot.Empty);
+            Assert.IsTrue(result.FileCheckResult.HasDbDiff);
+            Assert.IsTrue(result.FileCheckResult.ScanFallbackUsed);
+            Assert.AreEqual("everything_not_running", result.FileCheckResult.ScanFallbackReason);
+            Assert.AreEqual(0, callbacks.IncompleteWarningCount);
+            Assert.AreEqual(1, scanner.ScanCount);
+            using var db = new LR2SongDBExtended(Path.Combine(directoryPath, "song.db"));
+            Assert.AreEqual(bmsPath, db.Table<LR2SongDB.song>().Single().path);
+            Assert.AreEqual(1, callbacks.CatalogOwnedCollectionOwner.BmsRows.Count);
+        }
+        finally { Directory.Delete(directoryPath, recursive: true); }
     }
 
     /// <summary>
@@ -1060,6 +1104,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     {
         private readonly IReadOnlyList<ChartScanExecutionResult> results = results ?? throw new ArgumentNullException(nameof(results));
         private int nextResultIndex;
+        internal int ScanCount => nextResultIndex;
 
         public ChartScanExecutionResult Scan(
             IEnumerable<string> rootDirectories,
@@ -1068,9 +1113,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             bool includeTextSurface = true,
             bool includeDirectorySurface = false)
         {
-            int resultIndex = Math.Min(
-                Interlocked.Increment(ref nextResultIndex) - 1,
-                results.Count - 1);
+            int scanCount = Interlocked.Increment(ref nextResultIndex);
+            int resultIndex = Math.Min(scanCount - 1, results.Count - 1);
             return results[resultIndex];
         }
     }

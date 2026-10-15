@@ -104,7 +104,9 @@ LR2連携の通常起動の必須処理が正常に終端し、その初期化�
 
 利用不能なら設定修復・保存、単独動作DBの作成、構造修復、モデル構築、バックアップ、最適化、走査、後続処理へ進みません。初期化の排他とUI抑制を解除してから一回だけ警告します。通常の起動入口は `false`、設定保存側の入口は 型付き結果の`Outcome`に`StartupInitializationOutcome.SettingsRequired`を返します。設定画面への案内は上記の呼出元の分担に従います。欠落登録を自動で外さず、修正・再接続後のOKで新しい入力を確認して再試行できます。
 
-モデル初期化と差分反映前にも同じ検査を使います。内側の型付き停止は外へ伝え、外側で解放後に通知します。この段階ではDB構造等が既に変わっていることがあるため、「副作用が全くない」とは案内しません。停止後に成功記録や成功後の処理を公開しません。
+モデル構築前の必須検査と出力先検査は維持します。正本DBを正常に初期化・読み取った後は、BMSルートの切断・削除による再検査失敗を、不完全な走査として警告し、保存済み内容で利用を開始します。新規・既存、空・非空のDBで扱いを変えません。未採用の走査取得失敗も同じ境界で閉じ、不完全な結果から追加・削除を反映しません。
+
+DB読取り後のBMSルート失敗と、初期の設定検証・出力先の失敗を混同しません。出力先や必須DB読取りの失敗は外へ伝え、解放後に通知します。解析中の分割保存と必要反映の失敗も走査取得の捕捉へ含めず、先行確定を保存内容による未変更の成功へ読み替えません。これらの停止後に成功記録や成功後の処理を公開しません。
 
 ### 動作モード
 
@@ -232,6 +234,7 @@ flowchart TB
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 正常DB読取り後の走査失敗と利用開始 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、`MainWindowViewModel.InitializeAsync` | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の `StartupScan_NewPortableDatabaseFailureWarnsAndStartsWithSavedEmptyCatalog` と `StartupScan_RootDeletedAfterDatabaseReadWarnsAndKeepsSavedCatalog` は、実標準構成・空／非空DB、DB読取り後のルート消失、未採用候補の不在、警告と利用開始・次受付を確認する。初期の必須検査・DB読取り・保存失敗の既存回帰は維持する。 |
 | 必須実終端・親解放・必須UI/host・成功公開・任意開始の統合 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`ISettingsDialogStatePort`](../../../BeMusicSeeker/ViewModels/Settings/ISettingsDialogPorts.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の実起動UI gate、UI失敗と次受付、UI/置換中の終了、解禁後の初回案内失敗、閏年警告再入、解禁後外部同期Busy、任意work保持と独立folder read。旧private ready/失敗提示ケースを置換する。設定は`SettingDialogEditCompletionTests`のInitialLr2とDefaultAll、hostは`MainWindowViewHostTests.MainWindowRenderedInitializationAttachesCreatedPlaybackHost`が実接続を分担する。 |
 | 任意の起動後案内と必須初期化結果の分離 | [`StartupLibraryInitializationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs)、[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewModelStartupProgressTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs)の`StartupCompletionNotice_FailureKeepsPublishedSuccessAndUnblockedOperations`は案内Taskの実終端、公開済みの成功、操作解禁、局所ログ、失敗の再通知がないことと任意後続を確認します。[`StartupLibraryInitializationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Startup/StartupLibraryInitializationWorkflowOwnerTests.cs)の`CompletionNotifications_FailurePreservesIndependentNotices`と`CompletionNotifications_ShutdownOrStaleRequestStopsSubsequentNotices`は表示失敗・所有していない取消しで独立した案内を続け、終了または要求更新後に旧要求の案内を開始しないことを確認します。事前の確認・承認にはこの局所化を適用しません。 |
 | 必要表示の実反映と独立表示準備の分離 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | `SettingDialogEditCompletionTests`の実All代表は現行ライブラリ Aから新ライブラリ Bへの実一覧行の反映を必須UI終端後に確認します。[`PlaylistWorkspaceDetailRefreshTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs)は同じ実集計/反映 Task、選択変更後の非適用と元失敗保持を分担します。`MainWindowViewModelStartupProgressTests`の`LimitedInitialization_ActualScoreFailureUsesOperationFailedWithoutSettingsGuidance`は実Score処理・必須UIの失敗分類と次の明示要求を、`ReloadTables_RequiredPublicationFailureRetainsExistingSafetyStop`は必須公開失敗後の既存停止を確認します。同クラスは独立フォルダ 読取り処理の保持を成功条件にしないことを確認し、必須UI前の`Busy`と成功公開後の余韻・任意処理での非`Busy`を実管理主体接続で確認します。 |
