@@ -579,6 +579,45 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(10, scores[0].ranking);
     }
 
+    /// <summary>順位DBの実読取りが失敗したら更新を成功として返さず、全保存列と既存score値・hash集合を保持する。</summary>
+    [TestMethod]
+    public void RefreshRankingScoresFromCache_SavedRankingReadFailurePreservesDatabaseAndScores()
+    {
+        using var env = TempIrEnvironment.Create();
+        BmsLibraryDbGateway gateway = env.CreateGateway();
+        const string hash = "11111111111111111111111111111111";
+        const string otherHash = "22222222222222222222222222222222";
+        var cacheUpdate = new DateTime(2026, 1, 1, 12, 0, 0);
+        env.WriteCacheXml(hash, cacheUpdate, cacheUpdate, pg: 700, gr: 100);
+        gateway.UpsertIrData(
+        [
+            new LR2IRData(hash) { lr2id = 123, rank = 20, players_num = 100, pg = 400, gr = 20, lastupdate = cacheUpdate.AddDays(-1) },
+            new LR2IRData(otherHash) { lr2id = 123, rank = 30, players_num = 100, pg = 300, gr = 10 },
+            new LR2IRData(hash) { lr2id = 456, rank = 40, pg = 200 }
+        ]);
+        using (var db = new SQLiteConnection(env.SongDbPath))
+        {
+            db.Execute("UPDATE ir_data SET hash = 'unmaterializable-hash' WHERE hash = ? AND lr2id = 123", otherHash);
+        }
+        bool readFailed = false;
+        try { gateway.LoadIrDataWithMetrics(123); }
+        catch (Exception) { readFailed = true; }
+        Assert.IsTrue(readFailed, "正常空ではなく、実Gatewayの順位DB読取りが失敗するfixtureが必要です。");
+        string databaseBefore = CaptureRawRankingDatabase(env.SongDbPath);
+        List<BMSScore> scores = [CreateScore(hash, ClearType.EASY, pg: 100, gr: 10, minbp: 40)];
+        scores[0].ranking = 50;
+        scores[0].rankingNum = 200;
+        string scoresBefore = JsonConvert.SerializeObject(scores);
+        var service = new BmsLibraryIrService();
+        bool refreshFailed = false;
+        try { service.RefreshRankingScoresFromCache(123, env.ScoreDbPath, gateway, scores, estimateOfflineScoreRanking: false); }
+        catch (Exception) { refreshFailed = true; }
+
+        Assert.IsTrue(refreshFailed, "読取り失敗を空plan・更新不要の成功へ変換しません。");
+        Assert.AreEqual(databaseBefore, CaptureRawRankingDatabase(env.SongDbPath));
+        Assert.AreEqual(scoresBefore, JsonConvert.SerializeObject(scores));
+    }
+
     /// <summary>
     /// 実IR保存行を指定LR2 IDだけへ絞り、読取り専用接続でprocess lockを取らない。他プレイヤー行の混入を検出する。
     /// </summary>
@@ -1784,6 +1823,12 @@ public sealed class BmsLibraryIrServiceTests
         Assert.IsNull(result.ScoreTable);
         Assert.IsFalse(result.MetadataUpdated);
         Assert.AreEqual(before, CaptureRawIrDatabase(env.SongDbPath));
+    }
+
+    private static string CaptureRawRankingDatabase(string path)
+    {
+        using var db = new SQLiteConnection(path, SQLiteOpenFlags.ReadOnly);
+        return db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(rank)||','||quote(players_num)||','||quote(lr2id)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(minbp)||','||quote(average)||','||quote(sigma)||','||quote(lastupdate)||','||quote(lastcacheupdate) AS value FROM ir_data ORDER BY lr2id, hash)");
     }
 
     private static string CaptureRawIrDatabase(string path, string metadataTable = "ir_score_refresh_metadata")

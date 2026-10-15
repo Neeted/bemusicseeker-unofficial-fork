@@ -11,6 +11,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Tests;
 
@@ -272,6 +273,63 @@ public sealed class BmsLibraryIrStartupTests
         }
     }
 
+    /// <summary>順位DB読取り失敗はfailedで終端して順位対象を保持し、独立本人IRの正常採用と障害除去後の次要求を妨げない。</summary>
+    /// <remarks>実起動・通信gate・順位DB実体化・背景仕事の報告と要求版・実worker終端を接続する。読取り失敗時の全保存列保持はサービス試験と分担する。</remarks>
+    [TestMethod]
+    public async Task InitializeStartup_SavedRankingReadFailurePreservesCacheAndAllowsNextRequest()
+    {
+        await using var fixture = new StartupFixture(waitForCancellation: false, failFirstRequest: false, exerciseRankingReadFailure: true);
+        await fixture.InitializeAsync();
+        await TestUiDispatcherHost.AwaitNotificationAsync(fixture.Client.Started.Task, fixture.WaitForWorkersAsync(), "本人IR通信開始");
+        BMSScore before = fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.CacheHash);
+        string scoreBefore = JsonConvert.SerializeObject(before);
+        int requestedVersion = fixture.Library.RankingRefreshRequestedVersion;
+        fixture.CorruptSavedRanking();
+        string databaseBefore = fixture.CaptureRawRankingDatabase();
+        try
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(1, fixture.Client.RequestCount, "同じ要求内で取得を再試行しません。");
+            Assert.IsTrue(fixture.FailedReport);
+            CollectionAssert.AreEqual(new[] { ("failed", true) }, fixture.RankingReports.Where(report => report.Status is not ("queued" or "start")).ToArray());
+            Assert.AreSame(before, fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.CacheHash));
+            Assert.AreEqual(scoreBefore, JsonConvert.SerializeObject(before));
+            Assert.AreEqual(databaseBefore, fixture.CaptureRawRankingDatabase());
+            fixture.AssertDatabaseCommitted();
+            Assert.AreEqual(500, fixture.Library.GetBMSScores().Single(score => score.hash != StartupFixture.CacheHash).perfect,
+                "別hashの本人IRは正常に確定・採用します。");
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.AreEqual(requestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+            Assert.IsTrue(fixture.Library.OperationAdmission.TryEnter(out IDisposable next));
+            next.Dispose();
+
+            fixture.RestoreSavedRanking();
+            fixture.FailedReport = false;
+            await Task.Run(() => fixture.Library.InitializeScoresOnly(null));
+            await fixture.WaitForWorkersAsync();
+
+            Assert.AreEqual(2, fixture.Client.RequestCount);
+            Assert.IsFalse(fixture.FailedReport);
+            CollectionAssert.AreEqual(new[] { ("failed", true), ("done", false) }, fixture.RankingReports.Where(report => report.Status is not ("queued" or "start")).ToArray());
+            BMSScore current = fixture.Library.GetBMSScores().Single(score => score.hash == StartupFixture.CacheHash);
+            Assert.AreEqual(500, current.perfect);
+            Assert.AreEqual(100, current.great);
+            Assert.AreEqual(1, current.ranking);
+            Assert.AreEqual(1, current.rankingNum);
+            fixture.AssertRankingCacheCommitted();
+            Assert.IsFalse(fixture.Library.RankingRefreshRunning);
+            Assert.IsTrue(fixture.Library.RankingRefreshRequestedVersion > requestedVersion);
+            Assert.AreEqual(fixture.Library.RankingRefreshRequestedVersion, fixture.Library.RankingRefreshCompletedVersion);
+        }
+        finally
+        {
+            fixture.Client.Release.TrySetResult();
+            await fixture.WaitForWorkersAsync();
+        }
+    }
+
     /// <summary>
     /// 起動中の保存IR成績読取り失敗は一度報告し、スコア・未送信判定・保存値を保持する。
     /// 独立順位cacheは同周で反映し、障害除去後の次の明示要求は通常保存・メモリ更新を完了する。
@@ -513,14 +571,15 @@ public sealed class BmsLibraryIrStartupTests
         internal readonly TestBmsLibrary Library;
         internal readonly TaskCompletionSource RankingStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal readonly TaskCompletionSource RankingCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal readonly ConcurrentQueue<(string Status, bool Failed)> RankingReports = new();
         internal bool FailedReport;
 
         private readonly ConcurrentBag<Task> scheduledWorkers = [];
 
-        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false)
+        internal StartupFixture(bool waitForCancellation, bool failFirstRequest = true, bool exerciseReadFailure = false, bool exerciseSaveFailure = false, bool exercisePublication = false, bool exerciseRankingReadFailure = false)
         {
             this.exercisePublication = exercisePublication;
-            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication;
+            bool exerciseRankingCache = exerciseReadFailure || exerciseSaveFailure || exercisePublication || exerciseRankingReadFailure;
             Directory.CreateDirectory(root);
             string songPath = Path.Combine(root, "song.db");
             string scorePath = exerciseRankingCache
@@ -550,6 +609,10 @@ public sealed class BmsLibraryIrStartupTests
                     db.CreateTable<LR2ScoreDB.score>();
                     db.Insert(new LR2ScoreDB.player { id = "ir-startup", irid = 123 });
                     db.Insert(new LR2ScoreDB.score { hash = Hash, perfect = 321, great = 45 });
+                    if (exerciseRankingReadFailure)
+                    {
+                        db.Insert(new LR2ScoreDB.score { hash = CacheHash, perfect = 222, great = 33 });
+                    }
                 });
             }
             gateway = new BmsLibraryDbGateway(songPath, scorePath);
@@ -565,7 +628,7 @@ public sealed class BmsLibraryIrStartupTests
                     + "\t\t<gr>45</gr>\n\t\t<minbp>20</minbp>\n\t\t</score>\n</ranking>\n"
                     + "<lastupdate>2026-10-10 12:00:00</lastupdate>\n", Encoding.UTF8);
             }
-            if (exercisePublication)
+            if (exercisePublication || exerciseRankingReadFailure)
             {
                 File.Copy(Path.Combine(root, "Ir", Hash + ".xml"), Path.Combine(root, "Ir", CacheHash + ".xml"));
                 string cachePath = Path.Combine(root, "Ir", CacheHash + ".xml");
@@ -595,6 +658,7 @@ public sealed class BmsLibraryIrStartupTests
                 {
                     return;
                 }
+                RankingReports.Enqueue((status, failed));
 
                 if (status == "start")
                 {
@@ -618,6 +682,45 @@ public sealed class BmsLibraryIrStartupTests
         internal Task InitializeAsync() => Task.Run(() => Library.InitializeStartup(null));
 
         internal Task WaitForWorkersAsync() => Task.WhenAll(scheduledWorkers.ToArray());
+
+        internal void CorruptSavedRanking()
+        {
+            // 必須の実起動が順位schemaを準備した後、通信gate中に旧行と読取り障害を用意します。
+            gateway.UpsertIrData([new LR2IRData(CacheHash)
+            {
+                lr2id = 123, rank = 20, players_num = 100, pg = 200, gr = 20,
+                lastupdate = new DateTime(2026, 10, 1)
+            }]);
+            using (LR2SongDBExtended db = gateway.OpenSongDb())
+            {
+                db.Execute("INSERT INTO ir_data (hash, lr2id) VALUES ('unmaterializable-hash', 123)");
+            }
+            bool readFailed = false;
+            try { gateway.LoadIrDataWithMetrics(123); }
+            catch (Exception) { readFailed = true; }
+            Assert.IsTrue(readFailed, "実Gatewayの順位DB読取りが失敗するfixtureが必要です。");
+        }
+
+        internal void RestoreSavedRanking()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDb();
+            db.Execute("DELETE FROM ir_data WHERE hash = 'unmaterializable-hash'");
+        }
+
+        internal string CaptureRawRankingDatabase()
+        {
+            using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+            return db.ExecuteScalar<string>("SELECT group_concat(value, ';') FROM (SELECT quote(hash)||','||quote(rank)||','||quote(players_num)||','||quote(lr2id)||','||quote(clear)||','||quote(notes)||','||quote(combo)||','||quote(pg)||','||quote(gr)||','||quote(minbp)||','||quote(average)||','||quote(sigma)||','||quote(lastupdate)||','||quote(lastcacheupdate) AS value FROM ir_data ORDER BY lr2id, hash)");
+        }
+
+        internal void AssertRankingCacheCommitted()
+        {
+            LR2IRData row = gateway.LoadIrData(123).Single(data => data.hash == CacheHash);
+            Assert.AreEqual(500, row.pg);
+            Assert.AreEqual(100, row.gr);
+            Assert.AreEqual(1, row.rank);
+            Assert.AreEqual(1, row.players_num);
+        }
 
         internal void InstallMetadataWriteFailure()
         {

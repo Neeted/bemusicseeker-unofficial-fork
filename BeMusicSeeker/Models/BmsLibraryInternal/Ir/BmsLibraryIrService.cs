@@ -730,6 +730,7 @@ internal sealed class BmsLibraryIrService
         return plan;
     }
 
+    /// <summary>解析済みの取得cacheを昇格し、ファイル失敗は対象の非採用と局所診断で終えます。</summary>
     internal void PromoteDownloadedRankingCache(
         RankingCacheApplyPlan plan,
         string irCacheDirPath)
@@ -764,8 +765,9 @@ internal sealed class BmsLibraryIrService
                     overwrite: true);
                 plan.PromotedStagedPaths.Add(downloadedFile.StagedPath);
             }
-            catch
+            catch (Exception ex)
             {
+                WarnRankingCacheFileFailure(ex, downloadedFile.StagedPath, "promote");
                 plan.Failed.Add(downloadedFile.CacheInfo);
             }
         }
@@ -815,6 +817,8 @@ internal sealed class BmsLibraryIrService
         return applyResult;
     }
 
+    /// <summary>保存順位とcacheを読み、必要な保存を確定してから共有スコアへ反映します。</summary>
+    /// <remarks>順位DBの読取り失敗は伝播し、この更新による保存と共有スコアへの採用を行いません。</remarks>
     public IrCacheRefreshResult RefreshRankingScoresFromCache(int lr2Id, string scoreDbPath, BmsLibraryDbGateway dbGateway, List<BMSScore> bmsScores, bool estimateOfflineScoreRanking)
     {
         IrCacheRefreshPlan plan = PrepareRankingScoresRefreshPlanForLibrary(
@@ -827,6 +831,7 @@ internal sealed class BmsLibraryIrService
         return plan.Result;
     }
 
+    /// <summary>保存・共有スコアを変更せず更新計画を作り、順位DBの読取り失敗は操作の所有者へ伝播します。</summary>
     internal IrCacheRefreshPlan PrepareRankingScoresRefreshPlanForLibrary(
         int lr2Id,
         string scoreDbPath,
@@ -918,20 +923,12 @@ internal sealed class BmsLibraryIrService
         {
             return plan;
         }
-        List<LR2IRData> irDataDb;
-        try
-        {
-            IrDataLoadResult loadResult = LoadIrDataWithMetrics(lr2Id, dbGateway);
-            irDataDb = loadResult.Rows;
-            result.DbReadMs = loadResult.DbReadMs;
-            result.IrDataDbReadMs = loadResult.DbReadMs;
-            result.IrDataMaterializeMs = loadResult.MaterializeMs;
-            result.IrDataDbLockWaitMs = loadResult.DbLockWaitMs;
-        }
-        catch
-        {
-            return plan;
-        }
+        IrDataLoadResult loadResult = LoadIrDataWithMetrics(lr2Id, dbGateway);
+        List<LR2IRData> irDataDb = loadResult.Rows;
+        result.DbReadMs = loadResult.DbReadMs;
+        result.IrDataDbReadMs = loadResult.DbReadMs;
+        result.IrDataMaterializeMs = loadResult.MaterializeMs;
+        result.IrDataDbLockWaitMs = loadResult.DbLockWaitMs;
         if (irDataDb == null)
         {
             return plan;
@@ -992,8 +989,9 @@ internal sealed class BmsLibraryIrService
                 }
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
+                WarnRankingCacheFileFailure(ex, filePath, "reload-check");
                 return false;
             }
         }).ToList();
@@ -1096,11 +1094,25 @@ internal sealed class BmsLibraryIrService
                 return result;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            WarnRankingCacheFileFailure(ex, filePath, "read-summary");
         }
         result.Failed = true;
         return result;
+    }
+
+    /// <summary>対象の非採用が決まったファイル失敗を診断し、純診断の失敗は元の対象結果へ加えません。</summary>
+    private static void WarnRankingCacheFileFailure(Exception exception, string filePath, string phase)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(exception, "Ranking cache file " + phase + " failed path=" + filePath);
+        }
+        catch (Exception)
+        {
+            // 未採用の対象を処理するための診断であり、記録失敗によって結果を変えません。
+        }
     }
 
     internal static bool TryParseRankingCacheSummary(string rankingXml, string md5, int lr2Id, DateTime cacheLastWriteTime, out LR2IRData irData, out int scoresParsed)
