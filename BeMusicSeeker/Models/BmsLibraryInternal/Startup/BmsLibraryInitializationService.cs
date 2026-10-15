@@ -2206,6 +2206,7 @@ internal sealed class BmsLibraryInitializationService
         if (options?.UseBeatorajaScoreDb == true)
         {
             result.ActiveScoreSource = ActiveScoreSource.Beatoraja;
+            result.ScoreDbPath = options.BeatorajaScoreDbPath ?? string.Empty;
             if (string.IsNullOrWhiteSpace(options.BeatorajaScoreDbPath))
             {
                 return result;
@@ -2236,6 +2237,7 @@ internal sealed class BmsLibraryInitializationService
         if (!string.IsNullOrWhiteSpace(dbGateway.ScoreDbPath))
         {
             result.ActiveScoreSource = ActiveScoreSource.Lr2;
+            result.ScoreDbPath = dbGateway.ScoreDbPath;
             try
             {
                 ScoreTableLoadResult lr2Result = dbGateway.LoadScoresAndPlayerId();

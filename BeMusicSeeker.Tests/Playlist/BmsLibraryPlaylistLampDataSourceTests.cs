@@ -122,7 +122,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
         });
     }
 
-    /// <summary>実スコアDBの再読取りと所属・所持変更を次の明示捕捉へ反映し、前の不変入力を保つ。外部DB変更だけを保持scoreへ自動採用する誤りも検出する。</summary>
+    /// <summary>実DBの再読取り失敗では旧成績を利用可能な集計入力として保ち、次の成功と所属・所持変更を明示捕捉へ反映する。前の不変入力の破壊と外部DB変更の自動採用も検出する。</summary>
     [TestMethod]
     public async Task CaptureAsync_recapturesCurrentMembershipOwnershipAndApplicationScore()
     {
@@ -139,34 +139,49 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
             }
             Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed,
                 new Lr2PlayHistorySchemaService().InstallOrRepair(scorePath, isLr2LinkedProfile: true).Status);
-            var library = new TestBmsLibrary(songDbPath, null, scorePath, new TestFileMutationService()) { BmsCharts = [] };
-            library.InitializeScoresOnly(null);
-            BMSTableEntry entry = CreateEntry(hash, sha);
-            entry.folder = "first";
-            var table = new BMSTable { playlist_id = 21, Folder_order = ["first"], entries = [entry] };
-            var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
-            var source = new BmsLibraryPlaylistLampDataSource(playlist, library, () => PlaylistLampHistoricalScoreSourceContext.Lr2(scorePath));
-            PlaylistLampAggregationRequest first = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
-            Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.ScoreSnapshot.LoadStatus);
-            Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
-            Assert.IsFalse(first.Entries.Single().IsOwned);
-            using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("UPDATE score SET perfect = 30, playcount = playcount + 1 WHERE hash = ?", hash); }
-            // DB更新だけではアプリの保持scoreを変更せず、明示捕捉でもその保持値を使う。
-            PlaylistLampAggregationRequest beforeReload = await source.CaptureAsync(new PlaylistLampViewerQuery("21", DateTime.Today), default);
-            Assert.AreEqual(20, beforeReload.ScoreSnapshot.Resolve(beforeReload.Entries.Single()).ExScore);
-            library.InitializeScoresOnly(null);
-            library.BmsCharts = [CreateLibraryFile("C:/charts/source.bms", hash, sha)];
-            BMSTableEntry changed = CreateEntry(hash, sha);
-            changed.folder = "second";
-            table.Folder_order = ["second"];
-            table.entries = [changed];
-            PlaylistLampAggregationRequest next = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
-            Assert.AreEqual("second", next.Entries.Single().FolderName);
-            Assert.IsTrue(next.Entries.Single().IsOwned);
-            Assert.AreEqual(60, next.ScoreSnapshot.Resolve(next.Entries.Single()).ExScore);
-            Assert.AreEqual("first", first.Entries.Single().FolderName);
-            Assert.IsFalse(first.Entries.Single().IsOwned);
-            Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
+            var library = new TestBmsLibrary(songDbPath, null, scorePath, new TestFileMutationService(), new PlaylistSummaryAggregationTestSupport.RecordingDialogService()) { BmsCharts = [] };
+            try
+            {
+                library.InitializeScoresOnly(null);
+                BMSTableEntry entry = CreateEntry(hash, sha);
+                entry.folder = "first";
+                var table = new BMSTable { playlist_id = 21, Folder_order = ["first"], entries = [entry] };
+                var playlist = new TestBmsPlaylist(songDbPath) { BMSTables = new ObservableCollection<BMSTable>([table]) };
+                var source = new BmsLibraryPlaylistLampDataSource(playlist, library, () => PlaylistLampHistoricalScoreSourceContext.Lr2(scorePath));
+                PlaylistLampAggregationRequest first = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
+                Assert.AreEqual(ScoreTableLoadStatus.Loaded, first.ScoreSnapshot.LoadStatus);
+                Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
+                Assert.IsFalse(first.Entries.Single().IsOwned);
+                using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("UPDATE score SET perfect = 30, playcount = playcount + 1 WHERE hash = ?", hash); }
+                // DB更新だけではアプリの保持scoreを変更せず、明示捕捉でもその保持値を使う。
+                PlaylistLampAggregationRequest beforeReload = await source.CaptureAsync(new PlaylistLampViewerQuery("21", DateTime.Today), default);
+                Assert.AreEqual(20, beforeReload.ScoreSnapshot.Resolve(beforeReload.Entries.Single()).ExScore);
+                using (var db = new LR2ScoreDBExtended(scorePath))
+                {
+                    db.Execute("ALTER TABLE score RENAME TO retained_score");
+                    Assert.ThrowsException<SQLite.SQLiteException>(() => db.Table<BMSScore>().ToList());
+                }
+                library.InitializeScoresOnly(null);
+                PlaylistLampAggregationRequest afterFailure = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
+                Assert.AreEqual(ScoreTableLoadStatus.Loaded, afterFailure.ScoreSnapshot.LoadStatus);
+                Assert.IsTrue(afterFailure.ScoreSnapshot.IsScoreDataAvailable);
+                Assert.AreEqual(20, afterFailure.ScoreSnapshot.Resolve(afterFailure.Entries.Single()).ExScore);
+                using (var db = new LR2ScoreDBExtended(scorePath)) { db.Execute("ALTER TABLE retained_score RENAME TO score"); }
+                library.InitializeScoresOnly(null);
+                library.BmsCharts = [CreateLibraryFile("C:/charts/source.bms", hash, sha)];
+                BMSTableEntry changed = CreateEntry(hash, sha);
+                changed.folder = "second";
+                table.Folder_order = ["second"];
+                table.entries = [changed];
+                PlaylistLampAggregationRequest next = await source.CaptureAsync(PlaylistLampViewerQuery.Latest("21"), default);
+                Assert.AreEqual("second", next.Entries.Single().FolderName);
+                Assert.IsTrue(next.Entries.Single().IsOwned);
+                Assert.AreEqual(60, next.ScoreSnapshot.Resolve(next.Entries.Single()).ExScore);
+                Assert.AreEqual("first", first.Entries.Single().FolderName);
+                Assert.IsFalse(first.Entries.Single().IsOwned);
+                Assert.AreEqual(20, first.ScoreSnapshot.Resolve(first.Entries.Single()).ExScore);
+            }
+            finally { library.RequestShutdown("playlist-score-fixture-cleanup"); }
         });
     }
 

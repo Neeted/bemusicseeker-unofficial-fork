@@ -50,6 +50,9 @@ internal sealed class ScoreTableLoadResult
     /// </summary>
     public ActiveScoreSource ActiveScoreSource { get; set; }
 
+    /// <summary>今回選択した読取りDBパスです。同じ情報源の採用済み成績を保持できるかの判定に使います。</summary>
+    public string ScoreDbPath { get; set; } = string.Empty;
+
     /// <summary>
     /// score table のロード状態です。
     /// </summary>

@@ -96,6 +96,7 @@ public partial class BMSLibrary
                     ScoresByHash = current.ScoresByHash,
                     ScoresBySha256 = current.ScoresBySha256,
                     ActiveScoreSource = current.ActiveScoreSource,
+                    ScoreDbPath = current.ScoreDbPath,
                     LoadStatus = current.LoadStatus,
                     LoadFailureMessage = current.LoadFailureMessage,
                     SourceGeneration = current.SourceGeneration
