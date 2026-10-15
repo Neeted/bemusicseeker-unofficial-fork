@@ -1062,29 +1062,66 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>存在しないbackupファイルを終了不可の失敗として一回通知し、DB・表示の復元や成功通知を開始しません。</summary>
+    /// <summary>backup読取り失敗ではDB・モデル・公開一覧の既存表を保持し、L/P解放後にErrorを一回通知して終了不可を返します。</summary>
     [TestMethod]
     public async Task PlaylistWorkspaceRestorePlaylistBackupAsync_ReportsReadFailureWithoutAuthorizingExit()
     {
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore owned = PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore();
+        var table = new BMSTable { playlist_id = 4202, name = "Keep on read failure", symbol = "keep" };
+        owned.Store.BMSTables.Add(table);
+        owned.Store.CommitBMSTableHeaderToDB(table);
         TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(owned.SongDbPath, MainWindowViewModelTestFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
             playlistLibraryProvider: () => library);
+        workspace.RefreshPlaylistTreeTables(owned.Store, library);
         List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-        workspace.PlaylistOperationNotificationPresentationRequested +=
-            (_, request) => notifications.Add(request);
-        string missingPath = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests) + "-" + Guid.NewGuid().ToString("N") + ".sql");
+        bool libraryReleasedBeforeNotification = false;
+        bool playlistReleasedBeforeNotification = false;
+        void CaptureNotification(object? sender, PlaylistOperationNotificationPresentationRequestedEventArgs request)
+        {
+            notifications.Add(request);
+            libraryReleasedBeforeNotification = library.OperationAdmission.TryEnter(out IDisposable libraryLease);
+            libraryLease?.Dispose();
+            playlistReleasedBeforeNotification = owned.Store.TryEnterPlaylistMutation(out IDisposable playlistLease);
+            playlistLease?.Dispose();
+        }
+        workspace.PlaylistOperationNotificationPresentationRequested += CaptureNotification;
+        try
+        {
+            Assert.AreSame(table, workspace.CapturePlaylistTreeTablesSnapshot().Single());
+            string missingPath = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests) + "-" + Guid.NewGuid().ToString("N") + ".sql");
 
-        Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(missingPath));
+            Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(missingPath));
 
-        Assert.AreEqual(1, notifications.Count);
-        PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
-        Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-        StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
-        StringAssert.Contains(failure.Message, missingPath);
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(owned.SongDbPath).OpenSongDbReadOnly())
+            {
+                BMSTable persisted = verify.Table<BMSTable>().Single();
+                Assert.AreEqual(4202, persisted.playlist_id);
+                Assert.AreEqual("Keep on read failure", persisted.name);
+                Assert.AreEqual("keep", persisted.symbol);
+            }
+            Assert.AreSame(table, owned.Store.BMSTables.Single());
+            BMSTable published = workspace.CapturePlaylistTreeTablesSnapshot().Single();
+            Assert.AreSame(table, published);
+            Assert.AreEqual(4202, published.playlist_id);
+            Assert.AreEqual("Keep on read failure", published.name);
+            Assert.AreEqual("keep", published.symbol);
+            Assert.AreEqual(1, notifications.Count);
+            Assert.IsTrue(libraryReleasedBeforeNotification);
+            Assert.IsTrue(playlistReleasedBeforeNotification);
+            PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
+            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
+            StringAssert.Contains(failure.Message, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            StringAssert.Contains(failure.Message, missingPath);
+        }
+        finally
+        {
+            workspace.PlaylistOperationNotificationPresentationRequested -= CaptureNotification;
+            workspace.RefreshPlaylistTreeTables(null);
+        }
     }
 
     /// <summary>二つの保存pickerからheader・dataを実出力し、相対data指定と既存URL保存を区別してserializerの実行中も正本URLを書き換えません。</summary>

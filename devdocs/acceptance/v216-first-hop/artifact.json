@@ -95,7 +95,7 @@
       },
       {
         "contractId": "FAIL-RESTORE",
-        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests.PlaylistWorkspaceRestorePlaylistBackupAsync_PropagatesFileReadFailureWithoutReceipt"
+        "fullyQualifiedName": "BeMusicSeeker.Tests.PlaylistWorkspacePersistenceCommandTests.PlaylistWorkspaceRestorePlaylistBackupAsync_ReportsReadFailureWithoutAuthorizingExit"
       },
       {
         "contractId": "FAIL-SHUTDOWN",
