@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 使い捨て子プロセスの JSON 出力を、テストヘルパーの UTF-8 読取り契約へ揃える。
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $sourceRoot 'scripts/verification-process-lifecycle.ps1')
 . (Join-Path $sourceRoot 'scripts/format-code.ps1')
@@ -106,7 +108,7 @@ try {
         & $Action ([Diagnostics.Stopwatch]::StartNew()) (Join-Path $DiagnosticsRoot $Name) $policy
     }
     function Invoke-BudgetedCommand {
-        param($Stopwatch, $BudgetSeconds, $Label, $CommandPath, $Arguments, $DiagnosticsDirectory)
+        param($Stopwatch, $BudgetSeconds, $Label, $CommandPath, [string[]]$Arguments, $DiagnosticsDirectory)
         [void]$events.Add($Arguments[0])
         if ($Arguments[0] -in @('build', 'test')) {
             [void]$buildInputs.Add([IO.File]::ReadAllText((Join-Path $repoRoot 'Changed.cs')))
