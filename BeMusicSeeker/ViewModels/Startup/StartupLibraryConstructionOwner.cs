@@ -200,6 +200,7 @@ internal sealed class StartupLibraryConstructionOwner
 
     /// <summary>
     /// 既存の非致命的バックアップを実行し、受付外へ渡す変更不能な通知を返します。
+    /// 保存失敗の元原因は対象を添えて診断し、通知へ渡します。
     /// 最適化用の列挙・公開後の最適化と任意診断の失敗では、実公開済みの保存結果を変更しません。
     /// </summary>
     /// <param name="startupSettings">今回の起動で捕捉した設定。</param>
@@ -271,6 +272,8 @@ internal sealed class StartupLibraryConstructionOwner
                 }
                 if (backupSaveResult.FailureException != null)
                 {
+                    ReportOptionalBackupFailureBestEffort(backupSaveResult.FailureException,
+                        $"Startup backup save failed: destination={startupSettings.LR2BackupPath}, targets={lR2BackupTarget}");
                     notifications.Add(new(BeMusicSeeker.Properties.Resources.Msg_failed_backups + Environment.NewLine + backupSaveResult.FailureException.Message, BeMusicSeeker.Properties.Resources.Error, UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK));
                 }
             }
@@ -286,7 +289,7 @@ internal sealed class StartupLibraryConstructionOwner
         }
         catch
         {
-            // 最適化とその診断は任意であり、バックアップの公開結果へ合成しません。
+            // 診断の成否で元のバックアップ結果を変更しません。
         }
     }
 

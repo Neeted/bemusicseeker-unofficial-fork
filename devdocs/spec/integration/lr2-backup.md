@@ -16,7 +16,7 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 
 対象コレクションがnullまたは空の場合は保存しません。空白パスは無視しますが、選択された非空パスが一つでも欠落していれば保存全体を失敗とします。未選択対象の欠落は無関係です。コピー開始前後の消失やコピーエラーも失敗として返します。
 
-起動側のDB存在確認・列挙は、保存成功後の最適化用です。バックアップ対象の選別に流用しません。戻り値の `Saved` が最適化の条件であり、起動側は警告と `FailureException` を通知します。
+起動側のDB存在確認・列挙は、保存成功後の最適化用です。バックアップ対象の選別に流用しません。戻り値の `Saved` が最適化の条件であり、起動側は警告と `FailureException` を通知します。保存失敗の元例外は、保存先と選択対象を添えて既存の局所診断へ一度渡します。
 
 ### 保存と公開
 
@@ -49,7 +49,7 @@ LR2連携の起動処理は、設定フラグと元パスを `Backup.SaveSelecte
 | 長いパス・コピー失敗・最終パス衝突・既存内容の保持 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) |
 | 世代数・同日省略・作業領域の残留、削除失敗後の他世代回収 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) | [`BackupTests.SaveBackupsWithResult_PruneFailureWarnsAfterSuccessfulPublication`](../../../BeMusicSeeker.Tests/Settings/BackupTests.cs) は最古世代の削除失敗後も他の旧世代を回収し、新世代バイト列・警告の正確なパス・保存成功を保持する。コピー失敗時の主原因、部分作業領域の回収と次の明示保存、欠落・公開先衝突の保証は同クラスの既存ケースへ分担する。 |
 | 起動経路の実保存と最適化失敗の独立性 | [`StartupLibraryConstructionOwner.PrepareBackupAsync`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs) | [`StartupLibraryFailureContractTests.PrepareBackupAsync_OptimizationFailurePreservesPublishedScoreBytesWithoutSaveFailureNotification`](../../../BeMusicSeeker.Tests/Startup/StartupLibraryFailureContractTests.cs) は正常な楽曲DBと、コピー可能だがSQLite形式ではない `score.db`を選択し、公開済みスコアファイルの内容と保存失敗通知なしを確認する。 |
-| 後片付けの存在確認、元例外・正確なDBパスの診断、NLogの故障の分離 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) の `TryDeleteBackupDirectory` / `RebuildDatabase`、[`StartupLibraryConstructionOwner.PrepareBackupAsync`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs) | 存在確認と削除の捕捉範囲、処理中DBパスの設定、ログ取得・出力の失敗後も本体結果を保持する制御を静的に確認する。診断先やスコアDB列挙の故障は自動テストでは未確認。 |
+| 後片付けの存在確認、保存失敗の主原因と対象・正確なDBパスの診断、NLogの故障の分離 | [`Backup`](../../../BeMusicSeeker/Models/LR2/Backup.cs) の `TryDeleteBackupDirectory` / `RebuildDatabase`、[`StartupLibraryConstructionOwner.PrepareBackupAsync`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryConstructionOwner.cs) | 失敗結果から診断への受渡し、存在確認と削除の捕捉範囲、処理中DBパスの設定、ログ取得・出力の失敗後も本体結果を保持する制御を静的に確認する。診断先やスコアDB列挙の故障は自動テストでは未確認。 |
 
 ## 関連資料
 
