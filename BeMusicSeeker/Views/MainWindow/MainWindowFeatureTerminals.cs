@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;

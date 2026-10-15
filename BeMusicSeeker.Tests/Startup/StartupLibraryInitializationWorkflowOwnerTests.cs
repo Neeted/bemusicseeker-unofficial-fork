@@ -6,8 +6,8 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
