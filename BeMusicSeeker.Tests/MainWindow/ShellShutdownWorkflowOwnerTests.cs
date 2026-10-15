@@ -1405,6 +1405,9 @@ public sealed class ShellShutdownWorkflowOwnerTests
         public bool IsFirstStartup => false;
         public void CompleteFirstStartup() { }
         public void MarkCoordinatedShutdownStarted(string reason) { }
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
         public void RequestShutdown() => ShutdownCount++;
         public Task RestartApplicationAsync() { RestartCount++; return Task.FromException(startFailure); }
     }

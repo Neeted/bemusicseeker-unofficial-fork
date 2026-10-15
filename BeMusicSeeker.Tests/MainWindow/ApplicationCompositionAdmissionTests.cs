@@ -240,6 +240,9 @@ public sealed partial class ApplicationCompositionTests
         public bool IsFirstStartup => false;
         public void CompleteFirstStartup() { }
         public void MarkCoordinatedShutdownStarted(string reason) => MarkCount++;
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
         public void RequestShutdown() { }
         public Task RestartApplicationAsync() { RestartCount++; return Task.CompletedTask; }
     }

@@ -407,6 +407,7 @@ public sealed class ResilientFileMutationServiceTests
             Assert.IsTrue(callbackSawPromotedDestination);
             Assert.AreEqual("source", File.ReadAllText(sourcePath));
             Assert.AreEqual("prior", File.ReadAllText(destinationPath));
+            Assert.IsFalse(receipt.HasUnrestoredExistingDestination);
             Assert.IsFalse(File.Exists(plan.Paths[0].StagingPath));
             Assert.IsFalse(File.Exists(plan.Paths[0].BackupPath));
         });
@@ -745,6 +746,7 @@ public sealed class ResilientFileMutationServiceTests
 
             Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.TerminalState);
             Assert.IsFalse(receipt.DurableCommit);
+            Assert.IsFalse(receipt.HasUnrestoredExistingDestination, "新規宛先だけの残留は既存宛先の復元不能ではありません。");
             Assert.AreEqual(1, receipt.CompensationAttemptCount);
             Assert.IsInstanceOfType(receipt.Failure, typeof(IOException));
             StringAssert.Contains(receipt.Failure.ToString(), "injected-compensation-delete-failure");
@@ -954,6 +956,7 @@ public sealed class ResilientFileMutationServiceTests
                 FileDbMutationCommitResult.Failed(new InvalidOperationException("db-before-receipt")));
 
             Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.TerminalState);
+            Assert.IsTrue(receipt.HasUnrestoredExistingDestination);
             Assert.IsFalse(receipt.DurableCommit);
             Assert.AreEqual(1, receipt.CompensationAttemptCount);
             Assert.IsTrue(receipt.RecoveryPaths.Contains(sourcePath, StringComparer.OrdinalIgnoreCase));
@@ -962,7 +965,39 @@ public sealed class ResilientFileMutationServiceTests
             Assert.IsTrue(File.Exists(sourcePath));
             Assert.IsTrue(File.Exists(destinationPath));
             Assert.IsTrue(File.Exists(plan.Paths[0].BackupPath));
+            Assert.AreEqual("prior", File.ReadAllText(plan.Paths[0].BackupPath));
+            Assert.AreEqual("source", File.ReadAllText(destinationPath));
+            Assert.IsTrue(receipt.WithFailure(new IOException("later failure")).HasUnrestoredExistingDestination);
             Assert.IsFalse(File.Exists(plan.Paths[0].StagingPath));
+        });
+    }
+
+    /// <summary>公開前のstage回収失敗だけでは既存宛先の未復元に昇格せず、元と旧宛先の内容を保持する。</summary>
+    [TestMethod]
+    public void FileDbMutationExecutor_StageCleanupFailureDoesNotMeanUnrestoredDestination()
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "source.bms");
+            string destination = Path.Combine(root, "destination.bms");
+            File.WriteAllText(source, "new");
+            File.WriteAllText(destination, "old");
+            FileDbMutationPlan plan = CreateFileDbMutationPlan(source, destination);
+            var service = new InterleavingFileMutationService(
+                afterFirstCopy: () => throw new IOException("stage copy failure"),
+                compensationFailurePath: plan.Paths.Single().StagingPath);
+            var executor = new FileDbMutationExecutor(plan, service,
+                targetOnlyFileMutationOptions, recursiveDirectoryTreeFileMutationOptions);
+            bool committed = false;
+            FileDbMutationReceipt receipt = executor.Execute(() => { committed = true; return FileDbMutationCommitResult.Durable(); });
+            Assert.IsFalse(committed);
+            Assert.AreEqual(FileDbMutationTerminalState.ManualRecoveryRequired, receipt.TerminalState);
+            Assert.IsFalse(receipt.HasUnrestoredExistingDestination);
+            Assert.AreEqual(1, receipt.CompensationAttemptCount);
+            Assert.AreEqual("old", File.ReadAllText(destination));
+            Assert.AreEqual("new", File.ReadAllText(source));
+            Assert.IsTrue(File.Exists(plan.Paths.Single().StagingPath));
+            Assert.IsFalse(File.Exists(plan.Paths.Single().BackupPath));
         });
     }
 

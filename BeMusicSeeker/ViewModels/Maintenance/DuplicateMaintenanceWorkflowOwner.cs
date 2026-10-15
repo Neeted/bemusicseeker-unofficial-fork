@@ -217,7 +217,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private readonly Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider;
 
     private readonly IDuplicateMaintenanceStore store;
+    private readonly Func<Exception, Task> exitForUnrestoredDestination;
 
+    /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -228,8 +230,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<string, bool> duplicateFolderDirectoryExists,
         Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen,
         Func<DuplicateGroup, string> duplicateGroupNextHeaderProvider,
-        IDuplicateMaintenanceStore store = null)
+        IDuplicateMaintenanceStore store = null,
+        Func<Exception, Task> exitForUnrestoredDestination = null)
     {
+        this.exitForUnrestoredDestination = exitForUnrestoredDestination
+            ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
@@ -505,6 +510,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
             operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result = await mutationTask;
+            if (result.MutationReceipt?.SessionReceipt.HasUnrestoredExistingDestination == true)
+            {
+                await exitForUnrestoredDestination(result.MutationReceipt.SessionReceipt.PrimaryFailure);
+                return result;
+            }
             await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Merge,
                 result.MutationReceipt?.SessionReceipt ?? LibraryMutationSessionReceipt.Empty,
                 result.Failure,

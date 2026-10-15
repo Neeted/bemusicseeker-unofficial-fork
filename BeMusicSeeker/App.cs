@@ -402,7 +402,7 @@ public partial class App : System.Windows.Application
     }
 
     /// <summary>非常時の案内・窓閉鎖が失敗しても既存の最終終了へ到達します。通常終了の整合性待ちは代替しません。</summary>
-    private static void ExitAfterUnhandledException()
+    private static void ExitAfterUnhandledException(bool closeMainWindow = true)
     {
         try
         {
@@ -414,13 +414,23 @@ public partial class App : System.Windows.Application
                     MessageBoxImage.Asterisk, MessageBoxResult.Yes);
             }
             catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_exit_notification_failed"); }
-            try { System.Windows.Application.Current?.MainWindow?.Close(); }
-            catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_window_close_failed"); }
+            if (closeMainWindow)
+            {
+                try { System.Windows.Application.Current?.MainWindow?.Close(); }
+                catch (Exception exception) { LogFailureBestEffort(exception, "unhandled_exception_window_close_failed"); }
+            }
         }
         finally
         {
             Environment.Exit(1);
         }
+    }
+
+    /// <summary>操作所有の終端後に既存宛先の復元不能を受け、通常Closeを通さず保全物を維持して最終終了します。</summary>
+    internal void ExitForUnrestoredDestination(Exception failure)
+    {
+        try { ExceptionLogger(failure, showMessage: false); }
+        finally { ExitAfterUnhandledException(closeMainWindow: false); }
     }
 
     /// <summary>元原因のファイル診断・既存network診断・案内を個別に試し、診断や表示の故障で終端を変えません。</summary>

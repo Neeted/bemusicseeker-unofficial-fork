@@ -170,6 +170,7 @@ internal sealed class FileDbMutationReceipt
     /// <param name="failure">The primary terminal failure, if any.</param>
     /// <param name="finalizationFailure">A failure from post-commit finalization, if any.</param>
     /// <param name="cleanupFailure">A failure from post-commit cleanup, if any.</param>
+    /// <param name="hasUnrestoredExistingDestination">退避した既存宛先の復元を完了できなかった事実。</param>
     /// <param name="destinationTypeConflicts">パッケージの事前検証で見つけた read-only の宛先型衝突。</param>
     public FileDbMutationReceipt(
         Guid operationId,
@@ -185,8 +186,10 @@ internal sealed class FileDbMutationReceipt
         Exception failure = null,
         Exception finalizationFailure = null,
         Exception cleanupFailure = null,
-        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null)
+        IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null,
+        bool hasUnrestoredExistingDestination = false)
     {
+        HasUnrestoredExistingDestination = hasUnrestoredExistingDestination;
         OperationId = operationId;
         TerminalState = terminalState;
         DurableCommit = durableCommit;
@@ -208,6 +211,9 @@ internal sealed class FileDbMutationReceipt
     public FileDbMutationTerminalState TerminalState { get; }
 
     public bool DurableCommit { get; }
+
+    /// <summary>退避した既存宛先の復元が完了せず、通常利用へ戻せないかを取得します。</summary>
+    public bool HasUnrestoredExistingDestination { get; }
 
     public int CompensationAttemptCount { get; }
 
@@ -275,7 +281,8 @@ internal sealed class FileDbMutationReceipt
             combinedFailure,
             FinalizationFailure,
             CleanupFailure,
-            DestinationTypeConflicts);
+            DestinationTypeConflicts,
+            HasUnrestoredExistingDestination);
     }
 
     private static IReadOnlyList<string> Freeze(IEnumerable<string> values)
@@ -673,10 +680,13 @@ internal sealed class FileDbMutationExecutor
 
         if (compensationFailure != null)
         {
+            // 公開物の削除失敗なら復元ループ未実行、復元失敗ならその旧宛先が未復元です。
+            // 私有stage等の回収は別工程なので、退避済み旧宛先がある場合だけ危険事実を残します。
             return CreateReceipt(
                 FileDbMutationTerminalState.ManualRecoveryRequired,
                 durableCommit: false,
-                new IOException("Filesystem compensation failed; manual recovery is required.", new AggregateException(originalFailure, compensationFailure)));
+                new IOException("Filesystem compensation failed; manual recovery is required.", new AggregateException(originalFailure, compensationFailure)),
+                hasUnrestoredExistingDestination: backedUpPaths.Count > 0);
         }
 
         return CreateReceipt(FileDbMutationTerminalState.Failed, durableCommit: false, originalFailure);
@@ -882,7 +892,8 @@ internal sealed class FileDbMutationExecutor
         Exception failure,
         IEnumerable<string> additionalRecoveryPaths = null,
         Exception finalizationFailure = null,
-        Exception cleanupFailure = null)
+        Exception cleanupFailure = null,
+        bool hasUnrestoredExistingDestination = false)
     {
         List<string> recoveryPaths = [];
         if (terminalState == FileDbMutationTerminalState.ManualRecoveryRequired
@@ -912,6 +923,7 @@ internal sealed class FileDbMutationExecutor
             recoveryPaths,
             failure,
             finalizationFailure,
-            cleanupFailure);
+            cleanupFailure,
+            hasUnrestoredExistingDestination: hasUnrestoredExistingDestination);
     }
 }

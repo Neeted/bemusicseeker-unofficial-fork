@@ -518,7 +518,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             settingsProvider: () => settingsEditSession.Values,
             externalProgramLaunchGateway: externalProgramLaunchGateway,
             keywordSearchFavoritesSettingsStore: keywordSearchFavoritesSettingsStore,
-            packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort);
+            packageInstallMutationPort: packageInstallMutationPort ?? this.packageInstallMutationPort,
+            exitForUnrestoredDestination: applicationLifetime.ExitForUnrestoredDestination,
+            playlistOperationAdmission: PlaylistOperationAdmission);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -674,6 +676,8 @@ internal sealed class MainWindowChildComposition
     /// Creates the child owner graph with explicit search persistence boundaries.
     /// </summary>
     /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
+    /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
+    /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     internal MainWindowChildComposition(
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor,
         MainChartListViewModel mainChartList,
@@ -733,7 +737,9 @@ internal sealed class MainWindowChildComposition
         Func<BeMusicSeeker.Properties.Settings> settingsProvider = null,
         IExternalProgramLaunchGateway externalProgramLaunchGateway = null,
         IKeywordSearchFavoritesSettingsStore keywordSearchFavoritesSettingsStore = null,
-        IPackageInstallMutationPort packageInstallMutationPort = null)
+        IPackageInstallMutationPort packageInstallMutationPort = null,
+        Action<Exception> exitForUnrestoredDestination = null,
+        ChartFileOperationSynchronizer playlistOperationAdmission = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -764,6 +770,15 @@ internal sealed class MainWindowChildComposition
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner(mainViewLog);
+        // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
+        Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
+        {
+            chartFileOperations.CloseAdmission();
+            playlistOperationAdmission?.CloseAdmission();
+            PlaybackPanel.BeginShutdown();
+            (exitForUnrestoredDestination
+                ?? throw new InvalidOperationException("Unrestored destination exit is not connected."))(failure);
+        });
         PendingPackageWorkflow = new PendingPackageWorkflowOwner(
             installDestinationLibraryProvider ?? throw new ArgumentNullException(nameof(installDestinationLibraryProvider)),
             chartFileOperations,
@@ -771,7 +786,8 @@ internal sealed class MainWindowChildComposition
             PlaybackPanel,
             installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
             installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)),
-            externalShellGateway: externalShellGateway);
+            externalShellGateway: externalShellGateway,
+            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
@@ -857,7 +873,8 @@ internal sealed class MainWindowChildComposition
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
-            MaintenanceTree.CaptureNextDuplicateGroupHeader);
+            MaintenanceTree.CaptureNextDuplicateGroupHeader,
+            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,

@@ -7278,6 +7278,9 @@ public sealed partial class SettingDialogEditCompletionTests
         {
         }
 
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
         public void RequestShutdown()
         {
         }

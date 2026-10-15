@@ -324,6 +324,9 @@ internal interface IApplicationLifetimePort
     /// 終端の後処理後に後継プロセスを起動します。最終的な application shutdown は呼び出し側が担当します。
     /// </summary>
     Task RestartApplicationAsync();
+
+    /// <summary>既存宛先の復元不能を診断し、通常Close・設定保存・一時領域削除・再起動を経ず最終終了します。</summary>
+    void ExitForUnrestoredDestination(Exception failure);
 }
 
 /// <summary>

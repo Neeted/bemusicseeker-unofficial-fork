@@ -80,6 +80,7 @@ internal sealed partial class LibraryMutationOwner
         private Exception physicalFailure;
         private Exception cleanupFailure;
         private bool manualRecoveryRequired;
+        private bool hasUnrestoredExistingDestination;
         private LibraryMutationSessionTarget failedTarget;
         private IReadOnlyList<LibraryMutationSessionTarget> unprocessedTargets = [];
         private bool committed;
@@ -676,6 +677,7 @@ internal sealed partial class LibraryMutationOwner
                 return;
             }
             AppendRecoveryCandidatePathsCore(receipt.RecoveryPaths);
+            hasUnrestoredExistingDestination |= receipt.HasUnrestoredExistingDestination;
             manualRecoveryRequired |= receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
             foreach (FileDbMutationDestinationTypeConflict conflict in receipt.DestinationTypeConflicts ?? [])
             {
@@ -750,7 +752,8 @@ internal sealed partial class LibraryMutationOwner
                 itemFailures: itemFailures,
                 manualRecoveryRequired: manualRecoveryRequired,
                 destinationTypeConflicts: destinationTypeConflicts,
-                applyCounts: applyCounts);
+                applyCounts: applyCounts,
+                hasUnrestoredExistingDestination: hasUnrestoredExistingDestination);
             // Commit の反映範囲を一度だけ診断します。merge 等の lease 解放後 maintenance や
             // subscriber の完了時間とは別で、診断自体は既存の lease 解放後通知へ渡します。
             postLeaseNotifications.Add(() => owner.LogInstallPerformance(

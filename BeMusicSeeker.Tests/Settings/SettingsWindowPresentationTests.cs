@@ -5578,6 +5578,9 @@ public sealed class SettingsWindowPresentationTests
             events.Add("shutdown-mark:" + reason);
         }
 
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
         public void RequestShutdown()
         {
             ShutdownRequestCount++;

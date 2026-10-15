@@ -261,9 +261,11 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
     private readonly IExternalShellGateway externalShellGateway;
+    private readonly Func<Exception, Task> exitForUnrestoredDestination;
 
     internal event EventHandler<PendingPackageWorkflowChangedEventArgs> WorkflowChanged;
 
+    /// <summary>導入操作を所有し、既存宛先の復元不能時だけ実終端後に明示的なアプリ終了へ接続します。</summary>
     internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -272,8 +274,11 @@ internal sealed class PendingPackageWorkflowOwner
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
         IExternalShellGateway externalShellGateway,
-        IPendingPackageStore store = null)
+        IPendingPackageStore store = null,
+        Func<Exception, Task> exitForUnrestoredDestination = null)
     {
+        this.exitForUnrestoredDestination = exitForUnrestoredDestination
+            ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         this.chartMutationActivity = chartMutationActivity ?? throw new ArgumentNullException(nameof(chartMutationActivity));
@@ -570,6 +575,7 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Pending package installation");
             return PendingPackageMutationResult.Rejected;
         }
+        PendingPackageMutationResult result = null;
         try
         {
             if (request.IsManualInstall && !await ConfirmManualInstallAsync())
@@ -581,7 +587,7 @@ internal sealed class PendingPackageWorkflowOwner
                     (library, operationStore) => operationStore.ResolvePendingPackages(library, request.Targets),
                     operationGate,
                     releaseAcquiredOperationGate: false)) ?? [];
-            return await InstallResolvedPackagesAsync(request.Kind, packages, operationGate);
+            return result = await InstallResolvedPackagesAsync(request.Kind, packages, operationGate);
         }
         catch (Exception exception)
         {
@@ -590,6 +596,10 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            if (result?.SessionReceipt?.HasUnrestoredExistingDestination == true)
+            {
+                await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
+            }
         }
     }
 
@@ -856,8 +866,12 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            if (overwriteResult?.SessionReceipt?.HasUnrestoredExistingDestination == true)
+            {
+                await exitForUnrestoredDestination(overwriteResult.SessionReceipt.PrimaryFailure);
+            }
         }
-        if (overwriteResult == null)
+        if (overwriteResult == null || overwriteResult.SessionReceipt?.HasUnrestoredExistingDestination == true)
         {
             return;
         }
@@ -901,6 +915,7 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Pending package installation");
             return PendingPackageMutationResult.Rejected;
         }
+        PendingPackageMutationResult result = null;
         try
         {
             if (kind == PendingInstallPackageOperationKind.ManualInstall
@@ -908,7 +923,7 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 return PendingPackageMutationResult.Rejected;
             }
-            return await InstallResolvedPackagesAsync(kind, packages, operationGate);
+            return result = await InstallResolvedPackagesAsync(kind, packages, operationGate);
         }
         catch (Exception exception)
         {
@@ -917,6 +932,10 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            if (result?.SessionReceipt?.HasUnrestoredExistingDestination == true)
+            {
+                await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
+            }
         }
     }
 

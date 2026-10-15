@@ -2393,6 +2393,189 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
+    /// <summary>実導入の先行成功だけを一回保存し、既存宛先の復元不能でsuffixを止め、所有する後片付けとL/P解放後に終了へ渡す。</summary>
+    /// <remarks>実FS・SQLite・本番storeを動かし、最終プロセス終了だけを記録へ差し替える。通常失敗・補償成功の条件分岐は既存回帰と下位caseが分担する。</remarks>
+    [TestMethod]
+    public async Task ManualInstallPackagesAsync_UnrestoredDestinationCommitsPrefixAndExitsAfterOwnedTerminal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "PendingUnrestored_" + Guid.NewGuid().ToString("N"));
+        Task<PendingPackageMutationResult>? operation = null;
+        TestBmsLibrary? library = null;
+        using var releaseCleanup = new ManualResetEventSlim();
+        try
+        {
+            (TestBmsLibrary Library, ChartPackage[] Packages, UnrestoredDestinationFileMutationService Files, ChartFileOperationSynchronizer Playlist) workspace = CreateUnrestoredDestinationLibrary(root, installedOnly: false);
+            library = workspace.Library;
+            ChartPackage[] packages = workspace.Packages;
+            UnrestoredDestinationFileMutationService files = workspace.Files;
+            ChartFileOperationSynchronizer playlist = workspace.Playlist;
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var activity = new ChartMutationActivityOwner();
+            var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            activity.ActivityChanged += (_, _) => { if (!activity.IsActive) { cleanupReached.TrySetResult(); releaseCleanup.Wait(); } };
+            int exits = 0;
+            bool releasedAtExit = false;
+            Exception? exitFailure = null;
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            var owner = new PendingPackageWorkflowOwner(() => library, gate, activity,
+                new NoOpChartMutationPlaybackPort(), dialogs, DefaultSettings,
+                new TestExternalShellGateway(_ => new ExplorerOpenResult(), _ => new ExplorerOpenResult()),
+                new BmsLibraryPendingPackageStore(), failure =>
+                {
+                    exits++;
+                    exitFailure = failure;
+                    releasedAtExit = !gate.IsActive && !playlist.IsActive && !activity.IsActive;
+                    return Task.CompletedTask;
+                });
+            operation = owner.ManualInstallPackagesAsync(packages);
+            Assert.AreSame(cleanupReached.Task, await Task.WhenAny(cleanupReached.Task, operation));
+            Assert.AreEqual(0, exits);
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(gate.IsActive);
+            Assert.IsFalse(playlist.IsActive, "通常モードの変更にはP取得が不要です。");
+            releaseCleanup.Set();
+            PendingPackageMutationResult result = await operation;
+            Assert.IsNotNull(result.SessionReceipt);
+            LibraryMutationSessionReceipt receipt = result.SessionReceipt;
+            Assert.IsTrue(receipt.HasUnrestoredExistingDestination);
+            Assert.IsTrue(receipt.WithFinalizationFailure(new IOException("later finalization")).HasUnrestoredExistingDestination);
+            Assert.IsTrue(receipt.DurableCommit);
+            CollectionAssert.AreEquivalent(new[] { Path.Combine(root, "installed0", "chart.bms"), Path.Combine(root, "installed0", "note.wav") },
+                receipt.ConfirmedTargets.Select(target => target.DestinationPath).ToArray());
+            Assert.AreEqual(1, receipt.ApplyCounts.InstalledTargetApplyCount);
+            Assert.AreEqual(1, receipt.UnprocessedTargets.Count);
+            Assert.IsFalse(result.Succeeded);
+            Assert.AreEqual(1, exits);
+            Assert.IsTrue(releasedAtExit);
+            Assert.AreSame(receipt.PrimaryFailure, exitFailure);
+            Assert.AreEqual(2, files.FailedMoveCount, "公開失敗と一回だけの復元試行です。");
+            Assert.IsNotNull(files.BackupPath);
+            Assert.AreEqual("old resource", File.ReadAllText(files.BackupPath));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "pending1", "chart.bms")));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "pending2", "chart.bms")));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "installed2", "chart.bms")));
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(Path.Combine(root, "song.db")).OpenSongDbReadOnly();
+            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(root, "installed0", "chart.bms")));
+            Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", Path.Combine(root, "installed1", "chart.bms")));
+            Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(0, dialogs.MessageRequests.Count);
+        }
+        finally
+        {
+            releaseCleanup.Set();
+            try { if (operation != null) { await operation; } }
+            finally { library?.RequestShutdown("pending-unrestored-fixture"); if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+        }
+    }
+
+    /// <summary>installed-onlyの実資源上書きで復元不能が生じるとbulk実処理とL/P・activityの終端を待って終了へ渡し、通常集計へ戻らない。</summary>
+    /// <remarks>別の戻り値とbulk経路を本番store・FS・SQLiteで接続する。故障条件の全組合せは下位executorが担当する。</remarks>
+    [TestMethod]
+    public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_UnrestoredDestinationExitsAfterBulkTerminal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "OverwriteUnrestored_" + Guid.NewGuid().ToString("N"));
+        Task? operation = null;
+        TestBmsLibrary? library = null;
+        using var releaseCleanup = new ManualResetEventSlim();
+        try
+        {
+            (TestBmsLibrary Library, ChartPackage[] Packages, UnrestoredDestinationFileMutationService Files, ChartFileOperationSynchronizer Playlist) workspace = CreateUnrestoredDestinationLibrary(root, installedOnly: true);
+            library = workspace.Library;
+            ChartPackage[] packages = workspace.Packages;
+            UnrestoredDestinationFileMutationService files = workspace.Files;
+            ChartFileOperationSynchronizer playlist = workspace.Playlist;
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var activity = new ChartMutationActivityOwner();
+            var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            activity.ActivityChanged += (_, _) => { if (!activity.IsActive) { cleanupReached.TrySetResult(); releaseCleanup.Wait(); } };
+            int exits = 0;
+            bool releasedAtExit = false;
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            var owner = new PendingPackageWorkflowOwner(() => library, gate, activity,
+                new NoOpChartMutationPlaybackPort(), dialogs, DefaultSettings,
+                new TestExternalShellGateway(_ => new ExplorerOpenResult(), _ => new ExplorerOpenResult()),
+                new BmsLibraryPendingPackageStore(), _ =>
+                {
+                    exits++;
+                    releasedAtExit = !gate.IsActive && !playlist.IsActive && !activity.IsActive;
+                    return Task.CompletedTask;
+                });
+            operation = owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
+            Assert.AreSame(cleanupReached.Task, await Task.WhenAny(cleanupReached.Task, operation));
+            Assert.AreEqual(0, exits);
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(gate.IsActive);
+            Assert.IsTrue(playlist.IsActive);
+            releaseCleanup.Set();
+            await operation;
+            Assert.IsNotNull(dialogs.ProgressRequest, "複数対象のbulk経路を通ります。");
+            Assert.AreEqual(1, exits);
+            Assert.IsTrue(releasedAtExit);
+            Assert.AreEqual(2, files.FailedMoveCount);
+            Assert.IsNotNull(files.BackupPath);
+            Assert.AreEqual("old resource", File.ReadAllText(files.BackupPath));
+            Assert.AreEqual("old resource", File.ReadAllText(Path.Combine(root, "installed1", "note.wav")), "後続の資源へ進みません。");
+            Assert.AreEqual(2, library.ChartPackagesPending.Count);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "通常集計・通常失敗報告へ戻りません。");
+        }
+        finally
+        {
+            releaseCleanup.Set();
+            try { if (operation != null) { await operation; } }
+            finally { library?.RequestShutdown("pending-unrestored-fixture"); if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+        }
+    }
+
+    /// <summary>独立したDBと小さい実ファイルで、手動導入または所持済み資源上書きの本番入力を作ります。</summary>
+    private static (TestBmsLibrary Library, ChartPackage[] Packages, UnrestoredDestinationFileMutationService Files,
+        ChartFileOperationSynchronizer Playlist) CreateUnrestoredDestinationLibrary(string root, bool installedOnly)
+    {
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        using (var initialize = new LR2SongDBExtended(songDbPath)) { }
+        var packages = new List<ChartPackage>();
+        var installed = new List<ChartFile>();
+        for (int index = 0; index < (installedOnly ? 2 : 3); index++)
+        {
+            string source = Path.Combine(root, "pending" + index);
+            string destination = Path.Combine(root, "installed" + index);
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string chart = Path.Combine(source, "chart.bms");
+            File.WriteAllText(chart, "#TITLE Pending " + index + "\r\n#ARTIST Test\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n");
+            File.WriteAllText(Path.Combine(source, "note.wav"), "new resource");
+            packages.Add(ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chart)), destination)));
+            packages[^1].path = source;
+            packages[^1].delete_parent = false;
+            if (installedOnly || index == 1)
+            {
+                string existing = Path.Combine(destination, installedOnly ? "chart.bms" : "owned.bms");
+                if (installedOnly) { File.Copy(chart, existing); }
+                else { File.WriteAllText(existing, "#TITLE Existing\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n"); }
+                installed.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(existing)));
+                File.WriteAllText(Path.Combine(destination, "note.wav"), "old resource");
+            }
+        }
+        var files = new UnrestoredDestinationFileMutationService(Path.Combine(root, installedOnly ? "installed0" : "installed1", "note.wav"));
+        var playlist = new ChartFileOperationSynchronizer();
+        var library = new TestBmsLibrary(songDbPath, null, null, files, new RecordingLibraryDialogService(),
+            new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = installedOnly,
+                LR2CustomFolderOutputBaseDir = root,
+                BMSInstallDir = Path.Combine(root, "installed"),
+                DeletePendingPackageSourceAfterInstall = false,
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            }, playlistOperationAdmission: playlist)
+        { BmsCharts = installed, BmsonCharts = [], ChartPackagesPending = packages, ChartPackagesInstalled = [] };
+        new BmsLibraryDbGateway(songDbPath).UpsertSongs(installed);
+        return (library, packages.ToArray(), files, playlist);
+    }
+
     private static PendingPackageWorkflowOwner CreateOwner(
         Func<BMSLibrary> libraryProvider,
         List<string> events,

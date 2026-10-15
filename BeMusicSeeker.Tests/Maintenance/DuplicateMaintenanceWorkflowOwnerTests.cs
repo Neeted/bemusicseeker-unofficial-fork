@@ -781,6 +781,96 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
     }
 
+    /// <summary>実フォルダ統合の旧資源退避後に復元不能が生じると、通常失敗へ吸収せず、所有する実処理とL/P・activity解放後に終了へ接続する。</summary>
+    /// <remarks>本番store・FS・SQLiteから危険事実を生産し、最終終了だけを記録へ差し替える。補償条件の全組合せは下位executorが分担する。</remarks>
+    [TestMethod]
+    public async Task RunFolderMergeAsync_UnrestoredDestinationExitsAfterOwnedTerminal()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "MergeUnrestored_" + Guid.NewGuid().ToString("N"));
+        Task<DuplicateMaintenanceMutationResult>? operation = null;
+        TestBmsLibrary? library = null;
+        using var releaseCleanup = new ManualResetEventSlim();
+        try
+        {
+            string source = Path.Combine(root, "source");
+            string destination = Path.Combine(root, "destination");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(destination);
+            string sourceChart = Path.Combine(source, "source.bms");
+            string destinationChart = Path.Combine(destination, "owned.bms");
+            File.WriteAllText(sourceChart, "#TITLE Source\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n");
+            File.WriteAllText(destinationChart, "#TITLE Owned\r\n#BPM 120\r\n#WAV01 note.wav\r\n#00111:01\r\n");
+            File.WriteAllText(Path.Combine(source, "note.wav"), "new resource");
+            File.WriteAllText(Path.Combine(destination, "note.wav"), "old resource");
+            ChartFile[] charts = [
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(sourceChart)),
+                BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(destinationChart))];
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            using (var initialize = new LR2SongDBExtended(songDbPath)) { }
+            var files = new UnrestoredDestinationFileMutationService(Path.Combine(destination, "note.wav"));
+            var playlist = new ChartFileOperationSynchronizer();
+            library = new TestBmsLibrary(songDbPath, null, null, files,
+                new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = true,
+                    LR2CustomFolderOutputBaseDir = root,
+                    EnableSmartComponentOverwrite = false,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                playlistOperationAdmission: playlist)
+            { BmsCharts = charts.ToList(), BmsonCharts = [] };
+            new BmsLibraryDbGateway(songDbPath).UpsertSongs(charts);
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var activity = new ChartMutationActivityOwner();
+            var cleanupReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            activity.ActivityChanged += (_, _) => { if (!activity.IsActive) { cleanupReached.TrySetResult(); releaseCleanup.Wait(); } };
+            int exits = 0;
+            bool releasedAtExit = false;
+            Exception? exitFailure = null;
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity,
+                new NoOpChartMutationPlaybackPort(), dialogs, () => false, Directory.Exists,
+                _ => new ExplorerOpenResult(), _ => "next", new BmsLibraryDuplicateMaintenanceStore(), failure =>
+                {
+                    exits++;
+                    exitFailure = failure;
+                    releasedAtExit = !gate.IsActive && !playlist.IsActive && !activity.IsActive;
+                    return Task.CompletedTask;
+                });
+            operation = owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
+            Assert.AreSame(cleanupReached.Task, await Task.WhenAny(cleanupReached.Task, operation));
+            Assert.AreEqual(0, exits);
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(gate.IsActive);
+            Assert.IsTrue(playlist.IsActive);
+            releaseCleanup.Set();
+            DuplicateMaintenanceMutationResult result = await operation;
+            Assert.IsNotNull(result.MutationReceipt);
+            Assert.IsTrue(result.MutationReceipt.SessionReceipt.HasUnrestoredExistingDestination);
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsFalse(result.MutationReceipt.SessionReceipt.DurableCommit);
+            Assert.AreEqual(1, exits);
+            Assert.IsTrue(releasedAtExit);
+            Assert.AreSame(result.MutationReceipt.SessionReceipt.PrimaryFailure, exitFailure);
+            Assert.AreEqual(2, files.FailedMoveCount);
+            Assert.IsNotNull(files.BackupPath);
+            Assert.AreEqual("old resource", File.ReadAllText(files.BackupPath));
+            Assert.IsTrue(File.Exists(sourceChart));
+            Assert.IsTrue(File.Exists(destinationChart));
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly();
+            Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT COUNT(1) FROM song;"));
+            Assert.AreEqual(0, dialogs.Messages.Count);
+        }
+        finally
+        {
+            releaseCleanup.Set();
+            try { if (operation != null) { await operation; } }
+            finally { library?.RequestShutdown("merge-unrestored-fixture"); if (Directory.Exists(root)) { Directory.Delete(root, recursive: true); } }
+        }
+    }
+
     private static DuplicateMaintenanceWorkflowOwner CreateOwner(
         List<string> events,
         RecordingPresentation presentation,
