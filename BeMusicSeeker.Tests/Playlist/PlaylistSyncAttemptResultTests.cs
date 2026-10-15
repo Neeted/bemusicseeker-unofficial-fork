@@ -84,4 +84,24 @@ public sealed class PlaylistSyncAttemptResultTests
     }
 
 
+    /// <summary>処理済み取得失敗でもHTTPと未分類のSTATUSを失敗として残し、表示状態へ元例外を運ばないことを確認します。</summary>
+    [TestMethod]
+    public void CreateReportedExternalFailure_PreservesFailureClassificationWithoutExceptionTransport()
+    {
+        var uri = new Uri("https://example.invalid/table.json");
+        var http = PlaylistSyncAttemptResult.CreateReportedExternalFailure(null, uri,
+            new HttpRequestException("not found", null, System.Net.HttpStatusCode.NotFound));
+        var unknown = PlaylistSyncAttemptResult.CreateReportedExternalFailure(null, uri,
+            new ArgumentException("Null character in path.", "path"));
+        Assert.AreEqual(PlaylistSyncStatusKind.Http404, http.FailureKind);
+        Assert.AreEqual(PlaylistSyncStatusKind.UnknownError, unknown.FailureKind);
+        foreach (PlaylistSyncAttemptResult status in new[] { http, unknown })
+        {
+            Assert.IsFalse(status.Succeeded);
+            Assert.AreEqual(uri, status.PageUri);
+            Assert.IsNull(status.Exception);
+            Assert.AreEqual(string.Empty, status.Detail);
+        }
+    }
+
 }

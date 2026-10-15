@@ -200,27 +200,23 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool applyReferences = true)
     {
         List<Exception> failures = [];
-        if (result.OperationException != null) { failures.Add(result.OperationException); }
+        if (result.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
         foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
         {
-            if (target.Exception != null && !target.IsExpectedExternalLoadFailure)
-            {
-                failures.Add(target.Exception);
-            }
             if (!applyReferences || target.UpdateReceipt == null) { continue; }
             try { ApplyReferenceReplaceReceipt(target.UpdateReceipt); }
             catch (Exception failure) { failures.Add(failure); }
         }
         foreach (PlaylistExternalSyncOwner.PlaylistReloadTargetResult target in result)
         {
-            PlaylistSyncAttemptResult sync = target.IsExpectedExternalLoadFailure
+            PlaylistSyncAttemptResult sync = target.IsHandledExternalLoadFailure
                 ? PlaylistSyncAttemptResult.CreateReportedExternalFailure(target.SourceTable, target.Uri, target.Exception)
                 : target.Exception == null
                     ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
                     : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.Uri, target.Exception);
             CapturePlaylistWorkflowFailure(() => RecordPlaylistSyncResult(sync), failures);
             // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
-            if (!target.IsExpectedExternalLoadFailure)
+            if (!target.IsHandledExternalLoadFailure)
             {
                 try { LogPlaylistSyncFailure(sync); }
                 catch (Exception diagnosticFailure)

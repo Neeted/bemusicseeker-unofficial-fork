@@ -1248,6 +1248,108 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+
+    /// <summary>
+    /// 単表保存の未分類取得失敗でも属性DB保存と必要BMT出力を終え、保存済み値をdialogVMへ採用してから同期未完了を返します。
+    /// Resetと次の明示保存は保存済み基準を使い、一般同期から取得失敗を外す変更でこの失敗を成功へ消す誤りを検出します。
+    /// 実Windowのfalse結果と寿命は既存terminal操作の接続・回帰に分担し、ここでは実SQLite・出力・service・dialogVMを観測します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), nameof(BmsPlaylistCustomFolderOutputTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            string songPath = CreateTempSongDbPath(directory);
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            string bmtDirectory = Path.Combine(directory, "bmt");
+            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            var output = new CustomFolderOutputSettingsSnapshot();
+            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmtDirectory },
+                () => output, CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings);
+            var library = new TestBmsLibrary(songPath, settings: settings);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(new Uri(header).AbsoluteUri));
+            table.playlist_id = 7316;
+            table.DisableExternalSync();
+            table.is_bmt_output = true;
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            string oldHash = table.data_sha256;
+            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"bad%00-data.json\"}");
+            var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null, () => output);
+            service.ExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+            service.PlaylistPropertySyncStarted += (_, _) => { };
+            service.PlaylistPropertySyncProgressChanged += (_, _) => { };
+            service.PlaylistPropertySyncFinished += (_, _) => { };
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
+            service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            PlaylistPropertyExternalSyncFailedEventArgs? reportedFailure = null;
+            string? symbolAtFailure = null;
+            bool enabledAtFailure = false;
+            service.PlaylistPropertyExternalSyncFailed += (_, failure) =>
+            {
+                reportedFailure = failure;
+                symbolAtFailure = dialog?.symbol;
+                enabledAtFailure = dialog?.is_external_sync == true;
+            };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session);
+            dialog.symbol = "Saved";
+            dialog.is_external_sync = true;
+            await Assert.ThrowsExceptionAsync<ArgumentException>(() => dialog.SaveAndApplyAsync());
+            Assert.IsNotNull(reportedFailure);
+            Assert.IsInstanceOfType<ArgumentException>(reportedFailure.Exception);
+            Assert.AreEqual("Saved", symbolAtFailure);
+            Assert.IsTrue(enabledAtFailure);
+            Assert.AreEqual("Saved", session.OriginalValues.Symbol);
+            Assert.IsTrue(session.OriginalValues.IsExternalSync);
+            Assert.IsNull(session.PendingOutput);
+            Assert.AreSame(table, playlist.BMSTables.Single());
+            Assert.AreEqual(oldHash, table.data_sha256);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                BMSTable saved = db.Table<BMSTable>().Single();
+                Assert.AreEqual("Saved", saved.symbol);
+                Assert.IsTrue(saved.is_external_sync);
+                Assert.AreEqual(oldHash, saved.data_sha256);
+                Assert.AreEqual("Before", db.Table<LR2SongDBExtended.playlist_entry>().Single().title);
+            }
+            string bmtPath = Directory.GetFiles(bmtDirectory, "*.bmt").Single();
+            Newtonsoft.Json.Linq.JObject exported = BeatorajaBmtTableImportService.ReadCachedTableData(bmtPath);
+            StringAssert.Contains(exported.ToString(), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            bool accepted = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+            admission?.Dispose();
+            Assert.IsTrue(accepted);
+            dialog.symbol = "Unsaved";
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.ResetPropertiesAsync());
+            Assert.AreEqual("Saved", dialog.symbol);
+            Assert.IsTrue(dialog.is_external_sync);
+            // 次保存では保存済みの外部同期有効化を再実行せず、入力が壊れたままでも新しい属性を保存できる。
+            dialog.symbol = "Next";
+            reportedFailure = null;
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+            Assert.IsNull(reportedFailure);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual("Next", verify.Table<BMSTable>().Single().symbol);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     /// <summary>ルート型の実出力ファイルを表ディレクトリの子として登録し、その表ディレクトリをLR2ルート直下へ置きます。通常型の基点階層を流用する誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

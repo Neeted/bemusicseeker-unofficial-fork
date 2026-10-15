@@ -547,10 +547,14 @@ internal sealed class PlaylistPropertySaveService
                             externalResyncApplied = true;
                         }
                         externalReloadFailed = target.UpdateReceipt == null;
-                        if (reload.Exception != null)
+                        // 一般同期では処理済み取得失敗を再送出しないが、単表保存は保存済み同期未完了として返す。
+                        Exception syncFailure = target.IsHandledExternalLoadFailure
+                            ? CombineFailures([target.Exception, reload.Exception])
+                            : reload.Exception;
+                        if (syncFailure != null)
                         {
-                            failures.Add(reload.Exception);
-                            commit.ExternalSyncFailure = new PlaylistPropertyExternalSyncFailedEventArgs(table, uri, reload.Exception);
+                            failures.Add(syncFailure);
+                            commit.ExternalSyncFailure = new PlaylistPropertyExternalSyncFailedEventArgs(table, uri, syncFailure);
                         }
                     }
                     catch (Exception ex)

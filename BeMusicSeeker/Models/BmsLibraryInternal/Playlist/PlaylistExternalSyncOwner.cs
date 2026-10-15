@@ -1014,7 +1014,7 @@ internal sealed class PlaylistExternalSyncOwner
         PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
         bool applySkipped = false;
-        bool expectedExternalLoadFailure = false;
+        bool handledExternalLoadFailure = false;
         Uri sourceUri = null;
         Exception failure = null;
         string previousOrgName = null;
@@ -1040,10 +1040,10 @@ internal sealed class PlaylistExternalSyncOwner
             }
             catch (Exception sourceFailure) when (uri.Scheme != "bmseeker"
                 && !(sourceFailure is OperationCanceledException && cancellationToken.IsCancellationRequested)
-                && PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure(sourceFailure))
+                && sourceFailure is not OutOfMemoryException)
             {
-                // 外部入力の失敗だけを対象単位に留める。DB読込み・保存・公開や内蔵推薦には適用しない。
-                expectedExternalLoadFailure = true;
+                // 未採用の外部生成は原因分類によらず対象で閉じる。DB読込み・保存・公開や内蔵推薦は含めない。
+                handledExternalLoadFailure = true;
                 throw;
             }
             cancellationToken.ThrowIfCancellationRequested();
@@ -1139,7 +1139,7 @@ internal sealed class PlaylistExternalSyncOwner
             newEntriesSnapshot = null;
             persistenceDecision = null;
             updated = false;
-            if (!expectedExternalLoadFailure)
+            if (!handledExternalLoadFailure)
             {
                 logWarning?.Invoke(
                     ex,
@@ -1178,7 +1178,7 @@ internal sealed class PlaylistExternalSyncOwner
             StatePersisted = persistenceDecision?.NeedsStatePersistence == true,
             NeedsBmtExport = persistenceDecision?.NeedsBmtExport == true,
             Exception = failure,
-            IsExpectedExternalLoadFailure = expectedExternalLoadFailure,
+            IsHandledExternalLoadFailure = handledExternalLoadFailure,
             UpdateReceipt = updateReceipt
         };
     }
@@ -1383,8 +1383,10 @@ internal sealed class PlaylistExternalSyncOwner
         /// <summary>操作全体の後続失敗。対象別失敗は各結果に保持します。</summary>
         internal Exception OperationException { get; }
 
-        /// <summary>確定情報を採用した呼出元が既存の例外境界へ渡す全失敗です。</summary>
-        internal Exception Exception => CombineFailures(targets.Select(target => target.Exception).Append(OperationException));
+        /// <summary>処理済み外部取得失敗を除き、確定情報を採用した呼出元へ渡す未処理の対象失敗と全体失敗です。</summary>
+        internal Exception Exception => CombineFailures(targets
+            .Where(target => !target.IsHandledExternalLoadFailure)
+            .Select(target => target.Exception).Append(OperationException));
 
         /// <summary>固定された対象結果一覧の件数を取得します。</summary>
         public int Count => targets.Count;
@@ -1402,7 +1404,7 @@ internal sealed class PlaylistExternalSyncOwner
         /// <returns>対象結果一覧の列挙子です。</returns>
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 
-        /// <summary>参照・変更の採用後に元の失敗を通知境界へ伝播します。</summary>
+        /// <summary>参照・変更の採用後に未処理失敗だけを通知境界へ伝播し、処理済み取得失敗は各対象に残します。</summary>
         internal void ThrowIfFailed()
         {
             if (Exception is Exception failure) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw(); }
@@ -1441,7 +1443,7 @@ internal sealed class PlaylistExternalSyncOwner
         /// 外部取得境界で処理済みの対象失敗か。STATUSへ記録し、バッチから再送出しません。
         /// 元例外は単表プロパティ保存の既存契約に残し、保存・公開の失敗と区別します。
         /// </summary>
-        internal bool IsExpectedExternalLoadFailure { get; init; }
+        internal bool IsHandledExternalLoadFailure { get; init; }
 
         internal PlaylistTableUpdateReceipt UpdateReceipt { get; init; }
 

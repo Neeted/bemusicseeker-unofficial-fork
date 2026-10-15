@@ -59,20 +59,21 @@ URL指定の複数行取込みは、取得を既存の上限内で並列化し�
 
 #### 取得失敗とSTATUS
 
-全体同期・手動再取得では、外部表の通信・ローカル同期元の読取り・形式不正を取得境界の対象失敗として扱います。詳細はログに記録し、失敗した表の既存データを保持して、取得できた他表の確定を妨げません。これらの処理済み例外をバッチから再送出しません。全対象に失敗した場合も完了通知を全件成功にはしません。
+全体同期・手動再取得・起動後の同期では、未採用の外部表の通信・ローカル同期元の読取り・解析失敗を取得境界の対象失敗として扱います。原因の許可リストを続行条件にせず、未分類の通常失敗も既存のその他エラーとして残します。詳細はログに記録し、失敗した表の既存データを保持して、取得できた他表の確定を妨げません。処理済みの取得失敗を、親が操作全体の例外へ再集約・再送出しません。全対象に失敗した場合も完了通知を全件成功にはしません。
 
 表ヘッダー・データのJSON形式失敗だけを対応する解析例外へ変換し、内部故障・資源不足を入力不良へ包装しません。任意の日付・順序・ハッシュ・URL・親ハッシュ項目で従来許容していた不正値の省略は、その入力変換だけを囲む境界に残します。行集合・フォルダ状態の必要反映や購読先の故障は解析失敗へ変換しません。受理入力、日付表現、順序、ハッシュと後続JSONの判定は `BMSTableLoadTests`、`BmsPlaylistExternalLoadTests` で維持します。
 
 STATUSには404、403、その他HTTPエラー、通信失敗、ヘッダー未検出、ヘッダー形式不正、データ形式不正、URL不正の分類を保持します。ローカル読取り失敗は既存のその他エラーを使用します。STATUSの詳細欄は分類・確認日時・取得元を示し、元例外の全階層を保持しません。
 
-この扱いを、DB読込み・保存・必要な参照公開・出力・内蔵推薦の失敗へ流用しません。操作トークンによる取消しと通信の期限切れも区別します。単表のプロパティ保存は確定結果と未完了出力の既存契約を維持します。元例外と取得元URLの診断は取得境界で行い、通常取得失敗を再取得対象境界でも重複記録しません。ワークスペースの診断コールバックが失敗しても実処理の失敗一覧へ加えません。
+この扱いを、DB読込み・保存・必要な参照公開・出力・内蔵推薦の失敗へ流用しません。操作トークンによる取消しと通信の期限切れも区別します。単表のプロパティ保存では、再取得に失敗しても属性保存と必要出力を進め、保存済みの編集値を採用してから同期未完了を通知し、ダイアログを開いたままにします。一般の同期操作で処理済み取得失敗を再送出しないことを、この未完了結果を消す理由にしません。元例外と取得元URLの診断は取得境界で行い、通常取得失敗を再取得対象境界でも重複記録しません。ワークスペースの診断コールバックが失敗しても実処理の失敗一覧へ加えません。
 
 | 入力・保証 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 取得失敗の局所化、STATUS、正常表の確定、旧表の保持、明示再取得 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` | `PlaylistExternalFailureBoundaryTests.ExternalSync_SourceFailurePreservesStatusAndCommittedTables`。実HTTP 400/403/404、ヘッダー・データ・項目形式不正、URL欠落、ローカル読取り失敗、全対象失敗。 |
+| 取得失敗の局所化、STATUS、正常表の確定、旧表の保持、明示再取得 | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` | `PlaylistExternalFailureBoundaryTests.ExternalSync_SourceFailurePreservesStatusAndCommittedTables`。実HTTP 400/403/404、ヘッダー・データ・項目形式不正、URL欠落、ローカル読取り失敗、未分類の取得失敗、全対象失敗。原因分類は表示のために使い、停止範囲を決める許可リストとして固定しない。 |
 | 手動再取得のSTATUS・現在参照・DB保持 | `PlaylistWorkspaceViewModel.ResyncPlaylistTableAsync` | `BmsPlaylistExternalReloadTests.PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle`。不正JSONの分類・日時・取得元を表示状態へ残し、Workspaceから詳細を再記録せず、直前の正常更新結果を保持する。 |
 | 取得境界での診断と元原因の保持 | `PlaylistExternalSyncOwner.LoadExternalTableAsync` | `PlaylistExternalFailureBoundaryTests.ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus`。実HTTP 403・不正ヘッダーと診断先の正常・失敗で、元例外と取得元が診断先へ渡り、STATUSに元例外を持ち越さない。 |
-| 包装された内部故障を通常取得失敗にしない | `PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure` | `PlaylistExternalFailureBoundaryTests.SourceFailureClassification_DoesNotConsumeInternalFailures`。内部故障・OOM・混合集約を分類対象から除外する。 |
+| 起動の対象失敗と保存失敗の区別 | `PlaylistWorkspaceViewModel.QueueExternalPlaylistSync`、`PlaylistExternalSyncOwner.PlaylistReloadOperationResult` | `ExternalSync_SourceFailurePreservesStatusAndCommittedTables` の起動条件は予約された実Taskの終端、旧表・正常表、全件成功でない完了通知を確認する。`PlaylistExternalFailureBoundaryTests.ExternalReload_DatabaseSaveFailureRemainsUnhandledAndPreservesCommittedTable` は実SQLiteの保存失敗を取得失敗として除外せず、旧正本・受付と次要求を保持する。 |
+| 単表属性保存の保存済み・同期未完了 | `PlaylistPropertySaveService`、`PlaylistPropertyDialogViewModel` | `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` は未分類の外部取得失敗でも属性DB保存と実BMT出力、通知時の保存値採用、Reset基準、次保存を確認する。表示STATUSの分類と例外を持ち越さない契約は `PlaylistSyncAttemptResultTests.CreateReportedExternalFailure_PreservesFailureClassificationWithoutExceptionTransport` が分担する。 |
 
 #### DB保存と画面反映の完了
 

@@ -144,7 +144,7 @@ OOMやプロセス破損は通常の整合性待ちと分け、全回収・全�
 
 | 適用項目 | 実装・確認先 | 保証する内容 |
 | --- | --- | --- |
-| 外部表の対象失敗とSTATUS | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` / `PlaylistExternalFailureBoundaryTests` | 取得境界の通常失敗をSTATUSへ変換する。正常表の確定と旧表の保持を妨げず、部分失敗を全件成功にしない。 |
+| 外部表の対象失敗とSTATUS | `PlaylistExternalSyncOwner.ReloadPlaylistTargetCoreAsync`、`PlaylistSyncAttemptResult`、`PlaylistWorkspaceViewModel` / `PlaylistExternalFailureBoundaryTests` | 未採用の外部生成失敗を原因の許可リストで選別せず、STATUSへ変換する。正常表の確定と旧表の保持を妨げず、処理済み失敗を親で再送出しない。部分失敗を全件成功にせず、単表属性保存の保存済み・同期未完了も保持する。 |
 | 手動再取得の失敗表示と診断の分担 | `BmsPlaylistExternalReloadTests.PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle` / `PlaylistExternalFailureBoundaryTests.ExternalLoad_ReportsOriginalFailureWithoutRetainingItInStatus` | 取得境界で元例外・取得元を記録し、WorkspaceはSTATUS・現在参照・保存済み内容・進捗終端を保つ。診断先の失敗は元原因を置き換えない。 |
 | 必要な確定状態と取消しの保持 | `BmsPlaylistExternalReloadTests` の出力失敗・部分取消し | 保存後の参照と全体取消しを失わず、開始済み処理の終端まで待つ。 |
 | 通知失敗の局所診断 | `FileDbMutationReport.ShowAsync`、`NotifyBestEffort` | 通知の失敗を元の変更結果へ加えない。 |

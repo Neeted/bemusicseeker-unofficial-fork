@@ -28,6 +28,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
     /// 通常の取得失敗で全体同期が例外終了せず、旧表・成功表のDB・STATUSと受付解放を保つことを確認します。
     /// 全対象失敗も全件成功とは通知しません。明示的な再取得では同じ表の失敗状態が解消します。
     /// 進捗表示が失敗する行でも対象成否・DB・後続購読者への終端を保ち、成功した次操作へ失敗を持ち越しません。
+    /// 原因一覧外の実NULパス失敗と起動schedulerの実work Taskも同じ混在入力で確認します。
     /// HTTPは既存loopback fixture、JSONは実ファイルを使い、WPF Windowや外部ネットワークは使いません。
     /// </summary>
     [DataTestMethod]
@@ -42,6 +43,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
     [DataRow(200, "header-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
     [DataRow(200, "data-scheme", true, (int)PlaylistSyncStatusKind.InvalidDataUrl, false)]
     [DataRow(200, "missing-file", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
+    [DataRow(200, "unknown-path", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
+    [DataRow(200, "unknown-startup", true, (int)PlaylistSyncStatusKind.UnknownError, false)]
     [DataRow(200, "header-not-found", true, (int)PlaylistSyncStatusKind.HeaderNotFound, false)]
     [DataRow(404, "http", false, (int)PlaylistSyncStatusKind.Http404, false)]
     [DataRow(200, "data", true, (int)PlaylistSyncStatusKind.DataParseError, true)]
@@ -54,6 +57,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Directory.CreateDirectory(directory);
         SingleRequestHttpServer? server = null;
         PlaylistWorkspaceViewModel? workspace = null;
+        Func<Task>? scheduledWork = null;
+        Task? startupTask = null;
         try
         {
             Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
@@ -100,6 +105,14 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 case "header": File.WriteAllText(badHeader, "{ invalid json }"); break;
                 case "data": File.WriteAllText(badData, "{ invalid json }"); break;
                 case "missing-file": File.Delete(badData); break;
+                case "unknown-path":
+                case "unknown-startup":
+                    // 明示file URIでは%00がNULへ展開され、読取りが原因一覧外のArgumentExceptionになる。
+                    // DOS path由来の暗黙file URIでは%00がliteralのため、この境界を通らない。
+                    bad.Page_url = new Uri(new Uri(badHeader).AbsoluteUri);
+                    bad.Header_url = bad.Page_url;
+                    File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"bad%00-data.json\"}");
+                    break;
                 case "header-not-found": File.WriteAllText(badHeader, "<html><body>No table</body></html>"); break;
                 case "entry": File.WriteAllText(badData, "[1]"); break;
                 case "url": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\"}"); break;
@@ -107,7 +120,14 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 case "header-scheme": File.WriteAllText(badHeader, "<html><head><meta name=\"bmstable\" content=\"ftp://example.invalid/header.json\"></head></html>"); break;
                 case "data-scheme": File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"ftp://example.invalid/data.json\"}"); break;
             }
-            workspace = CreatePlaylistWorkspace(playlist, library);
+            if (malformedPart == "unknown-startup")
+            {
+                workspace = PlaylistWorkspaceFixtureFactory.CreateDetailWorkspace(out _,
+                    playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                    externalSyncScheduler: (_, work) => { scheduledWork = work; return true; });
+                workspace.RefreshPlaylistTreeTables(playlist, library);
+            }
+            else { workspace = CreatePlaylistWorkspace(playlist, library); }
             var progress = new List<PlaylistSyncProgressSnapshot>();
             var execution = new List<bool>();
             int queuedCount = 0;
@@ -138,7 +158,16 @@ public sealed class PlaylistExternalFailureBoundaryTests
             };
 
             // 全体再読込みが使う同期入口を直接待つ。失敗をAssert.Throwsで成功条件にしません。
-            await workspace.RunExternalPlaylistSyncAsync("source-failure", true, true, 1);
+            if (malformedPart == "unknown-startup")
+            {
+                // 起動時と同じ予約入口で、schedulerが所有する実work Taskを終端まで待つ。
+                workspace.QueueExternalPlaylistSync("Initialize", false, true, 1);
+                Assert.IsNotNull(scheduledWork);
+                startupTask = Task.Run(scheduledWork);
+                await startupTask;
+                Assert.IsTrue(startupTask.IsCompletedSuccessfully);
+            }
+            else { await workspace.RunExternalPlaylistSyncAsync("source-failure", true, true, 1); }
             Assert.AreEqual(1, completedCount);
             Assert.IsFalse(reportedSuccess);
             Assert.IsFalse(reportedSkipped);
@@ -171,6 +200,18 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 }
             }
 
+            if (malformedPart is "unknown-path" or "unknown-startup")
+            {
+                // 原因一覧外の実読取り失敗は対象に残り、一般操作のException/ThrowIfFailedへ戻らない。
+                PlaylistExternalSyncOwner.PlaylistReloadOperationResult result =
+                    await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([bad]);
+                Assert.IsInstanceOfType<ArgumentException>(result.Single().Exception);
+                Assert.IsTrue(result.Single().IsHandledExternalLoadFailure);
+                Assert.IsFalse(result.Single().Succeeded);
+                Assert.IsNull(result.Exception);
+                result.ThrowIfFailed();
+            }
+
             // 同じ対象の入力を修正して明示的に再取得する。過去の失敗を次操作へ持ち越しません。
             bad.Page_url = new Uri(badHeader);
             bad.Header_url = new Uri(badHeader);
@@ -195,6 +236,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
         }
         finally
         {
+            if (startupTask != null) { try { await startupTask; } catch (Exception) { } }
             if (workspace != null)
             {
                 await workspace.WaitForDetailBuildIdleAsync();
@@ -262,44 +304,86 @@ public sealed class PlaylistExternalFailureBoundaryTests
         Assert.AreEqual(string.Empty, status.Detail);
     }
 
-    /// <summary>HTTPの型付き応答コードと通常の入力不良を分類し、包装された内部故障・OOM・混合集約を通常取得失敗にしません。</summary>
+    /// <summary>
+    /// 外部取得が成功しても実SQLite保存の失敗を処理済み取得失敗にせず、旧正本と受付終端を保って表面化します。
+    /// 故障triggerを除いた次の明示要求で同じ入力を確定でき、保存失敗を取得失敗として捨てる誤りを検出します。
+    /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
-    public void SourceFailureClassification_DoesNotConsumeInternalFailures()
+    public async Task ExternalReload_DatabaseSaveFailureRemainsUnhandledAndPreservesCommittedTable()
     {
-        Exception[] expected =
-        [
-            new HttpRequestException("not found", null, HttpStatusCode.NotFound),
-            new HttpRequestException("network unavailable"),
-            new OperationCanceledException(),
-            new FileNotFoundException("source missing"),
-            new UnauthorizedAccessException("source denied"),
-            new PlaylistHeaderParseException("header", new JsonReaderException("invalid json")),
-            new PlaylistDataParseException("data", new FormatException("invalid entry"))
-        ];
-        foreach (Exception failure in expected)
+        string directory = Path.Combine(Path.GetTempPath(), nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        string songPath = CreateTempSongDbPath(directory);
+        bool triggerCreated = false;
+        try
         {
-            Assert.IsTrue(PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure(failure));
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            PlaylistPersistenceRepository.EnsureSchema(songPath);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            var playlist = new TestBmsPlaylist(songPath, null, null, null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot(),
+                CreateDeterministicLr2PlaylistFolderSynchronizationPort(songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings);
+            BMSTable oldTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
+            oldTable.playlist_id = 7903;
+            oldTable.is_bmt_output = false;
+            Assert.IsTrue(oldTable.EnableExternalSync());
+            playlist.BMSTables = new ObservableCollection<BMSTable>([oldTable]);
+            playlist.CommitBMSTableWithEntriesToDB(oldTable);
+            string oldHash = oldTable.data_sha256;
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"After\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+            using (var db = new LR2SongDBExtended(songPath))
+            {
+                db.Execute("CREATE TRIGGER external_save_failure BEFORE INSERT ON playlist WHEN NEW.playlist_id = 7903 BEGIN SELECT RAISE(ABORT, 'external DB save failure'); END;");
+                triggerCreated = true;
+            }
+
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result =
+                await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([oldTable]);
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult target = result.Single();
+            Assert.IsFalse(target.IsHandledExternalLoadFailure);
+            Assert.IsFalse(target.Succeeded);
+            Assert.IsFalse(target.StatePersisted);
+            Assert.IsNotNull(target.Exception);
+            Assert.IsNotNull(result.Exception);
+            StringAssert.Contains(result.Exception.ToString(), "external DB save failure");
+            Exception? surfaced = null;
+            try { result.ThrowIfFailed(); } catch (Exception failure) { surfaced = failure; }
+            Assert.IsNotNull(surfaced);
+            StringAssert.Contains(surfaced?.ToString() ?? string.Empty, "external DB save failure");
+            Assert.AreSame(oldTable, playlist.BMSTables.Single());
+            Assert.AreEqual(oldHash, oldTable.data_sha256);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(oldHash, db.Table<BMSTable>().Single().data_sha256);
+                Assert.AreEqual("Before", db.Table<LR2SongDBExtended.playlist_entry>().Single().title);
+            }
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            bool accepted = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+            admission?.Dispose();
+            Assert.IsTrue(accepted);
+            using (var db = new LR2SongDBExtended(songPath)) { db.Execute("DROP TRIGGER external_save_failure;"); }
+            triggerCreated = false;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult next =
+                await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([oldTable]);
+            next.ThrowIfFailed();
+            Assert.IsTrue(next.Single().Succeeded);
+            Assert.AreEqual(2, playlist.BMSTables.Single().entries.Count);
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
+            Assert.AreEqual(2, verify.Table<LR2SongDBExtended.playlist_entry>().Count());
         }
-        Exception[] unexpected =
-        [
-            new InvalidOperationException("publication failed"),
-            new PlaylistDataParseException("data", new NullReferenceException()),
-            new PlaylistDataParseException("data", new OutOfMemoryException()),
-            new PlaylistDataParseException("data", new ArgumentNullException("internalState")),
-            new AggregateException(expected[0], new InvalidOperationException("save failed"))
-        ];
-        foreach (Exception failure in unexpected)
+        finally
         {
-            Assert.IsFalse(PlaylistSyncAttemptResult.IsExpectedExternalLoadFailure(failure));
+            if (triggerCreated)
+            {
+                using var cleanup = new LR2SongDBExtended(songPath);
+                cleanup.Execute("DROP TRIGGER external_save_failure;");
+            }
+            Directory.Delete(directory, recursive: true);
         }
-        var uri = new Uri("https://example.invalid/table.json");
-        var status = PlaylistSyncAttemptResult.CreateReportedExternalFailure(null, uri, expected[0]);
-        Assert.AreEqual(PlaylistSyncStatusKind.Http404, status.FailureKind);
-        Assert.IsFalse(status.Succeeded);
-        Assert.IsNull(status.Exception);
-        Assert.AreEqual(string.Empty, status.Detail);
-        Assert.AreEqual(PlaylistSyncStatusKind.NetworkError,
-            PlaylistSyncAttemptResult.CreateReportedExternalFailure(null, uri, expected[1]).FailureKind);
     }
+
 }

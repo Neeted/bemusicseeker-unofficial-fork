@@ -1,10 +1,8 @@
 using System;
-using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
 
 namespace BeMusicSeeker.Models;
 
@@ -58,28 +56,6 @@ internal sealed class PlaylistSyncAttemptResult
             FailureKind = playlistSyncStatusKind,
             Detail = BuildFailureDetail(exception, pageUri)
         };
-    }
-
-    /// <summary>
-    /// 外部表の取得・解析だけを囲む境界で、対象単位に留められる失敗を判定します。
-    /// 保存・公開には使用せず、操作tokenの取消しは呼出元で先に除外します。
-    /// </summary>
-    internal static bool IsExpectedExternalLoadFailure(Exception exception)
-    {
-        if (exception is HttpRequestException or OperationCanceledException
-            or IOException or UnauthorizedAccessException
-            or PlaylistHeaderUriNotFoundException or UriFormatException)
-        {
-            return true;
-        }
-        if (exception is PlaylistHeaderParseException or PlaylistDataParseException)
-        {
-            // parserが広く包装している現行経路でも、内部不具合やOOMを入力不良にしません。
-            return exception.InnerException is JsonException or FormatException
-                or InvalidCastException or OverflowException;
-        }
-        return exception is InvalidOperationException invalidDataUrl
-            && invalidDataUrl.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal);
     }
 
     /// <summary>取得境界で診断済みの失敗を、STATUS用の分類へ変換します。STATUSの表示状態に元例外を保持しません。</summary>
