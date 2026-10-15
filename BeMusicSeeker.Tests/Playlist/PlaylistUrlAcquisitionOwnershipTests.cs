@@ -1260,6 +1260,91 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
 
 
+    /// <summary>二件目の保存後・応答解放中に取消しても実終端を待ち、完了した二取得物を一回で渡して回収します。三件目の開始、完了済み入力の喪失と早すぎる引渡しを検出します。</summary>
+    [TestMethod]
+    public async Task ExternalPackageLookup_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var disposeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var disposeRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? acquisition = null;
+        string[] md5s = ["11111111111111111111111111111111", "22222222222222222222222222222222", "33333333333333333333333333333333"];
+        Uri[] uris = [new("https://example.invalid/first.zip"), new("https://example.invalid/second.zip"), new("https://example.invalid/third.zip")];
+        byte[] firstBytes = [1, 2, 3];
+        byte[] secondBytes = [4, 5, 6];
+        var firstStream = new DisposalGatedDownloadStream(firstBytes);
+        var secondStream = new DisposalGatedDownloadStream(secondBytes, disposeEntered, disposeRelease.Task);
+        try
+        {
+            var provider = new BatchHandoffLookupProvider(md5s.Zip(uris).ToDictionary(pair => pair.First, pair => pair.Second));
+            var gateway = new RecordingPlaylistUrlDownloadGateway(root);
+            gateway.AddResponse(uris[0], () => new AppHttpResponse(uris[0], firstStream));
+            gateway.AddResponse(uris[1], () => new AppHttpResponse(uris[1], secondStream));
+            gateway.AddResponse(uris[2], () => new AppHttpResponse(uris[2], new MemoryStream([7, 8, 9], writable: false)));
+            int handoffs = 0;
+            IReadOnlyList<string>? capturedPaths = null;
+            byte[][]? capturedBytes = null;
+            bool responsesDisposedAtHandoff = false;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot(),
+                new PlaylistUrlAcquisitionWorkflow(gateway, _ => { }),
+                paths =>
+                {
+                    handoffs++;
+                    capturedPaths = paths;
+                    capturedBytes = paths.Select(File.ReadAllBytes).ToArray();
+                    responsesDisposedAtHandoff = firstStream.WasDisposed && secondStream.WasDisposed;
+                    return true;
+                },
+                dialogService: new RecordingPlaylistUrlDialogService(),
+                externalLookupService: new PlaylistExternalPackageLookupService([provider]));
+
+            acquisition = Task.Run(() => workspace.RunPlaylistExternalPackageLookupAsync(md5s.Select(CreatePlaylistExternalPackageRow)));
+            Task reached = await Task.WhenAny(disposeEntered.Task, acquisition);
+            if (reached == acquisition) { await acquisition; }
+            Assert.AreSame(disposeEntered.Task, reached);
+            CollectionAssert.AreEqual(secondBytes, File.ReadAllBytes(Path.Combine(root, "second.zip")));
+            Assert.IsTrue(firstStream.WasDisposed);
+            Assert.IsFalse(secondStream.WasDisposed);
+
+            workspace.CancelPlaylistUrlDownload();
+
+            Assert.IsFalse(acquisition.IsCompleted, "開始済みの応答解放が終わるまで取得操作を保持します。");
+            Assert.AreEqual(0, handoffs);
+            CollectionAssert.AreEqual(md5s.Take(2).ToArray(), provider.RequestedMd5s);
+            disposeRelease.TrySetResult();
+            await acquisition;
+
+            Assert.AreEqual(1, handoffs);
+            Assert.IsNotNull(capturedPaths);
+            Assert.IsNotNull(capturedBytes);
+            CollectionAssert.AreEqual(new[] { "first.zip", "second.zip" }, capturedPaths.Select(Path.GetFileName).ToArray());
+            Assert.AreEqual(2, capturedBytes.Length);
+            CollectionAssert.AreEqual(firstBytes, capturedBytes[0]);
+            CollectionAssert.AreEqual(secondBytes, capturedBytes[1]);
+            Assert.IsTrue(responsesDisposedAtHandoff);
+            Assert.IsTrue(secondStream.WasDisposed);
+            CollectionAssert.AreEqual(md5s.Take(2).ToArray(), provider.RequestedMd5s);
+            CollectionAssert.AreEqual(uris.Take(2).ToArray(), gateway.RequestedUris);
+            Assert.IsTrue(capturedPaths.All(path => !File.Exists(path)), "入力利用の終端後に所有stagingを回収します。");
+            Assert.AreEqual(0, Directory.GetFiles(root).Length);
+            Assert.IsFalse(workspace.IsPlaylistUrlDownloadRunning);
+        }
+        finally
+        {
+            disposeRelease.TrySetResult();
+            try { if (acquisition != null) { await acquisition; } }
+            finally
+            {
+                firstStream.Dispose();
+                secondStream.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
     /// <summary>
     /// 単体列・本体/差分取り込み・外部 API の取得成功後に共通受付が Busy の場合、
     /// 警告で終わり、導入・tree 展開・ブラウザ fallback・後続の自動再実行を行いません。
@@ -1457,6 +1542,37 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
         public Task<PlaylistExternalPackageLookupResult> LookupAsync(string chartMd5, CancellationToken cancellationToken)
             => Task.FromResult(new PlaylistExternalPackageLookupResult(ProviderId, chartMd5, downloadUri));
+    }
+
+    private sealed class BatchHandoffLookupProvider(IReadOnlyDictionary<string, Uri> downloadUris) : IPlaylistExternalPackageLookupProvider
+    {
+        public string ProviderId => "batch-handoff-test";
+
+        internal List<string> RequestedMd5s { get; } = [];
+
+        public Task<PlaylistExternalPackageLookupResult> LookupAsync(string chartMd5, CancellationToken cancellationToken)
+        {
+            RequestedMd5s.Add(chartMd5);
+            return Task.FromResult(new PlaylistExternalPackageLookupResult(ProviderId, chartMd5, downloadUris[chartMd5]));
+        }
+    }
+
+    // 保存成功後の通常の応答解放を止め、外からの取消要求と実終端の順序を固定します。
+    private sealed class DisposalGatedDownloadStream(byte[] content, TaskCompletionSource? entered = null, Task? release = null)
+        : MemoryStream(content, writable: false)
+    {
+        internal bool WasDisposed { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                entered?.TrySetResult();
+                release?.GetAwaiter().GetResult();
+            }
+            base.Dispose(disposing);
+            WasDisposed = true;
+        }
     }
 
     private PlaylistWorkspaceViewModel CreateWorkspace(

@@ -581,12 +581,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             downloadedKeys,
             allowSharedPageResolution: false,
             cancellationToken).ConfigureAwait(false);
-        if (cancellationToken.IsCancellationRequested)
+        // 保存と応答解放を完了した取得物は、取消し後も既存の集約・回収へ渡します。
+        if (result.Kind != PlaylistUrlDownloadResultKind.Downloaded)
         {
-            if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded)
-            {
-                await playlistUrlAcquisitionWorkflow.ReclaimStagedFilesAsync([result.FilePath]).ConfigureAwait(false);
-            }
             cancellationToken.ThrowIfCancellationRequested();
         }
         playlistUrlAcquisitionWorkflow.LogDownload(

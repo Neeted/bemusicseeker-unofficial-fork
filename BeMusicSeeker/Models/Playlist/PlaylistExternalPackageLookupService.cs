@@ -567,6 +567,7 @@ internal sealed class PlaylistExternalPackageLookupService
     /// <summary>
     /// provider を優先順に問い合わせ、最初に導入可能だった候補を返します。
     /// 通常の通信失敗だけを候補内へ閉じ、内部故障と未解決の回収は呼出元へ返します。
+    /// 完了済みの保存成功は取消し後も保持し、導入へ集約する呼出元へ渡します。
     /// </summary>
     /// <param name="chartMd5">検索対象の譜面 MD5。</param>
     /// <param name="downloadAsync">候補 URL のダウンロードを試行する関数。第 2 引数には処理中断用トークンが渡されます。</param>
@@ -643,7 +644,10 @@ internal sealed class PlaylistExternalPackageLookupService
             try
             {
                 attempt = await downloadAsync(lookupResult, cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt?.Kind != PlaylistExternalPackageDownloadAttemptKind.Downloaded)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

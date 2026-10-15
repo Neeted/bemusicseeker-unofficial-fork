@@ -90,23 +90,39 @@ public sealed class PlaylistExternalPackageLookupServiceTests
         Assert.IsFalse(KonmaiPlaylistExternalPackageLookupProvider.TryParseLookupResult(SampleMd5, @"{""result"":""success"",""data"":{""song_url"":{}}}", out _));
     }
 
-    /// <summary>先頭候補の取得が成功すると後続提供元を照会しない。成功後の重複取得や提供元順序の逆転を検出する。</summary>
-    [TestMethod]
-    public async Task LookupService_StopsAtFirstProviderWhenDownloadSucceeds()
+    /// <summary>先頭候補の取得成功は返却直前に取消されてもパスとキーを保持し、後続提供元を照会しない。完了済み取得物の喪失と成功後の重複取得を検出する。</summary>
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LookupService_StopsAtFirstProviderWhenDownloadSucceeds(bool cancelAfterCompletedDownload)
     {
+        using var cancellation = new CancellationTokenSource();
         var first = new FakeProvider("A", new Uri("https://example.invalid/a.7z"));
         var second = new FakeProvider("B", new Uri("https://example.invalid/b.7z"));
         var service = new PlaylistExternalPackageLookupService([first, second]);
+        const string savedPath = "C:\\temp\\a.7z";
+        const string savedKey = "https://cdn.example.invalid/a.7z";
+        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         PlaylistExternalPackageWorkflowResult result = await service.DownloadFirstAvailablePackageAsync(
             SampleMd5,
-            (lookup, token) => Task.FromResult(PlaylistExternalPackageDownloadAttempt.Downloaded("C:\\temp\\a.7z", lookup.DownloadUri.AbsoluteUri)),
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+            (lookup, token) =>
+            {
+                var completed = PlaylistExternalPackageDownloadAttempt.Downloaded(savedPath, savedKey);
+                if (cancelAfterCompletedDownload) { cancellation.Cancel(); }
+                return Task.FromResult(completed);
+            },
+            downloadedKeys,
             new HashSet<string>(StringComparer.OrdinalIgnoreCase),
             uri => uri.AbsoluteUri,
-            _ => { });
+            _ => { },
+            cancellation.Token);
 
         Assert.AreEqual(PlaylistExternalPackageWorkflowResultKind.Downloaded, result.Kind);
+        Assert.AreEqual(savedPath, result.FilePath);
+        Assert.AreEqual(savedKey, result.DownloadKey);
+        Assert.AreEqual(1, downloadedKeys.Count);
+        Assert.IsTrue(downloadedKeys.Contains(savedKey));
         Assert.AreEqual(1, first.LookupCount);
         Assert.AreEqual(0, second.LookupCount);
     }
