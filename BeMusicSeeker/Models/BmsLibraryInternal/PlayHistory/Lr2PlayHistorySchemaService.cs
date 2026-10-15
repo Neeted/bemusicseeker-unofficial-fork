@@ -292,6 +292,7 @@ internal sealed class Lr2PlayHistorySchemaService
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "LR2", "schema_check", scoreDbPath);
             return CreateUnreadableResult(scoreDbPath, ex.Message);
         }
     }

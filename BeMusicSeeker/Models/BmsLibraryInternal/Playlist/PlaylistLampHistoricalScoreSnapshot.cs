@@ -221,6 +221,7 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
         }
         catch (Exception exception)
         {
+            PlayHistoryReadDiagnostics.Report(exception, sourceContext.ActiveScoreSource.ToString(), "historical_score_changes", sourceContext.ScoreDbPath);
             return ReadChangesResult.Unavailable(exception.Message);
         }
     }

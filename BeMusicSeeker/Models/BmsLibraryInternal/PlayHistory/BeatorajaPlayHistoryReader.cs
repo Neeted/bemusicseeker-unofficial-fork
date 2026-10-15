@@ -76,6 +76,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "read", request.ScoreLogDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath));
             return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable, playerSnapshots, playerSnapshotsAvailable);
         }
@@ -112,6 +113,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "period_index", resolved.ScoreLogDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_period_index_failed", ex.Message, resolved.ScoreLogDbPath));
             return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
         }
@@ -244,6 +246,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "player_aggregate", request.ScoreDbPath);
             diagnostics?.Add(CreateDiagnostic(
                 PlayHistoryDiagnosticSeverity.Warning,
                 "play_history_beatoraja_player_aggregate_unreadable",

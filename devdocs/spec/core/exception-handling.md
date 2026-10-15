@@ -150,6 +150,7 @@ OOMやプロセス破損は通常の整合性待ちと分け、全回収・全�
 | 通知失敗の局所診断 | `FileDbMutationReport.ShowAsync`、`NotifyBestEffort` | 通知の失敗を元の変更結果へ加えない。 |
 | 対象失敗と入力不良記録の区別 | [譜面情報](../library/chart-info.md)、[解析互換性](../library/parser-compatibility.md)、[パスとI/O](path-length-and-io.md)、[LR2ランキング](../integration/lr2-ranking.md)の実装・テスト対応 | 独立した失敗を対象内へ閉じ、内部故障や診断失敗を恒久的な解析不能・不存在へ読み替えない。 |
 | 保存・必要反映と任意通知 | [プレイリストの保存・出力](../playlist/storage-and-export.md)、[ライブラリ変更](../library/mutations.md)の実装・テスト対応 | 保存済み参照と必要な未完了処理を保持し、処理後の案内や診断の失敗で元結果を変えない。 |
+| 履歴読取りの一次診断 | [プレイ履歴](../playlist/play-history.md#外部操作と診断)、[ランプビューア](../playlist/lamp-viewer.md#基準日のスコア) | 元例外を持つ読取り・変換境界で取得元と対象パスを記録し、結果への例外保存や再送出を追加しない。 |
 | 開始済み処理と中断位置 | [譜面ファイル読取り](../library/chart-file-reading.md)、[LR2楽曲DB同期](../integration/lr2-song-db.md)の実装・テスト対応 | 準備・解析・保存の開始済みTaskを終端まで待ち、実確定位置と必須反映の結果を引き継ぐ。 |
 | 補償・解放と残状態 | [ファイルとDBの整合性](../library/file-db-consistency.md)、[音声](../runtime/audio.md)、[LR2バックアップ](../integration/lr2-backup.md)、[ポータブル更新](../integration/portable-update.md)の実装・テスト対応 | 元失敗を保ちながら独立した必要回収を試み、未解決の補償や共有資源を任意診断へ格下げしない。 |
 | 起動・設定・最終終了 | [起動](../runtime/startup.md)、[設定](../runtime/settings.md)、[終了](../runtime/shutdown.md)の実装・テスト対応 | 必須準備と任意診断を分離し、実操作の終端と必要な終了を通知故障で飛ばさない。 |

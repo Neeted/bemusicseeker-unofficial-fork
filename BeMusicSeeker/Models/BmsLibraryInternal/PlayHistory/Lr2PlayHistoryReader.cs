@@ -81,6 +81,7 @@ internal sealed class Lr2PlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "LR2", "read", request.ScoreDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_read_failed", ex.Message, request.ScoreDbPath));
             return new Lr2PlayHistoryReadResult(sourceProfile, [], diagnostics, schema.Status, schema);
         }
@@ -138,6 +139,7 @@ internal sealed class Lr2PlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "LR2", "period_index", request.ScoreDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_lr2_period_index_failed", ex.Message, request.ScoreDbPath));
             return new Lr2PlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, schema.Status);
         }
