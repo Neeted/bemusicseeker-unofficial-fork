@@ -1205,6 +1205,118 @@ public sealed class BmsLibraryIrServiceTests
         Assert.AreEqual(1, gateway.LoadIrData(123).Count(data => data.hash == hash));
     }
 
+    /// <summary>順位cacheの実DB保存が失敗したら旧DB・借用済みscore・現在snapshotを保持し、次の通常要求でも未保存の新hashを公開しない。</summary>
+    /// <remarks>実Download入口からstaging・昇格・SQLite保存・共有scoreとlookupへの接続を確認する。解析条件と一般のcommit失敗は既存ケースへ分担する。</remarks>
+    [TestMethod]
+    public void DownloadIRData_DatabaseSaveFailurePreservesSharedScoresAndSnapshotAndAllowsNextRequest()
+    {
+        using var env = TempIrEnvironment.Create();
+        const string existingHash = "abababababababababababababababab";
+        const string newHash = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
+        using (var db = new LR2ScoreDBExtended(env.ScoreDbPath))
+        {
+            db.RunInTransaction(() =>
+            {
+                db.CreateTable<LR2ScoreDB.player>();
+                db.CreateTable<LR2ScoreDB.score>();
+                db.Insert(new LR2ScoreDB.player { id = "download-save-failure", irid = 123 });
+                db.Insert(new LR2ScoreDB.score { hash = existingHash, perfect = 100, great = 20, totalnotes = 1000 });
+            });
+        }
+        DateTime retainedAt = new(2026, 10, 10, 12, 0, 0);
+        DateTime failedAt = retainedAt.AddDays(1);
+        DateTime nextAt = retainedAt.AddDays(2);
+        var otherPlayer = new RankingScoreRow { Lr2Id = 456, Notes = 1000, Combo = 800, Pg = 400, Gr = 100, MinBp = 15, Clear = 4 };
+        var client = new FakeIrClient(string.Empty);
+        client.SetRankingXml(existingHash, BuildRankingCacheXml(retainedAt,
+            [new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 700, Pg = 300, Gr = 50, MinBp = 20, Clear = 4 }, otherPlayer]));
+        var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = env.RootDirectoryPath };
+        var library = new TestBmsLibrary(env.SongDbPath, null, env.ScoreDbPath, null, () => options,
+            TestBmsFactory.MissingEverythingBridge, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), irClient: client);
+        try
+        {
+            library.InitializeScoresOnly(null);
+            Assert.AreEqual(0, library.DownloadIRData([CreateCacheInfo(existingHash, retainedAt)]).Count);
+            BMSScore borrowed = library.GetBMSScores().Single();
+            ChartScoreSnapshot retained = library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "existing.bms", existingHash, string.Empty);
+            Assert.AreEqual(650, retained.Score);
+            Assert.AreEqual(2, retained.Ranking);
+            (int perfect, int great, int op_history) retainedJudgments = (borrowed.perfect, borrowed.great, borrowed.op_history);
+            LR2IRData retainedRow;
+            using (var db = new SQLiteConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
+            {
+                retainedRow = db.Query<LR2IRData>("SELECT * FROM ir_data;").Single();
+            }
+            string failedXml = BuildRankingCacheXml(failedAt,
+                [new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 900, Pg = 500, Gr = 100, MinBp = 10, Clear = 5 }, otherPlayer]);
+            client.SetRankingXml(existingHash, failedXml);
+            client.SetRankingXml(newHash, failedXml);
+            using (var db = new SQLiteConnection(env.SongDbPath))
+            {
+                db.Execute("CREATE TRIGGER reject_download_ir_data BEFORE INSERT ON ir_data BEGIN SELECT RAISE(ABORT, 'controlled ranking cache save failure'); END;");
+            }
+
+            SQLiteException failure = Assert.ThrowsException<SQLiteException>(() =>
+                library.DownloadIRData([CreateCacheInfo(existingHash, failedAt), CreateCacheInfo(newHash, failedAt)]));
+
+            StringAssert.Contains(failure.Message, "controlled ranking cache save failure");
+            using (var db = new SQLiteConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
+            {
+                AssertIrDataEquivalent(retainedRow, db.Query<LR2IRData>("SELECT * FROM ir_data;").Single());
+            }
+            Assert.AreEqual(retainedJudgments, (borrowed.perfect, borrowed.great, borrowed.op_history));
+            AssertRetainedScore(ChartScoreSnapshot.FromBmsScore(borrowed, "existing.bms"));
+            AssertRetainedScore(library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "existing.bms", existingHash, string.Empty));
+            Assert.IsFalse(library.GetBMSScores().Any(score => score.hash == newHash));
+            Assert.IsNull(library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "new.bms", newHash, string.Empty).Score);
+
+            using (var db = new SQLiteConnection(env.SongDbPath))
+            {
+                db.Execute("DROP TRIGGER reject_download_ir_data;");
+            }
+            client.SetRankingXml(existingHash, BuildRankingCacheXml(nextAt,
+                [new RankingScoreRow { Lr2Id = 123, Notes = 1000, Combo = 950, Pg = 600, Gr = 100, MinBp = 3, Clear = 5 }, otherPlayer]));
+
+            Assert.AreEqual(0, library.DownloadIRData([CreateCacheInfo(existingHash, nextAt)]).Count);
+
+            using (var db = new SQLiteConnection(env.SongDbPath, SQLiteOpenFlags.ReadOnly))
+            {
+                LR2IRData nextRow = db.Query<LR2IRData>("SELECT * FROM ir_data;").Single();
+                Assert.AreEqual(existingHash, nextRow.hash);
+                Assert.AreEqual(600, nextRow.pg);
+                Assert.AreEqual(100, nextRow.gr);
+                Assert.AreEqual(nextAt, nextRow.lastupdate);
+            }
+            Assert.AreEqual(1300, borrowed.score);
+            Assert.AreEqual(1, borrowed.ranking);
+            Assert.AreEqual(nextAt, borrowed.rankingLastupdate);
+            Assert.AreEqual(1300, library.GetBMSScores().Single().score);
+            ChartScoreSnapshot current = library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "existing.bms", existingHash, string.Empty);
+            Assert.AreEqual(1300, current.Score);
+            Assert.AreEqual(1, current.Ranking);
+            Assert.AreEqual(nextAt, current.RankingLastUpdate);
+            Assert.IsNull(library.ResolveChartScoreSnapshot(ChartFileKind.Bms, "new.bms", newHash, string.Empty).Score);
+
+            void AssertRetainedScore(ChartScoreSnapshot actual)
+            {
+                Assert.AreEqual(retained.Score, actual.Score);
+                Assert.AreEqual(retained.Clear, actual.Clear);
+                Assert.AreEqual(retained.TotalNotes, actual.TotalNotes);
+                Assert.AreEqual(retained.MinBp, actual.MinBp);
+                Assert.AreEqual(retained.MaxCombo, actual.MaxCombo);
+                Assert.AreEqual(retained.Ranking, actual.Ranking);
+                Assert.AreEqual(retained.RankingNum, actual.RankingNum);
+                Assert.AreEqual(retained.RankingLastUpdate, actual.RankingLastUpdate);
+                Assert.AreEqual(retained.StdDevVal, actual.StdDevVal);
+                Assert.AreEqual(retained.ScoreDifficulty, actual.ScoreDifficulty);
+            }
+        }
+        finally
+        {
+            library.RequestShutdown("download-save-failure-fixture-cleanup");
+        }
+    }
+
     /// <summary>成功XMLと不正XMLが混在する実model取得で、snapshot通知故障後も成功対象の昇格・保存・新hash lookupを保持し、実失敗対象だけを返します。</summary>
     /// <remarks>サービス側の解析条件は既存ケースへ分担し、この代表例はmodelの通知生産とDB・実索引の接続を確認します。</remarks>
     [TestMethod]

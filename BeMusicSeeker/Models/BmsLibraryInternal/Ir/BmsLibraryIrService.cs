@@ -771,6 +771,13 @@ internal sealed class BmsLibraryIrService
         }
     }
 
+    /// <summary>解析と昇格に成功した順位cacheを一括保存し、確定後だけ共有スコアへ採用します。</summary>
+    /// <param name="plan">取得・解析・昇格の結果。</param>
+    /// <param name="dbGateway">順位cacheの保存先。</param>
+    /// <param name="bmsScores">呼出元がロックと通知抑止を保持する共有スコア。</param>
+    /// <param name="estimateOfflineScoreRanking">ローカルスコアが高い場合に順位を推定するか。</param>
+    /// <returns>取得・解析・昇格に失敗した対象。</returns>
+    /// <remarks>保存・確定の失敗は伝播し、共有スコアの更新や新規追加を行いません。昇格済みXMLの巻戻しは行いません。</remarks>
     internal RankingCacheApplyResult ApplyPreparedDownloadedRankingCache(
         RankingCacheApplyPlan plan,
         BmsLibraryDbGateway dbGateway,
@@ -783,21 +790,17 @@ internal sealed class BmsLibraryIrService
         }
         var applyResult = new RankingCacheApplyResult();
         applyResult.Failed.AddRange(plan.Failed.Distinct());
-        List<LR2IRData> irDataToBeCommitted = [];
+        List<RankingCacheReloadResult> resultsToApply = [.. plan.ParsedResults.Where(result =>
+            result != null
+            && !result.Failed
+            && result.IrData != null
+            && plan.PromotedStagedPaths.Contains(result.FilePath))];
+        dbGateway.UpsertIrData(resultsToApply.Select(result => result.IrData));
         Dictionary<string, BMSScore> scoresByHash = BuildScoreIndex(bmsScores);
 
         int offlineEstimateXmlLoadCount = 0;
-        foreach (RankingCacheReloadResult result in plan.ParsedResults)
+        foreach (RankingCacheReloadResult result in resultsToApply)
         {
-            if (result == null
-                || result.Failed
-                || result.IrData == null
-                || !plan.PromotedStagedPaths.Contains(result.FilePath))
-            {
-                continue;
-            }
-
-            irDataToBeCommitted.Add(result.IrData);
             ApplyIrDataToScoresIndexed(
                 result.IrData,
                 result.Lookup,
@@ -809,7 +812,6 @@ internal sealed class BmsLibraryIrService
                 allowLookupFileLoad: false);
         }
 
-        dbGateway.UpsertIrData(irDataToBeCommitted);
         return applyResult;
     }
 
