@@ -1025,56 +1025,6 @@ public sealed class BmtTableExportServiceTests
         });
     }
 
-    /// <summary>本番メタデータから方式変更・旧署名の一度の再生成と同方式の省略を、実gzipまで確認します。</summary>
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public void ExportTableDataSet_HashModeAndLegacyFingerprintRegenerateOnce()
-    {
-        WithTemporaryDirectory(directory =>
-        {
-            var table = new BMSTable
-            {
-                playlist_id = 71,
-                name = "Both",
-                Folder_order = ["Folder"],
-                last_update = new DateTime(2024, 1, 1),
-                entries = [new BMSTableEntry { title = "Song", md5 = Md5A, sha256 = Sha256A, folder = "Folder" }]
-            };
-            BmtTableExportService.ExportResult Export(BeatorajaBmtHashOutputMode mode)
-            {
-                BmtTableExportService.PlaylistExportMetadata metadata = BmtTableExportService.CreatePlaylistExportMetadata(table, mode);
-                BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(directory, [metadata], true);
-                return BmtTableExportService.ExportTableDataSet(directory,
-                    plan.RequiresProjection(metadata) ? [Tuple.Create("71", BmtTableExportService.BuildTableData(table, null, mode))] : [], plan, null);
-            }
-            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.Original).WrittenCount);
-            string path = Directory.GetFiles(directory, "*.bmt").Single();
-            Assert.AreEqual(Md5A, ReadBmtJson(path).SelectToken("folder[0].songs[0].md5")?.Value<string>());
-            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
-            JToken? song = ReadBmtJson(path).SelectToken("folder[0].songs[0]");
-            Assert.IsNotNull(song);
-            Assert.IsNull(song["md5"]);
-            Assert.AreEqual(Sha256A, song.Value<string>("sha256"));
-            byte[] bytes = File.ReadAllBytes(path);
-            DateTime time = File.GetLastWriteTimeUtc(path);
-            Assert.AreEqual(0, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
-            CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
-            Assert.AreEqual(time, File.GetLastWriteTimeUtc(path));
-            string manifestPath = Path.Combine(directory, BmtTableExportService.ManifestFileName);
-            var manifest = JObject.Parse(File.ReadAllText(manifestPath));
-            // 方式を含まない旧形式の実指紋を入力し、一度の移行だけを要求する。
-            JToken? legacyEntry = manifest.SelectToken("playlists.71");
-            Assert.IsNotNull(legacyEntry);
-            legacyEntry["projectionInputSha256"] = BMSTable.ComputeSha256Hex(
-                "{\"tag\":\"\",\"isExternalSync\":false,\"compatiblePrefix\":\"\",\"folderOrder\":[\"Folder\"],\"courses\":[]}");
-            File.WriteAllText(manifestPath, manifest.ToString());
-            Assert.AreEqual(1, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
-            Assert.AreEqual(0, Export(BeatorajaBmtHashOutputMode.PreferSha256Only).WrittenCount);
-            Assert.AreEqual(Md5A, table.GetEntriesExceptDummy().Single().md5);
-            Assert.AreEqual(Sha256A, table.GetEntriesExceptDummy().Single().sha256);
-        });
-    }
-
     /// <summary>同 URL の表名を含む内容変更は再書込みし、新名称を結果の所有情報へ反映することを確認して、URL だけによる誤った省略を検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

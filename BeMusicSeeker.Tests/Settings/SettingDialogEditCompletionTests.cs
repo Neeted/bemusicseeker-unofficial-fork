@@ -1308,6 +1308,200 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
+    /// <summary>方式変更とDB切替の同時Applyが、新DBの必要譜面情報を使って全表BMTを一度ずつ再生成し、実書込みまで待ちます。</summary>
+    /// <remarks>BMT出力仕様の設定保存契機を、実設定・初期化owner・SQLite・resolver・gzipの接続で確認します。既存の起動テストがデータ準備と受付終端を分担し、このケースは保存結果が初期化へ届くことを保証します。表間順序とgzipバイト列は固定しません。</remarks>
+    [TestMethod]
+    public void BmtHashModeAndDatabaseApply_ReprojectsInitializedTablesOnceAndAwaitsOutput()
+    {
+        string root = CreateTemporaryRoot();
+        using var release = new ManualResetEventSlim();
+        var projected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            Settings values = CreateValidCustomFolderSettings(root, [],
+                PortableSettingsPersistenceTests.OpenSettings(Path.Combine(root, "user.config")));
+            values.ScanBmsFilesOnStartup = true;
+            values.StartupSelectInstallPending = false;
+            string music = Path.Combine(root, "Songs");
+            string chartPath = Path.Combine(music, "actual.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\n#TITLE Actual chart\n#BPM 120\n#00111:01\n");
+            byte[] chartBytes = File.ReadAllBytes(chartPath);
+            string md5 = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(chartBytes)).ToLowerInvariant();
+            string sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(chartBytes)).ToLowerInvariant();
+            string beatoraja = Path.Combine(root, "beatoraja");
+            string output = Path.Combine(beatoraja, "table");
+            Directory.CreateDirectory(output);
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"tablepath\":\"table\",\"tableURL\":[]}");
+            values.BeatorajaRootPath = beatoraja;
+            values.BeatorajaBmtTablePath = output;
+            values.EnableBeatorajaBmtOutput = true;
+            values.RegisterBeatorajaBmtUrls = true;
+            values.BeatorajaBmtHashOutputMode = "Original";
+            values.Save();
+            var oldTable = new BMSTable
+            {
+                playlist_id = 9,
+                name = "Old database",
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { playlist_id = 9, title = "Old song", md5 = md5, folder = "Folder" }]
+            };
+            new BmsLibraryDbGateway(values.LR2SongDBPath).EnsureAppOwnedSchema();
+            new PlaylistPersistenceRepository(values.LR2SongDBPath).ReplaceTablesWithEntries([oldTable]);
+            string secondRoot = Path.Combine(root, "Second");
+            Directory.CreateDirectory(secondRoot);
+            string databaseB = BmsPlaylistTestSupport.CreateTempSongDbPath(secondRoot);
+            new BmsLibraryDbGateway(databaseB).EnsureAppOwnedSchema();
+            BMSTable[] tables = Enumerable.Range(71, 2).Select(id => new BMSTable
+            {
+                playlist_id = id,
+                name = "New database " + id,
+                bmt_sort = id,
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { playlist_id = id, title = "Actual chart", md5 = md5, folder = "Folder" }]
+            }).ToArray();
+            new PlaylistPersistenceRepository(databaseB).ReplaceTablesWithEntries(tables);
+            var scanner = CapturedChartFileScanner.FromFixture([chartPath],
+                new Dictionary<string, IEnumerable<string>> { [music] = [] }, [music]);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var session = new CountingSettingsEditSession(values) { PersistOwnedValues = true };
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService();
+                var composition = new ApplicationComposition(settingsEditSession: session, reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    applicationPathSnapshot: TestBmsFactory.AvailableEverythingBridge,
+                    rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner,
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []) { InitialSearchTargets = [music] };
+                var owner = new MainWindowViewModel(composition, factory);
+                owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
+                EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> notification = (_, _) => { };
+                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += notification;
+                Task? apply = null;
+                BMSPlaylist? oldPlaylist = null;
+                BMSPlaylist? newPlaylist = null;
+                int oldRequests = 0;
+                int newRequests = 0;
+                var projections = new System.Collections.Concurrent.ConcurrentQueue<string>();
+                Action<OperationProgressRequest, bool> observeOld = (_, active) => { if (active) { Interlocked.Increment(ref oldRequests); } };
+                Action<OperationProgressRequest, bool> observeNew = (_, active) => { if (active) { Interlocked.Increment(ref newRequests); } };
+                Action<PlaylistSyncProgressSnapshot> observeProjection = progress =>
+                {
+                    if (progress.IsActive && progress.TotalTableCount == tables.Length && progress.CompletedTableCount > 0)
+                    {
+                        projections.Enqueue(progress.CurrentTableName);
+                        if (progress.CompletedTableCount == tables.Length) { projected.TrySetResult(); release.Wait(); }
+                    }
+                };
+                try
+                {
+                    Assert.IsTrue(owner.SettingDialog.CheckValidation(out string validationError), validationError);
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "bmt-all-first-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult(), dialogs.LastMessageText + string.Join(Environment.NewLine, failures));
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "bmt-all-first-background-terminal");
+                    oldPlaylist = factory.CreatedPlaylist ?? throw new InvalidOperationException("旧Playlistがありません。");
+                    oldPlaylist.BmtOutput.RequestProgressReporter += observeOld;
+                    // 初期化先に同じメタデータの正常なOriginal出力を用意し、要求が失われると未変更省略になる入力にします。
+                    BmtTableExportService.PlaylistExportMetadata[] metadata = tables.Select(BmtTableExportService.CreatePlaylistExportMetadata).ToArray();
+                    BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(output, metadata, cleanupStaleManagedFiles: true);
+                    BmtTableExportService.ExportResult initialOutput = BmtTableExportService.ExportTableDataSet(output,
+                        tables.Select(table => Tuple.Create(table.playlist_id.ToString(), BmtTableExportService.BuildTableData(table, null, BeatorajaBmtHashOutputMode.Original))), plan, null);
+                    Assert.AreEqual(2, initialOutput.WrittenCount);
+                    Dictionary<string, byte[]> before = Directory.GetFiles(output, "*.bmt").ToDictionary(path => path, File.ReadAllBytes);
+                    scanner.ScanObserved = () =>
+                    {
+                        BMSPlaylist current = factory.CreatedPlaylist ?? throw new InvalidOperationException("新Playlistがありません。");
+                        if (!ReferenceEquals(current, oldPlaylist) && newPlaylist == null)
+                        {
+                            newPlaylist = current;
+                            current.BmtOutput.RequestProgressReporter += observeNew;
+                            current.BmtOutput.ExportProgressReporter += observeProjection;
+                        }
+                    };
+                    owner.SettingDialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                    owner.SettingDialog.LR2SongDBPath = databaseB;
+                    Assert.AreEqual(SettingsDialogViewModel.RestartMode.All, owner.SettingDialog.IsNeedRestartForSaved());
+                    apply = owner.SettingDialog.ApplySettingsAsync();
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(projected.Task, apply, "bmt-all-projected"), "bmt-all-projected");
+                    }
+                    catch
+                    {
+                        TestContext.WriteLine($"BMT Apply diagnostic: saves={session.SaveCount} oldRequests={oldRequests} newRequests={newRequests} message={dialogs.LastMessageText} failures={string.Join(Environment.NewLine, failures)}");
+                        throw;
+                    }
+                    Assert.IsFalse(apply.IsCompleted, "投影後も実書込みが終わるまでApplyを完了しません。");
+                    Assert.AreEqual(0, oldRequests);
+                    Assert.AreEqual(1, newRequests);
+                    Assert.IsNotNull(newPlaylist);
+                    Assert.AreNotSame(oldPlaylist, newPlaylist);
+                    CollectionAssert.AreEquivalent(tables.Select(table => table.name).ToArray(), projections.ToArray());
+                    foreach ((string path, byte[] bytes) in before) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                    release.Set();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bmt-all-apply-output");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.IsTrue(owner.IsInitializationCompleted);
+                    Assert.AreEqual(1, session.SaveCount);
+                    values.Reload();
+                    Assert.AreEqual("PreferSha256Only", values.BeatorajaBmtHashOutputMode);
+                    Assert.AreEqual(databaseB, values.LR2SongDBPath);
+                    Assert.AreEqual(0, oldRequests);
+                    Assert.AreEqual(1, newRequests);
+                    Assert.AreEqual(2, Directory.GetFiles(output, "*.bmt").Length);
+                    foreach (string path in Directory.GetFiles(output, "*.bmt"))
+                    {
+                        using var stream = new System.IO.Compression.GZipStream(File.OpenRead(path), System.IO.Compression.CompressionMode.Decompress);
+                        using var reader = new StreamReader(stream);
+                        var json = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd());
+                        StringAssert.StartsWith(json.Value<string>("name"), "New database ");
+                        Newtonsoft.Json.Linq.JToken? song = json.SelectToken("folder[0].songs[0]");
+                        Assert.IsNotNull(song);
+                        Assert.IsNull(song["md5"]);
+                        Assert.AreEqual(sha256, song.Value<string>("sha256"));
+                    }
+                    using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseB).OpenSongDbReadOnly();
+                    foreach (BMSTable table in tables)
+                    {
+                        BMSTableEntry entry = new PlaylistPersistenceRepository(databaseB).LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
+                        Assert.AreEqual(md5, entry.md5);
+                        Assert.IsTrue(string.IsNullOrEmpty(entry.sha256));
+                        Assert.AreEqual(table.last_update, db.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == table.playlist_id).last_update);
+                    }
+                    CollectionAssert.AreEquivalent(tables.Select(table => table.name).ToArray(), projections.ToArray());
+                }
+                finally
+                {
+                    release.Set();
+                    try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "bmt-all-cleanup-apply"); } }
+                    finally
+                    {
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "bmt-all-cleanup-close"); }
+                        finally
+                        {
+                            scanner.ScanObserved = null;
+                            if (oldPlaylist != null) { oldPlaylist.BmtOutput.RequestProgressReporter -= observeOld; }
+                            if (newPlaylist != null)
+                            {
+                                newPlaylist.BmtOutput.RequestProgressReporter -= observeNew;
+                                newPlaylist.BmtOutput.ExportProgressReporter -= observeProjection;
+                            }
+                            owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested -= notification;
+                            owner.SettingDialog.Dispose();
+                        }
+                    }
+                }
+            });
+        }
+        finally { release.Set(); Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>保存と Close 後に必須 BMT 出力の実終端を待ち、任意 URL 補完の予約失敗を設定適用失敗にせず、同補完だけを scheduler へ渡すことを確認して、必要出力を予約だけで完了扱いする誤りを検出します。</summary>
     [DataTestMethod]
     [DataRow(false)]
@@ -3223,31 +3417,7 @@ public sealed partial class SettingDialogEditCompletionTests
             {
                 Assert.IsNotNull(admission);
                 Assert.IsNotNull(viewModel);
-                // 一つの補完や現在のleaseだけでは、後からLを取得する受理済み保守の終端を保証しません。
-                // 必須起動成功の条件は変えず、次の明示操作の前提として全後続の終端を待ちます。
-                StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
-                    .GetField("startupBackgroundTaskScheduler", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel)
-                    as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
-                var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                void BackgroundChanged(object? sender, PropertyChangedEventArgs args)
-                {
-                    if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle)
-                    {
-                        backgroundTerminal.TrySetResult();
-                    }
-                }
-                viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
-                try
-                {
-                    if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle)
-                    {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(backgroundTerminal.Task, "late-directory-startup-background-terminal");
-                    }
-                }
-                finally
-                {
-                    viewModel.ProgressHub.PropertyChanged -= BackgroundChanged;
-                }
+                AwaitStartupBackgroundCompletionOnDispatcher(viewModel, "late-directory-startup-background-terminal");
                 var acceptedReload = new TestSettingsDialogStatePort(viewModel,
                     () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(null),
                     reloadFileDiff: capability => ((ISettingsDialogStatePort)viewModel).ReloadFileDiffAsync(capability));
@@ -6660,7 +6830,7 @@ public sealed partial class SettingDialogEditCompletionTests
                         ? _ => Task.CompletedTask
                         : _ => reloadFileDiff(viewModel),
                     initializeAcceptedLibrary: initializeOwner == null
-                        ? (capability, approval, observer) => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(capability, approval, observer)
+                        ? (capability, approval, observer, forceProjection) => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(capability, approval, observer, forceProjection)
                         : null),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,
@@ -6914,6 +7084,34 @@ public sealed partial class SettingDialogEditCompletionTests
         return root;
     }
 
+    /// <summary>次の明示操作の準備として、起動後にLを取得し得る受理済み保守の実終端を待ちます。必須起動成功の条件は変更しません。</summary>
+    private static void AwaitStartupBackgroundCompletionOnDispatcher(MainWindowViewModel viewModel, string operationName)
+    {
+        StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
+            .GetField("startupBackgroundTaskScheduler", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(viewModel)
+            as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
+        var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void BackgroundChanged(object? sender, PropertyChangedEventArgs args)
+        {
+            if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle)
+            {
+                backgroundTerminal.TrySetResult();
+            }
+        }
+        viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
+        try
+        {
+            if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle)
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(backgroundTerminal.Task, operationName);
+            }
+        }
+        finally
+        {
+            viewModel.ProgressHub.PropertyChanged -= BackgroundChanged;
+        }
+    }
+
     private static void SetActiveLibraryProfile(MainWindowViewModel viewModel, bool value)
     {
         typeof(MainWindowViewModel)
@@ -7132,7 +7330,7 @@ public sealed partial class SettingDialogEditCompletionTests
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
@@ -7180,7 +7378,7 @@ public sealed partial class SettingDialogEditCompletionTests
         {
         }
 
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability)
+        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false)
         {
             return Task.CompletedTask;
         }

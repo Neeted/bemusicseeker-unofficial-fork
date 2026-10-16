@@ -200,8 +200,8 @@ public partial class MainWindowViewModel : ViewModel,
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
     Task<StartupInitializationResult> ISettingsDialogStatePort.InitializeLibraryAsync(LibraryFileMutationCapability capability,
-        LeapYearFolderRepairApproval leapYearRepairApproval, Action<LeapYearFolderRepairNotification> repairNotificationObserver)
-        => InitializeLibraryAsync(isNormalStartup: false, capability, leapYearRepairApproval, repairNotificationObserver);
+        LeapYearFolderRepairApproval leapYearRepairApproval, Action<LeapYearFolderRepairNotification> repairNotificationObserver, bool forceBeatorajaBmtProjection)
+        => InitializeLibraryAsync(isNormalStartup: false, capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection);
 
     Task<LeapYearFolderRepairApproval> ISettingsDialogStatePort.PrepareLibraryInitializationAsync()
     {
@@ -3487,7 +3487,7 @@ public partial class MainWindowViewModel : ViewModel,
         || chartFileOperations.IsAdmissionClosed || applicationComposition.PlaylistOperationAdmission.IsAdmissionClosed;
 
     private async Task<StartupInitializationResult> InitializeLibraryAsync(bool isNormalStartup, LibraryFileMutationCapability capability = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
@@ -3510,7 +3510,7 @@ public partial class MainWindowViewModel : ViewModel,
                     phase => directoryWarningPhase = phase,
                     settings => initializedSettings = settings, capability, exception => constructionFailure = exception, leapYearRepairApproval,
                     notification => { repairNotification = notification; repairNotificationObserver?.Invoke(notification); },
-                    warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification);
+                    warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification, forceBeatorajaBmtProjection);
                 outcome = initializationResult.Outcome;
             }
         }
@@ -3602,7 +3602,7 @@ public partial class MainWindowViewModel : ViewModel,
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability,
         Action<Exception> recordLibraryConstructionFailure, LeapYearFolderRepairApproval leapYearRepairApproval,
-        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<Action> scoreNotificationObserver)
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<Action> scoreNotificationObserver, bool forceBeatorajaBmtProjection)
     {
         if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
         if (capability == null && (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter))
@@ -3860,7 +3860,7 @@ public partial class MainWindowViewModel : ViewModel,
             () => startupLibraryInitializationWorkflowOwner.InitializeRequiredAsync(
                 files, tables, Lr2SongDbSyncWorkflow, startupPerformanceInteraction, capability,
                 new(startupBackgroundTaskScheduler.CurrentGeneration, operationToken, "required_initialization", operationToken),
-                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
+                startupCustomFolderSettings, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver, forceBeatorajaBmtProjection));
         if (IsRequiredInitializationShutdownRequested) { return new(StartupInitializationOutcome.ShutdownRequested); }
         return new(StartupInitializationOutcome.Succeeded, startupSettings, operationToken, RequiredResult: requiredResult, BackupNotifications: backupNotifications);
     }

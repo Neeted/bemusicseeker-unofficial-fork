@@ -1801,7 +1801,7 @@ public sealed class SettingsDialogBehaviorTests
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null)
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
         {
             InitializeCount++;
             return Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
@@ -1980,7 +1980,7 @@ public sealed class SettingsDialogBehaviorTests
         {
         }
 
-        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability)
+        public Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false)
         {
             return Task.CompletedTask;
         }

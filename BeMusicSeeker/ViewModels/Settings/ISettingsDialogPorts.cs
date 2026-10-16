@@ -52,8 +52,9 @@ internal interface ISettingsDialogStatePort
     /// 設定画面の再表示は呼出元が担当します。
     /// </summary>
     /// <returns>初期化の結果。処理失敗と終了要求を設定修復が必要な失敗へ読み替えません。</returns>
+    /// <param name="forceBeatorajaBmtProjection">今回の初期化の必要BMT出力で、署名一致による生成省略を迂回するか。</param>
     Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability capability,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null);
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false);
 
     /// <summary>初期化が必要な検証済み編集値から、保存・受付前に限定候補とYesNo判断を捕捉します。不正設定では候補DBを読みません。</summary>
     Task<LeapYearFolderRepairApproval> PrepareLibraryInitializationAsync();
@@ -93,7 +94,8 @@ internal interface ISettingsDialogWorkspacePort
     void SchedulePlaylistUrlCompletionRefresh(string reason);
 
     /// <summary>同じP権限で全表BMTの生成・旧配置回収・設定反映の実終端を待ち、元失敗を伝播します。</summary>
-    Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability);
+    /// <param name="forceProjection">同じ全表出力で、署名一致による生成省略を迂回するか。</param>
+    Task ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection = false);
 
     Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string operationName);
 

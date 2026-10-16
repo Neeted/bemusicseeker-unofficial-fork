@@ -134,7 +134,7 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
     private readonly Func<Task<StartupInitializationResult>> initializeLibrary;
-    private readonly Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, Task<StartupInitializationResult>>? initializeAcceptedLibrary;
+    private readonly Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Task<StartupInitializationResult>>? initializeAcceptedLibrary;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadScoresOnly;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadFileDiff;
     private readonly Action? initializationFailed;
@@ -147,7 +147,7 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         Action? initializationFailed = null,
         Func<LibraryFileMutationCapability?, Task>? reloadScoresOnly = null,
         Func<LibraryFileMutationCapability?, Task>? reloadFileDiff = null,
-        Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, Task<StartupInitializationResult>>? initializeAcceptedLibrary = null)
+        Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Task<StartupInitializationResult>>? initializeAcceptedLibrary = null)
     {
         this.initializeAcceptedLibrary = initializeAcceptedLibrary;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -176,10 +176,10 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         => ((ISettingsDialogStatePort)owner).PresentLeapYearFolderRepairAsync(notification);
 
     public async Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-        LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null)
+        LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
     {
         StartupInitializationResult result = await (initializeAcceptedLibrary == null
-            ? initializeLibrary() : initializeAcceptedLibrary(capability, leapYearRepairApproval, repairNotificationObserver));
+            ? initializeLibrary() : initializeAcceptedLibrary(capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection));
         if (result.Outcome == StartupInitializationOutcome.SettingsRequired)
         {
             initializationFailed?.Invoke();

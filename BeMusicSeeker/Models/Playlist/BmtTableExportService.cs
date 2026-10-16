@@ -298,7 +298,9 @@ internal static class BmtTableExportService
         return ExportTableDataSet(tablePath, projectionDataList, exportPlan, progressReporter);
     }
 
-    internal static ExportPlan CreateExportPlan(string tablePath, IEnumerable<PlaylistExportMetadata> metadataSet, bool cleanupStaleManagedFiles)
+    /// <summary>管理台帳と現在集合から出力計画を作ります。明示再生成時も台帳検証と所有情報の整理を共通化します。</summary>
+    /// <param name="forceProjection">署名一致による内容生成の省略だけを迂回するか。</param>
+    internal static ExportPlan CreateExportPlan(string tablePath, IEnumerable<PlaylistExportMetadata> metadataSet, bool cleanupStaleManagedFiles, bool forceProjection = false)
     {
         ManifestState previousManifest;
         if (string.IsNullOrWhiteSpace(tablePath))
@@ -324,7 +326,7 @@ internal static class BmtTableExportService
                     plan.CurrentPlaylists[metadata.PlaylistIdentity] = CreateManifestPlaylistEntry(metadata, null, null);
                 }
             }
-            if (ShouldSkipProjection(tablePath, previousManifest, metadata, out ManifestPlaylistEntry previousEntry))
+            if (!forceProjection && ShouldSkipProjection(tablePath, previousManifest, metadata, out ManifestPlaylistEntry previousEntry))
             {
                 if (!string.IsNullOrWhiteSpace(previousEntry.FileName))
                 {
@@ -707,8 +709,8 @@ internal static class BmtTableExportService
         }
     }
 
-    /// <summary>表の正本と出力方式から、生成省略を判断する入力を捕捉します。</summary>
-    internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table, BeatorajaBmtHashOutputMode hashOutputMode = BeatorajaBmtHashOutputMode.Original)
+    /// <summary>表の正本から、生成省略を判断する入力を捕捉します。</summary>
+    internal static PlaylistExportMetadata CreatePlaylistExportMetadata(BMSTable table)
     {
         if (table == null || !table.playlist_id.HasValue)
         {
@@ -724,11 +726,11 @@ internal static class BmtTableExportService
             HeaderSha256 = table.header_sha256 ?? string.Empty,
             DataSha256 = table.data_sha256 ?? string.Empty,
             LastUpdateTicks = table.last_update.Ticks,
-            ProjectionInputSha256 = BuildProjectionInputSha256(table, hashOutputMode)
+            ProjectionInputSha256 = BuildProjectionInputSha256(table)
         };
     }
 
-    private static string BuildProjectionInputSha256(BMSTable table, BeatorajaBmtHashOutputMode hashOutputMode)
+    private static string BuildProjectionInputSha256(BMSTable table)
     {
         if (table == null)
         {
@@ -736,7 +738,6 @@ internal static class BmtTableExportService
         }
         var projectionInput = new JObject
         {
-            ["hashOutputMode"] = hashOutputMode.ToString(),
             ["tag"] = ResolveTag(table) ?? string.Empty,
             ["isExternalSync"] = table.is_external_sync,
             ["compatiblePrefix"] = table.compat_prefix ?? string.Empty,

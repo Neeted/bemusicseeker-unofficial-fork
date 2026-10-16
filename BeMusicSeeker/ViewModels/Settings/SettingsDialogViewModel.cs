@@ -490,7 +490,7 @@ public partial class SettingsDialogViewModel : ViewModel
             var saveStopwatch = Stopwatch.StartNew();
             if (shouldInitializeAfterSave)
             {
-                await SaveSettingsUnderAdmissionAsync(runPostSaveActions: false, validate: false, capability, playlistCapability);
+                SettingsPostSaveImpact savedImpact = await SaveSettingsUnderAdmissionAsync(runPostSaveActions: false, validate: false, capability, playlistCapability);
                 backupSavedSettings();
                 saveMs = saveStopwatch.ElapsedMilliseconds;
                 reopenAfterInitialFailure = true;
@@ -504,7 +504,8 @@ public partial class SettingsDialogViewModel : ViewModel
                     await ShowInitialSettingsCompletionMessageAsync();
                     totalStopwatch.Start();
                 }
-                StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver);
+                StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver,
+                    forceBeatorajaBmtProjection: savedImpact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
                 StartupInitializationOutcome initializationOutcome = initializationResult.Outcome;
                 if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
                 if (initializationOutcome == StartupInitializationOutcome.Succeeded)
@@ -521,15 +522,17 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             else
             {
-                savedFollowUpObserver?.Invoke(await SaveSettingsUnderAdmissionAsync(runPostSaveActions: true, validate: false, capability, playlistCapability,
+                SettingsPostSaveImpact savedImpact = await SaveSettingsUnderAdmissionAsync(runPostSaveActions: true, validate: false, capability, playlistCapability,
                     fullInitialization: needRestart.HasFlag(RestartMode.All) || needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly),
-                    afterPersistence: () => presentationPort?.CloseSettingsDialogAsync() ?? Task.CompletedTask));
+                    afterPersistence: () => presentationPort?.CloseSettingsDialogAsync() ?? Task.CompletedTask);
+                savedFollowUpObserver?.Invoke(savedImpact);
                 saveMs = saveStopwatch.ElapsedMilliseconds;
                 StartupInitializationOutcome initializationOutcome = StartupInitializationOutcome.Succeeded;
                 if (needRestart.HasFlag(RestartMode.All)
                     || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
                 {
-                    StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver);
+                    StartupInitializationResult initializationResult = await statePort.InitializeLibraryAsync(capability, leapYearRepairApproval, repairNotificationObserver,
+                        forceBeatorajaBmtProjection: savedImpact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
                     initializationOutcome = initializationResult.Outcome;
                     if (initializationOutcome != StartupInitializationOutcome.ShutdownRequested) { recordInitializationAfterTermination(initializationResult); }
                 }
@@ -6142,7 +6145,8 @@ public partial class SettingsDialogViewModel : ViewModel
         PlaylistUrlCompletion = 8,
         Lr2CoreSync = 16,
         ExternalLr2FolderRowsSync = 32,
-        BeatorajaBmtExport = 64
+        BeatorajaBmtExport = 64,
+        BeatorajaBmtReprojection = 128
     }
 
     [Flags]
@@ -6569,14 +6573,20 @@ public partial class SettingsDialogViewModel : ViewModel
             impact |= SettingsPostSaveImpact.ExternalLr2FolderRowsSync;
         }
 
+        bool bmtHashModeChanged = !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal);
         if (tempEnableBeatorajaBmtOutput != ApplicationSettings.EnableBeatorajaBmtOutput
             || tempKeepBeatorajaBmtFilesWhenOutputDisabled != ApplicationSettings.KeepBeatorajaBmtFilesWhenOutputDisabled
             || tempRegisterBeatorajaBmtUrls != ApplicationSettings.RegisterBeatorajaBmtUrls
-            || !string.Equals(tempBeatorajaBmtHashOutputMode, BeatorajaBmtHashOutputMode, StringComparison.Ordinal)
+            || bmtHashModeChanged
             || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
             || !string.Equals(tempBeatorajaBmtTablePath, ApplicationSettings.BeatorajaBmtTablePath, StringComparison.OrdinalIgnoreCase))
         {
             impact |= SettingsPostSaveImpact.BeatorajaBmtExport;
+        }
+
+        if (bmtHashModeChanged)
+        {
+            impact |= SettingsPostSaveImpact.BeatorajaBmtReprojection;
         }
 
         return impact;
@@ -6715,7 +6725,11 @@ public partial class SettingsDialogViewModel : ViewModel
                         NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
                     }
                 }
-                if (!fullInitialization) { await workspacePort.ExportBeatorajaBmtAsync("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath, playlistCapability); }
+                if (!fullInitialization)
+                {
+                    await workspacePort.ExportBeatorajaBmtAsync("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath, playlistCapability,
+                        forceProjection: impact.HasFlag(SettingsPostSaveImpact.BeatorajaBmtReprojection));
+                }
             }
             beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
         }
@@ -7273,7 +7287,7 @@ public partial class SettingsDialogViewModel : ViewModel
             using LibraryFileMutationCapability capability = primaryCapability.WithPlaylistCapability(playlistCapability);
             followUp = await SaveSettingsUnderAdmissionAsync(runPostSaveActions, validate, capability, playlistCapability);
         }
-        await CompleteSavedSettingsFollowUpAsync(followUp, scheduleUrlCompletion: true);
+        if (runPostSaveActions) { await CompleteSavedSettingsFollowUpAsync(followUp, scheduleUrlCompletion: true); }
         return true;
     }
 
@@ -7398,6 +7412,12 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 ApplicationSettings.OperationModeLR2DB = operationModeLR2DB;
             }
+            customFolderOutputBaseJukeboxAdoptionNeeded = HasCustomFolderOutputBaseJukeboxAdoptionConflicts();
+            customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged
+                || customFolderOutputBaseSettingsChanged
+                || customFolderOutputBaseJukeboxAdoptionNeeded;
+            postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);
+            postSaveNeeded = HasPostSaveImpact(postSaveImpact);
             bool userConfigNeedsSave = HasPendingRuntimePlacement()
                 || settingValueChanges
                 || rightClickSettingsChanged
@@ -7430,12 +7450,6 @@ public partial class SettingsDialogViewModel : ViewModel
                 userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
                 userConfigSaved = true;
             }
-            customFolderOutputBaseJukeboxAdoptionNeeded = HasCustomFolderOutputBaseJukeboxAdoptionConflicts();
-            customFolderSearchRootSyncNeeded = lr2ConfigBoundaryChanged
-                || customFolderOutputBaseSettingsChanged
-                || customFolderOutputBaseJukeboxAdoptionNeeded;
-            postSaveImpact = BuildSettingsPostSaveImpact(customFolderSearchRootSyncNeeded);
-            postSaveNeeded = HasPostSaveImpact(postSaveImpact);
             LogSettingsPerformance(
                 "settings_change_classification",
                 null,
@@ -7508,7 +7522,7 @@ public partial class SettingsDialogViewModel : ViewModel
             + " userConfigSaveMs=" + userConfigSaveMs
             + " lr2ConfigSaved=" + lr2ConfigSaved.ToString().ToLowerInvariant()
             + " lr2ConfigSaveMs=" + lr2ConfigSaveMs);
-        return runPostSaveActions && validationPassed ? postSaveImpact : SettingsPostSaveImpact.None;
+        return validationPassed ? postSaveImpact : SettingsPostSaveImpact.None;
     }
 
     private bool HasBeatorajaDerivedSettingsSourceChanged()

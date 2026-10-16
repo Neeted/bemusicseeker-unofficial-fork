@@ -41,9 +41,9 @@ MD5とSHA-256が別譜面を指す場合はMD5を正本とし、危険な対の�
 
 表の順序は `bmt_sort` 昇順です。未正規化の同値・欠損は名前とIDで解消します。順序だけの変更はURL同期だけを行い、BMT本体を書き直しません。個別出力可否の変更はその表だけを出力・削除します。
 
-起動・`ReloadTablesAsync`・復元では必須の譜面読込み・出力修復を直接待ち、現在のプロファイルとDBの全対象へ揃えます。表が0件でも不要な管理ファイルを整理します。外部更新の既知変更・ハッシュ初期化、ローカル保存、譜面行保存、BMT内容に影響するプロパティ変更では対象を出力します。
+起動・`ReloadTablesAsync`・復元では必須の譜面読込み・出力修復を直接待ち、保存済みプレイリストに対して管理対象の集合と実ファイルの状態を揃えます。表が0件でも不要な管理ファイルを整理します。外部更新の既知変更・ハッシュ初期化、ローカル保存、譜面行保存、BMT内容に影響するプロパティ変更では対象を出力します。
 
-LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。ハッシュ出力方式だけの変更も設定のSave/Applyで検出し、同じ保存操作のTaskで全表の必要出力を直接待ちます。表削除はその表の管理ファイルとURLだけを外します。
+LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。設定画面のSave/Applyで正規化後のハッシュ出力方式が変わった場合は、その保存操作から出力対象の全表へ再生成を要求し、必要出力とTable URL反映の完了を待ちます。この場合は未変更判定による生成省略を適用しません。全初期化を伴う設定適用では、その初期化の必要BMT出力へ要求を渡します。方式が変わらない保存では、この再生成要求を行いません。出力無効時は既存の保持・整理条件に従います。表削除はその表の管理ファイルとURLだけを外します。
 
 出力無効時の通常の編集・削除・順序変更はBMTのI/Oを行いません。無効化を保存する明示的な全体出力だけが保持設定に従って既存出力を整理します。保持設定が有効なら読取不能の台帳にも通常編集を依存させません。
 
@@ -51,9 +51,9 @@ LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生�
 
 ### 管理台帳と未変更判定
 
-出力先直下の `.bemusicseeker-bmt-manifest` を使い、`.json` は付けません。`files` は物理ファイルの所有、`playlists` は表IDとURLの所有を示します。表名、ヘッダー・データハッシュ、更新日時ticks、出力に関係する入力の指紋、実ファイル名・更新時刻・サイズを保持します。
+出力先直下の `.bemusicseeker-bmt-manifest` を使い、`.json` は付けません。`files` は物理ファイルの所有、`playlists` は表IDとURLの所有を示します。表名・URL、ヘッダー・データハッシュ、更新日時ticks、出力に関係する入力の指紋、実ファイル名・更新時刻・サイズを保持します。
 
-スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。指紋は正規化したハッシュ出力方式、タグ解決結果、外部同期扱い、互換接頭辞、フォルダ順、コースJSONを含みます。方式を含まない旧指紋は一度再生成し、同じ方式の次回出力は省略します。所持索引によるハッシュ解決結果だけの変化は無効化条件にしません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
+スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。入力指紋は、タグ解決結果、外部同期扱い、互換接頭辞、フォルダ順、コースJSONから作ります。ハッシュ出力方式や所持索引によるハッシュ解決結果は含めません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
 
 空表はURLだけを記録し、有効な内容が得られたら同じIDへファイルを付けます。URL変更でファイル名が変わる場合は、新しいものを管理し、他表が参照しない旧ファイルを整理します。同名ファイルは管理外でも上書きし、それ以後管理対象にします。
 
@@ -123,7 +123,8 @@ beatorajaの登録URL取込みでは成功・既存一致した表を元URL順�
 | 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
 | 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
 | 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
-| 方式のみの設定Save/Apply、DB正本保全と次回省略 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtHashModeSaveAndApply_ReoutputsAllTablesAndKeepsDatabaseHashes`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)。方式・旧署名の下位判断は [`BmtTableExportServiceTests.ExportTableDataSet_HashModeAndLegacyFingerprintRegenerateOnce`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) が分担する。 |
+| 方式のみの設定Save/Apply、DB正本保全と次回省略 | [`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtHashModeSaveAndApply_ReoutputsAllTablesAndKeepsDatabaseHashes`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)。 |
+| 方式変更と全初期化の同時Apply、新DBへの一回の必要出力と実書込み待機 | `SettingsDialogViewModel`、[`StartupLibraryInitializationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs)、`BMSPlaylist` | [`SettingDialogEditCompletionTests.BmtHashModeAndDatabaseApply_ReprojectsInitializedTablesOnceAndAwaitsOutput`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)は、旧ownerでの先行出力を行わず、新DBのMD5だけの表と必要譜面情報からSHA-256のgzipを完成し、DB正本を保持することを確認する。 |
 | 通知故障と実出力結果の分離 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で通知故障時の実BMT・台帳・設定成功と、実台帳失敗時のDB保持を確認する。[`BmtTableExportServiceTests.OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs)で先行通知故障後も後続通知を直列に試みる。 |
 | 順序四入口のDB・サマリー・configと同じP寿命、無変更、取込み後配置 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)、[`PlaylistWorkspaceExternalSourceTests.BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)。画面の選択・Bindingは既存 [`MainWindowPlaylistWorkspaceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が分担する。 |
 | 順序と一括編集 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |

@@ -175,9 +175,10 @@ internal sealed class PlaylistBmtOutputOwner
     /// <param name="originatingRequest">項目読込み受領や外部同期の実行周から引き継ぐ表示発生元。出力自身の要求版と操作IDは保持します。</param>
     /// <summary>全表の必要出力を同じPで直接待ちます。管理台帳の全量cleanupはこの全体要求だけが行います。</summary>
     /// <param name="capability">外側が公開とcleanup終端まで保持する生存P権限。nullは新規非待機受付です。</param>
+    /// <param name="forceProjection">署名一致による生成省略を迂回し、同じ全表出力で再生成するか。</param>
     internal Task ExportAllAsync(string reason, string cleanupTablePath = null,
-        OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null)
-        => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability);
+        OperationProgressRequest originatingRequest = null, LibraryFileMutationCapability capability = null, bool forceProjection = false)
+        => ExecuteAsync([], [], reason, ExportScope.AllTables, cleanupTablePath, originatingRequest, capability, forceProjection);
 
     /// <summary>確定した変更表と削除表だけを一括出力します。部分集合で他の管理表をstale削除せず、出力無効時はBMTのI/Oを行いません。</summary>
     /// <param name="capability">変更元が保持する生存P権限。内部継続は取得し直さず借用します。</param>
@@ -221,7 +222,7 @@ internal sealed class PlaylistBmtOutputOwner
 
     private async Task ExecuteAsync(IEnumerable<BMSTable> tables, IEnumerable<BMSTable> removedTables,
         string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest originatingRequest,
-        LibraryFileMutationCapability capability)
+        LibraryFileMutationCapability capability, bool forceProjection = false)
     {
         using LibraryFileMutationLease accepted = capability != null ? mutationAdmission.Borrow(capability)
             : mutationAdmission.TryEnter(out IDisposable lease) ? (LibraryFileMutationLease)lease
@@ -241,7 +242,7 @@ internal sealed class PlaylistBmtOutputOwner
         try
         {
             NotifyBestEffort(() => RequestProgressReporter?.Invoke(request, true), "request_started");
-            await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request)).ConfigureAwait(false);
+            await Task.Run(() => Execute(changed, removed, options, reason, scope, cleanupTablePath, request, forceProjection)).ConfigureAwait(false);
         }
         finally
         {
@@ -250,7 +251,7 @@ internal sealed class PlaylistBmtOutputOwner
     }
 
     private void Execute(IReadOnlyList<BMSTable> changed, IReadOnlyList<BMSTable> removed,
-        BeatorajaBmtOptionsSnapshot options, string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest request)
+        BeatorajaBmtOptionsSnapshot options, string reason, ExportScope scope, string cleanupTablePath, OperationProgressRequest request, bool forceProjection)
     {
         if (IsShutdownRequested) { throw new OperationCanceledException("Playlist BMT output was cancelled by shutdown."); }
         // 無効の通常変更と保持要求は、configを読む出力先解決にも依存させない。
@@ -296,9 +297,9 @@ internal sealed class PlaylistBmtOutputOwner
                     .ThenBy(table => table.playlist_id ?? int.MaxValue)];
                     BeatorajaBmtHashOutputMode hashMode = BmtTableExportService.NormalizeHashOutputMode(options.BeatorajaBmtHashOutputMode);
                     List<Tuple<BMSTable, BmtTableExportService.PlaylistExportMetadata>> targets = [.. outputTables
-                    .Select(table => Tuple.Create(table, BmtTableExportService.CreatePlaylistExportMetadata(table, hashMode)))];
+                    .Select(table => Tuple.Create(table, BmtTableExportService.CreatePlaylistExportMetadata(table)))];
                     BmtTableExportService.ExportPlan plan = BmtTableExportService.CreateExportPlan(outputPath,
-                        targets.Select(target => target.Item2), cleanupStaleManagedFiles: scope == ExportScope.AllTables);
+                        targets.Select(target => target.Item2), cleanupStaleManagedFiles: scope == ExportScope.AllTables, forceProjection);
                     List<BMSTable> projectionTables = [.. targets.Where(target => plan.RequiresProjection(target.Item2)).Select(target => target.Item1)];
                     Func<BmtSongHashResolveRequest, Tuple<string, string>> resolver = projectionTables.Count == 0 || hashMode == BeatorajaBmtHashOutputMode.Original
                         ? null : songHashResolverFactory?.Invoke();

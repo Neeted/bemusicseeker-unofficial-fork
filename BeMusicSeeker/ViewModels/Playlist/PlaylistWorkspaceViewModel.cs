@@ -338,8 +338,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     void ISettingsDialogWorkspacePort.SchedulePlaylistUrlCompletionRefresh(string reason)
         => getPlaylistStore()?.SchedulePlaylistUrlCompletionRefresh(reason);
 
-    Task ISettingsDialogWorkspacePort.ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability)
-        => getPlaylistStore()?.BmtOutput.ExportAllAsync(reason, cleanupTablePath, capability: capability) ?? Task.CompletedTask;
+    Task ISettingsDialogWorkspacePort.ExportBeatorajaBmtAsync(string reason, string cleanupTablePath, LibraryFileMutationCapability capability, bool forceProjection)
+        => getPlaylistStore()?.BmtOutput.ExportAllAsync(reason, cleanupTablePath, capability: capability, forceProjection: forceProjection) ?? Task.CompletedTask;
 
     Task ISettingsDialogWorkspacePort.RunWithPlaylistOperationNotificationsAsync(
         Func<Task> operation,

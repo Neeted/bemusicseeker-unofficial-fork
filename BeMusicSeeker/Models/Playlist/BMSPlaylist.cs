@@ -994,15 +994,16 @@ public partial class BMSPlaylist : ObservableObject
     }
 
     /// <summary>ローカルライブラリ準備後に項目・必要修復・BMTを確定し、全体同期に必要な完全な生成面を返します。</summary>
+    /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力で署名一致による生成省略を迂回するか。</param>
     internal async Task<Lr2SongDbSyncPreparedDataSurface> CompleteStartupOutputsAsync(bool verifyRows, bool prepareAllCustomFolders,
-        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null)
+        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false)
     {
         capability.Validate(playlistMutationAdmission);
         settings ??= GetCustomFolderOutputSettings();
         // 読取りと独立走査の合流後に設定正本を更新し、並列の見出し読取りへ書込みを混ぜない。
         bool rootsChanged = await Task.Run(() => SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             settings.LR2CustomFolderOutputBaseDirRootType, null, settings)).ConfigureAwait(false);
-        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings).ConfigureAwait(false);
+        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection).ConfigureAwait(false);
     }
 
     private bool InitializeHeaders(bool synchronizeOutputRoots = true, bool scheduleUrlCompletion = true)
@@ -1271,7 +1272,7 @@ public partial class BMSPlaylist : ObservableObject
         });
     }
 
-    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null)
+    private async Task<Lr2SongDbSyncPreparedDataSurface> HydrateRequiredAsync(string reason, bool exportBeatorajaBmt, bool verifyRootOutputDirectoryRows, LibraryFileMutationCapability capability, bool prepareAllCustomFolders = false, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false)
     {
         OperationProgressRequest progressRequest = null;
         try
@@ -1296,7 +1297,7 @@ public partial class BMSPlaylist : ObservableObject
             }
             if (exportBeatorajaBmt)
             {
-                await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability).ConfigureAwait(false);
+                await BmtOutput.ExportAllAsync(reason, originatingRequest: receipt.ProgressRequest, capability: capability, forceProjection: forceBeatorajaBmtProjection).ConfigureAwait(false);
             }
             if (libraryBindings != null)
             {

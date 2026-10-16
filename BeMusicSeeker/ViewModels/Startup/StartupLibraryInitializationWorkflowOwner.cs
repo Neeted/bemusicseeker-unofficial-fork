@@ -312,9 +312,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
 
     /// <summary>独立した保存ヘッダーとファイル走査を並列に読み、ローカル出力、必要LR2同期を順に直接待ちます。</summary>
     /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
+    /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力に署名一致による省略を適用しないか。</param>
     internal async Task<StartupRequiredInitializationResult> InitializeRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot customFolderSettings = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
     {
         Task<LibraryFileInitializationResult> filesTask = Task.Run(() => library.InitializeStartup([], null, performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
         Task<bool> headersTask;
@@ -323,7 +324,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         // 一方が失敗しても開始済みの相手とcleanupを回収してから親受付を解放する。
         await Task.WhenAll(filesTask, headersTask).ConfigureAwait(false);
         return await CompleteRequiredAsync(library, playlist, lr2Workflow, await filesTask.ConfigureAwait(false),
-            await headersTask.ConfigureAwait(false), capability, originatingRequest, customFolderSettings).ConfigureAwait(false);
+            await headersTask.ConfigureAwait(false), capability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection).ConfigureAwait(false);
     }
 
     /// <summary>再初期化の既存のファイル更新範囲を保ち、今回の結果で必要出力と同期を完了します。</summary>
@@ -338,7 +339,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
 
     private async Task<StartupRequiredInitializationResult> CompleteRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, LibraryFileInitializationResult fileResult, bool verifyRows,
-        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest, CustomFolderOutputSettingsSnapshot customFolderSettings = null)
+        LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest, CustomFolderOutputSettingsSnapshot customFolderSettings = null, bool forceBeatorajaBmtProjection = false)
     {
         if (library.IsShutdownRequested) { throw new OperationCanceledException(); }
         BmsLibraryOptionsSnapshot options = fileResult.Options ?? library.Lr2Synchronization.CurrentOptionsSnapshot;
@@ -346,7 +347,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             true, Lr2SongDbSyncSignatureBuilder.Build(options), DateTime.UtcNow).IsNeeded;
         RequiredChartInfoHydrationResult chartInfo = await Task.Run(() => library.EnsureRequiredStartupData(capability, originatingRequest)).ConfigureAwait(false);
         Lr2SongDbSyncPreparedDataSurface prepared = await playlist.CompleteStartupOutputsAsync(verifyRows, syncNeeded,
-            capability.PlaylistCapability, originatingRequest, customFolderSettings).ConfigureAwait(false);
+            capability.PlaylistCapability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection).ConfigureAwait(false);
         Exception lr2Failure = null;
         try
         {
