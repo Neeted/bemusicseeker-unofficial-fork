@@ -11,7 +11,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>捕捉済み入力からbmsonの基本値と不変リソース結果を直接作成します。</summary>
 internal static class BmsonChartFileParser
 {
-    /// <summary>同じ捕捉内容のハッシュと時刻を保持し、保存行を経由せずに基本値を返します。</summary>
+    /// <summary>同じ捕捉内容のハッシュと時刻を保持し、保存行を経由せずに基本値を返します。原題の省略・nullは空として保持し、合成表示で補完しません。</summary>
     internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -35,7 +35,7 @@ internal static class BmsonChartFileParser
         string title = string.IsNullOrWhiteSpace(subtitle) ? info.Title ?? string.Empty
             : string.IsNullOrWhiteSpace(info.Title) ? subtitle : info.Title + " " + subtitle;
         return new ChartFile(ChartFileKind.Bmson, snapshot.Path, snapshot.Md5, snapshot.Sha256,
-            title, info.Title, ComposeArtist(info.Artist, info.Subartists), info.Genre,
+            title, info.Title ?? string.Empty, ComposeArtist(info.Artist, info.Subartists), info.Genre,
             Path.GetFileName(Path.GetDirectoryName(snapshot.Path)), string.Empty,
             info.Level?.ToString(CultureInfo.InvariantCulture) ?? string.Empty, info.Level,
             ResolvePlaylistMode(info.ModeHint), null,

@@ -2509,7 +2509,7 @@ public sealed class ChartListVirtualViewTests
 
     }
 
-    /// <summary>導入先設定と消去は通知中も最新値を読め、推定候補と警告を保持した次検索へ元項目を渡して、旧値復活と推定消失を検出します。</summary>
+    /// <summary>導入先設定・有効パスと両代表値空・消去を通知中の現在値と次要求へ反映し、候補・警告保持と旧値復活を検証します。</summary>
     [TestMethod]
     public void PackageChartSourceRows_InstallDestinationEditsNotifyCurrentProjectionAndPreserveEstimation()
     {
@@ -2564,6 +2564,20 @@ public sealed class ChartListVirtualViewTests
             CollectionAssert.Contains(entryNotifications, candidates[1]);
             CollectionAssert.Contains(rowNotifications, candidates[1]);
             AssertCurrentProjection(candidates[1], "Candidate B", "Artist B");
+
+            entryNotifications.Clear();
+            rowNotifications.Clear();
+            expectedTitle = expectedArtist = string.Empty;
+            entry.ApplyInstallDestinationMetadata(expectedPath, expectedTitle, expectedArtist);
+            CollectionAssert.Contains(entryNotifications, candidates[1]);
+            CollectionAssert.Contains(rowNotifications, candidates[1]);
+            AssertCurrentProjection(candidates[1], string.Empty, string.Empty);
+            Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget emptyDisplayTarget));
+            var emptyDisplayRequest = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([emptyDisplayTarget]);
+            ChartFile emptyDisplayChart = emptyDisplayRequest.PackageTargets.Single().Chart;
+            Assert.AreEqual(candidates[1], emptyDisplayChart.InstallDestination);
+            Assert.AreEqual(string.Empty, emptyDisplayChart.InstallDestinationTitle);
+            Assert.AreEqual(string.Empty, emptyDisplayChart.InstallDestinationArtist);
 
             entryNotifications.Clear();
             rowNotifications.Clear();

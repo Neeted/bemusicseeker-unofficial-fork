@@ -6,24 +6,39 @@ using System.Text.RegularExpressions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>推定の単独比較キーと実在する最頻ペア、および同じペアの表示表記を保持します。</summary>
 internal sealed class InstallEstimationMetadataProfile
 {
     public static InstallEstimationMetadataProfile Empty { get; } = new InstallEstimationMetadataProfile();
 
+    /// <summary>非空の原題キーの最頻値です。有効値がなければ空です。</summary>
     public string DominantNormalizedTitle { get; set; } = string.Empty;
 
+    /// <summary>非空の作者キーの最頻値です。原題の欠如とは独立に集計します。</summary>
     public string DominantNormalizedArtist { get; set; } = string.Empty;
 
+    /// <summary>両項目が非空の同一レコードから得る実在最頻ペアです。有効ペアがなければ空です。</summary>
     public string DominantNormalizedTitleArtistPair { get; set; } = string.Empty;
 
+    /// <summary>最頻ペア内でパス順・入力順に選んだ同一レコードの、小文字化前の主題です。有効ペアがなければ空です。</summary>
+    public string DominantPairDisplayTitle { get; set; } = string.Empty;
+
+    /// <summary>最頻ペアの表示主題と同じレコードから得た、小文字化前の作者です。有効ペアがなければ空です。</summary>
+    public string DominantPairDisplayArtist { get; set; } = string.Empty;
+
+    /// <summary>採用した非空原題グループの件数です。有効値がなければ0です。</summary>
     public int TitleSupportCount { get; set; }
 
+    /// <summary>採用した非空作者グループの件数です。有効値がなければ0です。</summary>
     public int ArtistSupportCount { get; set; }
 
+    /// <summary>採用した実在ペアの件数です。有効ペアがなければ0です。</summary>
     public int PairSupportCount { get; set; }
 
+    /// <summary>空値を含む全入力譜面の件数です。</summary>
     public int SourceChartCount { get; set; }
 
+    /// <summary>項目単独またはペアの比較材料の有無です。高確信度に必要な両側の実在ペアを意味しません。</summary>
     public bool HasAnySignal => !string.IsNullOrWhiteSpace(DominantNormalizedTitle)
         || !string.IsNullOrWhiteSpace(DominantNormalizedArtist)
         || !string.IsNullOrWhiteSpace(DominantNormalizedTitleArtistPair);
@@ -47,7 +62,10 @@ internal static class InstallEstimationMetadataNormalizer
 
     private static readonly string[] artistDiffPrefixes = ["notes", "note", "obj"];
 
-    internal static string NormalizeTitleForTieBreak(string value)
+    /// <summary>表示と共通の主題整理を行い、比較用の小文字キーを返します。</summary>
+    internal static string NormalizeTitleForTieBreak(string value) => NormalizeTitleDisplay(value).ToLowerInvariant();
+
+    private static string NormalizeTitleDisplay(string value)
     {
         string normalized = NormalizeCommon(value);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -64,7 +82,10 @@ internal static class InstallEstimationMetadataNormalizer
         return NormalizeCommon(normalized);
     }
 
-    internal static string NormalizeArtistForTieBreak(string value)
+    /// <summary>表示と共通の作者整理を行い、比較用の小文字キーを返します。</summary>
+    internal static string NormalizeArtistForTieBreak(string value) => NormalizeArtistDisplay(value).ToLowerInvariant();
+
+    private static string NormalizeArtistDisplay(string value)
     {
         string normalized = NormalizeCommon(value);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -145,31 +166,43 @@ internal static class InstallEstimationMetadataNormalizer
         return InstallEstimationMetadataTitleMatchKind.None;
     }
 
+    /// <summary>両方が非空の比較キーから実在ペアのキーを作ります。片側でも空ならペアはありません。</summary>
     internal static string ComposePair(string normalizedTitle, string normalizedArtist)
     {
-        if (string.IsNullOrWhiteSpace(normalizedTitle) && string.IsNullOrWhiteSpace(normalizedArtist))
+        if (string.IsNullOrWhiteSpace(normalizedTitle) || string.IsNullOrWhiteSpace(normalizedArtist))
         {
             return string.Empty;
         }
         return (normalizedTitle ?? string.Empty) + PairSeparator + (normalizedArtist ?? string.Empty);
     }
 
+    /// <summary>原題・作者を独立に非空集計し、両項目が揃う実在ペアと同じレコードの両表示表記を選びます。</summary>
     internal static InstallEstimationMetadataProfile BuildProfile(IEnumerable<(string Title, string Artist, string Path)> records)
     {
         IEnumerable<(string Title, string Artist, string Path)> effectiveRecords = records ?? [];
         List<MetadataRecord> normalizedRecords = [.. effectiveRecords
             .Select((ValueTuple<string, string, string> record) =>
             {
-                string normalizedTitle = NormalizeTitleForTieBreak(record.Item1);
-                string normalizedArtist = NormalizeArtistForTieBreak(record.Item2);
+                string displayTitle = NormalizeTitleDisplay(record.Item1);
+                string displayArtist = NormalizeArtistDisplay(record.Item2);
+                string normalizedTitle = displayTitle.ToLowerInvariant();
+                string normalizedArtist = displayArtist.ToLowerInvariant();
                 return new MetadataRecord
                 {
                     Title = normalizedTitle,
                     Artist = normalizedArtist,
                     Pair = ComposePair(normalizedTitle, normalizedArtist),
+                    DisplayTitle = displayTitle,
+                    DisplayArtist = displayArtist,
                     Path = record.Item3 ?? string.Empty
                 };
             })];
+
+        string dominantPair = SelectDominantValue(normalizedRecords, record => record.Pair, out int pairSupportCount);
+        MetadataRecord displayRecord = string.IsNullOrEmpty(dominantPair) ? null : normalizedRecords
+            .Where(record => record.Pair == dominantPair)
+            .OrderBy(record => record.Path, StringComparer.OrdinalIgnoreCase)
+            .First();
 
         return new InstallEstimationMetadataProfile
         {
@@ -177,7 +210,9 @@ internal static class InstallEstimationMetadataNormalizer
             TitleSupportCount = titleSupportCount,
             DominantNormalizedArtist = SelectDominantValue(normalizedRecords, record => record.Artist, out int artistSupportCount),
             ArtistSupportCount = artistSupportCount,
-            DominantNormalizedTitleArtistPair = SelectDominantValue(normalizedRecords, record => record.Pair, out int pairSupportCount),
+            DominantNormalizedTitleArtistPair = dominantPair,
+            DominantPairDisplayTitle = displayRecord?.DisplayTitle ?? string.Empty,
+            DominantPairDisplayArtist = displayRecord?.DisplayArtist ?? string.Empty,
             PairSupportCount = pairSupportCount,
             SourceChartCount = normalizedRecords.Count
         };
@@ -192,8 +227,7 @@ internal static class InstallEstimationMetadataNormalizer
 
         string normalized = value.Normalize(NormalizationForm.FormKC)
             .Replace('\u3000', ' ')
-            .Trim()
-            .ToLowerInvariant();
+            .Trim();
         return whitespaceRegex.Replace(normalized, " ").Trim();
     }
 
@@ -220,7 +254,7 @@ internal static class InstallEstimationMetadataNormalizer
         {
             foreach (string marker in artistDiffPrefixes)
             {
-                if (i + marker.Length > normalized.Length || !normalized.AsSpan(i, marker.Length).SequenceEqual(marker.AsSpan()))
+                if (i + marker.Length > normalized.Length || !normalized.AsSpan(i, marker.Length).Equals(marker.AsSpan(), StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -284,24 +318,18 @@ internal static class InstallEstimationMetadataNormalizer
             return string.Empty;
         }
 
-        DominantGroup bestGroup = records
-            .Select((record, index) => new DominantGroupItem
-            {
-                Value = selector(record) ?? string.Empty,
-                Path = record.Path ?? string.Empty,
-                Index = index
-            })
+        var bestGroup = records
+            .Select((record, index) => (Value: selector(record), record.Path, Index: index))
+            .Where(item => !string.IsNullOrEmpty(item.Value))
             .GroupBy(item => item.Value, StringComparer.Ordinal)
-            .Select(group => new DominantGroup
+            .Select(group => new
             {
                 Value = group.Key ?? string.Empty,
                 Count = group.Count(),
-                HasNonEmptyValue = !string.IsNullOrWhiteSpace(group.Key),
                 FirstPath = group.Select(item => item.Path ?? string.Empty).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty,
                 FirstIndex = group.Min(item => item.Index)
             })
             .OrderByDescending(group => group.Count)
-            .ThenByDescending(group => group.HasNonEmptyValue)
             .ThenBy(group => group.FirstPath, StringComparer.OrdinalIgnoreCase)
             .ThenBy(group => group.FirstIndex)
             .FirstOrDefault();
@@ -323,28 +351,11 @@ internal static class InstallEstimationMetadataNormalizer
 
         public string Pair { get; set; } = string.Empty;
 
-        public string Path { get; set; } = string.Empty;
-    }
+        public string DisplayTitle { get; set; } = string.Empty;
 
-    private sealed class DominantGroupItem
-    {
-        public string Value { get; set; } = string.Empty;
+        public string DisplayArtist { get; set; } = string.Empty;
 
         public string Path { get; set; } = string.Empty;
-
-        public int Index { get; set; }
     }
 
-    private sealed class DominantGroup
-    {
-        public string Value { get; set; } = string.Empty;
-
-        public int Count { get; set; }
-
-        public bool HasNonEmptyValue { get; set; }
-
-        public string FirstPath { get; set; } = string.Empty;
-
-        public int FirstIndex { get; set; }
-    }
 }

@@ -81,8 +81,10 @@ internal sealed class InstallEstimationCandidate
 
     public int OptionalImageJaccard { get; set; }
 
+    /// <summary>導入先フォルダの最頻ペアから選んだ、小文字化前の主題です。</summary>
     public string RepresentativeTitle { get; set; } = string.Empty;
 
+    /// <summary>代表主題と同じ入力レコードに由来する、最頻ペアの作者です。</summary>
     public string RepresentativeArtist { get; set; } = string.Empty;
 
     public string ToSummary()
@@ -116,19 +118,6 @@ internal sealed class InstallEstimationCandidate
             RepresentativeTitle ?? string.Empty,
             RepresentativeArtist ?? string.Empty);
     }
-}
-
-/// <summary>
-/// 推定候補ディレクトリの代表譜面 metadata です。
-/// Pending 画面の確認列へ流すため、ディスク I/O なしでメモリ上のライブラリから解決します。
-/// </summary>
-internal sealed class InstallDestinationRepresentativeMetadata
-{
-    public static InstallDestinationRepresentativeMetadata Empty { get; } = new InstallDestinationRepresentativeMetadata();
-
-    public string Title { get; set; } = string.Empty;
-
-    public string Artist { get; set; } = string.Empty;
 }
 
 /// <summary>

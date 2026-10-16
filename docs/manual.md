@@ -958,15 +958,17 @@ For example, a differential chart by itself is typically added to `Pending` with
 | Column | What to check |
 | --- | --- |
 | INSTL DST | Actual destination directory |
-| INSTL DST TITLE / ARTIST | Title and artist of a representative chart at the destination |
-| WARNING | Missing resources, ambiguous candidates, title or artist mismatches, and similar issues |
+| INSTL DST TITLE / ARTIST | Title–artist pair representing the destination folder |
+| WARNING | Missing resources, ambiguous candidates, unconfirmed title–artist matches, and similar issues |
+
+`INSTL DST TITLE` and `INSTL DST ARTIST` show the most frequent pair among charts with both values present, after removing subtitles and chart-author annotations. Destination estimation compares this pair, as well as title and artist information individually, with the pending charts’ information alongside resource matching. Both columns are blank when no chart has both values. When the destination is still unset, the displayed pair belongs to the first candidate. If a title–artist pair is unavailable on either side, the candidates are shown and the destination is left for manual confirmation.
 
 `WARNING` shows a `[type count] label` summary; hover for details. Several missing-resource types can share one label. Resource shortages may disappear from the summary when a destination is set, so check the details too.
 
 | Main warning | How to decide |
 | --- | --- |
 | Multiple estimated / install destinations | Compare candidate locations, titles, and artists. |
-| TITLE/ARTIST mismatch / Install estimation | Matching resources may still give a low-confidence result. Check that it is the correct work. |
+| TITLE/ARTIST unconfirmed / Install estimation | Matching resources may still give a low-confidence result. Check that it is the correct work. |
 | Missing resources | Check missing WAV, BGA, or video percentages. A standalone additional chart normally lacks resources before installation. |
 | Install destination unknown / Unsupported resource path / Search limit | Read the details and specify a destination manually or re-estimate. |
 | Already installed | The package contains owned charts. For resource updates, consider merging or [Advanced Features](#advanced-features). |

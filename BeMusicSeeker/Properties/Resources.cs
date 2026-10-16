@@ -1494,9 +1494,11 @@ public class Resources
     public static string Warning_InstallEstimationAmbiguous => ResourceManager.GetString("Warning_InstallEstimationAmbiguous", resourceCulture);
 
 
+    /// <summary>TITLE / ARTISTの不一致または比較材料不足で自動確定しない旨を示します。</summary>
     public static string Warning_InstallEstimationMetadataMismatchPrefix => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatchPrefix", resourceCulture);
 
 
+    /// <summary>基本情報の一致を十分に確認できない理由と、先頭候補パスの書式を返します。</summary>
     public static string Warning_InstallEstimationMetadataMismatch => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatch", resourceCulture);
 
 

@@ -8807,36 +8807,13 @@ public partial class BMSLibrary : ObservableObject
     }
     private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
-    private sealed class InstalledChartMetadataCandidate
+    /// <summary>既存の実パス索引から、共通現在値の原題・作者・パスを集計入力として取得します。</summary>
+    private IEnumerable<(string Title, string Artist, string Path)> EnumerateInstalledChartMetadataRecordsUnsafe(string normalizedDestinationDirectory)
     {
-        internal string Title { get; set; }
-
-        internal string Artist { get; set; }
-
-        internal string Path { get; set; }
-    }
-
-    private IEnumerable<InstalledChartMetadataCandidate> EnumerateInstalledChartMetadataCandidatesUnsafe(string normalizedDestinationDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(normalizedDestinationDirectory))
-        {
-            return [];
-        }
-
         return CreateOwnedRealPathChartRefsUnsafe(normalizedDestinationDirectory)
-            .Select(CreateInstalledChartMetadataCandidate)
-            .Where(candidate => candidate != null);
-    }
-
-    private InstalledChartMetadataCandidate CreateInstalledChartMetadataCandidate(LibraryChartRef chartRef)
-    {
-        ChartFile chart = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(chartRef);
-        return chart == null ? null : new InstalledChartMetadataCandidate
-        {
-            Title = chart.Title,
-            Artist = chart.Artist,
-            Path = chart.Path
-        };
+            .Select(chartRef => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(chartRef))
+            .Where(chart => chart != null)
+            .Select(chart => (chart.RawTitle ?? string.Empty, chart.Artist ?? string.Empty, chart.Path ?? string.Empty));
     }
     private static string NormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
     {
@@ -8858,29 +8835,7 @@ public partial class BMSLibrary : ObservableObject
         return LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedPath);
     }
 
-    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataUnsafe(string destinationDirectory)
-    {
-        if (string.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            return InstallDestinationRepresentativeMetadata.Empty;
-        }
-        string normalizedDestinationDirectory = NormalizeInstallDestinationDirectoryForLookup(destinationDirectory);
-        InstalledChartMetadataCandidate representativeChart = EnumerateInstalledChartMetadataCandidatesUnsafe(normalizedDestinationDirectory)
-            .OrderByDescending(candidate => !string.IsNullOrWhiteSpace(candidate.Title))
-            .ThenByDescending(candidate => !string.IsNullOrWhiteSpace(candidate.Artist))
-            .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
-        if (representativeChart == null)
-        {
-            return InstallDestinationRepresentativeMetadata.Empty;
-        }
-        return new InstallDestinationRepresentativeMetadata
-        {
-            Title = representativeChart.Title ?? string.Empty,
-            Artist = representativeChart.Artist ?? string.Empty
-        };
-    }
-
+    /// <summary>導入先の比較キーと同じ最頻ペアの表示を、既存の失効境界を持つキャッシュから解決します。</summary>
     private InstallEstimationMetadataProfile ResolveInstallDestinationMetadataProfileUnsafe(string destinationDirectory)
     {
         if (string.IsNullOrWhiteSpace(destinationDirectory))
@@ -8898,8 +8853,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile(
-            EnumerateInstalledChartMetadataCandidatesUnsafe(normalizedDestinationDirectory)
-                .Select(candidate => (candidate.Title ?? string.Empty, candidate.Artist ?? string.Empty, candidate.Path ?? string.Empty)));
+            EnumerateInstalledChartMetadataRecordsUnsafe(normalizedDestinationDirectory));
 
         lock (lockInstallEstimationMetadataProfileCache)
         {
@@ -8908,17 +8862,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private InstallDestinationRepresentativeMetadata ResolveInstallDestinationRepresentativeMetadataThreadSafe(string destinationDirectory)
-    {
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
-            }
-        }
-    }
-
+    /// <summary>所持現在値の読取り境界内で、比較と表示に共通のプロファイルを解決します。</summary>
     private InstallEstimationMetadataProfile ResolveInstallDestinationMetadataProfileThreadSafe(string destinationDirectory)
     {
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -8932,19 +8876,19 @@ public partial class BMSLibrary : ObservableObject
 
     private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
     {
-        InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        InstallEstimationMetadataProfile metadata = ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
-            entry.ApplyInstallDestination(destinationDirectory, metadata.Title, metadata.Artist);
+            entry.ApplyInstallDestination(destinationDirectory, metadata.DominantPairDisplayTitle, metadata.DominantPairDisplayArtist);
         }
     }
 
     private void ApplyResolvedInstallDestinationPathAndMetadataToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
     {
-        InstallDestinationRepresentativeMetadata metadata = ResolveInstallDestinationRepresentativeMetadataUnsafe(destinationDirectory);
+        InstallEstimationMetadataProfile metadata = ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
-            entry.ApplyInstallDestinationMetadata(destinationDirectory, metadata.Title, metadata.Artist);
+            entry.ApplyInstallDestinationMetadata(destinationDirectory, metadata.DominantPairDisplayTitle, metadata.DominantPairDisplayArtist);
         }
     }
 
@@ -8960,7 +8904,13 @@ public partial class BMSLibrary : ObservableObject
     {
         return (entries ?? []).Any(entry => entry?.Chart != null
             && string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)
-            && !string.IsNullOrWhiteSpace(entry.Chart.InstallDestinationTitle));
+            && (entry.Chart.InstallDestinationSuggestions.Count > 0
+                || entry.Chart.Warnings.Any(warning => warning.Kind is ChartWarningKind.InstallEstimationAmbiguous
+                    or ChartWarningKind.InstallEstimationMetadataMismatch
+                    or ChartWarningKind.InstallEstimationReinstallNotImproved
+                    or ChartWarningKind.InstalledDestinationAmbiguous
+                    or ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous
+                    or ChartWarningKind.InstallEstimationLowConfidence)));
     }
 
     private InstallEstimationEvaluationData EvaluateInstallEstimation(ChartPackage package, List<PackageChartEntry> targetEntries, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, BmsLibraryOptionsSnapshot optionsSnapshot = null, bool useThreadSafeResolvers = false, bool useSharedLazyHashMetrics = false, DirectoryResourceLookupCache directoryLookupCacheSnapshot = null, PendingEstimateSourceBatchPackageState batchState = null, IReadOnlyCollection<string> candidateDirectoryOverride = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null, bool markInstalledDestinationAmbiguous = false)
@@ -8973,9 +8923,6 @@ public partial class BMSLibrary : ObservableObject
                 ChartCount = 0
             };
         }
-        Func<string, InstallDestinationRepresentativeMetadata> representativeResolver = useThreadSafeResolvers
-            ? new Func<string, InstallDestinationRepresentativeMetadata>(ResolveInstallDestinationRepresentativeMetadataThreadSafe)
-            : new Func<string, InstallDestinationRepresentativeMetadata>(ResolveInstallDestinationRepresentativeMetadataUnsafe);
         Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = useThreadSafeResolvers
             ? new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileThreadSafe)
             : new Func<string, InstallEstimationMetadataProfile>(ResolveInstallDestinationMetadataProfileUnsafe);
@@ -9036,7 +8983,6 @@ public partial class BMSLibrary : ObservableObject
                 effectiveDirectoryLookupCache,
                 candidateEvaluationDegree,
                 estimateMode,
-                representativeResolver,
                 metadataProfileResolver,
                 candidateDirectoryUniquePrimaryHashCountResolver)
             : CreateInstallEstimationService(optionsSnapshot).EstimateInstallationDirectoryForCandidateDirectories(
@@ -9045,7 +8991,6 @@ public partial class BMSLibrary : ObservableObject
                 effectiveDirectoryLookupCache,
                 candidateEvaluationDegree,
                 estimateMode,
-                representativeResolver,
                 metadataProfileResolver,
                 candidateDirectoryUniquePrimaryHashCountResolver);
         if (markInstalledDestinationAmbiguous && result?.LowConfidenceKind == InstallEstimationLowConfidenceKind.AmbiguousCandidates)

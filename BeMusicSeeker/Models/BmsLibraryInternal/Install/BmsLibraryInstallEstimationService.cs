@@ -498,43 +498,45 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
+    /// <summary>対象スナップショットと候補プロファイルで評価し、同じプロファイルの代表ペアを表示へ渡します。</summary>
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
-        return EstimateInstallationDirectory(snapshot, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver, candidateDirectoryOverride: null);
+        return EstimateInstallationDirectory(snapshot, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver, candidateDirectoryOverride: null);
     }
 
-    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
+    /// <summary>指定候補だけを評価し、比較と表示に共通のプロファイルを利用します。</summary>
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
-        return EstimateInstallationDirectoryForCandidateDirectories(snapshot, candidateDirectories, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, representativeMetadataResolver, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver);
+        return EstimateInstallationDirectoryForCandidateDirectories(snapshot, candidateDirectories, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver);
     }
 
-    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
+    /// <summary>指定候補を明示並列度で評価し、比較と表示に共通のプロファイルを利用します。</summary>
+    internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
             directoryLookupCache,
             candidateEvaluationDegree,
             estimateMode,
-            representativeMetadataResolver,
             metadataProfileResolver,
             candidateDirectoryUniquePrimaryHashCountResolver,
             candidateDirectoryOverride: candidateDirectories);
     }
 
-    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver = null, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
+    /// <summary>明示並列度で評価します。有効候補でも両側の実在ペアを確認できなければ自動適用しません。</summary>
+    public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectory(
             snapshot,
             directoryLookupCache,
             candidateEvaluationDegree,
             estimateMode,
-            representativeMetadataResolver,
             metadataProfileResolver,
             candidateDirectoryUniquePrimaryHashCountResolver,
             candidateDirectoryOverride: null);
     }
 
-    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallDestinationRepresentativeMetadata> representativeMetadataResolver, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
+    private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
     {
         var result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
@@ -735,8 +737,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             .Take(3)
             .Select(delegate (CandidateEvaluation evaluation)
             {
-                InstallDestinationRepresentativeMetadata representativeMetadata = representativeMetadataResolver?.Invoke(evaluation.DirectoryPath) ?? InstallDestinationRepresentativeMetadata.Empty;
-                return CreateCandidate(evaluation, representativeMetadata);
+                InstallEstimationMetadataProfile metadataProfile = metadataProfileResolver?.Invoke(evaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+                return CreateCandidate(evaluation, metadataProfile);
             }))
         {
             result.Candidates.Add(candidate);
@@ -776,6 +778,16 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         if (!selectedViable)
         {
             SetNoViableDestinationResult(result);
+        }
+        else if (metadataValidation?.IsApplicable != true)
+        {
+            // 単独キーの一致やリソース順位では、両側に実在ペアがない比較を高確信度に補いません。
+            result.HasViableDestination = true;
+            result.Confidence = InstallEstimationConfidence.Low;
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+            result.ConfidenceReason = "metadata_pair_unavailable";
+            result.ShouldAutoApplyDestination = false;
+            result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
         }
         else if (isReinstallCorrectionMode && hasMultipleViableCandidates)
         {
@@ -1530,12 +1542,17 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     private static MetadataValidationResult EvaluateSelectedCandidateMetadata(CandidateEvaluation selectedCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
     {
         var result = new MetadataValidationResult();
-        if (selectedCandidateEvaluation == null || metadataProfileResolver == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal)
+        if (selectedCandidateEvaluation == null)
         {
             return result;
         }
 
-        InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver?.Invoke(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        if (string.IsNullOrEmpty(targetMetadataProfile?.DominantNormalizedTitleArtistPair)
+            || string.IsNullOrEmpty(selectedProfile.DominantNormalizedTitleArtistPair))
+        {
+            return result;
+        }
         result.IsApplicable = true;
         result.PairExactMatch = HasExactMetadataPairMatch(targetMetadataProfile, selectedProfile);
         result.ArtistExactMatch = HasExactMetadataArtistMatch(targetMetadataProfile, selectedProfile);
@@ -2051,7 +2068,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return -CompareRatioMetric(left, right);
     }
 
-    private static InstallEstimationCandidate CreateCandidate(CandidateEvaluation evaluation, InstallDestinationRepresentativeMetadata representativeMetadata)
+    private static InstallEstimationCandidate CreateCandidate(CandidateEvaluation evaluation, InstallEstimationMetadataProfile metadataProfile)
     {
         return new InstallEstimationCandidate
         {
@@ -2078,8 +2095,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             MovieJaccard = evaluation.MovieJaccard,
             OptionalImagePrecision = evaluation.OptionalImagePrecision,
             OptionalImageJaccard = evaluation.OptionalImageJaccard,
-            RepresentativeTitle = representativeMetadata?.Title ?? string.Empty,
-            RepresentativeArtist = representativeMetadata?.Artist ?? string.Empty
+            RepresentativeTitle = metadataProfile?.DominantPairDisplayTitle ?? string.Empty,
+            RepresentativeArtist = metadataProfile?.DominantPairDisplayArtist ?? string.Empty
         };
     }
 

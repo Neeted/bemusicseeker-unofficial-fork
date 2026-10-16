@@ -455,6 +455,6 @@ internal static class PackageInstallEstimationSnapshotBuilder
             (targetEntries ?? [])
                 .Select(entry => entry?.Chart)
                 .Where(chart => chart != null)
-                .Select(chart => (chart.Title ?? string.Empty, chart.Artist ?? string.Empty, chart.Path ?? string.Empty)));
+                .Select(chart => (chart.RawTitle ?? string.Empty, chart.Artist ?? string.Empty, chart.Path ?? string.Empty)));
     }
 }

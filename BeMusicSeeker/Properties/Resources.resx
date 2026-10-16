@@ -2130,7 +2130,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>推定先複数</value>
   </data>
   <data name="WarningDigest_InstallEstimationMetadataMismatch" xml:space="preserve">
-    <value>TITLE/ARTIST不一致</value>
+    <value>TITLE/ARTIST未確認</value>
   </data>
   <data name="WarningDigest_InstallEstimationReinstallNotImproved" xml:space="preserve">
     <value>再インストール改善なし</value>
@@ -2180,10 +2180,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 第2候補: {1}</value>
   </data>
   <data name="Warning_InstallEstimationMetadataMismatchPrefix" xml:space="preserve">
-    <value>TITLE / ARTIST の一致度が低いため自動確定していません。</value>
+    <value>TITLE / ARTIST の一致を十分に確認できないため自動確定していません。</value>
   </data>
   <data name="Warning_InstallEstimationMetadataMismatch" xml:space="preserve">
-    <value>TITLE / ARTIST の一致度が低いため自動確定していません。
+    <value>TITLE / ARTIST の一致を十分に確認できないため自動確定していません。
 候補: {0}</value>
   </data>
   <data name="Warning_InstallEstimationReinstallNotImprovedPrefix" xml:space="preserve">

@@ -10,6 +10,30 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsonSongParserTests
 {
+    /// <summary>原題省略・null・空文字でも副題と譜面名の表示を保ち、原題への合成表示の混入を検出する。</summary>
+    [DataTestMethod]
+    [DataRow("")]
+    [DataRow("\"title\":null,")]
+    [DataRow("\"title\":\"\",")]
+    public void Parse_MissingTitleKeepsRawTitleEmptyAndComposedDisplay(string titleField)
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsonSongParserTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string path = Path.Combine(tempDirectory, "chart.bmson");
+            File.WriteAllText(path, "{\"version\":\"1.0.0\",\"info\":{" + titleField
+                + "\"subtitle\":\"Alternate Name\",\"chart_name\":\"ANOTHER\",\"artist\":\"Artist\"},\"sound_channels\":[]}");
+            ChartFile chart = ChartTestValues.ReadBmson(path);
+            Assert.AreEqual(string.Empty, chart.RawTitle);
+            Assert.AreEqual("Alternate Name [ANOTHER]", chart.Title);
+        }
+        finally
+        {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
     /// <summary>実 bmson の複合タイトル・副アーティスト・画像・モードを読み取り、メタデータの欠落や資源名の互換変換漏れを検出する。</summary>
     /// <remarks>実ファイルの捕捉と解析を接続し、読み込む内容の保証を確認する。</remarks>
     [TestMethod]

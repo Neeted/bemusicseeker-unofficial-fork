@@ -1678,14 +1678,15 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td>INSTL DST TITLE / ARTIST</td>
-<td>Title and artist of a representative chart at the destination</td>
+<td>Title–artist pair representing the destination folder</td>
 </tr>
 <tr>
 <td>WARNING</td>
-<td>Missing resources, ambiguous candidates, title or artist mismatches, and similar issues</td>
+<td>Missing resources, ambiguous candidates, unconfirmed title–artist matches, and similar issues</td>
 </tr>
 </tbody>
 </table></div>
+<p><code>INSTL DST TITLE</code> and <code>INSTL DST ARTIST</code> show the most frequent pair among charts with both values present, after removing subtitles and chart-author annotations. Destination estimation compares this pair, as well as title and artist information individually, with the pending charts’ information alongside resource matching. Both columns are blank when no chart has both values. When the destination is still unset, the displayed pair belongs to the first candidate. If a title–artist pair is unavailable on either side, the candidates are shown and the destination is left for manual confirmation.</p>
 <p><code>WARNING</code> shows a <code>[type count] label</code> summary; hover for details. Several missing-resource types can share one label. Resource shortages may disappear from the summary when a destination is set, so check the details too.</p>
 <div class="table-scroll"><table>
 <thead>
@@ -1700,7 +1701,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <td>Compare candidate locations, titles, and artists.</td>
 </tr>
 <tr>
-<td>TITLE/ARTIST mismatch / Install estimation</td>
+<td>TITLE/ARTIST unconfirmed / Install estimation</td>
 <td>Matching resources may still give a low-confidence result. Check that it is the correct work.</td>
 </tr>
 <tr>
@@ -1916,7 +1917,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h3 id="lr2-integration">LR2 Integration</h3>
 <h4 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h4>
 <p>Check whether the chart appears in <code>LR2 compatibility warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
-<p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Press <code>Retry</code> and let synchronization finish before starting LR2.</p>
+<p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Use <code>Resync LR2 song.db data</code> in the settings dialog and let synchronization finish before starting LR2.</p>
 <p>Even after synchronization is complete, you can use <code>Resync LR2 song.db data</code> in the settings dialog if another tool has changed the <code>song</code> / <code>folder</code> information in <code>song.db</code> and you suspect inconsistencies in the data generated for LR2.</p>
 <h3 id="play-log-troubleshooting">Play Log Troubleshooting</h3>
 <h4 id="past-lr2-plays-are-not-shown">Past LR2 Plays Are Not Shown</h4>

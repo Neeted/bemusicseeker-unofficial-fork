@@ -177,7 +177,9 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 14 | `Path` | `PATH` | 250 |
 | 15 | `Hash` | `MD5 HASH` | 240 |
 
-`InstallDstTitle` / `InstallDstArtist` のヘッダー文字列はリソース `Header_InstallDstTitle` / `Header_InstallDstArtist` に定義されています。
+`InstallDstTitle` / `InstallDstArtist` は、導入先フォルダを代表するタイトル・アーティストの組です。両項目が非空の実在する最頻ペアの整理済み表記を表示し、有効ペアがなければ両列とも空欄にします。集計と表示の契約は[導入先推定](../library/install-estimation.md#比較用の基本情報と導入先の代表ペア)に従います。
+
+ヘッダー文字列はリソース `Header_InstallDstTitle` / `Header_InstallDstArtist` に定義されています。
 
 #### インストール保留
 
