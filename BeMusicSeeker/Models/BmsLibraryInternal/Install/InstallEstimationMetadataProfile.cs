@@ -6,57 +6,32 @@ using System.Text.RegularExpressions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>推定の単独比較キーと実在する最頻ペア、および同じペアの表示表記を保持します。</summary>
+/// <summary>同一譜面由来の実在最頻ペアと、その小文字化前の表示表記を保持します。</summary>
 internal sealed class InstallEstimationMetadataProfile
 {
+    /// <summary>非空TITLEの実在ペアを持たないプロファイルです。</summary>
     public static InstallEstimationMetadataProfile Empty { get; } = new InstallEstimationMetadataProfile();
 
-    /// <summary>非空の原題キーの最頻値です。有効値がなければ空です。</summary>
-    public string DominantNormalizedTitle { get; set; } = string.Empty;
+    /// <summary>採用した実在最頻ペアのTITLEキーです。有効ペアがなければ空です。</summary>
+    public string DominantNormalizedTitle { get; init; } = string.Empty;
 
-    /// <summary>非空の作者キーの最頻値です。原題の欠如とは独立に集計します。</summary>
-    public string DominantNormalizedArtist { get; set; } = string.Empty;
+    /// <summary>採用ペアのARTISTキーです。空文字も有効であり、空文字同士だけ一致します。</summary>
+    public string DominantNormalizedArtist { get; init; } = string.Empty;
 
-    /// <summary>両項目が非空の同一レコードから得る実在最頻ペアです。有効ペアがなければ空です。</summary>
-    public string DominantNormalizedTitleArtistPair { get; set; } = string.Empty;
+    /// <summary>採用ペア内でパス順・入力順に選んだ同一レコードの、小文字化前の照合TITLEです。</summary>
+    public string DominantPairDisplayTitle { get; init; } = string.Empty;
 
-    /// <summary>最頻ペア内でパス順・入力順に選んだ同一レコードの、小文字化前の主題です。有効ペアがなければ空です。</summary>
-    public string DominantPairDisplayTitle { get; set; } = string.Empty;
+    /// <summary>表示TITLEと同じレコードから得た、小文字化前の照合ARTISTです。</summary>
+    public string DominantPairDisplayArtist { get; init; } = string.Empty;
 
-    /// <summary>最頻ペアの表示主題と同じレコードから得た、小文字化前の作者です。有効ペアがなければ空です。</summary>
-    public string DominantPairDisplayArtist { get; set; } = string.Empty;
-
-    /// <summary>採用した非空原題グループの件数です。有効値がなければ0です。</summary>
-    public int TitleSupportCount { get; set; }
-
-    /// <summary>採用した非空作者グループの件数です。有効値がなければ0です。</summary>
-    public int ArtistSupportCount { get; set; }
-
-    /// <summary>採用した実在ペアの件数です。有効ペアがなければ0です。</summary>
-    public int PairSupportCount { get; set; }
-
-    /// <summary>空値を含む全入力譜面の件数です。</summary>
-    public int SourceChartCount { get; set; }
-
-    /// <summary>項目単独またはペアの比較材料の有無です。高確信度に必要な両側の実在ペアを意味しません。</summary>
-    public bool HasAnySignal => !string.IsNullOrWhiteSpace(DominantNormalizedTitle)
-        || !string.IsNullOrWhiteSpace(DominantNormalizedArtist)
-        || !string.IsNullOrWhiteSpace(DominantNormalizedTitleArtistPair);
+    /// <summary>比較に使える実在ペアの有無です。ARTISTの非空は要求しません。</summary>
+    public bool HasPair => DominantNormalizedTitle.Length > 0;
 }
 
-internal enum InstallEstimationMetadataTitleMatchKind
-{
-    None,
-    Weak,
-    FuzzyStrong,
-    Exact
-}
-
+/// <summary>導入先照合の入力を一度だけ正規化し、実在ペアの集計と唯一の強一致判定を提供します。</summary>
 internal static class InstallEstimationMetadataNormalizer
 {
-    private const char PairSeparator = '\u001f';
-    internal const double TitleFuzzyStrongThreshold = 0.88;
-    internal const double TitleWeakThreshold = 0.72;
+    private const double TitleFuzzyStrongThreshold = 0.88;
 
     private static readonly Regex whitespaceRegex = new("\\s+", RegexOptions.Compiled);
 
@@ -73,13 +48,14 @@ internal static class InstallEstimationMetadataNormalizer
             return string.Empty;
         }
 
-        int delimiterIndex = FindTitleDelimiterIndex(normalized);
-        if (delimiterIndex > 0)
+        int cutIndex = FindTitleSuffixGroupStart(normalized);
+        if (cutIndex > 0)
         {
-            normalized = normalized.Substring(0, delimiterIndex).Trim();
+            // 切断対象の最も右のMIXまで残す。正規化済みキーへ再適用すると主題を再切断するため、生TITLEで一度だけ行う。
+            int mixIndex = normalized.LastIndexOf("mix", StringComparison.OrdinalIgnoreCase);
+            normalized = normalized[..(mixIndex >= cutIndex ? mixIndex + 3 : cutIndex)].TrimEnd();
         }
-
-        return NormalizeCommon(normalized);
+        return normalized;
     }
 
     /// <summary>表示と共通の作者整理を行い、比較用の小文字キーを返します。</summary>
@@ -108,10 +84,9 @@ internal static class InstallEstimationMetadataNormalizer
         return NormalizeCommon(normalized);
     }
 
-    internal static double ComputeTitleSimilarity(string leftValue, string rightValue)
+    /// <summary>正規化済みTITLE同士を、UTF-16の重複2-gram付きDice係数で比較します。切断・小文字化は再実行しません。</summary>
+    internal static double ComputeTitleSimilarity(string left, string right)
     {
-        string left = NormalizeTitleForTieBreak(leftValue);
-        string right = NormalizeTitleForTieBreak(rightValue);
         if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
         {
             return 0d;
@@ -141,80 +116,44 @@ internal static class InstallEstimationMetadataNormalizer
         return (2d * overlapCount) / (leftCount + rightCount);
     }
 
-    internal static InstallEstimationMetadataTitleMatchKind ClassifyTitleMatch(string leftValue, string rightValue)
+    /// <summary>両側の非空TITLE、空許容ARTISTの同値、TITLEのDice係数0.88以上を唯一の強一致条件とします。</summary>
+    internal static bool IsStrongMatch(InstallEstimationMetadataProfile target, InstallEstimationMetadataProfile candidate)
     {
-        string left = NormalizeTitleForTieBreak(leftValue);
-        string right = NormalizeTitleForTieBreak(rightValue);
-        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
-        {
-            return InstallEstimationMetadataTitleMatchKind.None;
-        }
-        if (string.Equals(left, right, StringComparison.Ordinal))
-        {
-            return InstallEstimationMetadataTitleMatchKind.Exact;
-        }
-
-        double similarity = ComputeTitleSimilarity(left, right);
-        if (similarity >= TitleFuzzyStrongThreshold)
-        {
-            return InstallEstimationMetadataTitleMatchKind.FuzzyStrong;
-        }
-        if (similarity >= TitleWeakThreshold)
-        {
-            return InstallEstimationMetadataTitleMatchKind.Weak;
-        }
-        return InstallEstimationMetadataTitleMatchKind.None;
+        return target?.HasPair == true && candidate?.HasPair == true
+            && string.Equals(target.DominantNormalizedArtist, candidate.DominantNormalizedArtist, StringComparison.Ordinal)
+            && ComputeTitleSimilarity(target.DominantNormalizedTitle, candidate.DominantNormalizedTitle) >= TitleFuzzyStrongThreshold;
     }
 
-    /// <summary>両方が非空の比較キーから実在ペアのキーを作ります。片側でも空ならペアはありません。</summary>
-    internal static string ComposePair(string normalizedTitle, string normalizedArtist)
-    {
-        if (string.IsNullOrWhiteSpace(normalizedTitle) || string.IsNullOrWhiteSpace(normalizedArtist))
-        {
-            return string.Empty;
-        }
-        return (normalizedTitle ?? string.Empty) + PairSeparator + (normalizedArtist ?? string.Empty);
-    }
-
-    /// <summary>原題・作者を独立に非空集計し、両項目が揃う実在ペアと同じレコードの両表示表記を選びます。</summary>
+    /// <summary>非空TITLEと空許容ARTISTの実在ペアを集計し、最多・パス順・入力順で同一レコードの比較キーと表示を選びます。</summary>
     internal static InstallEstimationMetadataProfile BuildProfile(IEnumerable<(string Title, string Artist, string Path)> records)
     {
-        IEnumerable<(string Title, string Artist, string Path)> effectiveRecords = records ?? [];
-        List<MetadataRecord> normalizedRecords = [.. effectiveRecords
-            .Select((ValueTuple<string, string, string> record) =>
+        var dominantGroup = (records ?? [])
+            .Select((record, index) => new
             {
-                string displayTitle = NormalizeTitleDisplay(record.Item1);
-                string displayArtist = NormalizeArtistDisplay(record.Item2);
-                string normalizedTitle = displayTitle.ToLowerInvariant();
-                string normalizedArtist = displayArtist.ToLowerInvariant();
-                return new MetadataRecord
-                {
-                    Title = normalizedTitle,
-                    Artist = normalizedArtist,
-                    Pair = ComposePair(normalizedTitle, normalizedArtist),
-                    DisplayTitle = displayTitle,
-                    DisplayArtist = displayArtist,
-                    Path = record.Item3 ?? string.Empty
-                };
-            })];
-
-        string dominantPair = SelectDominantValue(normalizedRecords, record => record.Pair, out int pairSupportCount);
-        MetadataRecord displayRecord = string.IsNullOrEmpty(dominantPair) ? null : normalizedRecords
-            .Where(record => record.Pair == dominantPair)
-            .OrderBy(record => record.Path, StringComparer.OrdinalIgnoreCase)
-            .First();
-
-        return new InstallEstimationMetadataProfile
+                Title = NormalizeTitleDisplay(record.Title),
+                Artist = NormalizeArtistDisplay(record.Artist),
+                Path = record.Path ?? string.Empty,
+                Index = index
+            })
+            .Where(record => record.Title.Length > 0)
+            .GroupBy(record => (Title: record.Title.ToLowerInvariant(), Artist: record.Artist.ToLowerInvariant()))
+            .Select(group => new
+            {
+                group.Key,
+                Count = group.Count(),
+                DisplayRecord = group.OrderBy(record => record.Path, StringComparer.OrdinalIgnoreCase).ThenBy(record => record.Index).First(),
+                FirstIndex = group.Min(record => record.Index)
+            })
+            .OrderByDescending(group => group.Count)
+            .ThenBy(group => group.DisplayRecord.Path, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => group.FirstIndex)
+            .FirstOrDefault();
+        return dominantGroup == null ? InstallEstimationMetadataProfile.Empty : new InstallEstimationMetadataProfile
         {
-            DominantNormalizedTitle = SelectDominantValue(normalizedRecords, record => record.Title, out int titleSupportCount),
-            TitleSupportCount = titleSupportCount,
-            DominantNormalizedArtist = SelectDominantValue(normalizedRecords, record => record.Artist, out int artistSupportCount),
-            ArtistSupportCount = artistSupportCount,
-            DominantNormalizedTitleArtistPair = dominantPair,
-            DominantPairDisplayTitle = displayRecord?.DisplayTitle ?? string.Empty,
-            DominantPairDisplayArtist = displayRecord?.DisplayArtist ?? string.Empty,
-            PairSupportCount = pairSupportCount,
-            SourceChartCount = normalizedRecords.Count
+            DominantNormalizedTitle = dominantGroup.Key.Title,
+            DominantNormalizedArtist = dominantGroup.Key.Artist,
+            DominantPairDisplayTitle = dominantGroup.DisplayRecord.Title,
+            DominantPairDisplayArtist = dominantGroup.DisplayRecord.Artist
         };
     }
 
@@ -231,22 +170,81 @@ internal static class InstallEstimationMetadataNormalizer
         return whitespaceRegex.Replace(normalized, " ").Trim();
     }
 
-    private static int FindTitleDelimiterIndex(string normalized)
+    private static int FindTitleSuffixGroupStart(string title)
     {
-        for (int i = 1; i < normalized.Length; i++)
+        var blocks = new List<(int Start, int End)>();
+        for (int index = 0; index < title.Length; index++)
         {
-            char current = normalized[i];
-            if (current == '(' || current == '[' || current == '~')
+            char current = title[index];
+            char close = GetClosingDelimiter(current);
+            bool symmetric = current is '~' or '〜' || current == '-' && index > 0 && title[index - 1] == ' ';
+            if (close != '\0')
             {
-                return i;
+                int start = index;
+                var closingDelimiters = new List<char> { close };
+                while (++index < title.Length && closingDelimiters.Count > 0)
+                {
+                    char nestedClose = GetClosingDelimiter(title[index]);
+                    if (nestedClose != '\0')
+                    {
+                        closingDelimiters.Add(nestedClose);
+                    }
+                    else
+                    {
+                        // 主題の括弧が交差していても修復せず対応分だけ閉じ、後続差分を主題へ取り込まない。
+                        int closingIndex = closingDelimiters.LastIndexOf(title[index]);
+                        if (closingIndex >= 0)
+                        {
+                            closingDelimiters.RemoveAt(closingIndex);
+                            if (closingDelimiters.Count == 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+                blocks.Add((start, Math.Min(index + 1, title.Length)));
             }
-            if (current == '-' && normalized[i - 1] == ' ')
+            else if (symmetric)
             {
-                return i - 1;
+                int start = index;
+                int end = title.IndexOf(current, index + 1);
+                // ハイフン囲みの途中にあるJ-Trance等を閉じ側にせず、後続の囲みとの隣接関係を保つ。
+                while (current == '-' && end >= 0 && end + 1 < title.Length && char.IsLetterOrDigit(title[end + 1]))
+                {
+                    end = title.IndexOf(current, end + 1);
+                }
+                index = end < 0 ? title.Length : end;
+                blocks.Add((start, Math.Min(index + 1, title.Length)));
+            }
+            else if (current is ')' or ']' or '>' or '】' or '》')
+            {
+                // 片側区切りも末尾群の入口になる。左の主題全体の括弧整合性は要求しない。
+                blocks.Add((index, index + 1));
             }
         }
-        return -1;
+        if (blocks.Count == 0)
+        {
+            return -1;
+        }
+        int groupIndex = blocks.Count - 1;
+        while (groupIndex > 0 && blocks[groupIndex - 1].Start > 0
+            && string.IsNullOrWhiteSpace(title[blocks[groupIndex - 1].End..blocks[groupIndex].Start]))
+        {
+            groupIndex--;
+        }
+        return blocks[groupIndex].Start;
     }
+
+    private static char GetClosingDelimiter(char value) => value switch
+    {
+        '(' => ')',
+        '[' => ']',
+        '<' => '>',
+        '【' => '】',
+        '《' => '》',
+        _ => '\0'
+    };
 
     private static int FindArtistDiffMarkerIndex(string normalized)
     {
@@ -308,54 +306,6 @@ internal static class InstallEstimationMetadataNormalizer
             counts[bigram] = counts.TryGetValue(bigram, out int currentCount) ? currentCount + 1 : 1;
         }
         return counts;
-    }
-
-    private static string SelectDominantValue(IReadOnlyList<MetadataRecord> records, Func<MetadataRecord, string> selector, out int supportCount)
-    {
-        supportCount = 0;
-        if (records == null || records.Count == 0)
-        {
-            return string.Empty;
-        }
-
-        var bestGroup = records
-            .Select((record, index) => (Value: selector(record), record.Path, Index: index))
-            .Where(item => !string.IsNullOrEmpty(item.Value))
-            .GroupBy(item => item.Value, StringComparer.Ordinal)
-            .Select(group => new
-            {
-                Value = group.Key ?? string.Empty,
-                Count = group.Count(),
-                FirstPath = group.Select(item => item.Path ?? string.Empty).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).FirstOrDefault() ?? string.Empty,
-                FirstIndex = group.Min(item => item.Index)
-            })
-            .OrderByDescending(group => group.Count)
-            .ThenBy(group => group.FirstPath, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(group => group.FirstIndex)
-            .FirstOrDefault();
-
-        if (bestGroup == null)
-        {
-            return string.Empty;
-        }
-
-        supportCount = bestGroup.Count;
-        return bestGroup.Value ?? string.Empty;
-    }
-
-    private sealed class MetadataRecord
-    {
-        public string Title { get; set; } = string.Empty;
-
-        public string Artist { get; set; } = string.Empty;
-
-        public string Pair { get; set; } = string.Empty;
-
-        public string DisplayTitle { get; set; } = string.Empty;
-
-        public string DisplayArtist { get; set; } = string.Empty;
-
-        public string Path { get; set; } = string.Empty;
     }
 
 }

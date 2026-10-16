@@ -53,9 +53,9 @@
 | 統合先 | 全対象の既所持ハッシュ一致数が単独最多なら採用する。同点または一致なしなら、候補自身のリソースだけで評価する |
 | 再導入先修正 | 現在の配置先を除いた既存フォルダを評価する。現在配置の状態は改善判定の基準だけに使う |
 
-混在パッケージでは、配置先候補が解決できない場合、または候補限定の評価に必要な索引がない場合、通常推定へ切り替えず `InstalledDestinationResolveFailed` とします。候補の基本情報まで同等なら、フォルダ内の一意な主ハッシュ数を補助条件とし、単独最多なら通常の確定候補にできます。
+混在パッケージでは、配置先候補が解決できない場合、または候補限定の評価に必要な索引がない場合、通常推定へ切り替えず `InstalledDestinationResolveFailed` とします。候補の基本情報まで同等なら、フォルダ内の一意な主ハッシュ数を補助条件とします。選択候補が後述の強一致を満たす場合だけ、単独最多を通常の確定候補にできます。
 
-それでも複数候補が残る場合、`AutoApplyAmbiguousInstallDestination` が有効で選択候補の題名・アーティストの根拠が `Strong` なら、自動設定と候補表示を行い `InstalledDestinationAutoAppliedAmbiguous` を残します。設定無効または根拠が弱い場合は導入先を空にし、`InstalledDestinationAmbiguous` と候補を表示します。
+選択候補が `Strong` を満たしても複数候補が解消しない場合、`AutoApplyAmbiguousInstallDestination` が有効なら自動設定と候補表示を行い、`InstalledDestinationAutoAppliedAmbiguous` を残します。設定無効なら導入先を空にし、`InstalledDestinationAmbiguous` と候補を表示します。選択候補が `Strong` を満たさない場合は、設定によらず `Low / MetadataMismatch` として自動適用せず、候補を保持します。
 
 ### 候補の絞込み
 
@@ -93,21 +93,42 @@ flowchart TB
 
 推定対象はその要求で選んだ譜面集合、導入先候補は既存の実パス索引から取得した所持譜面集合を集計します。両側とも共通現在値の `RawTitle` と `Artist` を使い、BMSの別フィールドの副題やbmsonの副題・譜面名をTITLEへ合成しません。原題が空なら表示用 `Title` で補いません。bmsonのtitle省略・null・空文字も原題なしとして保持し、表示用の合成と入力の受理範囲は維持します。
 
-TITLEとARTISTはNFKC・空白整理と既存の副題・差分表記除去を行い、小文字化前の表記と、その `ToLowerInvariant()` による比較用キーを対応させます。ARTISTの `obj`・`note`・`notes` マーカーは大文字・小文字を区別せず検出します。元の譜面値・保存値は変更しません。
+TITLEとARTISTはNFKC・空白整理を行い、小文字化前の表記と、その `ToLowerInvariant()` による比較キーを対応させます。ARTISTは従来どおり `obj`・`note`・`notes` の差分マーカーを大文字・小文字を区別せず除去し、スラッシュ後の差分表記も除去します。元の譜面値・保存値は変更しません。
 
-TITLE単独・ARTIST単独は正規化後の非空キーを独立に集計します。片側が空でももう片側は集計へ参加します。ペアは両項目が非空の同じ譜面に由来する組だけを集計し、単独の最頻値から合成しません。それぞれ件数が最大のグループを採用し、同数ならグループ内の最小パスの `OrdinalIgnoreCase` 順、続いて最小入力位置で決めます。有効値のない項目・ペアは空キー・支持数0とし、`SourceChartCount` は空値を含む全入力件数を保持します。
+TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮した外側ブロック、`~`・`〜`・空白直後の `-` を区切り候補とします。一番右の区切り群だけを切断対象にし、囲みの間が空白だけなら同じ群として右から処理します。通常の文字列が挟まると別群になります。ハイフン囲みの中で文字・数字が直後に続く語中ハイフンは閉じ側にせず、`-J-Trance remix- [Another]` も同じ区切り群として扱います。先頭から始まる囲みは主題として保護し、閉じ忘れ・片側区切り・囲みの右側に続く文字も末尾切断の候補にします。主題全体の括弧整合性は要求しません。主題の括弧が交差していても対応する閉じ括弧を認識し、主題自体を修復・切断せずに末尾の差分だけを除去します。
 
-`INSTL DST TITLE` / `INSTL DST ARTIST` は導入先フォルダの実在する最頻ペアを表示します。採用グループ内でパスの `OrdinalIgnoreCase` 順、続いて入力順の先頭レコードを選び、同じレコードの小文字化前の両表記を一緒に使います。表示を小文字化したペアは比較用の最頻ペアに一致しますが、項目単独の最頻値との一致は要求しません。例えばA/Xが3件、B/YとC/Yが各2件なら、単独比較はa・y、表示はA/Xです。
+削除対象に大小文字を区別しない部分文字列 `mix` があれば、その範囲の最も右の `mix` の直後で切断して終了します。`remix`・`Himix`・`mixed` も対象であり、単語境界は要求しません。これは曲名抽出ではなく、リソースで絞った候補を比較するキー生成です。難易度や差分作者の辞書、旧結果への代替経路は持ちません。
 
-有効ペアがないフォルダは両列とも空欄です。単独比較の材料があっても表示の代替にはせず、表示が空であることを導入先や候補の有無の判定に使いません。自動設定先、未設定時の有効な先頭候補、手動入力・候補選択、所持先の直接解決、再グループ化の全経路で同じプロファイルを使います。既存キャッシュの所有・寿命・失効を共用し、所持現在値の更新後は比較キーと両表示表記を同じ再集計で更新します。
+| 生TITLE | 小文字化前の照合・表示TITLE |
+| --- | --- |
+| `Ark (remix/5keys)` / `Ark (remix/10lines)` | `Ark (remix` |
+| `Ark (mixed)` | `Ark (mix` |
+| `夏草の線路 -J-Trance remix-` / `夏草の線路 -J-Trance remix- [Another]` | `夏草の線路 -J-Trance remix` |
+| `Air -GOD-` | `Air` |
+| `Air -Revolutionary.Himix- [7keys ANOTHER]` | `Air -Revolutionary.Himix` |
+| `VIEW [Portable Disco Mix] [H14]` | `VIEW [Portable Disco Mix` |
+| `[主題] [差分]` | `[主題]` |
+| `【Freak《Show】Down》 [Another]` / `【Freak《Show】Down》` | `【Freak《Show】Down》` |
+| `Nothingness[7A(LN)]` | `Nothingness` |
+| `Title (A) 続き [差分]` | `Title (A) 続き` |
+| `Title [差分] 追加表記` | `Title` |
+| `~メッセージ~ [Another]` | `~メッセージ~` |
 
-### 題名・アーティストによる同順位の解決
+切断は生TITLEへ一回だけ適用します。閉じ括弧が残らない比較キーを許し、正規化済みキーへ再適用しません。
 
-リソースの評価値が先頭候補と等しい有効候補だけを、基本情報で比較します。通常は最大3候補です。混在パッケージの候補限定評価で一意ハッシュ数の取得処理が渡された場合だけ、同等候補全体を対象にします。画面の候補表示はいずれも上位3件までです。
+同一レコード由来の `(正規化TITLE, 正規化ARTIST)` を一組として集計します。TITLEが空のレコードだけを除外し、ARTISTの空文字は有効とします。件数最大の実在ペアを採用し、同数ならグループ内の最小パスの `OrdinalIgnoreCase` 順、続いて最小入力位置で決めます。比較用代表値は採用ペアの二要素です。例えばA/Xが3件、B/YとC/Yが各2件なら比較も表示もA/Xに由来し、独立最頻値のa/yを合成しません。
 
-比較順は、題名とアーティストの組の完全一致、題名一致、アーティスト一致、題名の類似度、組の一致を裏付ける数、題名を裏付ける数、アーティストを裏付ける数です。混在パッケージに限り、それらが全て同等のときフォルダ内の一意な主ハッシュ数を使い、最後は元のリソース順位とパス順に戻します。譜面数で基本情報の明確な優劣を覆しません。
+`INSTL DST TITLE` / `INSTL DST ARTIST` は採用グループ内でパスの `OrdinalIgnoreCase` 順、続いて入力順の先頭レコードを選び、同じレコードの小文字化前の照合表記を一緒に表示します。表示を小文字化した二要素は比較用の採用ペアに一致します。有効ペアがなければ両列が空欄、ARTISTだけが空ならTITLEだけを表示します。表示が空であることを導入先や候補の有無の判定に使いません。
 
-基本情報で一意に分かれた場合は `metadata_tiebreak_distinct`、一意ハッシュ数で分かれた場合は `directory_hash_count_tiebreak_distinct` として確信度を高くできます。
+自動設定先、未設定時の有効な先頭候補、手動入力・候補選択、所持先の直接解決、再グループ化の全経路で同じプロファイルを使います。既存キャッシュの所有・寿命・失効を共用し、所持現在値の更新後は比較キーと両表示表記を同じ再集計で更新します。
+
+### メタデータの強一致と同順位の解決
+
+対象Tと候補Cの唯一の強一致条件は、両TITLEが非空、正規化ARTISTが同値、正規化TITLEのDice係数が0.88以上であることです。ARTISTの空文字同士は一致し、片側だけ空なら不一致です。同一非空TITLEの類似度は1.0、それ以外はUTF-16単位の重複回数付き2-gram Dice係数で比較します。TITLE単独完全一致・ARTIST単独一致・ペア完全一致の別経路や、0.72以上の弱一致による確定は使いません。
+
+リソース評価値が先頭候補と等しい有効候補だけを、対象との強一致の真偽で比較します。通常は最大3候補です。混在パッケージの候補限定評価で一意ハッシュ数の取得処理が渡された場合だけ、同等候補全体を対象にします。画面の候補表示はいずれも上位3件までです。リソース主順位が異なる候補の順序はメタデータで逆転させません。
+
+Strong真を偽より優先し、真真または偽偽はメタデータ上同順位とします。TITLE完全一致・Diceの大小・支持数でさらに一意化しません。同順位なら許可された一意な主ハッシュ数を補助条件とし、最後は元のリソース順位とパス順に戻します。選択候補だけがStrong真なら `metadata_tiebreak_distinct`、双方Strong真でハッシュ数が一意なら `directory_hash_count_tiebreak_distinct` として高確信度にできます。双方Strong偽をハッシュ数や順位差で高確信度にしません。
 
 ### 祖先候補の抑制
 
@@ -115,15 +136,15 @@ TITLE単独・ARTIST単独は正規化後の非空キーを独立に集計しま
 
 ### 確信度と画面への適用
 
-有効候補がある場合、高確信度の必要条件は対象側と選択候補側の双方に両項目非空の実在ペアがあることです。片側でも欠ける場合は、単独TITLE一致、リソース評価差、一意ハッシュ数の優位、曖昧候補自動適用設定によらず低確信度・自動適用不可・強い基本情報証拠なしとします。リゾルバー未指定・空プロファイルも同じです。既存の `MetadataMismatch` 経路で候補を保持し、候補側に有効ペアがあればその両表記を表示します。警告はTITLE / ARTISTの一致を十分に確認できない旨と候補パスを表示します。
+有効候補がある場合、高確信度と自動適用には、対象と選択候補の強一致を必須とします。Strong不成立、非空TITLEの実在ペア欠如、リゾルバー未指定・空プロファイルは `Low / MetadataMismatch`・自動適用不可とし、有効候補とWARNINGを保持します。TITLE単独一致、リソース順位差、一意ハッシュ数、曖昧候補自動適用設定では救済しません。候補側に有効ペアがあれば、その表記を表示します。
 
-両側に実在ペアがあれば既存の比較条件を適用します。ペア完全一致を高確信度の必須条件にはせず、TITLE完全一致など既存の強い証拠を維持します。所持配置からの直接解決と、有効候補がない場合の内部確信度はこの材料条件で変更しません。
+複数のStrong候補が補助条件でも解消しなければ、既存の曖昧候補として扱います。曖昧候補自動適用設定が有効なら、Strong真を前提に低確信度・候補・曖昧WARNINGを保ったまま自動設定できます。再導入では複数の有効候補を自動適用せず、一意でも現在配置より改善することを必要とします。所持ハッシュからの直接解決と、有効候補がない場合の内部確信度にはこのメタデータ条件を一律に課しません。
 
 | 結果 | 適用 |
 | --- | --- |
 | 有効候補なし | `Confidence=High`、導入先null、自動適用false。候補がないという判定の確信度であり、導入成功を意味しない |
-| 一意な有効候補で基本情報も妥当 | 高い確信度で自動設定する |
-| リソース同等だが基本情報または許可された一意ハッシュ数で差が付く | 高い確信度にできる |
+| 一意な有効候補でStrong成立 | 高い確信度で自動設定する |
+| Strong成立し、リソース同順位をStrong真偽または許可された一意ハッシュ数で解消 | 高い確信度にできる |
 | 解消しない複数候補、基本情報の不一致・比較材料不足 | 低い確信度と候補を返す |
 | 再導入で現在配置より改善しない | 低い確信度と候補を返す |
 
@@ -189,9 +210,10 @@ TITLE単独・ARTIST単独は正規化後の非空キーを独立に集計しま
 | 新規としての導入確認、設定による省略、拒否対象の保全 | `PendingPackageWorkflowOwner`、`BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerTests.cs) の `ForceInstallPackagesAsync_ConfirmsAccordingToDestinationAndNewInstallSetting` は要求の既定値を実表示部品で正規化した `ClosedByUser` 応答が未承認になることと項目保持を確認し、既存の確認条件・混在選択も維持する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput`: 公開入口で未設定ONの新規確認、未設定OFFの無確認導入、設定済みOFFの確認維持、No・未選択閉鎖時の入力元・DB・保留保持、肯定時の実新規導入を確認する。閉鎖応答は要求のボタンと既定値を `ThemedMessageBox.NormalizeDefaultResult`・`UiDialogResult.ClosedByUser` の既存変換へ通して生成する。明示的な未承認パッケージ保全の既存ケースも維持する。 |
 | 新規としてのメニュー表示と既存操作経路 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) | [`MainWindowPackageMaintenanceWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `CompiledTreeMenusPreservePackageSectionsAndPendingOperations`、`CompiledSelectedChartRoutesPreservePendingTargetAndHandledBeforeCompletion`: ツリー・選択譜面の実ForceInstall項目Headerと表示リソースの対応、既存経路・対象・完了を確認する。 |
 | 新規としての実導入先と設定先の非使用 | `BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta`: 実導入先が設定済みExplicitと異なること、Explicitへ入力譜面・資源を作らないことを、既存の仕事量・通知・永続結果とともに確認する。 |
-| 単独の非空集計・実在最頻ペア・同数時の選択・同一レコードの表示 | [`InstallEstimationMetadataNormalizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallEstimationMetadataProfile.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `BuildProfile_IndependentModesKeepExistingPairAndDisplay`、`BuildProfile_MissingValuesKeepIndependentSignalsWithoutPair`、`BuildProfile_TiesUsePathThenInputOrderForGroupAndDisplay` と既存の正規化テストが集計境界を確認する。候補への接続は `EstimateInstallationDirectory_PopulatesRepresentativeMetadataForTopCandidates` に分担する。 |
-| 実在ペアの欠如による低確信度、候補・警告の保持 | `BmsLibraryInstallEstimationService`、`PackageChartEntry` | `BmsLibraryInstallEstimationServiceTests.EstimateInstallationDirectory_MissingRealPairKeepsLowConfidenceCandidates` は片側・両側欠如、全空、リゾルバーなし・空プロファイルと資源差・ハッシュ優位・曖昧設定の代表分岐を確認する。`EstimateInstallationDirectory_RealPairsWithDifferentArtistsKeepExactTitleEvidence` は両側ペアありの既存強い証拠を確認する。`BmsLibraryPendingPackageRegroupTests.SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion` は実索引からの候補ペア欠如と警告投影を確認する。辞書のキー・非空・書式は既存 `LocalizationResourceParityTests`、6言語の意味は静的に照合する。 |
-| BMS・bmsonの合成表示前の原題入力、bmsonの原題省略 | `PackageInstallEstimationSnapshotBuilder`、`BMSLibrary`、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | `BmsLibraryInstallEstimationServiceTests.PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromDominantGroup` は実解析した両形式の対象入力、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_MissingTitleKeepsRawTitleEmptyAndComposedDisplay` は省略・null・空文字を確認する。候補側の原題と失効後の表示更新は `BmsLibraryPendingPackageRegroupTests` の既存手動設定・所持先解決・再グループ化のケースで確認する。 |
+| 実在最頻ペア・空ARTIST・同票・区切り群とMIX終端・同一レコード表示 | [`InstallEstimationMetadataNormalizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallEstimationMetadataProfile.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `BuildProfile_SelectsRealDominantPairAndDisplay`、`BuildProfile_ExcludesEmptyTitleAndAcceptsEmptyArtist`、`BuildProfile_TiesUsePathThenInputOrderForGroupAndDisplay`、`NormalizeTitleForTieBreak_UsesRightmostGroupAndMixEnd`。候補への表示接続は `EstimateInstallationDirectory_PopulatesRepresentativeMetadataForTopCandidates`。 |
+| 唯一のStrong判定・Dice境界・同順位・主順位保持・比較不能 | `BmsLibraryInstallEstimationService`、`InstallEstimationMetadataNormalizer` | `BmsLibraryInstallEstimationServiceTests` の `ComputeTitleSimilarity_UsesNormalizedKeysAndCountedUtf16Bigrams`、`EstimateInstallationDirectory_StrongRequiresPairArtistAndTitleThreshold`、`EstimateInstallationDirectory_ExactTitleWithDifferentArtistsIsMetadataMismatch`、`EstimateInstallationDirectory_TiedCandidatesUseOnlyStrongThenHashCount`、`EstimateInstallationDirectory_StrongDoesNotOverrideResourceRanking`、`EstimateInstallationDirectory_MissingRealPairKeepsLowConfidenceCandidates`。閾値0.88、空ARTIST同値、再切断禁止、Strong真真の曖昧・ハッシュ補助、偽偽の不一致、リゾルバーなしを確認する。既存の再導入・候補なしケースも維持する。 |
+| Strong不成立の候補・WARNINGと生成済み行への投影 | `BMSLibrary`、`PackageChartEntry`、`LibraryChartRow` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion` と二候補の既存ケースが実索引・実BMS入力から不一致候補を確認する。[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) の `PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState` は生成済み行へのMetadataMismatch・代表表示・候補・adapter非生成を確認する。判断の条件網羅はサービス側へ分担する。 |
+| BMS・bmsonの合成表示前の原題入力、bmsonの原題省略 | `PackageInstallEstimationSnapshotBuilder`、`BMSLibrary`、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | `BmsLibraryInstallEstimationServiceTests.PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromDominantGroup` は実解析した両形式の対象入力、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_MissingTitleKeepsRawTitleEmptyAndComposedDisplay` は省略・null・空文字を確認する。候補側の原題と失効後の表示更新は `BmsLibraryPendingPackageRegroupTests` の`SearchEstimatedInstallationDirectory_MetadataTieBreakSelectsMatchingCandidate` の失効後の再推定、および既存手動設定・所持先解決・再グループ化のケースで確認する。 |
 | 相対キー、カテゴリ、候補抽出、順位と確信度 | [`BmsLibraryInstallEstimationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryInstallEstimationService.cs)、[`PackageInstallEstimationSnapshotBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageInstallEstimationSnapshot.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) |
 | 入力元の走査上限、単一ファイルとディレクトリの区別 | [`PackageInstallEstimationSnapshotBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageInstallEstimationSnapshot.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `PackageInstallEstimationSnapshotBuilder_DirectoryPackageDiscardsPartialSurfaceAtLimit` は上限超過で資源を破棄すること、単一ファイル・単独BMSONの既存ケースは親を走査しないことを確認する。[`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) は実導入との接続を確認する。 |
 | 取得済み部分資源の受入と消費側の診断 | [`PackageInstallEstimationSnapshotBuilder`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageInstallEstimationSnapshot.cs) | 上限超過以外で資源を破棄しない分岐と、成否・完全性・件数・理由の診断接続は静的に確認する。通常失敗時の推定入力への受渡しは自動テストでは未確認。列挙自体の失敗と独立ルート継続は[パスとI/Oの対応表](../core/path-length-and-io.md#実装とテストの対応)で分担する。 |
@@ -216,4 +238,4 @@ TITLE単独・ARTIST単独は正規化後の非空キーを独立に集計しま
 
 ## 関連資料
 
-[データと索引](../core/data-and-indexes.md)、[警告](warnings.md)、[変更操作](mutations.md)、[共通並行処理](../core/workflow-concurrency.md)を参照します。
+[メタデータ照合の設計判断](../../decisions/install-estimation-metadata-matching.md)、[データと索引](../core/data-and-indexes.md)、[警告](warnings.md)、[変更操作](mutations.md)、[共通並行処理](../core/workflow-concurrency.md)を参照します。

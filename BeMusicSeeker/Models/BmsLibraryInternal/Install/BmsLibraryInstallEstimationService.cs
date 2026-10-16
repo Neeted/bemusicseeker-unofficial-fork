@@ -29,13 +29,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return asParallel ? ResolveDefaultCandidateEvaluationDegree() : 1;
     }
 
-    private enum MetadataEvidenceStrength
-    {
-        None,
-        Weak,
-        Strong
-    }
-
     internal sealed class SourceBaselineEvaluation
     {
         public int PrimaryHealth { get; set; }
@@ -49,13 +42,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     {
         public bool IsApplicable { get; set; }
 
-        public bool PairExactMatch { get; set; }
-
-        public bool ArtistExactMatch { get; set; }
-
-        public InstallEstimationMetadataTitleMatchKind TitleMatchKind { get; set; } = InstallEstimationMetadataTitleMatchKind.None;
-
-        public MetadataEvidenceStrength Evidence { get; set; } = MetadataEvidenceStrength.None;
+        public bool IsStrong { get; set; }
 
         public string Summary { get; set; } = string.Empty;
     }
@@ -498,19 +485,19 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    /// <summary>対象スナップショットと候補プロファイルで評価し、同じプロファイルの代表ペアを表示へ渡します。</summary>
+    /// <summary>リソース順位と実在ペアの強一致で評価し、強一致を自動適用の必要条件として同じペアの表記を表示へ渡します。</summary>
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectory(snapshot, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver, candidateDirectoryOverride: null);
     }
 
-    /// <summary>指定候補だけを評価し、比較と表示に共通のプロファイルを利用します。</summary>
+    /// <summary>指定候補だけを評価し、共通プロファイルの強一致を自動適用の必要条件としてハッシュ数の補助順位を利用します。</summary>
     internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectoryForCandidateDirectories(snapshot, candidateDirectories, directoryLookupCache, ResolveCandidateEvaluationDegree(asParallel), estimateMode, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver);
     }
 
-    /// <summary>指定候補を明示並列度で評価し、比較と表示に共通のプロファイルを利用します。</summary>
+    /// <summary>指定候補を明示並列度で評価します。ハッシュ数は同順位の補助条件とし、実在ペアの強一致不成立を救済しません。</summary>
     internal InstallEstimationResult EstimateInstallationDirectoryForCandidateDirectories(PackageInstallEstimationSnapshot snapshot, IReadOnlyCollection<string> candidateDirectories, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectory(
@@ -523,7 +510,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             candidateDirectoryOverride: candidateDirectories);
     }
 
-    /// <summary>明示並列度で評価します。有効候補でも両側の実在ペアを確認できなければ自動適用しません。</summary>
+    /// <summary>明示並列度で評価します。非空TITLE、空許容ARTISTの同値、TITLEのDice係数0.88以上を自動適用の必要条件とします。</summary>
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
     {
         return EstimateInstallationDirectory(
@@ -760,7 +747,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             ? EvaluateSelectedCandidateMetadata(selectedCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver)
             : null;
         result.MetadataValidationSummary = metadataValidation?.Summary ?? string.Empty;
-        result.SelectedCandidateMetadataEvidenceStrong = metadataValidation?.IsApplicable == true && metadataValidation.Evidence == MetadataEvidenceStrength.Strong;
+        result.SelectedCandidateMetadataEvidenceStrong = metadataValidation?.IsStrong == true;
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
@@ -779,13 +766,13 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             SetNoViableDestinationResult(result);
         }
-        else if (metadataValidation?.IsApplicable != true)
+        else if (metadataValidation?.IsStrong != true)
         {
-            // 単独キーの一致やリソース順位では、両側に実在ペアがない比較を高確信度に補いません。
+            // 強一致はすべての高確信度・自動適用の前提とし、同順位やハッシュ数で補いません。
             result.HasViableDestination = true;
             result.Confidence = InstallEstimationConfidence.Low;
             result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
-            result.ConfidenceReason = "metadata_pair_unavailable";
+            result.ConfidenceReason = metadataValidation?.IsApplicable == true ? "selected_candidate_metadata_mismatch" : "metadata_pair_unavailable";
             result.ShouldAutoApplyDestination = false;
             result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
         }
@@ -837,43 +824,27 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         else
         {
             result.HasViableDestination = true;
-            bool metadataMismatch = metadataValidation?.IsApplicable == true && metadataValidation.Evidence != MetadataEvidenceStrength.Strong;
-            if (metadataMismatch)
+            bool reinstallNotImproved = isReinstallCorrectionMode && selectedPrimaryHealth <= result.SourceBaselinePrimaryHealth;
+            if (reinstallNotImproved)
             {
                 result.Confidence = InstallEstimationConfidence.Low;
-                result.ConfidenceReason = secondCandidateEvaluation == null ? "single_viable_candidate_metadata_mismatch" : "distinct_primary_metrics_metadata_mismatch";
-                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+                result.ConfidenceReason = "reinstall_candidate_not_improved";
+                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.ReinstallNotImproved;
                 result.DestinationDirectory = null;
                 result.ShouldAutoApplyDestination = false;
                 if (!string.IsNullOrWhiteSpace(selectedCandidateEvaluation.DirectoryPath))
                 {
                     result.SuggestedDestinationDirectories.Add(selectedCandidateEvaluation.DirectoryPath);
                 }
+                return result;
             }
-            else
-            {
-                bool reinstallNotImproved = isReinstallCorrectionMode && selectedPrimaryHealth <= result.SourceBaselinePrimaryHealth;
-                if (reinstallNotImproved)
-                {
-                    result.Confidence = InstallEstimationConfidence.Low;
-                    result.ConfidenceReason = "reinstall_candidate_not_improved";
-                    result.LowConfidenceKind = InstallEstimationLowConfidenceKind.ReinstallNotImproved;
-                    result.DestinationDirectory = null;
-                    result.ShouldAutoApplyDestination = false;
-                    if (!string.IsNullOrWhiteSpace(selectedCandidateEvaluation.DirectoryPath))
-                    {
-                        result.SuggestedDestinationDirectories.Add(selectedCandidateEvaluation.DirectoryPath);
-                    }
-                    return result;
-                }
-                result.Confidence = InstallEstimationConfidence.High;
-                result.ConfidenceReason = isReinstallCorrectionMode
-                    ? "reinstall_single_improved_candidate"
-                    : (secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics");
-                result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
-                result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
-                result.ShouldAutoApplyDestination = true;
-            }
+            result.Confidence = InstallEstimationConfidence.High;
+            result.ConfidenceReason = isReinstallCorrectionMode
+                ? "reinstall_single_improved_candidate"
+                : (secondCandidateEvaluation == null ? "single_candidate" : "distinct_primary_metrics");
+            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
+            result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
+            result.ShouldAutoApplyDestination = true;
         }
         return result;
     }
@@ -1464,7 +1435,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             return;
         }
-        bool hasMetadataTieBreakInput = metadataProfileResolver != null && targetMetadataProfile != null && targetMetadataProfile.HasAnySignal;
+        bool hasMetadataTieBreakInput = metadataProfileResolver != null && targetMetadataProfile != null && targetMetadataProfile.HasPair;
         if (!hasMetadataTieBreakInput && candidateDirectoryUniquePrimaryHashCountResolver == null)
         {
             return;
@@ -1507,9 +1478,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         CandidateEvaluation metadataWinner = frontier[0];
         InstallEstimationMetadataProfile winnerProfile = GetMetadataProfile(metadataProfilesByDirectory, metadataWinner?.DirectoryPath);
         result.MetadataTieBreakSummary = "winner=" + (metadataWinner?.DirectoryPath ?? string.Empty)
-            + " pairMatch=" + (HasExactMetadataPairMatch(targetMetadataProfile, winnerProfile) ? 1 : 0)
-            + " titleMatch=" + (HasExactMetadataTitleMatch(targetMetadataProfile, winnerProfile) ? 1 : 0)
-            + " artistMatch=" + (HasExactMetadataArtistMatch(targetMetadataProfile, winnerProfile) ? 1 : 0);
+            + " strong=" + (InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, winnerProfile) ? 1 : 0);
         if (candidateDirectoryUniquePrimaryHashCountResolver != null)
         {
             result.DirectoryHashCountTieBreakSummary = "candidates=" + string.Join(" || ", frontier.Select(evaluation => (evaluation?.DirectoryPath ?? string.Empty) + ":" + GetDirectoryUniquePrimaryHashCount(candidateDirectoryUniquePrimaryHashCountResolver, evaluation?.DirectoryPath)));
@@ -1518,52 +1487,32 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private static bool IsMetadataTieBreakDistinct(CandidateEvaluation selectedCandidateEvaluation, CandidateEvaluation secondCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
     {
-        if (selectedCandidateEvaluation == null || secondCandidateEvaluation == null || targetMetadataProfile == null || !targetMetadataProfile.HasAnySignal || metadataProfileResolver == null)
+        if (selectedCandidateEvaluation == null || secondCandidateEvaluation == null || targetMetadataProfile == null || !targetMetadataProfile.HasPair || metadataProfileResolver == null)
         {
             return false;
         }
 
         InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
         InstallEstimationMetadataProfile secondProfile = metadataProfileResolver(secondCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
-        bool selectedPairMatch = HasExactMetadataPairMatch(targetMetadataProfile, selectedProfile);
-        bool secondPairMatch = HasExactMetadataPairMatch(targetMetadataProfile, secondProfile);
-        if (selectedPairMatch && !secondPairMatch && !HasExactMetadataTitleMatch(targetMetadataProfile, secondProfile) && !HasExactMetadataArtistMatch(targetMetadataProfile, secondProfile))
-        {
-            return true;
-        }
-
-        bool selectedTitleMatch = HasExactMetadataTitleMatch(targetMetadataProfile, selectedProfile);
-        bool secondTitleMatch = HasExactMetadataTitleMatch(targetMetadataProfile, secondProfile);
-        bool selectedArtistMatch = HasExactMetadataArtistMatch(targetMetadataProfile, selectedProfile);
-        bool secondArtistMatch = HasExactMetadataArtistMatch(targetMetadataProfile, secondProfile);
-        return selectedTitleMatch && !secondTitleMatch && !secondArtistMatch && (selectedPairMatch || selectedArtistMatch);
+        return InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, selectedProfile)
+            && !InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, secondProfile);
     }
 
     private static MetadataValidationResult EvaluateSelectedCandidateMetadata(CandidateEvaluation selectedCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
     {
-        var result = new MetadataValidationResult();
-        if (selectedCandidateEvaluation == null)
+        InstallEstimationMetadataProfile selectedProfile = selectedCandidateEvaluation == null
+            ? InstallEstimationMetadataProfile.Empty
+            : metadataProfileResolver?.Invoke(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
+        bool applicable = targetMetadataProfile?.HasPair == true && selectedProfile.HasPair;
+        bool strong = InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, selectedProfile);
+        return new MetadataValidationResult
         {
-            return result;
-        }
-
-        InstallEstimationMetadataProfile selectedProfile = metadataProfileResolver?.Invoke(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
-        if (string.IsNullOrEmpty(targetMetadataProfile?.DominantNormalizedTitleArtistPair)
-            || string.IsNullOrEmpty(selectedProfile.DominantNormalizedTitleArtistPair))
-        {
-            return result;
-        }
-        result.IsApplicable = true;
-        result.PairExactMatch = HasExactMetadataPairMatch(targetMetadataProfile, selectedProfile);
-        result.ArtistExactMatch = HasExactMetadataArtistMatch(targetMetadataProfile, selectedProfile);
-        result.TitleMatchKind = GetMetadataTitleMatchKind(targetMetadataProfile, selectedProfile);
-        result.Evidence = ClassifyMetadataEvidence(result.PairExactMatch, result.ArtistExactMatch, result.TitleMatchKind);
-        result.Summary = "selected=" + (selectedCandidateEvaluation.DirectoryPath ?? string.Empty)
-            + " pairMatch=" + (result.PairExactMatch ? 1 : 0)
-            + " titleMatch=" + result.TitleMatchKind.ToString().ToLowerInvariant()
-            + " artistMatch=" + (result.ArtistExactMatch ? 1 : 0)
-            + " evidence=" + result.Evidence.ToString().ToLowerInvariant();
-        return result;
+            IsApplicable = applicable,
+            IsStrong = strong,
+            Summary = "selected=" + (selectedCandidateEvaluation?.DirectoryPath ?? string.Empty)
+                + " applicable=" + (applicable ? 1 : 0)
+                + " strong=" + (strong ? 1 : 0)
+        };
     }
 
     private static bool IsDirectoryHashCountTieBreakDistinct(CandidateEvaluation selectedCandidateEvaluation, CandidateEvaluation secondCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver)
@@ -1576,7 +1525,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
 
         var metadataProfilesByDirectory = new Dictionary<string, InstallEstimationMetadataProfile>(StringComparer.OrdinalIgnoreCase);
-        bool hasMetadataTieBreakInput = metadataProfileResolver != null && targetMetadataProfile != null && targetMetadataProfile.HasAnySignal;
+        bool hasMetadataTieBreakInput = metadataProfileResolver != null && targetMetadataProfile != null && targetMetadataProfile.HasPair;
         if (!string.IsNullOrWhiteSpace(selectedCandidateEvaluation.DirectoryPath))
         {
             metadataProfilesByDirectory[selectedCandidateEvaluation.DirectoryPath] = hasMetadataTieBreakInput ? metadataProfileResolver(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty : InstallEstimationMetadataProfile.Empty;
@@ -1620,49 +1569,9 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         InstallEstimationMetadataProfile leftProfile = GetMetadataProfile(metadataProfilesByDirectory, left?.DirectoryPath);
         InstallEstimationMetadataProfile rightProfile = GetMetadataProfile(metadataProfilesByDirectory, right?.DirectoryPath);
 
-        int comparison = CompareDescending(HasExactMetadataPairMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataPairMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(HasExactMetadataTitleMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataTitleMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(HasExactMetadataArtistMatch(targetMetadataProfile, leftProfile) ? 1 : 0, HasExactMetadataArtistMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending((int)GetMetadataTitleMatchKind(targetMetadataProfile, leftProfile), (int)GetMetadataTitleMatchKind(targetMetadataProfile, rightProfile));
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(leftProfile.PairSupportCount, rightProfile.PairSupportCount);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(leftProfile.TitleSupportCount, rightProfile.TitleSupportCount);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(leftProfile.ArtistSupportCount, rightProfile.ArtistSupportCount);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        return 0;
+        return CompareDescending(
+            InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, leftProfile) ? 1 : 0,
+            InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, rightProfile) ? 1 : 0);
     }
 
     private static int GetDirectoryUniquePrimaryHashCount(Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, string directoryPath)
@@ -1681,62 +1590,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return profile ?? InstallEstimationMetadataProfile.Empty;
         }
         return InstallEstimationMetadataProfile.Empty;
-    }
-
-    private static bool HasExactMetadataPairMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
-    {
-        return targetMetadataProfile != null
-            && candidateMetadataProfile != null
-            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedTitleArtistPair)
-            && string.Equals(targetMetadataProfile.DominantNormalizedTitleArtistPair, candidateMetadataProfile.DominantNormalizedTitleArtistPair, StringComparison.Ordinal);
-    }
-
-    private static bool HasExactMetadataTitleMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
-    {
-        return targetMetadataProfile != null
-            && candidateMetadataProfile != null
-            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedTitle)
-            && string.Equals(targetMetadataProfile.DominantNormalizedTitle, candidateMetadataProfile.DominantNormalizedTitle, StringComparison.Ordinal);
-    }
-
-    private static bool HasExactMetadataArtistMatch(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
-    {
-        return targetMetadataProfile != null
-            && candidateMetadataProfile != null
-            && !string.IsNullOrWhiteSpace(targetMetadataProfile.DominantNormalizedArtist)
-            && string.Equals(targetMetadataProfile.DominantNormalizedArtist, candidateMetadataProfile.DominantNormalizedArtist, StringComparison.Ordinal);
-    }
-
-    private static InstallEstimationMetadataTitleMatchKind GetMetadataTitleMatchKind(InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile candidateMetadataProfile)
-    {
-        if (targetMetadataProfile == null || candidateMetadataProfile == null)
-        {
-            return InstallEstimationMetadataTitleMatchKind.None;
-        }
-        return InstallEstimationMetadataNormalizer.ClassifyTitleMatch(
-            targetMetadataProfile.DominantNormalizedTitle,
-            candidateMetadataProfile.DominantNormalizedTitle);
-    }
-
-    private static MetadataEvidenceStrength ClassifyMetadataEvidence(bool pairExactMatch, bool artistExactMatch, InstallEstimationMetadataTitleMatchKind titleMatchKind)
-    {
-        if (pairExactMatch)
-        {
-            return MetadataEvidenceStrength.Strong;
-        }
-        if (titleMatchKind == InstallEstimationMetadataTitleMatchKind.Exact)
-        {
-            return MetadataEvidenceStrength.Strong;
-        }
-        if (titleMatchKind == InstallEstimationMetadataTitleMatchKind.FuzzyStrong && artistExactMatch)
-        {
-            return MetadataEvidenceStrength.Strong;
-        }
-        if (artistExactMatch || titleMatchKind == InstallEstimationMetadataTitleMatchKind.FuzzyStrong || titleMatchKind == InstallEstimationMetadataTitleMatchKind.Weak)
-        {
-            return MetadataEvidenceStrength.Weak;
-        }
-        return MetadataEvidenceStrength.None;
     }
 
     private static int CompareCandidateEvaluations(CandidateEvaluation left, CandidateEvaluation right)

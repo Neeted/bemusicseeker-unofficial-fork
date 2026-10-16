@@ -2353,7 +2353,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(bmson.Path, row.path);
     }
 
-    /// <summary>生成後の曖昧推定を代表タイトル・候補・警告へ反映し、導入先未確定とadapter非生成を保持して旧投影の残留を検出します。</summary>
+    /// <summary>生成後のメタデータ不一致推定を代表タイトル・候補・警告へ反映し、導入先未確定とadapter非生成を保持して旧投影の残留を検出します。</summary>
     [TestMethod]
     public void PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState()
     {
@@ -2364,7 +2364,7 @@ public sealed class ChartListVirtualViewTests
         {
             Confidence = InstallEstimationConfidence.Low,
             HasViableDestination = true,
-            LowConfidenceKind = InstallEstimationLowConfidenceKind.AmbiguousCandidates
+            LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch
         };
         result.Candidates.Add(new InstallEstimationCandidate
         {
@@ -2388,7 +2388,7 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("Candidate A", row.InstallDestinationTitle);
         Assert.AreEqual("Artist A", row.InstallDestinationArtist);
         CollectionAssert.AreEqual(new[] { @"C:\Candidate\A", @"C:\Candidate\B" }, row.Chart.InstallDestinationSuggestions.ToArray());
-        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));
+        Assert.IsTrue(row.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
     }
 
     /// <summary>推定検索の開始と終了で表示statusと再描画通知を更新し、検索中表示を出さない・消さない誤りを検出します。</summary>

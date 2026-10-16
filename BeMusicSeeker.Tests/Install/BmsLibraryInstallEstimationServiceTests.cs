@@ -837,9 +837,6 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual("song name", snapshot.TargetMetadataProfile.DominantNormalizedTitle);
             Assert.AreEqual("artist", snapshot.TargetMetadataProfile.DominantNormalizedArtist);
-            Assert.AreEqual(2, snapshot.TargetMetadataProfile.TitleSupportCount);
-            Assert.AreEqual(2, snapshot.TargetMetadataProfile.ArtistSupportCount);
-            Assert.AreEqual(InstallEstimationMetadataNormalizer.ComposePair("song name", "artist"), snapshot.TargetMetadataProfile.DominantNormalizedTitleArtistPair);
             Assert.AreEqual("Song Name", snapshot.TargetMetadataProfile.DominantPairDisplayTitle);
         });
     }
@@ -1993,7 +1990,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
             Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
             Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
-            Assert.AreEqual("single_viable_candidate_metadata_mismatch", result.ConfidenceReason);
+            Assert.AreEqual("selected_candidate_metadata_mismatch", result.ConfidenceReason);
             Assert.IsFalse(result.ShouldAutoApplyDestination);
             Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
             CollectionAssert.AreEqual(new[] { candidateDir }, result.SuggestedDestinationDirectories.ToArray());
@@ -2767,14 +2764,44 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         StringAssert.Contains(result.DirectoryHashCountTieBreakSummary ?? string.Empty, candidateDDir + ":5");
     }
 
-    /// <summary>既知の副題区切りだけを除き、空白のないハイフンや括弧で囲んだ主題を壊す正規化を検出する。</summary>
-    [TestMethod]
-    public void NormalizeTitleForTieBreak_StripsKnownSubtitleDelimiters()
+    /// <summary>最後の区切り群・MIX終端・先頭保護を生TITLEへ一度だけ適用し、同じ小文字化前表記を表示に使う。</summary>
+    [DataTestMethod]
+    [DataRow("Ark (remix/5keys)", "Ark (remix")]
+    [DataRow("Ark (remix/10lines)", "Ark (remix")]
+    [DataRow("Ark (mixed)", "Ark (mix")]
+    [DataRow("夏草の線路 -J-Trance remix-", "夏草の線路 -J-Trance remix")]
+    // 語中ハイフンを閉じ側にすると、後続囲みが別群となってMIX後の末尾ハイフンが残る。
+    [DataRow("夏草の線路 -J-Trance remix- [Another]", "夏草の線路 -J-Trance remix")]
+    [DataRow("Air -GOD-", "Air")]
+    [DataRow("Air -Revolutionary.Himix- [7keys ANOTHER]", "Air -Revolutionary.Himix")]
+    [DataRow("Toki (Sound piercer's Timesucker Remix) [SP ANOTHER]", "Toki (Sound piercer's Timesucker Remix")]
+    [DataRow("VIEW [Portable Disco Mix] [H14]", "VIEW [Portable Disco Mix")]
+    [DataRow("Lamellibrachia [laner+]", "Lamellibrachia")]
+    [DataRow("Lamellibrachia [athlete]", "Lamellibrachia")]
+    [DataRow("Lamellibrachia [robo]", "Lamellibrachia")]
+    [DataRow("new earth [ZOI]", "new earth")]
+    [DataRow("[主題] [差分]", "[主題]")]
+    // 主題の交差括弧は修復・切断せず、末尾差分の有無で同じ主題と照合キーを保つ。
+    [DataRow("【Freak《Show】Down》 [Another]", "【Freak《Show】Down》")]
+    [DataRow("【Freak《Show】Down》", "【Freak《Show】Down》")]
+    [DataRow("Nothingness[7A(LN)]", "Nothingness")]
+    [DataRow("Title (A) 続き [差分]", "Title (A) 続き")]
+    [DataRow("Title [差分] 追加表記", "Title")]
+    [DataRow("~メッセージ~ [Another]", "~メッセージ~")]
+    [DataRow("Title (未閉鎖", "Title")]
+    [DataRow("Title ]", "Title")]
+    [DataRow("Title 【差分】 《追加》", "Title")]
+    [DataRow("Title <差分> 〜追加〜", "Title")]
+    [DataRow(" Ｔｉｔｌｅ　（Ａｎｏｔｈｅｒ） ", "Title")]
+    [DataRow("Title-Another", "Title-Another")]
+    [DataRow("(Wrapped Title)", "(Wrapped Title)")]
+    [DataRow("Title [mix A remix B]", "Title [mix A remix")]
+    public void NormalizeTitleForTieBreak_UsesRightmostGroupAndMixEnd(string rawTitle, string displayTitle)
     {
-        Assert.AreEqual("title", InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak("Title (Another)"));
-        Assert.AreEqual("title", InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak("Title - Another"));
-        Assert.AreEqual("title-another", InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak("Title-Another"));
-        Assert.AreEqual("(wrapped title)", InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak("(Wrapped Title)"));
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([(rawTitle, "", "a")]);
+        Assert.AreEqual(displayTitle, profile.DominantPairDisplayTitle);
+        Assert.AreEqual(displayTitle.ToLowerInvariant(), profile.DominantNormalizedTitle);
+        Assert.AreEqual(displayTitle.ToLowerInvariant(), InstallEstimationMetadataNormalizer.NormalizeTitleForTieBreak(rawTitle));
     }
 
     /// <summary>作者の差分名・注記・スラッシュ後の差分表記を除き、通常の作者名やobjectまで削る正規化を検出する。</summary>
@@ -2792,56 +2819,41 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("  Ｓｏｎｇ [ANOTHER]  ", "Artist OBJ: Diff", "a")]);
         Assert.AreEqual("Song", profile.DominantPairDisplayTitle);
         Assert.AreEqual("Artist", profile.DominantPairDisplayArtist);
-        Assert.AreEqual(InstallEstimationMetadataNormalizer.ComposePair("song", "artist"), profile.DominantNormalizedTitleArtistPair);
     }
 
-    /// <summary>項目単独の最頻値が別の組でも、実在する最頻ペアとその両表記を保持し、独立最頻値の合成を検出する。</summary>
+    /// <summary>独立した最頻ARTISTと異なる実在最頻ペアを採用し、同一レコードの比較キーと表示を保持する。</summary>
     [TestMethod]
-    public void BuildProfile_IndependentModesKeepExistingPairAndDisplay()
+    public void BuildProfile_SelectsRealDominantPairAndDisplay()
     {
         InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([
             ("A", "X", "a"), ("A", "X", "b"), ("A", "X", "c"),
             ("B", "Y", "d"), ("B", "Y", "e"), ("C", "Y", "f"), ("C", "Y", "g")]);
 
-        Assert.AreEqual(7, profile.SourceChartCount);
         Assert.AreEqual("a", profile.DominantNormalizedTitle);
-        Assert.AreEqual(3, profile.TitleSupportCount);
-        Assert.AreEqual("y", profile.DominantNormalizedArtist);
-        Assert.AreEqual(4, profile.ArtistSupportCount);
-        Assert.AreEqual(InstallEstimationMetadataNormalizer.ComposePair("a", "x"), profile.DominantNormalizedTitleArtistPair);
-        Assert.AreEqual(3, profile.PairSupportCount);
+        Assert.AreEqual("x", profile.DominantNormalizedArtist);
         Assert.AreEqual("A", profile.DominantPairDisplayTitle);
         Assert.AreEqual("X", profile.DominantPairDisplayArtist);
     }
 
-    /// <summary>空白・付記だけの値を除外し、片側の単独支持と全件数を保ちながら、存在しないペアと表示の補完を検出する。</summary>
+    /// <summary>空TITLEを除外し、空ARTISTを有効なペアとして集計する。空TITLEだけの入力から作者を補完しない。</summary>
     [TestMethod]
-    public void BuildProfile_MissingValuesKeepIndependentSignalsWithoutPair()
+    public void BuildProfile_ExcludesEmptyTitleAndAcceptsEmptyArtist()
     {
         InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([
             ("Alpha", "", "a"), ("Alpha", "obj: Diff", "b"),
             ("", "Beta", "c"), (" ", "Beta", "d"), ("", "Beta", "e"),
             ("", "", "f"), (" ", " ", "g"), ("", "OBJ: Diff", "h"), ("", "", "i")]);
 
-        Assert.AreEqual(9, profile.SourceChartCount);
         Assert.AreEqual("alpha", profile.DominantNormalizedTitle);
-        Assert.AreEqual(2, profile.TitleSupportCount);
-        Assert.AreEqual("beta", profile.DominantNormalizedArtist);
-        Assert.AreEqual(3, profile.ArtistSupportCount);
-        Assert.IsTrue(profile.HasAnySignal);
-        Assert.AreEqual(string.Empty, profile.DominantNormalizedTitleArtistPair);
-        Assert.AreEqual(0, profile.PairSupportCount);
-        Assert.AreEqual(string.Empty, profile.DominantPairDisplayTitle);
+        Assert.AreEqual(string.Empty, profile.DominantNormalizedArtist);
+        Assert.IsTrue(profile.HasPair);
+        Assert.AreEqual("Alpha", profile.DominantPairDisplayTitle);
         Assert.AreEqual(string.Empty, profile.DominantPairDisplayArtist);
 
         foreach ((string, string, string)[] records in new (string, string, string)[][] { [], [(" ", "OBJ: Diff", "a")] })
         {
             InstallEstimationMetadataProfile empty = InstallEstimationMetadataNormalizer.BuildProfile(records);
-            Assert.AreEqual(records.Length, empty.SourceChartCount);
-            Assert.IsFalse(empty.HasAnySignal);
-            Assert.AreEqual(0, empty.TitleSupportCount);
-            Assert.AreEqual(0, empty.ArtistSupportCount);
-            Assert.AreEqual(0, empty.PairSupportCount);
+            Assert.IsFalse(empty.HasPair);
             Assert.AreEqual(string.Empty, empty.DominantPairDisplayTitle);
             Assert.AreEqual(string.Empty, empty.DominantPairDisplayArtist);
         }
@@ -2856,10 +2868,8 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             ("SONG", "Artist", "A"), ("Other", "Other", "c")]);
         Assert.AreEqual("song", profile.DominantNormalizedTitle);
         Assert.AreEqual("artist", profile.DominantNormalizedArtist);
-        Assert.AreEqual(2, profile.PairSupportCount);
         Assert.AreEqual("SONG", profile.DominantPairDisplayTitle);
         Assert.AreEqual("Artist", profile.DominantPairDisplayArtist);
-        Assert.AreEqual(InstallEstimationMetadataNormalizer.ComposePair(profile.DominantPairDisplayTitle.ToLowerInvariant(), profile.DominantPairDisplayArtist.ToLowerInvariant()), profile.DominantNormalizedTitleArtistPair);
 
         InstallEstimationMetadataProfile inputTie = InstallEstimationMetadataNormalizer.BuildProfile([
             ("First", "FIRST", "a"), ("Other", "OTHER", "A")]);
@@ -2875,17 +2885,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>実在ペアが片側でも欠ければ、単独一致・資源差・ハッシュ優位・曖昧自動適用でも低確信度と候補表示を保つ。</summary>
-    /// <remarks>欠如の基本条件と順位分岐を別々の代表入力へ分担し、全組合せの重複は作らない。0=完全、1=分離、2=主題のみ、3=全空、4=リゾルバーなし。</remarks>
+    /// <remarks>欠如の基本条件と順位分岐を別々の代表入力へ分担し、全組合せの重複は作らない。0=完全、2=空作者ペア、3=全空、4=リゾルバーなし。</remarks>
     [DataTestMethod]
-    [DataRow(1, 0, "single")]
-    [DataRow(0, 1, "single")]
-    [DataRow(2, 2, "single")]
+    [DataRow(3, 2, "single")]
     [DataRow(3, 0, "single")]
     [DataRow(0, 3, "single")]
     [DataRow(0, 4, "single")]
-    [DataRow(2, 2, "resources")]
-    [DataRow(2, 2, "hashes")]
-    [DataRow(2, 2, "auto")]
+    [DataRow(3, 2, "resources")]
+    [DataRow(3, 2, "hashes")]
+    [DataRow(3, 2, "auto")]
     public void EstimateInstallationDirectory_MissingRealPairKeepsLowConfidenceCandidates(int targetKind, int candidateKind, string ranking)
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
@@ -2923,7 +2931,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.AreEqual(selectedPath, result.SelectedCandidate?.DirectoryPath);
             Assert.AreEqual(multiple ? 2 : 1, result.Candidates.Count);
             CollectionAssert.Contains(result.SuggestedDestinationDirectories, selectedPath);
-            Assert.AreEqual(candidateKind == 0 ? "Song" : string.Empty, result.SelectedCandidate?.RepresentativeTitle);
+            Assert.AreEqual(candidateKind is 0 or 2 ? "Song" : string.Empty, result.SelectedCandidate?.RepresentativeTitle);
             Assert.AreEqual(candidateKind == 0 ? "Artist" : string.Empty, result.SelectedCandidate?.RepresentativeArtist);
             var entry = PackageChartEntry.FromChart(files[0]);
             entry.ApplyInstallEstimationResult(result);
@@ -2936,15 +2944,14 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         static (string Title, string Artist, string Path)[] Records(int kind) => kind switch
         {
             0 => [("Song", "Artist", "a")],
-            1 => [("Song", "", "a"), ("", "Artist", "b")],
             2 => [("Song", "", "a")],
             _ => [("", "", "a")]
         };
     }
 
-    /// <summary>双方に実在ペアがあればTITLE完全一致の既存の強い証拠を維持し、ペア完全一致の必須化を検出する。</summary>
+    /// <summary>TITLEが完全一致でもARTISTが異なれば低確信度・自動適用不可となり、TITLE単独での昇格を検出する。</summary>
     [TestMethod]
-    public void EstimateInstallationDirectory_RealPairsWithDifferentArtistsKeepExactTitleEvidence()
+    public void EstimateInstallationDirectory_ExactTitleWithDifferentArtistsIsMetadataMismatch()
     {
         BmsLibraryInstallEstimationService service = CreateService();
         ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "sound.wav")
@@ -2955,19 +2962,111 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         InstallEstimationResult result = EstimateLooseChartInstallationDirectory(service, [file], [], cache, false,
             ChartInstallationEstimateMode.Normal,
             _ => InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Other Artist", "a")]));
-        Assert.AreEqual(InstallEstimationConfidence.High, result.Confidence);
-        Assert.IsTrue(result.SelectedCandidateMetadataEvidenceStrong);
-        Assert.IsTrue(result.ShouldAutoApplyDestination);
+        Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
+        Assert.IsFalse(result.SelectedCandidateMetadataEvidenceStrong);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+        Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
     }
 
-    /// <summary>副題差・近似表記・弱い類似・別題の入力を分類し、曖昧な類似を強い一致として扱う誤りを検出する。</summary>
-    [TestMethod]
-    public void ClassifyTitleMatch_DetectsExactStrongWeakAndNone()
+    /// <summary>正規化済みキーのDice境界、重複gram、UTF-16単位を確認し、再切断や集合化の誤りを検出する。</summary>
+    [DataTestMethod]
+    [DataRow("abcdefghijklmnopqrstuvw", "abcdefghijklmnopqrstuvwxyz012", 0.88)]
+    [DataRow("abcdefghijklmnopqrstuvw", "abcdefghijklmnopqrstuvwxyz0123", 44d / 51d)]
+    [DataRow("aaaaab", "aab", 4d / 7d)]
+    [DataRow("😀a", "😀b", 0.5)]
+    [DataRow("a", "a", 1d)]
+    [DataRow("", "", 0d)]
+    public void ComputeTitleSimilarity_UsesNormalizedKeysAndCountedUtf16Bigrams(string left, string right, double expected)
     {
-        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.Exact, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song (Another)", "Target Song"));
-        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.FuzzyStrong, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song 7K", "Target Song 7Key"));
-        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.Weak, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Alpha Beat", "Alpha Best"));
-        Assert.AreEqual(InstallEstimationMetadataTitleMatchKind.None, InstallEstimationMetadataNormalizer.ClassifyTitleMatch("Target Song", "Completely Different"));
+        Assert.AreEqual(expected, InstallEstimationMetadataNormalizer.ComputeTitleSimilarity(left, right), 1e-12);
+    }
+
+    /// <summary>実サービスの単一候補で、Dice閾値・空作者同値・再切断禁止を強一致と自動適用の必要条件として確認する。</summary>
+    [DataTestMethod]
+    [DataRow("abcdefghijklmnopqrstuvw", "Artist", "abcdefghijklmnopqrstuvwxyz012", "Artist", true)]
+    [DataRow("abcdefghijklmnopqrstuvw", "Artist", "abcdefghijklmnopqrstuvwxyz0123", "Artist", false)]
+    [DataRow("Song", "", "Song", "", true)]
+    [DataRow("Song", "", "Song", "Artist", false)]
+    [DataRow("Song", "Artist", "Song", "", false)]
+    [DataRow("", "Artist", "Song", "Artist", false)]
+    [DataRow("Song", "Artist", "", "Artist", false)]
+    [DataRow("Title (A) 続き [差分]", "Artist", "Title", "Artist", false)]
+    [DataRow("Ark (remix/5keys)", "", "Ark (remix/10lines)", "", true)]
+    public void EstimateInstallationDirectory_StrongRequiresPairArtistAndTitleThreshold(string title, string artist, string candidateTitle, string candidateArtist, bool strong)
+    {
+        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "sound.wav")
+            with
+        { RawTitle = title, Artist = artist };
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(@"C:\Installed", ["sound.wav"]);
+        InstallEstimationResult result = EstimateLooseChartInstallationDirectory(CreateService(), [file], [], cache, false,
+            ChartInstallationEstimateMode.Normal,
+            _ => InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "a")]));
+        Assert.AreEqual(strong, result.SelectedCandidateMetadataEvidenceStrong);
+        Assert.AreEqual(strong, result.ShouldAutoApplyDestination);
+        Assert.AreEqual(strong ? InstallEstimationConfidence.High : InstallEstimationConfidence.Low, result.Confidence);
+        Assert.AreEqual(strong ? InstallEstimationLowConfidenceKind.None : InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+    }
+
+    /// <summary>同リソースではStrong真偽だけでメタデータ優劣を決め、完全一致・類似度・支持数やハッシュ数でStrong偽を昇格しない。</summary>
+    /// <remarks>bothは先頭Aが0.88一致、後続BがTITLE完全一致・支持3件でも双方Strongとして同順位を保つ。neitherは双方不成立、mixedは少数ハッシュのStrong候補が優先する。曖昧設定とハッシュ補助も同じ結果境界で観測する。</remarks>
+    [DataTestMethod]
+    [DataRow("both", false, false)]
+    [DataRow("both", true, false)]
+    [DataRow("both", false, true)]
+    [DataRow("neither", false, false)]
+    [DataRow("neither", true, true)]
+    [DataRow("mixed", false, true)]
+    public void EstimateInstallationDirectory_TiedCandidatesUseOnlyStrongThenHashCount(string kind, bool autoApply, bool hashes)
+    {
+        WithAutoApplyAmbiguousInstallDestination(autoApply, () =>
+        {
+            const string candidateA = @"C:\Installed\A";
+            const string candidateB = @"C:\Installed\B";
+            ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "sound.wav")
+                with
+            { RawTitle = "abcdefghijklmnopqrstuvw", Artist = "Artist" };
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(candidateA, ["sound.wav"]);
+            cache.AddDir(candidateB, ["sound.wav"]);
+            InstallEstimationMetadataProfile Profile(string path) => InstallEstimationMetadataNormalizer.BuildProfile(
+                path == candidateA
+                    ? [("abcdefghijklmnopqrstuvwxyz012", kind == "neither" ? "Other" : "Artist", "a")]
+                    : Enumerable.Repeat(("abcdefghijklmnopqrstuvw", kind == "both" ? "Artist" : "Other", "b"), 3));
+            InstallEstimationResult result = CreateService().EstimateInstallationDirectoryForCandidateDirectories(
+                BuildLooseChartSnapshot([file], [], ChartInstallationEstimateMode.Normal)!, [candidateA, candidateB], cache,
+                false, ChartInstallationEstimateMode.Normal, Profile, hashes ? path => path == candidateB ? 5 : 1 : null);
+            bool strong = kind != "neither";
+            bool distinct = kind == "mixed" || hashes && strong;
+            Assert.AreEqual(hashes && kind != "mixed" ? candidateB : candidateA, result.SelectedCandidate?.DirectoryPath);
+            Assert.AreEqual(strong, result.SelectedCandidateMetadataEvidenceStrong);
+            Assert.AreEqual(distinct || strong && autoApply, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(distinct ? InstallEstimationConfidence.High : InstallEstimationConfidence.Low, result.Confidence);
+            Assert.AreEqual(!strong ? InstallEstimationLowConfidenceKind.MetadataMismatch : distinct ? InstallEstimationLowConfidenceKind.None : InstallEstimationLowConfidenceKind.AmbiguousCandidates, result.LowConfidenceKind);
+            Assert.AreEqual(kind == "both" && hashes, result.DirectoryHashCountTieBreakApplied);
+        });
+    }
+
+    /// <summary>リソース主順位の上位がStrong偽なら、下位のStrong真へ逆転せず上位を低確信度の候補として残す。</summary>
+    [TestMethod]
+    public void EstimateInstallationDirectory_StrongDoesNotOverrideResourceRanking()
+    {
+        const string candidateA = @"C:\Installed\A";
+        const string candidateB = @"C:\Installed\B";
+        ChartFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "sound.wav")
+            with
+        { RawTitle = "Song", Artist = "Artist" };
+        var cache = new DirectoryResourceLookupCache();
+        cache.AddDir(candidateA, ["sound.wav"]);
+        cache.AddDir(candidateB, ["sound.wav", "extra.wav"]);
+        InstallEstimationResult result = CreateService().EstimateInstallationDirectoryForCandidateDirectories(
+            BuildLooseChartSnapshot([file], [], ChartInstallationEstimateMode.Normal)!, [candidateA, candidateB], cache,
+            false, ChartInstallationEstimateMode.Normal,
+            path => InstallEstimationMetadataNormalizer.BuildProfile([("Song", path == candidateA ? "Other" : "Artist", "a")]));
+        Assert.AreEqual(candidateA, result.SelectedCandidate?.DirectoryPath);
+        Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
+        Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
     }
 
     /// <summary>音声が同点でも曲名・作者の一致先を高信頼へ選び、無関係なメタデータの候補を適用する誤りを検出する。</summary>
@@ -3113,7 +3212,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
 
                 Assert.AreEqual(InstallEstimationConfidence.Low, result.Confidence);
                 Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
-                Assert.AreEqual("single_viable_candidate_metadata_mismatch", result.ConfidenceReason);
+                Assert.AreEqual("selected_candidate_metadata_mismatch", result.ConfidenceReason);
                 Assert.IsFalse(result.ShouldAutoApplyDestination);
                 Assert.IsTrue(string.IsNullOrWhiteSpace(result.DestinationDirectory));
                 CollectionAssert.AreEqual(new[] { candidateDir }, result.SuggestedDestinationDirectories.ToArray());
