@@ -176,7 +176,7 @@ public sealed class GridKeywordSearchQueryTests
         Assert.AreEqual(query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile((song))), query.MatchesChartListSourceRow(sourceRow));
     }
 
-    /// <summary>BMSとbmsonの現行値を適用すると表示と識別子が更新され、詳細提供元のレベルと詳細参照は保持することを確認し、古い表示や詳細投影の切断を検出します。</summary>
+    /// <summary>BMSとbmsonの新しい捕捉入力から作ると表示と識別子が更新され、詳細提供元のレベルと詳細参照は保持することを確認し、古い表示や詳細投影の切断を検出します。</summary>
     [TestMethod]
     public void ChartListSourceRow_AppliesCommonCurrentAndReadsChartInfoProvider()
     {
@@ -191,7 +191,7 @@ public sealed class GridKeywordSearchQueryTests
         file = file with { Path = @"C:\Songs\Changed\chart.bms" };
         file = file with { Md5 = "ffffffffffffffffffffffffffffffff" };
 
-        bmsSourceRow.ApplyCurrentChart(file);
+        bmsSourceRow = CreateSourceRow(file, chartInfo: bmsChartInfo);
         Assert.AreEqual("Alpha Title", captured.Title);
         Assert.AreEqual("Changed Title", bmsSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsSourceRow.Genre);
@@ -227,7 +227,7 @@ public sealed class GridKeywordSearchQueryTests
         song = song with { Path = @"C:\Songs\Changed\chart.bmson" };
         song = song with { Md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" };
 
-        bmsonSourceRow.ApplyCurrentChart(song);
+        bmsonSourceRow = CreateSourceRow(song, chartInfo: bmsonChartInfo);
         Assert.AreEqual("Changed Bmson", bmsonSourceRow.Title);
         Assert.AreEqual("Changed Genre", bmsonSourceRow.Genre);
         Assert.AreEqual("9", bmsonSourceRow.Level);

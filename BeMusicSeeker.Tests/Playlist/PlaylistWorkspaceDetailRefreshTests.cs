@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -44,7 +45,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistDetailSelectionScope.Folder,
             "target",
             onlyNotOwned: false,
-            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -77,10 +78,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistDetailSelectionScope.OrdinaryRoot,
             folderName: null,
             onlyNotOwned: false,
-            new PlaylistLibraryIndexSnapshot
-            {
-                ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty
-            },
+            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -280,7 +278,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistDetailSelectionScope.Folder,
             null,
             onlyNotOwned: true,
-            new PlaylistLibraryIndexSnapshot { ResolveIndex = resolveIndex },
+            resolveIndex,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -306,7 +304,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             onlyNotOwned: false,
-            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            PlaylistLibraryResolveIndexSnapshot.Empty,
             cancellation.Token,
             ref cancellationStage));
     }
@@ -1068,7 +1066,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             PlaylistDetailSelectionScope.OrdinaryRoot,
             null,
             onlyNotOwned: false,
-            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            PlaylistLibraryResolveIndexSnapshot.Empty,
             CancellationToken.None,
             ref cancellationStage);
 
@@ -1212,7 +1210,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             .WaitForRequestCompletionAsync(state, retirement.RequestVersion).IsCompleted);
     }
 
-    /// <summary>実detail workerが接続されたresolve索引を一回使用し、元playlist行と所持譜面のpath・非null tokenをsourceへ保持することを確認します。</summary>
+    /// <summary>要求後に索引版が進んでも実際の取得版で詳細を採用し、行・所持tokenを保ち、同じ入力の再要求では再構築しません。</summary>
     [TestMethod]
     public async Task RequestDetailRefresh_UsesAttachedResolveIndexAndPreservesOwnedToken()
     {
@@ -1225,7 +1223,10 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             RawTitle = "Owned chart",
             Token = new OwnedChartToken()
         };
-        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([ownedChart]);
+        dataSource.CurrentOwnedCollectionVersion = 0;
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([ownedChart])
+            .WithMetadata(version: 1, buildElapsedMs: 0, invalidationVersion: 0, ownedCollectionVersion: 1);
+        dataSource.ResolveIndexAction = () => dataSource.CurrentOwnedCollectionVersion = 1;
 
         var entry = new TestablePlaylistEntry(md5, "playlist entry");
         var table = new BMSTable { entries = [entry] };
@@ -1255,6 +1256,54 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
         Assert.IsTrue(row.IsOwned);
         Assert.AreSame(ownedChart.Token, row.Chart.Token);
         Assert.AreEqual(ownedChart.Path, row.Chart.Path);
+        Assert.AreEqual(1L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
+        await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false, openReadiness: default).ConfigureAwait(false);
+        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
+        Assert.AreSame(row, workspace.DetailViewState.Source.Rows[0]);
+    }
+
+    /// <summary>詳細構築中にカタログ版が進めば旧候補を採用せず、表示行・適用版を保ち、次の明示要求で新しい索引の実パスへ更新します。</summary>
+    [TestMethod]
+    public async Task RequestDetailRefresh_RejectsChangedCatalogAtTerminalAndAllowsNextExplicitRequest()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        ChartFile chart = ChartTestValues.Empty() with { Path = @"C:\owned\first.bms", Md5 = md5, Title = "first" };
+        var entry = new TestablePlaylistEntry(md5, "entry");
+        workspace.RequestDetailSelection(new BMSTable { entries = [entry] });
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart])
+            .WithMetadata(1, 0, 0, 1);
+
+        async Task Refresh()
+        {
+            Task request = workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
+                MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected,
+                useCoalescingWindow: false, openReadiness: default);
+            try { await request.ConfigureAwait(false); }
+            finally { await Task.WhenAll(request, workspace.WaitForDetailBuildIdleAsync()).ConfigureAwait(false); }
+        }
+
+        await Refresh();
+        IList firstRows = workspace.DetailViewState.View.Rows;
+        Assert.AreEqual(@"C:\owned\first.bms", ((PlaylistDetailRow)firstRows[0]!).path);
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart with { Path = @"C:\owned\second.bms" }])
+            .WithMetadata(2, 0, 0, 2);
+        // 実producerが索引を捕捉した後、エントリー読込み境界で次の確定版へ進める。
+        dataSource.EnsureEntriesLoadedAction = () => dataSource.CurrentOwnedCollectionVersion = 3;
+        await Refresh();
+        Assert.AreSame(firstRows, workspace.DetailViewState.View.Rows);
+        Assert.AreEqual(1L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
+        Assert.AreEqual(2, dataSource.ResolveIndexCallCount, "不採用を自動再試行で救済しません。");
+
+        dataSource.EnsureEntriesLoadedAction = null;
+        dataSource.ResolveIndexSnapshot = PlaylistLibraryResolveIndexSnapshot.FromCharts([chart with { Path = @"C:\owned\third.bms" }])
+            .WithMetadata(3, 0, 0, 3);
+        await Refresh();
+        Assert.AreEqual(@"C:\owned\third.bms", ((PlaylistDetailRow)workspace.DetailViewState.View.Rows[0]!).path);
+        Assert.AreEqual(3L, workspace.DetailViewState.Source.LastBuiltLibraryIndexVersion);
+        Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
     }
 
     /// <summary>既存schedulerへ予約したprewarmを実行して接続sourceの索引を取得し、runtime cacheの準備状態と計測値をreadinessへ配送します。</summary>

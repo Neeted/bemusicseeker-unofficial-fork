@@ -27,7 +27,6 @@ internal sealed class NormalLibraryRefreshPublishRequest
 
 internal sealed class NormalLibraryRefreshPublisher
 {
-    private NormalLibraryRefreshNotification latestNotification = NormalLibraryRefreshNotification.Empty;
     private readonly List<NormalLibraryRefreshNotification> notifications = [];
     private readonly object syncRoot = new();
     private int latestVersion;
@@ -94,7 +93,6 @@ internal sealed class NormalLibraryRefreshPublisher
                 request.Effects,
                 request.InstallDestinationChangedCharts,
                 request.ResetsPriorNotifications, request.ChangedCharts, request.DeletedTokens, request.ChangedDetailMd5s, request.ChangedDetailSha256s, request.InstalledChartChanges);
-            latestNotification = notification;
             notifications.Add(notification);
             return version;
         }
@@ -108,10 +106,6 @@ internal sealed class NormalLibraryRefreshPublisher
         }
         lock (syncRoot)
         {
-            if (latestNotification.Version == notificationVersion)
-            {
-                latestNotification = NormalLibraryRefreshNotification.Empty;
-            }
             notifications.RemoveAll(notification => notification.Version == notificationVersion);
         }
     }

@@ -384,7 +384,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             lock (DetailBuildState.SyncRoot)
             {
                 if (request.CancellationToken.IsCancellationRequested
-                    || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion)
+                    || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion
+                    || (Volatile.Read(ref detailDataSource)?.OwnedCollectionVersion is long currentLibraryVersion
+                        && request.BuildRequest.Identity.LibraryIndexVersion != currentLibraryVersion))
                 {
                     return false;
                 }

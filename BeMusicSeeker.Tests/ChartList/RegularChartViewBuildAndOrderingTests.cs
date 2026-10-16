@@ -135,7 +135,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.IsTrue(logs.Any(log => log.Contains("playlist_source_replace action=clear")));
     }
 
-
     /// <summary>退役ログが失敗しても通常mode公開を先に終えsourceを回収し、診断失敗で画面modeや退役を止める誤りを検出します。</summary>
     [TestMethod]
     public void ApplyRegularView_RetentionLogFailureStillPublishesRegularModeBeforeRetirement()
@@ -180,7 +179,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(0, viewState.Source.Rows.Count);
         Assert.AreEqual(0, viewState.View.Rows.Count);
     }
-
 
     /// <summary>通常画面の準備で旧要求を失効させ、library未接続の新経路は空行と新summaryを一回確定して、旧候補や旧件数の残留を検出します。</summary>
     [TestMethod]
@@ -246,7 +244,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(expectedSummary, table.SummaryText);
     }
 
-
     /// <summary>未構築の健全性索引を実譜面から用意して欠損警告付き仮想行を公開し、索引準備前の警告なし表示を検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_PreparesColdResourceHealthBeforeVirtualRows()
@@ -295,7 +292,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             StringAssert.Contains(row.WarningDigestText, Resources.WarningDigest_ResourceMissing);
         });
     }
-
 
     /// <summary>実WAV欠損と健全譜面を最新健全性で警告順へ整列し、同じ再要求はsource・order・健全性snapshotを再利用して古い警告順と再構築を検出します。</summary>
     [TestMethod]
@@ -401,7 +397,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
-
     /// <summary>保留一覧の実体行sortを適用しても保留scopeと操作sectionを保持し、sort要求を通常library操作へ誤分類する誤りを検出します。</summary>
     [TestMethod]
     public void TryApplyMaterialized_TransientSortRetainsResolvedPendingOperationContext()
@@ -424,7 +419,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             table.CurrentOperationContext.SourceScope);
     }
 
-
     /// <summary>履歴用routeを通常一覧入口へ渡すと引数例外にし、別画面のrouteを通常一覧として実行する誤りを検出します。</summary>
     [TestMethod]
     public void ApplyMainLibraryView_RejectsNonMainLibraryRoute()
@@ -446,7 +440,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
             preserveSummary: false,
             Stopwatch.StartNew()));
     }
-
 
     /// <summary>逆順の実体行をownerで構築・sort・終端確定し、Alpha/Beta順と絞込み件数を反映して、途中結果だけを返す誤りを検出します。</summary>
     [TestMethod]
@@ -497,7 +490,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(2, result.ModeCount);
     }
 
-
     /// <summary>実体行の準備中に入れ子要求を確定すると外側の旧要求を拒否し、最新行だけを表示して後着旧結果の上書きを検出します。</summary>
     [TestMethod]
     public void MaterializedApply_NestedNewerRequestRejectsOuterTerminal()
@@ -532,7 +524,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual("nested.bms", ((LibraryChartRow)table.Rows[0]!).Title);
     }
 
-
     /// <summary>同tokenの仮想行を再利用し、削除token通知でowner cacheから退役させて、二重生成と削除済み行の保持を検出します。</summary>
     [TestMethod]
     public void VirtualRowCache_ReusesAndRemovesBmsOwnerRowsThroughRegularOwner()
@@ -555,107 +546,157 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(0, owner.SnapshotRows().Count);
     }
 
-
-    /// <summary>未版指定の変更と新しい正本版はsourceを失効し、同じ正本版の重複は失効しないことで、通知重複による再構築を検出します。</summary>
+    /// <summary>通知を消費しなくても同件数の別所属・別順序を現在カタログから再現し、古い添字・検索・モード件数と別library入力の流用を検出します。</summary>
     [TestMethod]
-    public void SourceInvalidation_ConsumesEachPositiveOwnedCollectionVersionOnce()
+    public void CatalogInput_ExplicitRefreshUsesSameCountReplacementAndCurrentFilters()
     {
-        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-
-        Assert.IsTrue(owner.TryInvalidateSourceForOwnedCollectionVersion(0, out _));
-        Assert.AreEqual(1L, owner.SourceGeneration);
-        Assert.IsTrue(owner.TryInvalidateSourceForOwnedCollectionVersion(2, out _));
-        Assert.AreEqual(2L, owner.SourceGeneration);
-        Assert.IsFalse(owner.TryInvalidateSourceForOwnedCollectionVersion(2, out _));
-        Assert.AreEqual(2L, owner.SourceGeneration);
+        WithTemporarySongDb(path =>
+        {
+            var library = new TestBmsLibrary(path);
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            ChartFile a = CreateSourceRow("Old", "A", 7).Chart;
+            ChartFile b = CreateSourceRow("Old", "B", 14).Chart;
+            catalog.ReplaceCharts([a, b], []);
+            catalog.IncrementVersion();
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
+            request.Library = library;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            CollectionAssert.AreEqual(new[] { "A", "B" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+            ChartFile c = CreateSourceRow("New", "C", 14).Chart;
+            catalog.ReplaceCharts([c, a with { Path = @"C:\Charts\New\A", Folder = "New" }], []);
+            catalog.IncrementVersion();
+            request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, "New", ChartModeFilter._7KEYS);
+            request.Library = library;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            Assert.AreEqual(1, table.Rows.Count);
+            Assert.AreEqual(@"C:\Charts\New\A", (table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException()).path);
+            request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
+            request.Library = library;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            CollectionAssert.AreEqual(new[] { "A", "C" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+            var otherLibrary = new TestBmsLibrary(path);
+            CatalogOwnedCollectionOwner otherCatalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(otherLibrary);
+            otherCatalog.ReplaceCharts([CreateSourceRow("Other", "Other").Chart, CreateSourceRow("Other", "ZOther").Chart], []);
+            otherCatalog.IncrementVersion();
+            otherCatalog.IncrementVersion(); // 同版でも別libraryの所属を取り違えません。
+            request.Library = otherLibrary;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            Assert.AreEqual(2, table.Rows.Count);
+            Assert.AreEqual("Other", (table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException()).Title);
+            request.Library = library;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            CollectionAssert.AreEqual(new[] { "A", "C" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+        });
     }
 
-
-    /// <summary>sourceまたはidentity sortを失効した後の旧lookup公開は拒否し、現在lookupだけ同じsourceを再利用して、古いcacheの復活を検出します。</summary>
+    /// <summary>保守batchと捕捉版が揃う場合はRows・未訪問行を保持し、後続の題名変更が確定済みなら旧整列へ新値だけを採用せず再構築することで、入力混在を検出します。</summary>
     [TestMethod]
-    public void VirtualSourceRows_StaleLookupCannotRepopulateInvalidatedCache()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CatalogInput_PresentationAdoptsNewValuesWithoutRealizingUnvisitedRows(bool newerBasicCommit)
     {
-        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-        RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
-
-        owner.InvalidateSource();
-        owner.TryPublishVirtualSourceRows(staleLookup, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
-
-        RegularVirtualSourceRowsLookup currentLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(currentLookup, rows);
-        RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        Assert.IsTrue(cached.CacheHit);
-        CollectionAssert.AreEqual(rows, cached.Rows.ToList());
-        Assert.AreSame(cached.Rows, owner.LookupVirtualSourceRows(null, includeBmsonRows: false).Rows);
-
-        RegularVirtualSourceRowsLookup staleAfterSortChange = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.InvalidateIdentitySortKeys(clearSourceRows: true);
-        owner.TryPublishVirtualSourceRows(staleAfterSortChange, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
+        WithTemporarySongDb(path =>
+        {
+            var library = new TestBmsLibrary(path);
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            // 既存の健全性算式で25から75へ変わる保守入力を使い、算式自体の条件網羅は保守側へ分担します。
+            ChartFile[] charts = new[] { "A", "B" }.Select(name => ChartFileProjection.WithMaintenance(
+                CreateSourceRow("Folder", name).Chart with { Token = new OwnedChartToken() },
+                new ResourceHealthMaintenanceSnapshot
+                { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 120, WavFilesExisting = 36 })).ToArray();
+            catalog.ReplaceCharts(charts, []);
+            catalog.IncrementVersion();
+            CatalogChartCollectionSnapshot previous = library.CaptureNormalLibraryChartSnapshot(false);
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
+            request.Library = library;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            var rows = (ChartListVirtualView)table.Rows;
+            var realized = (LibraryChartRow)rows[0];
+            Assert.AreEqual(25, realized.WAVHealth);
+            foreach (ChartFile chart in previous.BmsRows)
+            {
+                catalog.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(chart,
+                    new ResourceHealthMaintenanceSnapshot
+                    { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 120, WavFilesExisting = 100 }));
+            }
+            catalog.IncrementVersion();
+            var batch = new NormalLibraryRefreshNotificationBatch(1, library.OwnedCollectionVersion,
+                LibraryChartRefreshEffects.MaintenancePresentationChanged, [], false);
+            if (newerBasicCommit)
+            {
+                ChartFile current = library.CaptureNormalLibraryChartSnapshot(false).BmsRows[0];
+                catalog.Collection.ApplyCurrentChartValue(current with { Title = "Z", RawTitle = "Z" });
+                catalog.IncrementVersion();
+            }
+            MainViewRefreshAction action = owner.ApplyNotificationPresentation(library, batch,
+                MainViewUpdateMode.FolderFilterSelected, null, ChartListFilterSnapshot.Default, false);
+            if (newerBasicCommit)
+            {
+                Assert.AreEqual(MainViewRefreshAction.Refresh, action);
+                Assert.AreSame(rows, table.Rows);
+                Assert.AreSame(realized, rows[0]);
+                Assert.AreEqual(1, rows.RealizedRowCount);
+                Assert.AreEqual("A", realized.Title); // 旧先頭の添字へ新しいZだけが混入していません。
+                Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+                CollectionAssert.AreEqual(new[] { "B", "Z" }, table.Rows.Cast<LibraryChartRow>().Select(row => row.Title).ToArray());
+                return;
+            }
+            Assert.AreEqual(MainViewRefreshAction.RefreshDisplay, action);
+            Assert.AreSame(rows, table.Rows);
+            Assert.AreSame(realized, rows[0]);
+            Assert.AreEqual(1, rows.RealizedRowCount);
+            Assert.AreEqual(75, realized.WAVHealth);
+            Assert.AreEqual(75, ((LibraryChartRow)rows[1]).WAVHealth);
+            Assert.AreEqual(36, previous.BmsRows[1].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+        });
     }
 
-
-    /// <summary>libraryを替えて予備計算を開始するとsourceとorderを失効して前library要求を取消し、別libraryへ旧orderを使う誤りを検出します。</summary>
+    /// <summary>同値BMSONの初回と更新後を捕捉順で表示し、path事前整列と古い候補から現在行を変更する誤りを検出します。</summary>
     [TestMethod]
-    public void VirtualSourceRows_LibraryIdentityChangeInvalidatesDerivedOrders()
+    public void CatalogInput_BmsonTiesKeepCapturedOrderAndStaleCandidateCannotOverwriteRows()
     {
-        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
-        Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
-        RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(firstLookup, rows);
-        NormalLibrarySortCacheKey orderKey = owner.CreateVirtualOrderKey(
-            firstLookup.SourceGeneration,
-            firstLookup.SortKeyGeneration,
-            nameof(LibraryChartRow.Title),
-            ListSortDirection.Ascending,
-            rows.Count,
-            new RegularChartListExternalVersions(0, 0, 0));
-        Assert.IsTrue(owner.TryPublishVirtualOrder(
-            orderKey,
-            CreateOrder(rows[0]),
-            new RegularChartListExternalVersions(0, 0, 0)));
-
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out RegularChartListPrewarmLease secondLease));
-        RegularVirtualSourceRowsLookup secondLookup = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
-
-        Assert.IsFalse(secondLookup.CacheHit);
-        Assert.IsTrue(secondLookup.SourceGeneration > firstLookup.SourceGeneration);
-        Assert.IsFalse(owner.TryGetVirtualOrder(orderKey, out _));
-        Assert.IsTrue(firstLease.Token.IsCancellationRequested);
-        secondLease.Dispose();
+        WithTemporarySongDb(path =>
+        {
+            var library = new TestBmsLibrary(path);
+            CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+            ChartFile z = ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = @"C:\z.bmson", Md5 = "z", Title = "Same", Token = new OwnedChartToken() };
+            ChartFile a = z with { Path = @"C:\a.bmson", Md5 = "a", Token = new OwnedChartToken() };
+            catalog.ReplaceCharts([], [z, a]);
+            catalog.IncrementVersion();
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
+            request.Library = library;
+            request.IncludeBmsonRows = true;
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            var previousRows = (ChartListVirtualView)table.Rows;
+            Assert.AreEqual(z.Path, ((LibraryChartRow)previousRows[0]).path);
+            CatalogChartCollectionSnapshot snapshot = library.CaptureNormalLibraryChartSnapshot();
+            catalog.Collection.ApplyCurrentChartValue(snapshot.BmsonRows[1] with { Title = "New" });
+            catalog.IncrementVersion();
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            LibraryChartRow current = table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException();
+            Assert.AreEqual("New", current.Title);
+            Assert.AreEqual("Same", ((LibraryChartRow)previousRows[1]).Title);
+            Assert.AreEqual("New", current.Title);
+            bool changed = false;
+            table.RowsReplacing += (_, _) =>
+            {
+                if (changed) { return; }
+                changed = true;
+                catalog.Collection.ApplyCurrentChartValue(library.CaptureNormalLibraryChartSnapshot().BmsonRows[0] with { Title = "Later" });
+                catalog.IncrementVersion();
+            };
+            Assert.IsFalse(owner.ApplyRegularView(request).WasCommitted);
+            Assert.AreSame(current, table.Rows[0]);
+            Assert.IsTrue(owner.ApplyRegularView(request).WasCommitted);
+            Assert.AreEqual("Later", (table.Rows[0] as LibraryChartRow ?? throw new AssertFailedException()).Title);
+        });
     }
-
-
-    /// <summary>二つのlibraryが初期cache missを競合すると後のlibraryだけのsourceを採用し、前libraryの遅い公開による混入を検出します。</summary>
-    [TestMethod]
-    public void VirtualSourceRows_ConcurrentInitialLibraryMissRejectsStalePublisher()
-    {
-        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
-        RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
-
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out RegularChartListPrewarmLease secondLease));
-        RegularVirtualSourceRowsLookup secondLookup = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(firstLookup, [CreateSourceRow("Folder A", "a.bms")]);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false).CacheHit);
-        List<ChartListSourceRow> secondRows = [CreateSourceRow("Folder B", "b.bms")];
-        owner.TryPublishVirtualSourceRows(secondLookup, secondRows);
-
-        RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
-        Assert.IsTrue(firstLease.Token.IsCancellationRequested);
-        Assert.IsTrue(cached.CacheHit);
-        CollectionAssert.AreEqual(secondRows, cached.Rows.ToList());
-        Assert.AreSame(cached.Rows, owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false).Rows);
-        secondLease.Dispose();
-    }
-
 
     /// <summary>別libraryへの予備計算要求は実行中leaseを取消し、同時に別予備計算を受理しないことで異なるlibraryの並行公開を検出します。</summary>
     [TestMethod]
@@ -672,94 +713,114 @@ public sealed class RegularChartViewBuildAndOrderingTests
         firstLease.Dispose();
     }
 
-
     /// <summary>既存sourceのタイトル予備sortを実行してa/bのorderをowner cacheへ公開し、lease完了も返して、計算漏れと終端未回収を検出します。</summary>
     [TestMethod]
     public void VirtualOrderPrewarm_BuildsOwnedOrderAndCompletesLease()
     {
-        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-        List<ChartListSourceRow> rows =
-        [
-            CreateSourceRow("Folder A", "b.bms"),
-            CreateSourceRow("Folder A", "a.bms")
-        ];
-        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(lookup, rows);
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
-
-        using (lease)
+        WithTemporarySongDb(songDbPath =>
         {
-            owner.RunVirtualOrderPrewarm(
-                lease,
-                library: null,
-                includeBmsonRows: false,
-                [new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 1)],
-                "test");
-        }
+            var library = new TestBmsLibrary(songDbPath);
+            void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
+            {
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
+                catalog.IncrementVersion();
+            }
 
-        NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
-            lookup.SourceGeneration,
-            lookup.SortKeyGeneration,
-            nameof(LibraryChartRow.Title),
-            ListSortDirection.Ascending,
-            rows.Count,
-            new RegularChartListExternalVersions(0, 0, 0));
-        Assert.IsTrue(owner.TryGetVirtualOrder(key, out ChartListOrder order));
-        CollectionAssert.AreEqual(new[] { 1, 0 }, order.Indexes.ToArray());
-        Assert.IsTrue(lease.Completion.IsCompleted);
+            using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
+            List<ChartListSourceRow> rows =
+            [
+                CreateSourceRow("Folder A", "b.bms"),
+            CreateSourceRow("Folder A", "a.bms")
+            ];
+            SeedCatalog(rows);
+            Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(library, out RegularChartListPrewarmLease lease));
+
+            using (lease)
+            {
+                owner.RunVirtualOrderPrewarm(
+                    lease,
+                    library: library,
+                    includeBmsonRows: false,
+                    [new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 1)],
+                    "test");
+            }
+
+            NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
+                owner.SourceGeneration,
+                owner.SortKeyGeneration,
+                nameof(LibraryChartRow.Title),
+                ListSortDirection.Ascending,
+                rows.Count,
+                new RegularChartListExternalVersions(0, 0, 0));
+            Assert.IsTrue(owner.TryGetVirtualOrder(key, out ChartListOrder order));
+            CollectionAssert.AreEqual(new[] { 1, 0 }, order.Indexes.ToArray());
+            Assert.IsTrue(lease.Completion.IsCompleted);
+
+        });
     }
-
 
     /// <summary>通常一覧のfolder絞込みとtitle降順を終端へ確定し、同条件の次要求はsourceとorderを再利用して、絞込み欠けと不要再計算を検出します。</summary>
     [TestMethod]
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()
     {
-        var table = new MainChartListViewModel();
-        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-        List<ChartListSourceRow> sourceRows =
-        [
-            CreateSourceRow("Folder A", "Alpha"),
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
+            {
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
+                catalog.IncrementVersion();
+            }
+
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            List<ChartListSourceRow> sourceRows =
+            [
+                CreateSourceRow("Folder A", "Alpha"),
             CreateSourceRow("Folder B", "Bravo"),
             CreateSourceRow("Folder A", "Charlie")
-        ];
-        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(lookup, sourceRows);
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        var request = new RegularVirtualNormalLibraryApplyRequest
-        {
-            IncludeBmsonRows = false,
-            TreeFilter = RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, @"C:\Charts\Folder A"),
-            KeywordFilter = string.Empty,
-            ModeFilter = ChartModeFilter.All,
-            SortColumnName = nameof(LibraryChartRow.Title),
-            SortDirection = ListSortDirection.Descending,
-            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
-            ColumnSelection = new MainChartListColumnSelection(
-                settings,
-                reused: false,
-                elapsedMs: 0L,
-                MainViewUpdateMode.FolderFilterSelected,
-                Visibility.Collapsed,
-                new PlaylistSummaryColumnSettings()),
-            Mode = MainViewUpdateMode.FolderFilterSelected,
-            Stopwatch = Stopwatch.StartNew(),
-            Reason = "test"
-        };
+            ];
+            SeedCatalog(sourceRows);
+            var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+            var request = new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                IncludeBmsonRows = false,
+                TreeFilter = RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, @"C:\Charts\Folder A"),
+                KeywordFilter = string.Empty,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = nameof(LibraryChartRow.Title),
+                SortDirection = ListSortDirection.Descending,
+                ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+                ColumnSelection = new MainChartListColumnSelection(
+                    settings,
+                    reused: false,
+                    elapsedMs: 0L,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    Visibility.Collapsed,
+                    new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FolderFilterSelected,
+                Stopwatch = Stopwatch.StartNew(),
+                Reason = "test"
+            };
 
-        RegularVirtualNormalLibraryApplyResult first = owner.TryApplyVirtualNormalLibrary(request);
-        RegularVirtualNormalLibraryApplyResult second = owner.TryApplyVirtualNormalLibrary(request);
+            RegularVirtualNormalLibraryApplyResult first = owner.TryApplyVirtualNormalLibrary(request);
+            RegularVirtualNormalLibraryApplyResult second = owner.TryApplyVirtualNormalLibrary(request);
 
-        Assert.IsTrue(first.WasCommitted);
-        Assert.IsTrue(second.WasCommitted);
-        Assert.AreSame(second.RowsView, table.Rows);
-        Assert.AreEqual(2, second.FolderCount);
-        Assert.AreEqual(2, second.RowsView.Count);
-        Assert.AreEqual("Charlie", ((LibraryChartRow)second.RowsView[0]).Title);
-        Assert.AreEqual("Alpha", ((LibraryChartRow)second.RowsView[1]).Title);
-        Assert.IsTrue(second.SourceRowsCacheHit);
-        Assert.IsTrue(second.SortCacheHit);
+            Assert.IsTrue(first.WasCommitted);
+            Assert.IsTrue(second.WasCommitted);
+            Assert.AreSame(second.RowsView, table.Rows);
+            Assert.AreEqual(2, second.FolderCount);
+            Assert.AreEqual(2, second.RowsView.Count);
+            Assert.AreEqual("Charlie", ((LibraryChartRow)second.RowsView[0]).Title);
+            Assert.AreEqual("Alpha", ((LibraryChartRow)second.RowsView[1]).Title);
+            Assert.IsTrue(second.SourceRowsCacheHit);
+            Assert.IsTrue(second.SortCacheHit);
+
+        });
     }
-
 
     /// <summary>欠損部分一覧をtitle降順と異なるfolder数で確定し、同条件の次要求はorderを再利用して、部分集合の順やsummaryの誤りを検出します。</summary>
     [TestMethod]
@@ -810,63 +871,81 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.AreEqual(2, second.DistinctFolderCount);
     }
 
-
     /// <summary>通常一覧入口の非対応sortを解除し、タイトル昇順の仮想経路へ確定して、非対応要求の残留と行欠けを検出します。</summary>
     [TestMethod]
     public void RegularEntry_SelectsDefaultVirtualAndResetsUnsupportedSort()
     {
-        var table = new MainChartListViewModel();
-        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(
-            lookup,
-            [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
-        owner.QueueSort(new MainChartListSortRequestedEventArgs(
-            "UnsupportedColumn",
-            ListSortDirection.Descending,
-            MainChartListSortTarget.Regular));
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
+            {
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
+                catalog.IncrementVersion();
+            }
 
-        RegularChartListEntryResult result = owner.ApplyMainLibraryView(
-            new ChartListRefreshRoute(
-                ChartListRefreshRouteKind.ContinueMainLibrary,
-                MainViewUpdateMode.FolderFilterSelected,
-                MainViewUpdateMode.FolderFilterSelected,
-                MainViewUpdateMode.FolderFilterSelected,
-                isPlaylistTreeActive: false,
-                includeBmsonRows: false),
-            library: null,
-            parameter: null,
-            treeParameter: null,
-            preserveSummary: false,
-            Stopwatch.StartNew());
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            SeedCatalog(
+                [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                "UnsupportedColumn",
+                ListSortDirection.Descending,
+                MainChartListSortTarget.Regular));
 
-        Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
-        Assert.IsTrue(result.SortWasReset);
-        Assert.IsNull(owner.CaptureSortParameters());
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
-        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]!).Title);
+            RegularChartListEntryResult result = owner.ApplyMainLibraryView(
+                new ChartListRefreshRoute(
+                    ChartListRefreshRouteKind.ContinueMainLibrary,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    isPlaylistTreeActive: false,
+                    includeBmsonRows: false),
+                library: library,
+                parameter: null,
+                treeParameter: null,
+                preserveSummary: false,
+                Stopwatch.StartNew());
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
+            Assert.IsTrue(result.SortWasReset);
+            Assert.IsNull(owner.CaptureSortParameters());
+            Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
+            Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]!).Title);
+
+        });
     }
-
 
     /// <summary>owner入口へ渡すkeywordで仮想sourceを絞り、該当Alphaだけを確定して、検索条件を無視する誤りを検出します。</summary>
     [TestMethod]
     public void RegularEntry_AppliesOwnerFilterState()
     {
-        var table = new MainChartListViewModel();
-        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(
-            lookup,
-            [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
-        RegularChartListEntryResult result = owner.ApplyRegularView(
-            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, "Alpha", ChartModeFilter.All));
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
+            {
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
+                catalog.IncrementVersion();
+            }
 
-        Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual(1, table.Rows.Count);
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            SeedCatalog(
+                [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
+            RegularChartListEntryRequest entry = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, "Alpha", ChartModeFilter.All);
+            entry.Library = library;
+            RegularChartListEntryResult result = owner.ApplyRegularView(entry);
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(1, table.Rows.Count);
+            Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]!).Title);
+
+        });
     }
-
 
     /// <summary>履歴列modeの確定は保留中の通常一覧要求を取消し、別画面への旧結果公開を検出します。</summary>
     [TestMethod]
@@ -882,25 +961,34 @@ public sealed class RegularChartViewBuildAndOrderingTests
         owner.InvalidatePendingRequest();
     }
 
-
     /// <summary>owner入口の7keys条件で9keysを除外してSevenだけ確定し、mode条件の適用漏れを検出します。</summary>
     [TestMethod]
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
-        var table = new MainChartListViewModel();
-        using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
-        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
-        owner.TryPublishVirtualSourceRows(
-            lookup,
-            [CreateSourceRow("Folder A", "Seven", mode: 7), CreateSourceRow("Folder B", "Nine", mode: 9)]);
-        RegularChartListEntryResult result = owner.ApplyRegularView(
-            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, string.Empty, ChartModeFilter._7KEYS));
+        WithTemporarySongDb(songDbPath =>
+        {
+            var library = new TestBmsLibrary(songDbPath);
+            void SeedCatalog(IEnumerable<ChartListSourceRow> rows)
+            {
+                CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
+                catalog.ReplaceCharts(rows.Select(row => row.Chart), []);
+                catalog.IncrementVersion();
+            }
 
-        Assert.IsTrue(result.WasCommitted);
-        Assert.AreEqual(1, table.Rows.Count);
-        Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]!).Title);
+            var table = new MainChartListViewModel();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner());
+            SeedCatalog(
+                [CreateSourceRow("Folder A", "Seven", mode: 7), CreateSourceRow("Folder B", "Nine", mode: 9)]);
+            RegularChartListEntryRequest entry = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, string.Empty, ChartModeFilter._7KEYS);
+            entry.Library = library;
+            RegularChartListEntryResult result = owner.ApplyRegularView(entry);
+
+            Assert.IsTrue(result.WasCommitted);
+            Assert.AreEqual(1, table.Rows.Count);
+            Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]!).Title);
+
+        });
     }
-
 
     /// <summary>libraryの重複groupを通常入口から部分仮想経路へ配送し、二行を保持して別sourceの選択や行欠けを検出します。</summary>
     [TestMethod]
@@ -928,7 +1016,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         });
     }
 
-
     /// <summary>重複groupの特定folderだけを捕捉し、元groupを後で空にしても一致譜面を保持して、別folder混入とcaller可変入力への依存を検出します。</summary>
     [TestMethod]
     public void RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts()
@@ -948,7 +1035,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
 
         CollectionAssert.AreEqual(new[] { matching }, source.SourceCharts.ToArray());
     }
-
 
     /// <summary>score依存の通常と部分orderを公開後、score失効で両方とも退役させ、一方の旧orderだけが残る誤りを検出します。</summary>
     [TestMethod]
@@ -985,7 +1071,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.IsFalse(owner.TryGetVirtualSubsetOrder(subsetKey, out _));
     }
 
-
     /// <summary>計算中にscore版が変わった通常orderは公開もcache採用もしないことで、古い得点順の復活を検出します。</summary>
     [TestMethod]
     public void VirtualOrder_ExternalVersionChangeRejectsStalePublish()
@@ -1009,7 +1094,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.IsFalse(published);
         Assert.IsFalse(owner.TryGetVirtualOrder(key, out _));
     }
-
 
     /// <summary>計算中に解析版が変わった部分orderは公開もcache採用もしないことで、古いnotes順の復活を検出します。</summary>
     [TestMethod]
@@ -1037,7 +1121,6 @@ public sealed class RegularChartViewBuildAndOrderingTests
         Assert.IsFalse(published);
         Assert.IsFalse(owner.TryGetVirtualSubsetOrder(key, out _));
     }
-
 
     /// <summary>警告orderは導入先変更と健全性変更のどちらでもcacheを退役し、警告の依存関係不足による旧順残留を検出します。</summary>
     [TestMethod]

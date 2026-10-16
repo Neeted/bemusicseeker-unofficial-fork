@@ -1511,7 +1511,6 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => { },
             _ => { },
             (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
-        RegularVirtualSourceRowsLookup sourceLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey orderKey = owner.CreateVirtualOrderKey(
@@ -1524,8 +1523,6 @@ public sealed class RegularChartCommitAndLifecycleTests
 
         await owner.StopAsync();
 
-        owner.TryPublishVirtualSourceRows(sourceLookup, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
         Assert.IsFalse(owner.TryPublishVirtualOrder(orderKey, CreateOrder(rows[0]), versions));
         Assert.IsFalse(owner.IsCurrentVirtualGeneration(orderKey.SourceGeneration, orderKey.SortKeyGeneration));
     }

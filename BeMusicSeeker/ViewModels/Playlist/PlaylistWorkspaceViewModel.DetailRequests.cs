@@ -341,19 +341,23 @@ public sealed partial class PlaylistWorkspaceViewModel
                 out bool cacheHit,
                 out int staleRetryCount);
             long indexMs = stopwatch.ElapsedMilliseconds - indexStartMs;
-            var indexSnapshot = new PlaylistLibraryIndexSnapshot
+            // 要求の寿命はRequestVersionで判定し、データの版は実際に取得した索引から引き継ぐ。
+            lock (DetailBuildState.SyncRoot)
             {
-                Version = request.Identity.LibraryIndexVersion,
-                BuildElapsedMs = resolveIndex.BuildElapsedMs,
-                ResolveIndex = resolveIndex
-            };
+                PlaylistRequestIdentity identity = request.Identity;
+                request.Identity = new PlaylistRequestIdentity(
+                    identity.Table, identity.SelectionScope, identity.FolderName, identity.FilterType,
+                    identity.KeywordFilter, identity.ModeFilter, identity.SortColumnName, identity.SortDirection,
+                    resolveIndex.OwnedCollectionVersion, identity.PlaylistRevision,
+                    identity.ScoreSnapshotVersion, identity.ChartInfoIndexVersion, identity.HasResolvedSelection);
+            }
             long sourceStartMs = stopwatch.ElapsedMilliseconds;
             PlaylistSourceBuildResult sourceBuild = BuildDetailSourceRows(
                 request.Identity.Table,
                 request.Identity.SelectionScope,
                 request.Identity.FolderName,
                 request.Identity.FilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
-                indexSnapshot,
+                resolveIndex,
                 cancellationToken,
                 ref cancellationStage);
             sourceRows = sourceBuild.SourceRows;

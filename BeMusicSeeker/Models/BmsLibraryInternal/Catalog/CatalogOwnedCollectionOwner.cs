@@ -45,12 +45,12 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <summary>現在の集合版だけを捕捉します。独立した保存行版は持ちません。</summary>
     internal OwnedChartCollectionVersionSnapshot CaptureVersionSnapshot() => new(OwnedCollectionVersion);
     /// <summary>形式別の共通現在値と集合版を、全件複製せず同じ排他境界で捕捉します。</summary>
-    internal CatalogChartCollectionSnapshot CaptureSnapshot()
+    internal CatalogChartCollectionSnapshot CaptureSnapshot(bool includeBmsonRows = true)
     {
         lock (gate)
         {
-            OwnedChartCollectionView view = collection.CreateCollectionView();
-            return new(view.BmsCharts, view.BmsonCharts, OwnedCollectionVersion);
+            OwnedChartCollectionView view = collection.CreateCollectionView(includeBmsonRows);
+            return new(view.BmsCharts, view.BmsonCharts, OwnedCollectionVersion, collection.MembershipOrderIdentity, view);
         }
     }
     /// <summary>形式別の件数と集合版を全件列挙せず捕捉します。</summary>

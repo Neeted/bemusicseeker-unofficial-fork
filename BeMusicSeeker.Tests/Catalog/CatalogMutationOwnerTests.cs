@@ -136,7 +136,7 @@ public sealed class CatalogMutationOwnerTests
     }
 
     /// <summary>
-    /// 背景BMSの件数とbmson包含の有無に応じて通常一覧を入力順・パス順で射影し、含めた行だけを一度ずつ訪問する。
+    /// 背景BMSの件数とbmson包含の有無に応じて通常一覧を捕捉順で射影し、含めた行だけを一度ずつ訪問する。
     /// </summary>
     [TestMethod]
     [DataRow(16, true)]
@@ -154,16 +154,16 @@ public sealed class CatalogMutationOwnerTests
         owner.ReplaceChartsAndCaptureSnapshot(bms, bmson);
         observer.Reset();
 
-        OwnedChartCollectionView source = owner.Collection.CreateNormalLibrarySourceChartView(includeBmsonRows);
-        List<ChartListSourceRow> rows = new MainChartRowProjectionOwner().BuildNormalSourceRows(null, source, includeBmsonRows);
+        CatalogChartCollectionSnapshot source = owner.CaptureSnapshot(includeBmsonRows);
+        NormalLibrarySourceRows rows = new MainChartRowProjectionOwner().BuildNormalSourceRows(null, source, includeBmsonRows);
 
         ChartFile[] expected = includeBmsonRows
-            ? [.. bms, .. bmson.OrderBy(chart => chart.Path, StringComparer.OrdinalIgnoreCase)] : bms;
+            ? [.. bms, .. bmson] : bms;
         CollectionAssert.AreEqual(expected.Select(chart => chart.Path).ToArray(), rows.Select(row => row.Chart.Path).ToArray());
         Assert.AreEqual(expected.Length, observer.VisitedEntryCount);
         Assert.AreEqual(0, observer.AccessCount);
-        Assert.AreEqual(includeBmsonRows ? 64 : 0, observer.MaterializationCount);
-        Assert.AreEqual(includeBmsonRows ? 64 : 0, source.BmsonCharts.Count);
+        Assert.AreEqual(0, observer.MaterializationCount);
+        Assert.AreEqual(includeBmsonRows ? 64 : 0, source.BmsonRows.Count);
     }
 
     private static void AssertRangeWork(RecordingCatalogStorageSequenceWorkObserver observer, int visitedCount, int materializedCount)

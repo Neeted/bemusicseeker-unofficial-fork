@@ -205,7 +205,7 @@ public sealed class PlaylistViewPipelineTests
             RequestVersion = 1,
             Mode = MainViewUpdateMode.PlaylistFilterSelected,
             RequestedMode = MainViewUpdateMode.PlaylistFilterSelected,
-            Identity = CreatePlaylistIdentity("workspace-current")
+            Identity = CreatePlaylistIdentity("workspace-current", libraryIndexVersion: 0)
         };
 
         PlaylistDetailTerminalApplyResult result = viewModel.PlaylistWorkspace.ApplyDetailFromCurrentSource(
@@ -4553,7 +4553,7 @@ public sealed class PlaylistViewPipelineTests
         };
     }
 
-    private static PlaylistRequestIdentity CreatePlaylistIdentity(string folderName)
+    private static PlaylistRequestIdentity CreatePlaylistIdentity(string folderName, long libraryIndexVersion = 3)
     {
         return PlaylistRequestFactory.CreateIdentity(
             new BMSTable(),
@@ -4563,7 +4563,7 @@ public sealed class PlaylistViewPipelineTests
             keywordFilter: null,
             ChartModeFilter.All,
             sortParameters: null,
-            libraryIndexVersion: 3,
+            libraryIndexVersion: libraryIndexVersion,
             playlistRevision: 4,
             scoreSnapshotVersion: 5,
             chartInfoIndexVersion: 6,
@@ -4572,7 +4572,7 @@ public sealed class PlaylistViewPipelineTests
 
     private static PlaylistDetailTerminalRequest CreatePlaylistTerminalRequest(IList rows, int requestVersion)
     {
-        PlaylistRequestIdentity identity = CreatePlaylistIdentity("terminal");
+        PlaylistRequestIdentity identity = CreatePlaylistIdentity("terminal", libraryIndexVersion: 0);
         var stopwatch = Stopwatch.StartNew();
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
         var columnSelection = new MainChartListColumnSelection(

@@ -9,12 +9,13 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>選択エントリーと捕捉済み解決索引から、所持判定・列値を揃えた詳細入力を作ります。</summary>
     internal PlaylistSourceBuildResult BuildDetailSourceRows(
         BMSTable table,
         PlaylistDetailSelectionScope selectionScope,
         string folderName,
         bool onlyNotOwned,
-        PlaylistLibraryIndexSnapshot libraryIndexSnapshot,
+        PlaylistLibraryResolveIndexSnapshot libraryResolveIndex,
         CancellationToken cancellationToken,
         ref string cancellationStage)
     {
@@ -32,8 +33,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         dataSource.EnsureEntriesLoaded(table, "BuildDetailSourceRows");
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryResolveIndexSnapshot libraryResolveIndex = libraryIndexSnapshot?.ResolveIndex
-            ?? PlaylistLibraryResolveIndexSnapshot.Empty;
+        ArgumentNullException.ThrowIfNull(libraryResolveIndex);
         BMSLibrary.ScoreSnapshot scoreSnapshot = dataSource.GetScoreSnapshot();
         IReadOnlyDictionary<string, BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
             ? scoreSnapshot.ScoresByHash

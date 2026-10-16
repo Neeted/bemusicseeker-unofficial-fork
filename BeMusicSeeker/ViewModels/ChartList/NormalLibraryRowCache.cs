@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -89,6 +90,16 @@ internal sealed class NormalLibraryRowCache
         tokensByMd5.Clear();
         tokensBySha256.Clear();
         scoreKeysByToken.Clear();
+    }
+
+    /// <summary>新しい表示の採用時に、捕捉した既存所属索引で実体化済みcacheだけを回収します。削除通知の完全性に依存しません。</summary>
+    internal void Prune(CatalogChartCollectionSnapshot snapshot)
+    {
+        foreach (OwnedChartToken token in rowsByToken.Where(pair => !snapshot.ContainsChart(pair.Value.Chart)).Select(pair => pair.Key).ToArray())
+        {
+            rowsByToken.Remove(token);
+            RemoveScoreKeys(token);
+        }
     }
 
     private void UpdateScoreKeys(ChartFile chart)

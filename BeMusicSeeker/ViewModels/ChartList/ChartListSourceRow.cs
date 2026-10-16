@@ -31,7 +31,7 @@ internal sealed class ChartListSourceRow
 
     private readonly Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider;
 
-    private ChartFile sourceChart;
+    private readonly ChartFile sourceChart;
 
     private readonly PackageChartEntry packageEntry;
 
@@ -107,6 +107,9 @@ internal sealed class ChartListSourceRow
 
     internal PackageChartEntry PackageEntry => packageEntry;
 
+    /// <summary>この投影が対応する捕捉済み基本値です。cacheはtokenだけで新旧の値を同一視しません。</summary>
+    internal ChartFile CapturedChart => sourceChart;
+
     internal ChartFileKind Kind => IdentityChart.Kind;
 
     /// <summary>保存列や表示値とは独立した、所持項目の識別です。</summary>
@@ -136,19 +139,6 @@ internal sealed class ChartListSourceRow
     internal double? LevelValue => IdentityChart.Level;
     internal string Hash => IdentityChart.Md5;
     internal string Sha256 => IdentityChart.Sha256;
-
-    /// <summary>同じ所持項目の変更通知を受け、基本値の参照と依存する表示キャッシュを更新します。</summary>
-    internal void ApplyCurrentChart(ChartFile chart)
-    {
-        if (chart == null || sourceChart.Token == null || !ReferenceEquals(sourceChart.Token, chart.Token))
-        {
-            throw new ArgumentException("The current value must belong to the same owned chart.", nameof(chart));
-        }
-        sourceChart = chart;
-        cachedChartValid = false;
-        cachedChartInfoDisplayValid = false;
-        cachedScoreSnapshotValid = false;
-    }
 
     internal string InstallDestination => CreateChartFile(includeWarningSnapshot: false, includeResourceReferences: false, includeScoreSnapshot: false)?.InstallDestination ?? string.Empty;
 

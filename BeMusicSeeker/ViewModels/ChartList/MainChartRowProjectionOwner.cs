@@ -127,19 +127,23 @@ internal sealed class MainChartRowProjectionOwner
             row => ResolveScoreSnapshot(library, row));
     }
 
-    internal List<ChartListSourceRow> BuildNormalSourceRows(
-        BMSLibrary library, OwnedChartCollectionView source, bool includeBmsonRows)
+    /// <summary>捕捉したカタログを直接読む通常一覧入力を作ります。投影のためだけに所属を複製しません。</summary>
+    internal NormalLibrarySourceRows BuildNormalSourceRows(
+        BMSLibrary library, CatalogChartCollectionSnapshot source, bool includeBmsonRows, NormalLibrarySourceRows previous = null)
     {
-        IEnumerable<ChartFile> charts = source?.BmsCharts ?? [];
-        if (includeBmsonRows)
-        {
-            charts = charts.Concat(source?.BmsonCharts ?? []);
-        }
-        return ChartListSourceRow.BuildStandardLibraryRows(charts, ChartListSourceProjectionMode.OwnerBacked,
-            candidate => ResolveResourceHealth(library, candidate),
-            candidate => ResolvePlaylistReferenceDisplay(library, candidate), GetTransientState,
-            chart => ResolveChartInfo(library, chart), candidate => ResolveChartInfo(library, candidate),
-            () => ChartInfoVersion, () => ScoreSnapshotVersion, candidate => ResolveScoreSnapshot(library, candidate));
+        source ??= new CatalogChartCollectionSnapshot([], [], 0);
+        // 全行で同じ提供元を共有する。行factoryの内側で作ると、全件分の同一delegateを保持して後続処理のGC負荷を増やす。
+        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealth = candidate => ResolveResourceHealth(library, candidate);
+        Func<ChartListSourceRow, PlaylistReferenceDisplay> references = candidate => ResolvePlaylistReferenceDisplay(library, candidate);
+        Func<ChartFile, bool, ChartFileTransientState> transientState = GetTransientState;
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfo = value => ResolveChartInfo(library, value);
+        Func<ChartListSourceRow, BeMusicSeeker.Models.ChartDetails> rowChartInfo = candidate => ResolveChartInfo(library, candidate);
+        Func<int> chartInfoVersion = () => ChartInfoVersion;
+        Func<int> scoreVersion = () => ScoreSnapshotVersion;
+        Func<ChartListSourceRow, ChartScoreSnapshot> score = candidate => ResolveScoreSnapshot(library, candidate);
+        return new NormalLibrarySourceRows(library, source, includeBmsonRows,
+            chart => ChartListSourceRow.FromChartFile(chart, ChartListSourceProjectionMode.OwnerBacked,
+                resourceHealth, references, transientState, chartInfo, rowChartInfo, chartInfoVersion, scoreVersion, score), previous);
     }
 
     internal PlaylistDetailSourceRow CreatePlaylistDetailSourceRow(

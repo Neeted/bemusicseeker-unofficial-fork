@@ -22,11 +22,15 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
 
     internal Action? EnsureEntriesLoadedAction { get; set; }
 
+    internal Action? ResolveIndexAction { get; set; }
+
     public int ChartInfoIndexVersion => 1;
 
     public int ScoreSnapshotVersion => 1;
 
-    public long OwnedCollectionVersion => 1;
+    internal long? CurrentOwnedCollectionVersion { get; set; }
+
+    public long OwnedCollectionVersion => CurrentOwnedCollectionVersion ?? ResolveIndexSnapshot.OwnedCollectionVersion;
 
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
@@ -45,6 +49,7 @@ internal sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
         out int staleRetryCount)
     {
         ResolveIndexCallCount++;
+        ResolveIndexAction?.Invoke();
         cacheHit = true;
         staleRetryCount = 0;
         return ResolveIndexSnapshot;

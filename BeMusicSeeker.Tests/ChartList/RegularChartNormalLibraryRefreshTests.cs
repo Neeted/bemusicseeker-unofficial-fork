@@ -636,7 +636,7 @@ public sealed class RegularChartNormalLibraryRefreshTests
                 if (args.NotificationBatch.ResetsPriorNotifications)
                 {
                     // 表示担当が通常一覧の正式な捕捉入口を読む間も、通知生産側はUIの完了を待ちません。
-                    library.CreateNormalLibrarySourceChartView();
+                    library.CaptureNormalLibraryChartSnapshot();
                     applied.Set();
                 }
             };

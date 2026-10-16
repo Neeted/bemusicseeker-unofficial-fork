@@ -7,7 +7,7 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
 {
-    private readonly IReadOnlyList<ChartListSourceRow> sourceRows;
+    private IReadOnlyList<ChartListSourceRow> sourceRows;
     private readonly IReadOnlyList<int> orderedIndexes;
     private readonly Func<ChartListSourceRow, LibraryChartRow> rowFactory;
     private readonly LibraryChartRow[] realizedRows;
@@ -114,6 +114,30 @@ internal sealed class ChartListVirtualView : IList, IChartListViewMetadata
             }
         }
     }
+
+    /// <summary>所属と基準順序を維持した入力をUI採用区間で差し替え、訪問済みと未訪問の行を同じ入力へ揃えます。</summary>
+    internal bool TryAdoptNormalInput(NormalLibrarySourceRows next, Action<LibraryChartRow, ChartListSourceRow> update)
+    {
+        if (sourceRows is not NormalLibrarySourceRows previous || !next.HasSameMembershipOrder(previous) || !next.IsCurrent)
+        {
+            return false;
+        }
+        sourceRows = next;
+        for (int index = 0; index < realizedRows.Length; index++)
+        {
+            if (realizedRows[index] is LibraryChartRow row)
+            {
+                update(row, next[orderedIndexes[index]]);
+            }
+        }
+        return true;
+    }
+
+    /// <summary>通常一覧候補の捕捉版が採用可能かを返します。</summary>
+    internal bool IsInputCurrent => sourceRows is not NormalLibrarySourceRows normal || normal.IsCurrent;
+
+    /// <summary>通常一覧の場合の捕捉入力です。専用対象集合の場合はnullです。</summary>
+    internal NormalLibrarySourceRows NormalInput => sourceRows as NormalLibrarySourceRows;
 
     public void Insert(int index, object value)
     {

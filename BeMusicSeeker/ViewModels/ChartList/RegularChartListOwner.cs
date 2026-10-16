@@ -82,15 +82,10 @@ internal sealed class RegularChartListOwner : IDisposable
     private ListSortDirection? folderSortDirection;
     private RegularNormalLibraryTreeFilter treeFilter;
     private ChartListSortSpecification currentSort;
-    private IReadOnlyList<ChartListSourceRow> virtualSourceRows;
-    private CatalogStorageIndexedSequence<ChartListSourceRow> virtualSourceSequence;
-    private readonly Dictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartListSourceRow>> virtualSourcesByToken = [];
-    private long nextVirtualSourceOrdinal;
+    private NormalLibrarySourceRows virtualSourceRows;
     private BMSLibrary virtualSourceRowsLibrary;
     private bool virtualSourceRowsLibraryReserved;
-    private bool virtualSourceRowsAvailable;
     private long virtualSourceRowsGeneration;
-    private bool virtualSourceRowsIncludeBmson;
     private long sourceGeneration;
     private long sortKeyGeneration;
     private long sortRequestRevision;
@@ -1460,6 +1455,32 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         if (mainChartList.Rows is ChartListVirtualView view)
         {
+            if (!playlistDetail && view.NormalInput is NormalLibrarySourceRows previous && library != null)
+            {
+                CatalogChartCollectionSnapshot snapshot = library.CaptureNormalLibraryChartSnapshot(previous.IncludeBmsonRows);
+                if (snapshot.OwnedCollectionVersion != previous.Snapshot.OwnedCollectionVersion)
+                {
+                    // batch外の変更を表示値だけ先取りすると、既存の検索・整列添字と異なる入力になる。
+                    if (snapshot.OwnedCollectionVersion != batch.OwnedCollectionVersion)
+                    {
+                        ResetDerivedCaches();
+                        return MainViewRefreshAction.Refresh;
+                    }
+                    NormalLibrarySourceRows input = mainChartList.RowProjection.BuildNormalSourceRows(library, snapshot, previous.IncludeBmsonRows, previous);
+                    if (!view.TryAdoptNormalInput(input, (row, source) =>
+                    {
+                        row.UpdateSourceProjection(source.Chart);
+                        mainChartList.RowProjection.ConfigureLibraryRow(library, row);
+                    }))
+                    {
+                        return MainViewRefreshAction.Refresh;
+                    }
+                    lock (syncRoot)
+                    {
+                        virtualSourceRows = input;
+                    }
+                }
+            }
             view.ForEachRealizedRow(row =>
             {
                 if (batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged))
@@ -1498,65 +1519,6 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         rowCache.ApplyChanges(notification.ChangedCharts, notification.DeletedTokens,
             row => mainChartList.RowProjection.ConfigureLibraryRow(library, row));
-        lock (syncRoot)
-        {
-            if (!virtualSourceRowsAvailable || virtualSourceSequence == null)
-            {
-                return;
-            }
-            foreach (OwnedChartToken token in notification.DeletedTokens)
-            {
-                if (virtualSourcesByToken.Remove(token, out CatalogStorageSequenceEntry<ChartListSourceRow> entry))
-                {
-                    virtualSourceSequence = virtualSourceSequence.RemoveAt(virtualSourceSequence.FindIndex(entry));
-                }
-            }
-            foreach (ChartFile chart in notification.ChangedCharts)
-            {
-                if (chart.Token == null || (chart.Kind == ChartFileKind.Bmson && !virtualSourceRowsIncludeBmson))
-                {
-                    continue;
-                }
-                if (virtualSourcesByToken.TryGetValue(chart.Token, out CatalogStorageSequenceEntry<ChartListSourceRow> entry))
-                {
-                    entry.Value.ApplyCurrentChart(chart);
-                    if (chart.Kind == ChartFileKind.Bmson && !string.Equals(entry.SortKey, chart.Path, StringComparison.OrdinalIgnoreCase))
-                    {
-                        virtualSourceSequence = virtualSourceSequence.RemoveAt(virtualSourceSequence.FindIndex(entry));
-                        entry = new(entry.Value, chart.Path, chart.Path, entry.Ordinal);
-                        virtualSourceSequence = virtualSourceSequence.InsertAt(virtualSourceSequence.FindInsertionIndex(entry), entry);
-                        virtualSourcesByToken[chart.Token] = entry;
-                    }
-                    continue;
-                }
-                ChartListSourceRow source = mainChartList.RowProjection.BuildStandardSourceRows(library, [chart],
-                    ChartListSourceProjectionMode.OwnerBacked, includeResourceHealth: true).Single();
-                entry = new(source, chart.Path, chart.Path, nextVirtualSourceOrdinal++);
-                int index = virtualSourceSequence.FindInsertionIndex(entry);
-                virtualSourceSequence = virtualSourceSequence.InsertAt(index, entry);
-                virtualSourcesByToken.Add(chart.Token, entry);
-            }
-            virtualSourceRows = new CatalogStorageReadOnlyView<ChartListSourceRow>(virtualSourceSequence);
-        }
-    }
-
-    private static int CompareVirtualSourceEntries(CatalogStorageSequenceEntry<ChartListSourceRow> left,
-        CatalogStorageSequenceEntry<ChartListSourceRow> right)
-    {
-        int byKind = left.Value.Kind.CompareTo(right.Value.Kind);
-        if (byKind != 0)
-        {
-            return byKind;
-        }
-        if (left.Value.Kind == ChartFileKind.Bmson)
-        {
-            int byPath = StringComparer.OrdinalIgnoreCase.Compare(left.SortKey, right.SortKey);
-            if (byPath != 0)
-            {
-                return byPath;
-            }
-        }
-        return left.Ordinal.CompareTo(right.Ordinal);
     }
 
     private void ApplyNormalLibraryRefreshNotificationEffects(
@@ -2048,10 +2010,6 @@ internal sealed class RegularChartListOwner : IDisposable
             sourceGeneration++;
             previous = InvalidateCurrentRequestUnsafe();
             ClearAllSortCachesUnsafe(clearSourceRows);
-            if (!clearSourceRows && virtualSourceRowsAvailable)
-            {
-                virtualSourceRowsGeneration = sourceGeneration;
-            }
             prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
@@ -2115,7 +2073,7 @@ internal sealed class RegularChartListOwner : IDisposable
         return removed;
     }
 
-    internal RegularVirtualSourceRowsLookup LookupVirtualSourceRows(BMSLibrary library, bool includeBmsonRows)
+    private RegularVirtualSourceRowsLookup LookupVirtualSourceRows(BMSLibrary library, bool includeBmsonRows)
     {
         lock (syncRoot)
         {
@@ -2126,10 +2084,9 @@ internal sealed class RegularChartListOwner : IDisposable
             }
             bool identityMatches = ReferenceEquals(virtualSourceRowsLibrary, library);
             bool cacheHit = identityMatches
-                && virtualSourceRowsAvailable
                 && virtualSourceRows != null
                 && virtualSourceRowsGeneration == sourceGeneration
-                && virtualSourceRowsIncludeBmson == includeBmsonRows;
+                && virtualSourceRows.IncludeBmsonRows == includeBmsonRows;
             return new RegularVirtualSourceRowsLookup(
                 library,
                 includeBmsonRows,
@@ -2140,13 +2097,14 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    internal void TryPublishVirtualSourceRows(
+    private void TryPublishVirtualSourceRows(
         RegularVirtualSourceRowsLookup lookup,
-        List<ChartListSourceRow> rows)
+        NormalLibrarySourceRows rows)
     {
         lock (syncRoot)
         {
             if (disposed
+                || !rows.IsCurrent
                 || !virtualSourceRowsLibraryReserved
                 || !ReferenceEquals(virtualSourceRowsLibrary, lookup.Library)
                 || sourceGeneration != lookup.SourceGeneration
@@ -2154,24 +2112,10 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 return;
             }
-            virtualSourcesByToken.Clear();
-            nextVirtualSourceOrdinal = 0;
-            List<CatalogStorageSequenceEntry<ChartListSourceRow>> entries = [];
-            foreach (ChartListSourceRow row in rows)
-            {
-                var entry = new CatalogStorageSequenceEntry<ChartListSourceRow>(row, row.Path, row.Path, nextVirtualSourceOrdinal++);
-                entries.Add(entry);
-                if (row.Token != null)
-                {
-                    virtualSourcesByToken.Add(row.Token, entry);
-                }
-            }
-            virtualSourceSequence = CatalogStorageIndexedSequence<ChartListSourceRow>.FromEntries(entries, CompareVirtualSourceEntries);
-            virtualSourceRows = new CatalogStorageReadOnlyView<ChartListSourceRow>(virtualSourceSequence);
+            rows.PruneProjectionCache();
+            virtualSourceRows = rows;
             virtualSourceRowsLibrary = lookup.Library;
-            virtualSourceRowsAvailable = true;
             virtualSourceRowsGeneration = lookup.SourceGeneration;
-            virtualSourceRowsIncludeBmson = lookup.IncludeBmsonRows;
         }
     }
 
@@ -3340,10 +3284,13 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        var rowsView = new ChartListVirtualView(
+        ChartListVirtualView rowsView = null;
+        rowsView = new ChartListVirtualView(
             sourceRows,
             order,
-            row => CreateVirtualRow(request.Library, row),
+            row => ReferenceEquals(mainChartList.Rows, rowsView)
+                ? CreateVirtualRow(request.Library, row)
+                : mainChartList.RowProjection.CreateLibraryRow(request.Library, row.Chart),
             distinctFolderCount);
         RegularChartListTerminalResult terminal = TryCommitVirtual(
             lease,
@@ -3675,6 +3622,23 @@ internal sealed class RegularChartListOwner : IDisposable
         out long sourceGenerationAtLookup,
         out long sortKeyGenerationAtLookup)
     {
+        CatalogChartCollectionSnapshot snapshot = library?.CaptureNormalLibraryChartSnapshot(includeBmsonRows);
+        NormalLibrarySourceRows previousInput;
+        lock (syncRoot)
+        {
+            previousInput = virtualSourceRows;
+            if (snapshot != null && virtualSourceRows is NormalLibrarySourceRows captured
+                && ReferenceEquals(captured.Library, library)
+                && captured.Snapshot.OwnedCollectionVersion != snapshot.OwnedCollectionVersion)
+            {
+                // 通知未消費でも明示要求は確定入力から作る。件数が同じ別所属の添字も捨てる。
+                if (virtualSourceRowsGeneration == sourceGeneration)
+                {
+                    sourceGeneration++;
+                }
+                ClearAllSortCachesUnsafe(clearSourceRows: true);
+            }
+        }
         RegularVirtualSourceRowsLookup lookup = LookupVirtualSourceRows(library, includeBmsonRows);
         if (lookup.CacheHit)
         {
@@ -3684,11 +3648,11 @@ internal sealed class RegularChartListOwner : IDisposable
             return lookup.Rows;
         }
 
-        OwnedChartCollectionView sourceOwnerView = library?.CreateNormalLibrarySourceChartView(includeBmsonRows);
-        List<ChartListSourceRow> sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
+        NormalLibrarySourceRows sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
             library,
-            sourceOwnerView,
-            includeBmsonRows);
+            snapshot,
+            includeBmsonRows,
+            previousInput);
         TryPublishVirtualSourceRows(lookup, sourceRows);
         cacheHit = false;
         sourceGenerationAtLookup = lookup.SourceGeneration;
@@ -3972,7 +3936,8 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            if (!IsCurrentUnsafe(lease))
+            if (!IsCurrentUnsafe(lease)
+                || presentation.CreateRowsRequest().Rows is ChartListVirtualView candidate && !candidate.IsInputCurrent)
             {
                 return RegularChartListTerminalResult.Stale();
             }
@@ -3984,9 +3949,14 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             lock (syncRoot)
             {
-                if (!IsCurrentUnsafe(lease))
+                if (!IsCurrentUnsafe(lease)
+                    || presentation.CreateRowsRequest().Rows is ChartListVirtualView candidate && !candidate.IsInputCurrent)
                 {
                     return false;
+                }
+                if (presentation.CreateRowsRequest().Rows is ChartListVirtualView normalView && normalView.NormalInput != null)
+                {
+                    rowCache.Prune(normalView.NormalInput.Snapshot);
                 }
                 commitRows();
                 mainTablePresentationCommit = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
@@ -4466,7 +4436,7 @@ internal sealed class RegularChartListOwner : IDisposable
         return sortCache.Count
             + virtualOrderCache.Count
             + virtualSubsetOrderCache.Count
-            + (virtualSourceRowsAvailable ? 1 : 0);
+            + (virtualSourceRows != null ? 1 : 0);
     }
 
     private void ClearAllSortCachesUnsafe(bool clearSourceRows)
@@ -4485,9 +4455,6 @@ internal sealed class RegularChartListOwner : IDisposable
     private void ClearVirtualSourceRowsUnsafe()
     {
         virtualSourceRows = null;
-        virtualSourceSequence = null;
-        virtualSourcesByToken.Clear();
-        virtualSourceRowsAvailable = false;
     }
 
     private void IncrementDependencyGenerationUnsafe(MainViewDataDependency dependency)

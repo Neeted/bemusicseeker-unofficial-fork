@@ -378,6 +378,10 @@ internal sealed class ChartListOrder
         }
 
         IReadOnlyList<ChartListSourceRow> safeRows = rows ?? [];
+        if (safeRows is NormalLibrarySourceRows normal)
+        {
+            normal.PrepareForOrder();
+        }
         string titleKeySelector(int index) => safeRows[index]?.Title ?? string.Empty;
         IOrderedEnumerable<int> orderedIndexes;
         if (definition.KeyKind == ChartListOrderKeyKind.Comparable)

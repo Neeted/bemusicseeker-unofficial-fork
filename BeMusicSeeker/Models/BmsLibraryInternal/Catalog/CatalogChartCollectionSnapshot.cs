@@ -6,16 +6,19 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>共通現在値の所属・順序・集合版を同時に捕捉した読取り専用ビューです。</summary>
 internal sealed class CatalogChartCollectionSnapshot
 {
+    private readonly OwnedChartCollectionView collectionView;
     /// <summary>捕捉した順序列と集合版を結び付けます。</summary>
     /// <param name="bmsRows">捕捉したBMS現在値のビュー。</param>
     /// <param name="bmsonRows">捕捉したBMSON現在値のビュー。</param>
     /// <param name="ownedCollectionVersion">捕捉時点の共通集合版。</param>
-    internal CatalogChartCollectionSnapshot(IReadOnlyList<ChartFile> bmsRows, IReadOnlyList<ChartFile> bmsonRows, int ownedCollectionVersion)
+    internal CatalogChartCollectionSnapshot(IReadOnlyList<ChartFile> bmsRows, IReadOnlyList<ChartFile> bmsonRows, int ownedCollectionVersion,
+        object membershipOrderIdentity = null, OwnedChartCollectionView collectionView = null)
     {
         BmsRows = bmsRows ?? Array.Empty<ChartFile>();
         BmsonRows = bmsonRows ?? Array.Empty<ChartFile>();
         OwnedCollectionVersion = ownedCollectionVersion;
-
+        MembershipOrderIdentity = membershipOrderIdentity ?? new object();
+        this.collectionView = collectionView;
     }
 
     /// <summary>捕捉時のBMSの所属・順序・現在値です。</summary>
@@ -26,6 +29,12 @@ internal sealed class CatalogChartCollectionSnapshot
 
     /// <summary>捕捉時点の共通集合版です。</summary>
     internal int OwnedCollectionVersion { get; }
+
+    /// <summary>所属と基準順序が変わると差し替わる識別です。基本値の版とは独立して添字再利用を判断します。</summary>
+    internal object MembershipOrderIdentity { get; }
+
+    /// <summary>捕捉済みの既存exact path索引で表示行cacheの所属を検査します。行getterの現在値解決には使いません。</summary>
+    internal bool ContainsChart(ChartFile chart) => collectionView?.ContainsChart(chart) == true;
 
 
 }

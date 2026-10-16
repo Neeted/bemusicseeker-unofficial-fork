@@ -124,6 +124,10 @@ internal sealed class OwnedChartCollectionView
 
     /// <summary>DBの識別に使う、未加工のexact pathだけを照合します。</summary>
     internal bool ContainsOwnerPath(string path) => !string.IsNullOrWhiteSpace(path) && paths.Values.Any(index => index.ContainsKey(path));
+
+    /// <summary>捕捉したexact path索引で同じtokenの所属を検査します。同pathの別項目へ退役tokenを救済しません。</summary>
+    internal bool ContainsChart(ChartFile chart) => chart?.Token != null && !string.IsNullOrWhiteSpace(chart.Path)
+        && paths[chart.Kind].TryGetValue(chart.Path, out OwnedChartToken token) && ReferenceEquals(token, chart.Token);
 }
 
 internal readonly struct OwnedChartStorageRowFilterSummary(
@@ -217,6 +221,8 @@ internal sealed class OwnedChartCollectionState
     private CatalogStorageIndexedSequence<ChartFile> chartSequence;
     private CatalogStorageReadOnlyView<ChartFile> charts;
     private OwnedChartCollectionView collectionView;
+    /// <summary>所属・基準順序の変更事実を捕捉値へ渡す識別です。値だけの置換や位置を保つ移転では維持します。</summary>
+    internal object MembershipOrderIdentity { get; private set; } = new();
     private readonly Dictionary<OwnedChartToken, CatalogStorageSequenceEntry<ChartFile>> chartEntriesByChart = [];
     private ImmutableDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>> chartsByPath =
         ImmutableDictionary<ChartFileKind, ImmutableDictionary<string, OwnedChartToken>>.Empty
@@ -411,6 +417,7 @@ internal sealed class OwnedChartCollectionState
     /// <summary>一つの形式の明示再読込みだけを置換し、他形式の現在値・所属索引・順序列を共有します。</summary>
     internal void ReplaceKindCharts(ChartFileKind kind, IEnumerable<ChartFile> values)
     {
+        MembershipOrderIdentity = new object();
         OwnedChartCollectionState replacement = FromCharts((values ?? []).Where(chart => chart?.Kind == kind));
         OwnedChartCollectionView old = CreateCollectionView();
         ChartFile[] removed = [.. kind == ChartFileKind.Bms ? old.BmsCharts : old.BmsonCharts];
@@ -1037,14 +1044,7 @@ internal sealed class OwnedChartCollectionState
     }
 
     /// <summary>現在の所持項目を形式ごとに捕捉します。</summary>
-    internal OwnedChartCollectionView CreateCollectionView() => CreateCollectionView(sortBmsonByPath: false);
-
-    /// <summary>通常一覧の初期構築に使う共通現在値を捕捉します。</summary>
-    /// <param name="includeBmsonRows">BMSONを含めるか。含めない場合はその列挙・整列を行いません。</param>
-    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView(bool includeBmsonRows = true)
-        => CreateCollectionView(sortBmsonByPath: includeBmsonRows, includeBmsonRows: includeBmsonRows);
-
-    private OwnedChartCollectionView CreateCollectionView(bool sortBmsonByPath, bool includeBmsonRows = true)
+    internal OwnedChartCollectionView CreateCollectionView(bool includeBmsonRows = true)
     {
         if (collectionView == null)
         {
@@ -1057,10 +1057,7 @@ internal sealed class OwnedChartCollectionState
         {
             return new OwnedChartCollectionView(collectionView.BmsCharts, [], chartsByPath);
         }
-        return sortBmsonByPath
-            ? new OwnedChartCollectionView(collectionView.BmsCharts,
-                [.. collectionView.BmsonCharts.OrderBy(chart => chart.Path, StringComparer.OrdinalIgnoreCase)], chartsByPath)
-            : collectionView;
+        return collectionView;
     }
 
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
@@ -1530,6 +1527,7 @@ internal sealed class OwnedChartCollectionState
             }
         }
         normalizedBmsonEntries.Sort(CompareCanonicalEntries);
+        MembershipOrderIdentity = new object();
         chartSequence = chartSequence
             .ReplaceRange(bmsonStartIndex, bmsonChartCount, normalizedBmsonEntries)
             .WithComparison(CompareCanonicalEntries);
@@ -1556,6 +1554,7 @@ internal sealed class OwnedChartCollectionState
             ? chartSequence.Count - bmsonChartCount
             : chartSequence.FindInsertionIndex(entry);
         chartSequence = chartSequence.InsertAt(insertionIndex, entry);
+        MembershipOrderIdentity = new object();
         chartEntriesByChart[chart.Token] = entry;
         if (chart.Kind == ChartFileKind.Bmson)
         {
@@ -1577,6 +1576,7 @@ internal sealed class OwnedChartCollectionState
             throw new InvalidOperationException("Owned chart canonical sequence entry is missing.");
         }
         chartSequence = chartSequence.RemoveAt(index);
+        MembershipOrderIdentity = new object();
         chartEntriesByChart.Remove(chart.Token);
         if (chart.Kind == ChartFileKind.Bmson)
         {

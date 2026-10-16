@@ -34,7 +34,11 @@
 
 選択行のTSVコピーや明示的な全行操作は、その対象の実体化を許します。初回表示の代替として常時全件を作ることは許しません。
 
-通常一覧の行キャッシュは所持tokenをキーとし、共通基本現在値の参照と詳細・スコア・パッケージの既存版から表示を再評価します。tokenは項目の識別、版は表示キャッシュの有効性であり、相互の代用品ではありません。基本値・path・hashの通知は変更した共通譜面と削除token、詳細通知は変更hash、スコア通知は変更キー、保守・警告通知は変更対象を渡します。局所更新のために全sourceをResetし、BMSON全行を同期し、未訪問行を実体化しません。
+通常一覧はカタログから所属・基本値・版を一組で捕捉し、その読取り入力から絞込み・順序・件数を導出します。通知ごとに所属を追加・削除する独立した表示用集合は持ちません。通常BMSONの同値順もカタログ保持順に従い、初回入力だけをpath順へ整列しません。BMS専用表示ではBMSONの入力を準備しません。
+
+通常一覧の行キャッシュは所持tokenをキーとし、共通基本現在値の参照と詳細・スコア・パッケージの既存版から表示を再評価します。tokenは項目の識別、版は表示キャッシュの有効性であり、相互の代用品ではありません。基本値・path・hashの変更範囲は必要な行更新・依存判定に使い、詳細通知は変更hash、スコア通知は変更キー、保守・警告通知は変更対象を渡します。局所更新のために全sourceをResetし、BMSON全行を同期し、未訪問行を実体化しません。
+
+捕捉入力と、その所属・基準順序に対応する添字列を一緒に採用します。件数一致だけで旧添字を再利用しません。所属と順序に影響しない基本値更新で同じ `Rows` を保つ場合も、既存のUI採用区間で表示入力の差替えと実体化済み行の更新を揃え、後から取得する行も新入力を使います。新入力へ差し替える際、捕捉版が依存判定に使った通知batchの版と異なる場合は、未知の変更を表示値だけ先取りせず、現在の入力から一覧を再構築します。バックグラウンドの候補から採用済み入力を変更しません。
 
 導入済み項目の変更は、現在値適用時に捕捉した旧新基本値とentry・packageの所属参照を通常通知へ渡します。同tokenの複数通知は先行変更も保持し、最後の現在値だけで依存を判定しません。`RegularChartListOwner` と既存の表示更新判断でbatchの全effectsを一度合成します。同じ所属のTitle不変の純移転を、keyword空・mode全て・Title順で表示している場合はpathだけを更新し、Rows・実体行・選択・編集中入力・順序を保持します。path順、依存する検索・モード・Title変更、Reset、所属変更、必要な旧新情報がない場合は正規の最終順序と集合を更新します。
 
@@ -101,6 +105,8 @@ flowchart TB
 
 履歴の差替え準備は鮮度判定のロック外で行い、最後に要求・順序・検索条件・表示先を検証して、機能側の状態と表の状態を同じ区間で確定します。プレイリスト詳細も準備後に `PlaylistDetailBuildState` のロック内で要求版を確認し、入力・表示の識別と世代、表の内部状態を一緒に採用します。ロック内で公開通知を行いません。
 
+プレイリスト詳細のデータ版は、実際に取得した解決索引の `OwnedCollectionVersion` を使います。要求・先読みの取消や重複排除に使う寿命番号を、索引データの鮮度へ読み替えません。採用時に現在のカタログ版との対応も確認し、古い候補を新しい表示として採用しません。サマリーは表とエントリーの集合・読込み状態を保ち、所持ハッシュ集合に依存する集計だけを更新します。非表示中の更新は次の表示要求へ渡し、全表の先行読込みを行いません。
+
 集計表示の正本は `MainChartList.SummaryText` です。初回表示のためにフォルダ数を同期計算せず、まず曲数を表示し、後続の計算が現在の世代と一致した場合だけフォルダ数を追加します。
 
 #### 古い表示結果を採用しない境界
@@ -158,6 +164,10 @@ flowchart TB
 コード描画には `CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマ変更時は描画色とキャッシュを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースへ従います。
 
 ## 実装とテストの対応
+
+[`MainWindowCatalogProjectionTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowCatalogProjectionTests.cs) の `ManualReload_StandardCompositionConvergesNormalDetailAndSummary` は、標準構成の実初期化・走査保存・通知から表示までを通し、二配置の削除、最後の配置の削除、再加入後の通常所属・詳細の再解決・未所持絞込み・サマリーとエントリー保存値を確認します。外部のファイル発見だけを完全な捕捉入力へ置き換えます。
+
+[`RegularChartViewBuildAndOrderingTests`](../../../BeMusicSeeker.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs) の `CatalogInput_ExplicitRefreshUsesSameCountReplacementAndCurrentFilters` は同件数の別所属と現在の検索・モード条件、`CatalogInput_PresentationAdoptsNewValuesWithoutRealizingUnvisitedRows` は同じRowsへの基本値適用と後から取得する行、および通知後に進んだ基本値を現在の順序へ再構築すること、`CatalogInput_BmsonTiesKeepCapturedOrderAndStaleCandidateCannotOverwriteRows` はBMSON同値順と古い候補の不採用を確認します。[`PlaylistWorkspaceDetailRefreshTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs) の `RequestDetailRefresh_RejectsChangedCatalogAtTerminalAndAllowsNextExplicitRequest` は索引取得後の版変更を採用せず、次の明示要求で更新できることを確認します。
 
 `ChartListVirtualViewTests.AdditionalSupportedOrders_MatchExistingDefaultLibraryChartRowSort` は欠損notesを残した全識別子と定義値の数値順・同値タイトル昇順を独立期待で確認する。NULL位置は固定しない。`PlaylistViewPipelineTests.PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort` は欠損を含む4行の数値順・同値集合と数値検索の2件を確認する。通常cacheと保守更新の保証は既存の再利用・metadata変更系列へ分担する。
 

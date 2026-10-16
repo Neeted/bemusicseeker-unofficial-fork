@@ -160,10 +160,10 @@ public sealed class OwnedChartCollectionProjectionTests
     }
 
     /// <summary>
-    /// 通常一覧ではBMSの入力順とbmsonのパス順を保ち、移転後に新しい並びを作って以前の一覧を変更しない。
+    /// 通常一覧では形式別の捕捉順とtokenを保ち、移転後の新値と捕捉済み旧値を混在させず、BMS専用ではBMSONを含めない。
     /// </summary>
     [TestMethod]
-    public void CreateNormalLibrarySourceChartView_SortsBmsonRowsAndExcludesPathlessRows()
+    public void CaptureSnapshot_PreservesCatalogOrderAndExcludesPathlessRows()
     {
 
         ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"), new string('b', 64));
@@ -172,20 +172,19 @@ public sealed class OwnedChartCollectionProjectionTests
         ChartFile earlyBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "a.bmson"), "cccccccccccccccccccccccccccccccc");
         ChartFile pathlessBms = CreateFile("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", string.Empty, new string('f', 64));
         ChartFile pathlessBmson = CreateBmsonSong(null, "dddddddddddddddddddddddddddddddd");
-        var state = OwnedChartCollectionState.FromCharts(ChartTestValues.Combine([bmsFile, pathlessBms, secondBms], [lateBmson, pathlessBmson, earlyBmson]));
+        var owner = new CatalogOwnedCollectionOwner();
+        owner.ReplaceCharts([bmsFile, pathlessBms, secondBms], [lateBmson, pathlessBmson, earlyBmson]);
+        OwnedChartCollectionState state = owner.Collection;
 
-        OwnedChartCollectionView view = state.CreateNormalLibrarySourceChartView();
+        CatalogChartCollectionSnapshot view = owner.CaptureSnapshot();
 
-        Assert.AreEqual(4, view.Count);
-        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, view.BmsCharts.Select(chart => chart.Path).ToArray());
-        Assert.IsTrue(view.BmsCharts.All(chart => chart.Token != null));
-        CollectionAssert.AreEqual(new[] { earlyBmson.Path, lateBmson.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
-        Assert.IsTrue(view.ContainsOwnerPath(lateBmson.Path));
-        Assert.IsTrue(view.ContainsOwnerPath(earlyBmson.Path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBms.Path));
-        Assert.IsFalse(view.ContainsOwnerPath(pathlessBmson.Path));
+        Assert.AreEqual(4, view.BmsRows.Count + view.BmsonRows.Count);
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, view.BmsRows.Select(chart => chart.Path).ToArray());
+        Assert.IsTrue(view.BmsRows.All(chart => chart.Token != null));
+        CollectionAssert.AreEqual(new[] { lateBmson.Path, earlyBmson.Path }, view.BmsonRows.Select(chart => chart.Path).ToArray());
 
-        ChartFile capturedEarly = view.BmsonCharts[0];
+
+        ChartFile capturedEarly = view.BmsonRows[1];
         string movedPath = Path.Combine("C:\\Installed", "Bmson", "zz.bmson");
         state.ApplyPathChanges([new LibraryChartPathChange
         {
@@ -193,16 +192,16 @@ public sealed class OwnedChartCollectionProjectionTests
             OldPath = capturedEarly.Path,
             NewPath = movedPath
         }]);
-        OwnedChartCollectionView movedView = state.CreateNormalLibrarySourceChartView();
-        CollectionAssert.AreEqual(new[] { lateBmson.Path, movedPath }, movedView.BmsonCharts.Select(chart => chart.Path).ToArray());
-        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, movedView.BmsCharts.Select(chart => chart.Path).ToArray());
+        CatalogChartCollectionSnapshot movedView = owner.CaptureSnapshot();
+        CollectionAssert.AreEqual(new[] { lateBmson.Path, movedPath }, movedView.BmsonRows.Select(chart => chart.Path).ToArray());
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, movedView.BmsRows.Select(chart => chart.Path).ToArray());
         Assert.AreEqual(earlyBmson.Path, capturedEarly.Path);
-        Assert.AreSame(capturedEarly.Token, movedView.BmsonCharts[1].Token);
-        CollectionAssert.AreEqual(new[] { earlyBmson.Path, lateBmson.Path }, view.BmsonCharts.Select(chart => chart.Path).ToArray());
+        Assert.AreSame(capturedEarly.Token, movedView.BmsonRows[1].Token);
+        CollectionAssert.AreEqual(new[] { lateBmson.Path, earlyBmson.Path }, view.BmsonRows.Select(chart => chart.Path).ToArray());
 
-        OwnedChartCollectionView bmsOnlyView = state.CreateNormalLibrarySourceChartView(includeBmsonRows: false);
-        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, bmsOnlyView.BmsCharts.Select(chart => chart.Path).ToArray());
-        Assert.AreEqual(0, bmsOnlyView.BmsonCharts.Count);
+        CatalogChartCollectionSnapshot bmsOnlyView = owner.CaptureSnapshot(includeBmsonRows: false);
+        CollectionAssert.AreEqual(new[] { bmsFile.Path, secondBms.Path }, bmsOnlyView.BmsRows.Select(chart => chart.Path).ToArray());
+        Assert.AreEqual(0, bmsOnlyView.BmsonRows.Count);
     }
 
     /// <summary>

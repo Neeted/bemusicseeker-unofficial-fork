@@ -7638,17 +7638,14 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>通常一覧の初期構築用に、含める形式の共通現在値を捕捉します。</summary>
-    /// <param name="includeBmsonRows">BMSONを一覧に含めるか。不要な場合は捕捉時のBMSON整列を省きます。</param>
-    internal OwnedChartCollectionView CreateNormalLibrarySourceChartView(bool includeBmsonRows = true)
+    /// <summary>通常一覧の所属・基本値・版を同じ読取り排他で捕捉します。全件複製や表示専用の事前整列を行いません。</summary>
+    /// <param name="includeBmsonRows">BMSONを含めるか。不要な場合はBMSONを列挙しません。</param>
+    internal CatalogChartCollectionSnapshot CaptureNormalLibraryChartSnapshot(bool includeBmsonRows = true)
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
 
-            lock (lockOwnedChartCollection)
-            {
-                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceChartView(includeBmsonRows);
-            }
+            return catalogOwnedCollectionOwner.CaptureSnapshot(includeBmsonRows);
         }
     }
 

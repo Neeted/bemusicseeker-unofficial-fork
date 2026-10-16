@@ -98,7 +98,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Assert.IsTrue(confirmed.FolderNodes.Any(node => node.FolderName == "NEW 1"));
             string stage = string.Empty;
             PlaylistSourceBuildResult detail = workspace.BuildDetailSourceRows(selection.Table, selection.Scope, selection.FolderName, false,
-                new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty }, CancellationToken.None, ref stage);
+                PlaylistLibraryResolveIndexSnapshot.Empty, CancellationToken.None, ref stage);
             Assert.AreEqual("NEW 1", detail.SourceRows.Single().Folder);
             using LR2SongDBExtended db = new BmsLibraryDbGateway(songPath).OpenSongDbReadOnly();
             Assert.AreEqual("NEW 1", db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id).folder);

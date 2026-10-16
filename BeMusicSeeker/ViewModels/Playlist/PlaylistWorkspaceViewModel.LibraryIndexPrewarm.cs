@@ -8,18 +8,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// playlist source build で再利用するライブラリ索引 snapshot です。
-/// </summary>
-internal sealed class PlaylistLibraryIndexSnapshot
-{
-    internal long Version;
-
-    internal long BuildElapsedMs;
-
-    internal PlaylistLibraryResolveIndexSnapshot ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty;
-}
-
-/// <summary>
 /// playlist open 要求時点の library index readiness を表します。
 /// </summary>
 internal sealed class PlaylistLibraryIndexReadinessSnapshot
@@ -45,11 +33,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly object playlistLibraryIndexSync = new();
 
-    private long playlistLibraryIndexVersion;
+    // 先読みの取消・重複排除専用。索引のOwnedCollectionVersionとは独立した寿命番号。
+    private long playlistLibraryIndexPrewarmGeneration;
 
-    private Task<PlaylistLibraryIndexSnapshot> playlistLibraryIndexPrewarmTask;
+    private Task<PlaylistLibraryResolveIndexSnapshot> playlistLibraryIndexPrewarmTask;
 
-    private long playlistLibraryIndexPrewarmVersion;
+    private long playlistLibraryIndexPrewarmTaskGeneration;
 
     private CancellationTokenSource playlistLibraryIndexPrewarmCancellation;
 
@@ -57,7 +46,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh;
 
-    private long deferredPlaylistLibraryIndexPrewarmVersion;
+    private long deferredPlaylistLibraryIndexPrewarmGeneration;
 
     private string deferredPlaylistLibraryIndexPrewarmReason;
 
@@ -69,10 +58,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         lock (playlistLibraryIndexSync)
         {
-            playlistLibraryIndexVersion++;
+            playlistLibraryIndexPrewarmGeneration++;
             playlistLibraryIndexPrewarmCancellation?.Cancel();
             deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = false;
-            deferredPlaylistLibraryIndexPrewarmVersion = 0;
+            deferredPlaylistLibraryIndexPrewarmGeneration = 0;
             deferredPlaylistLibraryIndexPrewarmReason = null;
         }
     }
@@ -85,7 +74,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         long nextVersion;
         lock (playlistLibraryIndexSync)
         {
-            nextVersion = ++playlistLibraryIndexVersion;
+            nextVersion = ++playlistLibraryIndexPrewarmGeneration;
         }
         LogPlaylistLibraryIndex("playlist_library_index invalidated version=" + nextVersion + " reason=" + reason);
         if (!startupReadyOperable)
@@ -109,7 +98,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         long targetVersion;
         lock (playlistLibraryIndexSync)
         {
-            targetVersion = playlistLibraryIndexVersion;
+            targetVersion = playlistLibraryIndexPrewarmGeneration;
         }
         SchedulePlaylistLibraryIndexPrewarm(targetVersion, reason);
     }
@@ -129,7 +118,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 reason,
                 async delegate
                 {
-                    Task<PlaylistLibraryIndexSnapshot> task = StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, "scheduler");
+                    Task<PlaylistLibraryResolveIndexSnapshot> task = StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, "scheduler");
                     if (task != null)
                     {
                         await task.ConfigureAwait(false);
@@ -144,7 +133,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, debounce ? "debounce" : "inline");
     }
 
-    private Task<PlaylistLibraryIndexSnapshot> StartPlaylistLibraryIndexPrewarmTask(
+    private Task<PlaylistLibraryResolveIndexSnapshot> StartPlaylistLibraryIndexPrewarmTask(
         long targetVersion,
         string reason,
         int delayMs,
@@ -152,19 +141,19 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         lock (playlistLibraryIndexSync)
         {
-            if (playlistLibraryIndexVersion != targetVersion)
+            if (playlistLibraryIndexPrewarmGeneration != targetVersion)
             {
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm stale_skipped version=" + targetVersion + " currentVersion=" + playlistLibraryIndexVersion + " reason=" + reason + " source=" + source);
-                return Task.FromResult<PlaylistLibraryIndexSnapshot>(null);
+                LogPlaylistLibraryIndex("playlist_library_index_prewarm stale_skipped version=" + targetVersion + " currentVersion=" + playlistLibraryIndexPrewarmGeneration + " reason=" + reason + " source=" + source);
+                return Task.FromResult<PlaylistLibraryResolveIndexSnapshot>(null);
             }
             if (playlistLibraryIndexShutdownRequested)
             {
                 LogPlaylistLibraryIndex("playlist_library_index_prewarm skipped version=" + targetVersion + " reason=" + reason + " source=" + source + " detail=shutdown_requested");
-                return Task.FromResult<PlaylistLibraryIndexSnapshot>(null);
+                return Task.FromResult<PlaylistLibraryResolveIndexSnapshot>(null);
             }
             if (playlistLibraryIndexPrewarmTask != null
                 && !playlistLibraryIndexPrewarmTask.IsCompleted
-                && playlistLibraryIndexPrewarmVersion == targetVersion
+                && playlistLibraryIndexPrewarmTaskGeneration == targetVersion
                 && playlistLibraryIndexPrewarmCancellation?.IsCancellationRequested != true)
             {
                 return playlistLibraryIndexPrewarmTask;
@@ -172,11 +161,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
             {
                 playlistLibraryIndexPrewarmCancellation?.Cancel();
-                LogPlaylistLibraryIndex("playlist_library_index_prewarm debounced oldVersion=" + playlistLibraryIndexPrewarmVersion + " newVersion=" + targetVersion + " reason=" + reason);
+                LogPlaylistLibraryIndex("playlist_library_index_prewarm debounced oldVersion=" + playlistLibraryIndexPrewarmTaskGeneration + " newVersion=" + targetVersion + " reason=" + reason);
             }
             playlistLibraryIndexPrewarmCancellation = new CancellationTokenSource();
             CancellationToken prewarmToken = playlistLibraryIndexPrewarmCancellation.Token;
-            playlistLibraryIndexPrewarmVersion = targetVersion;
+            playlistLibraryIndexPrewarmTaskGeneration = targetVersion;
             LogPlaylistLibraryIndex("playlist_library_index_prewarm scheduled version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs + " source=" + source);
             playlistLibraryIndexPrewarmTask = Task.Run(async delegate
             {
@@ -189,8 +178,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                         await Task.Delay(delayMs, prewarmToken).ConfigureAwait(false);
                     }
                     prewarmToken.ThrowIfCancellationRequested();
-                    PlaylistLibraryIndexSnapshot snapshot = CreatePlaylistLibraryIndexSnapshot(prewarmToken, targetVersion, out bool cacheHit, out int staleRetryCount);
-                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + (snapshot.ResolveIndex?.Md5HashCount ?? 0) + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
+                    PlaylistLibraryResolveIndexSnapshot snapshot = CreatePlaylistLibraryResolveIndexSnapshot(prewarmToken, out bool cacheHit, out int staleRetryCount);
+                    LogPlaylistLibraryIndex("playlist_library_index_prewarm completed version=" + targetVersion + " status=" + (cacheHit ? "cached" : "built") + " chartsByMd5Count=" + snapshot.Md5HashCount + " buildMs=" + snapshot.BuildElapsedMs + " staleRetries=" + staleRetryCount + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " source=" + source);
                     return snapshot;
                 }
                 catch (OperationCanceledException)
@@ -265,13 +254,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return false;
             }
             deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = true;
-            deferredPlaylistLibraryIndexPrewarmVersion = targetVersion;
+            deferredPlaylistLibraryIndexPrewarmGeneration = targetVersion;
             deferredPlaylistLibraryIndexPrewarmReason = reason;
             if (playlistLibraryIndexPrewarmTask != null && !playlistLibraryIndexPrewarmTask.IsCompleted)
             {
                 playlistLibraryIndexPrewarmCancellation?.Cancel();
                 LogPlaylistLibraryIndex("playlist_library_index_prewarm cancelled_for_duplicate_refresh oldVersion="
-                    + playlistLibraryIndexPrewarmVersion
+                    + playlistLibraryIndexPrewarmTaskGeneration
                     + " newVersion=" + targetVersion
                     + " reason=" + reason);
             }
@@ -312,10 +301,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (duplicateRefreshPriorityDepth == 0 && deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh)
             {
                 releasePrewarm = true;
-                targetVersion = deferredPlaylistLibraryIndexPrewarmVersion;
+                targetVersion = deferredPlaylistLibraryIndexPrewarmGeneration;
                 prewarmReason = deferredPlaylistLibraryIndexPrewarmReason;
                 deferredPlaylistLibraryIndexPrewarmForDuplicateRefresh = false;
-                deferredPlaylistLibraryIndexPrewarmVersion = 0;
+                deferredPlaylistLibraryIndexPrewarmGeneration = 0;
                 deferredPlaylistLibraryIndexPrewarmReason = null;
             }
         }
@@ -338,9 +327,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         SchedulePlaylistLibraryIndexPrewarm(targetVersion, prewarmReason);
     }
 
-    private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(
+    private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshot(
         CancellationToken cancellationToken,
-        long targetVersion,
         out bool cacheHit,
         out int staleRetryCount)
     {
@@ -352,26 +340,21 @@ public sealed partial class PlaylistWorkspaceViewModel
             out cacheHit,
             out staleRetryCount);
         cancellationToken.ThrowIfCancellationRequested();
-        return new PlaylistLibraryIndexSnapshot
-        {
-            Version = targetVersion,
-            BuildElapsedMs = resolveIndex.BuildElapsedMs,
-            ResolveIndex = resolveIndex
-        };
+        return resolveIndex;
     }
 
     internal PlaylistLibraryIndexReadinessSnapshot CapturePlaylistLibraryIndexReadinessSnapshot()
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource);
         BMSLibrary.PlaylistLibraryResolveIndexRuntimeState modelState = dataSource?.GetResolveIndexRuntimeState();
-        Task<PlaylistLibraryIndexSnapshot> prewarmTask = null;
+        Task<PlaylistLibraryResolveIndexSnapshot> prewarmTask = null;
         long currentVersion = 0L;
         long prewarmVersion = 0L;
         lock (playlistLibraryIndexSync)
         {
             prewarmTask = playlistLibraryIndexPrewarmTask;
-            currentVersion = playlistLibraryIndexVersion;
-            prewarmVersion = playlistLibraryIndexPrewarmVersion;
+            currentVersion = playlistLibraryIndexPrewarmGeneration;
+            prewarmVersion = playlistLibraryIndexPrewarmTaskGeneration;
         }
         if (modelState?.IsCached == true
             && dataSource != null

@@ -37,33 +37,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
     }
 
     /// <summary>
-    /// 自身の mutation 後の集合版を、構築済み playlist resolve snapshot へ反映します。
-    /// </summary>
-    internal void RebasePlaylistLibraryResolveIndexSnapshot()
-    {
-        lock (lockPlaylistLibraryResolveIndexSnapshot)
-        {
-            PlaylistLibraryResolveIndexSnapshot snapshot = playlistLibraryResolveIndexSnapshot;
-            if (snapshot == null)
-            {
-                return;
-            }
-
-            int ownedCollectionVersion = OwnedCollectionVersion;
-            if (snapshot.OwnedCollectionVersion == ownedCollectionVersion)
-            {
-                return;
-            }
-
-            playlistLibraryResolveIndexSnapshot = snapshot.WithMetadata(
-                version: snapshot.Version,
-                buildElapsedMs: snapshot.BuildElapsedMs,
-                invalidationVersion: snapshot.InvalidationVersion,
-                ownedCollectionVersion: ownedCollectionVersion);
-        }
-    }
-
-    /// <summary>
     /// warm な playlist resolve root に mutation facts を局所適用します。
     /// facts 不足または全置換境界では既存の全失効契約へ戻します。
     /// </summary>
@@ -105,15 +78,6 @@ internal sealed partial class CatalogOwnedCollectionOwner
         // cold consumer には mutation 用の optional index を構築しません。
         if (snapshot == null)
         {
-            return false;
-        }
-
-        if (digestChangeCount == 0
-            && installedLookupMutation?.HasChanges != true
-            && (addedCharts?.Count ?? 0) == 0)
-        {
-            // level/mode などの基本表示値だけの変更は、hash/path の root を維持して集合版だけを捕捉します。
-            RebasePlaylistLibraryResolveIndexSnapshot();
             return false;
         }
 

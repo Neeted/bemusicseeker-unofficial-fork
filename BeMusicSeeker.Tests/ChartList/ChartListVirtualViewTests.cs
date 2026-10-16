@@ -3174,7 +3174,7 @@ public sealed class ChartListVirtualViewTests
 
     /// <summary>現在譜面更新でも旧snapshotとtokenを保持し、新基本値・導入先・参照表を読むことで更新先混同と専門投影脱落を検出します。</summary>
     [TestMethod]
-    public void SourceRow_AppliesCommonCurrentValuesAndReadsSpecialistProjections()
+    public void SourceRow_CapturedValuesKeepOldSnapshotAndReadSpecialistProjections()
     {
         ChartFile file = ChartTestValues.Empty();
         file = file with { Token = new OwnedChartToken(), Path = @"folder-b\old.bms", Title = "Old", Folder = "folder-b", Artist = "", Genre = "", Level = null, Mode = null, Tag = "", Md5 = "0123456789abcdef0123456789abcdef", Sha256 = "", RawTitle = "Old", RawArtist = "", LevelText = "" };
@@ -3185,6 +3185,7 @@ public sealed class ChartListVirtualViewTests
             playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
             chartTransientStateProvider: (_, _) => installDestinationState);
 
+        ChartListSourceRow previousSource = sourceRows[0];
         ChartFile captured = file;
         file = file with { Path = @"folder-a\new.bms", Title = "New", RawTitle = "New", Folder = "folder-a", Artist = "Artist", RawArtist = "Artist", Genre = "Genre", Mode = 7, Tag = "Tag", Md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Sha256 = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" };
         installDestinationState = ChartFileTransientState.FromInstallDestinationState(
@@ -3203,8 +3204,12 @@ public sealed class ChartListVirtualViewTests
         };
         playlistReferenceIndex.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(referenceTable, referenceTable.symbol, referenceTable.name, referenceTable.entries));
 
-        sourceRows[0].ApplyCurrentChart(file);
+        sourceRows = BuildOwnerBackedSourceRows([file],
+            playlistReferenceDisplayProvider: row => playlistReferenceIndex.Find(row.Chart),
+            chartTransientStateProvider: (_, _) => installDestinationState);
         Assert.AreEqual("Old", captured.Title);
+        Assert.AreEqual("Old", previousSource.Title);
+        Assert.AreEqual(@"folder-b\old.bms", previousSource.Path);
         Assert.AreEqual(@"folder-b\old.bms", captured.Path);
         Assert.AreSame(captured.Token, sourceRows[0].Token);
         Assert.AreEqual("New", sourceRows[0].Title);
@@ -3375,22 +3380,6 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(chartRow.WarningDigestText, sourceRows[0].WarningDigestText);
         StringAssert.Contains(sourceRows[0].WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_DuplicateChart);
         StringAssert.Contains(sourceRows[0].WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
-    }
-
-    /// <summary>各基本属性変更をキーへ反映し、健全性だけの更新は基本キーを変えずtokenを保持することで、再整列対象の過不足を検出します。</summary>
-    [TestMethod]
-    public void CommonCurrentApplication_ChangesBasicSortColumnsAndPreservesToken()
-    {
-        AssertBmsonSortKeyChange(song => song with { Title = "ChangedTitle", RawTitle = "ChangedTitle" });
-        AssertBmsonSortKeyChange(song => song with { Folder = "changed-folder" });
-        AssertBmsonSortKeyChange(song => song with { Path = @"changed-folder\changed.bmson" });
-        AssertBmsonSortKeyChange(song => song with { Artist = "ChangedArtist", RawArtist = "ChangedArtist" });
-        AssertBmsonSortKeyChange(song => song with { Genre = "ChangedGenre" });
-        AssertBmsonSortKeyChange(song => song with { ModeHint = "beat-5k", Mode = 5 });
-        AssertBmsonSortKeyChange(song => song with { Md5 = "33333333333333333333333333333333" });
-        AssertBmsonSortKeyChange(song => song with { Sha256 = "3333333333333333333333333333333333333333333333333333333333333333" });
-        AssertBmsonSortKeyChange(song => song with { Level = 10 });
-        AssertBmsonSortKeyNotChanged(song => song with { ResourceHealthMaintenanceSnapshot = CreateMaintenanceInfo(song.Path, song.Md5, 5) });
     }
 
     private static ChartListVirtualView CreateView(out Func<int> getCreatedCount, int distinctFolderCount = -1)
@@ -3736,22 +3725,6 @@ public sealed class ChartListVirtualViewTests
             playlistReferenceDisplayProvider,
             chartTransientStateProvider,
             chartInfoProjectionProvider);
-    }
-
-    private static void AssertBmsonSortKeyChange(Func<ChartFile, ChartFile> mutate) => AssertCommonSourceBasicChange(mutate, expectedChange: true);
-    private static void AssertBmsonSortKeyNotChanged(Func<ChartFile, ChartFile> mutate) => AssertCommonSourceBasicChange(mutate, expectedChange: false);
-    private static void AssertCommonSourceBasicChange(Func<ChartFile, ChartFile> mutate, bool expectedChange)
-    {
-        ChartFile input = CreateBmsonSong();
-        ChartFile original = input with { Token = new OwnedChartToken() };
-        var row = ChartListSourceRow.FromChartFile(original);
-        (string, string, string, string, double?, int?, string, string, string, string, string) previous = (row.Title, row.Artist, row.Genre, row.Level, row.LevelValue, row.Mode, row.Folder, row.Path, row.Tag, row.Hash, row.Sha256);
-        input = mutate(input);
-        ChartFile next = input with { Token = original.Token };
-        row.ApplyCurrentChart(next);
-        (string, string, string, string, double?, int?, string, string, string, string, string) current = (row.Title, row.Artist, row.Genre, row.Level, row.LevelValue, row.Mode, row.Folder, row.Path, row.Tag, row.Hash, row.Sha256);
-        Assert.AreEqual(expectedChange, !previous.Equals(current));
-        Assert.AreSame(original.Token, row.Chart.Token);
     }
 
     private static ChartFile CreateBmsonSong()
