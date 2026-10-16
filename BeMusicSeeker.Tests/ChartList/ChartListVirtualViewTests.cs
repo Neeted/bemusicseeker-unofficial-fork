@@ -2460,7 +2460,7 @@ public sealed class ChartListVirtualViewTests
         ChartFile bmson = CreateBmsonSong();
         var entry = PackageChartEntry.FromChart((bmson));
         var maintenanceInfo = new ResourceHealthMaintenanceSnapshot { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 1, BgaFilesDefined = 2, BgaFilesExisting = 1, MovieFilesDefined = 1, MovieFilesExisting = 0 };
-        entry.ApplyInstallDestination(@"D:\BMS\Installed", "Resolved", "Artist");
+        entry.ApplyInstallDestinationMetadata(@"D:\BMS\Installed", "Resolved", "Artist");
         entry.ReplaceResourceHealthProjection(
             maintenanceInfo,
             [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "WAV missing")]);
@@ -2480,7 +2480,7 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(sourceRow.Chart.Warnings), "WAV missing");
         StringAssert.Contains(row.WarningTooltipText, "WAV missing");
 
-        entry.ApplyInstallDestination(@"D:\BMS\Next", "Next", "Artist");
+        entry.ApplyInstallDestinationMetadata(@"D:\BMS\Next", "Next", "Artist");
 
         Assert.AreEqual(@"D:\BMS\Next", sourceRow.InstallDestination);
         Assert.AreEqual(@"D:\BMS\Next", row.instl_dst);

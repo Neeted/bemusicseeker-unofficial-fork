@@ -1322,7 +1322,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 seedSongDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedBmson), typeof(LR2SongDBExtended.bmson_song));
             }
             var pendingEntry = PackageChartEntry.FromChart((pendingBmson));
-            pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
+            pendingEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             var library = new TestBmsLibrary(songDbPath)
@@ -1450,13 +1450,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             var firstEntry = PackageChartEntry.FromChart(
                 (firstBmson));
-            firstEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
+            firstEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Shared", "Artist");
             var secondEntry = PackageChartEntry.FromChart(
                 (secondBmson));
-            secondEntry.ApplyInstallDestination(destinationDirectoryPath, "Shared", "Artist");
+            secondEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Shared", "Artist");
             var secondUniqueEntry = PackageChartEntry.FromChart(
                 (secondUniqueBmson));
-            secondUniqueEntry.ApplyInstallDestination(destinationDirectoryPath, "Unique", "Artist");
+            secondUniqueEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Unique", "Artist");
             var firstPackage = ChartPackage.FromChartEntries([firstEntry]);
             firstPackage.path = firstPendingDirectoryPath;
             firstPackage.delete_parent = false;
@@ -2196,7 +2196,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             var pendingEntry = PackageChartEntry.FromChart(
                 (pendingBmson));
-            pendingEntry.ApplyInstallDestination(destinationDirectoryPath, "Installed", "Artist");
+            pendingEntry.ApplyInstallDestinationMetadata(destinationDirectoryPath, "Installed", "Artist");
             var pendingPackage = ChartPackage.FromChartEntries([pendingEntry]);
             pendingPackage.path = pendingDirectoryPath;
             var library = new TestBmsLibrary(
@@ -3732,7 +3732,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllText(sourcePath, CreateBmsonJsonWithSound("sound.wav"));
             File.WriteAllBytes(Path.Combine(source, "sound.wav"), [1, 2, 3]);
             var entry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(sourcePath)));
-            entry.ApplyInstallDestination(target, "Target", "Artist");
+            entry.ApplyInstallDestinationMetadata(target, "Target", "Artist");
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
             package.delete_parent = false;
@@ -3866,7 +3866,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var entry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(sourcePath)));
             if (hasDestination)
             {
-                entry.ApplyInstallDestination(target, "Target", "Artist");
+                entry.ApplyInstallDestinationMetadata(target, "Target", "Artist");
             }
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;
@@ -3929,7 +3929,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             var entry = PackageChartEntry.FromChart((sourceChart));
             if (hasDestination)
             {
-                entry.ApplyInstallDestination(explicitDestination, "Existing", "Artist");
+                entry.ApplyInstallDestinationMetadata(explicitDestination, "Existing", "Artist");
             }
             var package = ChartPackage.FromChartEntries([entry]);
             package.path = source;

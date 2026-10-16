@@ -372,6 +372,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
+    /// <summary>既所持ハッシュの一致数から候補を選びます。成功は単独最多の選択を表し、自動設定には別途対象群との共通Strong評価が必要です。</summary>
     public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledDirectoryLookupResult();
@@ -425,6 +426,37 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return result;
         }
         result.Reason = InstalledDirectoryResolveReason.MultipleCandidateDirectories;
+        return result;
+    }
+
+    /// <summary>単独最多または一意に選択済みの所持先を、対象群との共通Strongで評価します。資源索引・音声充足は要求しません。</summary>
+    /// <param name="destinationDirectory">ハッシュ候補選択が成功した所持先。</param>
+    /// <param name="targetEntries">この推定要求が評価する譜面群。混在パッケージでは未所持群だけを渡します。</param>
+    /// <param name="metadataProfileResolver">所持現在値の候補プロファイルを返す既存の解決処理。</param>
+    internal InstallEstimationResult EvaluateInstalledChartHashDestination(string destinationDirectory, IEnumerable<PackageChartEntry> targetEntries, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
+    {
+        InstallEstimationMetadataProfile targetProfile = PackageInstallEstimationSnapshotBuilder.BuildTargetMetadataProfile(targetEntries);
+        InstallEstimationMetadataProfile candidateProfile = metadataProfileResolver?.Invoke(destinationDirectory) ?? InstallEstimationMetadataProfile.Empty;
+        var result = new InstallEstimationResult
+        {
+            FinalEvaluationMode = InstallEstimationFinalEvaluationMode.InstalledChartHash,
+            HasViableDestination = true,
+            CandidateDirectoryCount = 1
+        };
+        result.Candidates.Add(new InstallEstimationCandidate
+        {
+            DirectoryPath = destinationDirectory,
+            IsViableDestination = true,
+            RepresentativeTitle = candidateProfile.DominantPairDisplayTitle,
+            RepresentativeArtist = candidateProfile.DominantPairDisplayArtist
+        });
+        MetadataValidationResult validation = EvaluateSelectedCandidateMetadata(destinationDirectory, targetProfile, candidateProfile);
+        if (ApplySelectedCandidateMetadata(result, validation))
+        {
+            result.DestinationDirectory = destinationDirectory;
+            result.ShouldAutoApplyDestination = true;
+            result.ConfidenceReason = "installed_chart_hash_strong";
+        }
         return result;
     }
 
@@ -744,10 +776,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         bool metadataTieBreakDistinct = !isReinstallCorrectionMode && topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
         bool directoryHashCountTieBreakDistinct = !isReinstallCorrectionMode && topTwoViableTie && IsDirectoryHashCountTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver);
         MetadataValidationResult metadataValidation = selectedViable
-            ? EvaluateSelectedCandidateMetadata(selectedCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver)
+            ? EvaluateSelectedCandidateMetadata(selectedCandidateEvaluation.DirectoryPath, snapshot.TargetMetadataProfile, metadataProfileResolver?.Invoke(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty)
             : null;
-        result.MetadataValidationSummary = metadataValidation?.Summary ?? string.Empty;
-        result.SelectedCandidateMetadataEvidenceStrong = metadataValidation?.IsStrong == true;
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
@@ -766,14 +796,9 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             SetNoViableDestinationResult(result);
         }
-        else if (metadataValidation?.IsStrong != true)
+        else if (!ApplySelectedCandidateMetadata(result, metadataValidation))
         {
-            // 強一致はすべての高確信度・自動適用の前提とし、同順位やハッシュ数で補いません。
-            result.HasViableDestination = true;
-            result.Confidence = InstallEstimationConfidence.Low;
-            result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
-            result.ConfidenceReason = metadataValidation?.IsApplicable == true ? "selected_candidate_metadata_mismatch" : "metadata_pair_unavailable";
-            result.ShouldAutoApplyDestination = false;
+            result.SuggestedDestinationDirectories.Clear();
             result.SuggestedDestinationDirectories.AddRange(viableNonSourceSuggestions);
         }
         else if (isReinstallCorrectionMode && hasMultipleViableCandidates)
@@ -1498,21 +1523,39 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             && !InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, secondProfile);
     }
 
-    private static MetadataValidationResult EvaluateSelectedCandidateMetadata(CandidateEvaluation selectedCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
+    private static MetadataValidationResult EvaluateSelectedCandidateMetadata(string selectedDirectory, InstallEstimationMetadataProfile targetMetadataProfile, InstallEstimationMetadataProfile selectedProfile)
     {
-        InstallEstimationMetadataProfile selectedProfile = selectedCandidateEvaluation == null
-            ? InstallEstimationMetadataProfile.Empty
-            : metadataProfileResolver?.Invoke(selectedCandidateEvaluation.DirectoryPath) ?? InstallEstimationMetadataProfile.Empty;
         bool applicable = targetMetadataProfile?.HasPair == true && selectedProfile.HasPair;
         bool strong = InstallEstimationMetadataNormalizer.IsStrongMatch(targetMetadataProfile, selectedProfile);
         return new MetadataValidationResult
         {
             IsApplicable = applicable,
             IsStrong = strong,
-            Summary = "selected=" + (selectedCandidateEvaluation?.DirectoryPath ?? string.Empty)
+            Summary = "selected=" + (selectedDirectory ?? string.Empty)
                 + " applicable=" + (applicable ? 1 : 0)
                 + " strong=" + (strong ? 1 : 0)
         };
+    }
+
+    /// <summary>共通Strongの診断と拒否結果を反映します。候補選択の成功は維持し、別候補への再探索は行いません。</summary>
+    private static bool ApplySelectedCandidateMetadata(InstallEstimationResult result, MetadataValidationResult validation)
+    {
+        result.MetadataValidationSummary = validation?.Summary ?? string.Empty;
+        result.SelectedCandidateMetadataEvidenceStrong = validation?.IsStrong == true;
+        if (result.SelectedCandidateMetadataEvidenceStrong)
+        {
+            return true;
+        }
+        result.HasViableDestination = true;
+        result.DestinationDirectory = null;
+        result.Confidence = InstallEstimationConfidence.Low;
+        result.LowConfidenceKind = InstallEstimationLowConfidenceKind.MetadataMismatch;
+        result.ConfidenceReason = validation?.IsApplicable == true ? "selected_candidate_metadata_mismatch" : "metadata_pair_unavailable";
+        result.ShouldAutoApplyDestination = false;
+        result.SuggestedDestinationDirectories.AddRange(result.Candidates
+            .Where(candidate => candidate.IsViableDestination)
+            .Select(candidate => candidate.DirectoryPath));
+        return false;
     }
 
     private static bool IsDirectoryHashCountTieBreakDistinct(CandidateEvaluation selectedCandidateEvaluation, CandidateEvaluation secondCandidateEvaluation, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver)

@@ -37,7 +37,57 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         Assert.AreEqual(16, BMSLibrary.ResolvePendingInstallEstimateParallelPackageDegree(16));
     }
 
-    /// <summary>同一MD5の所持先が分散しているとき、一致譜面が最も多いフォルダだけを確定し、先に見つかった少数一致への誤決定を検出する。</summary>
+    /// <summary>選択済みハッシュ候補にも共通Strongを要求し、不成立・比較不能で候補と代表表示を保ったまま停止する。資源条件や曖昧設定で救済しない。</summary>
+    /// <remarks>サービスの判断境界を直接動かし、入口の接続・表示とTask終端はライブラリ側の代表ケースへ分担します。</remarks>
+    [DataTestMethod]
+    [DataRow("Song [ANOTHER]", "Artist", "Song", "Artist", true)]
+    [DataRow("Song", "", "Song", "", true)]
+    [DataRow("Other", "Artist", "Song", "Artist", false)]
+    [DataRow("Song", "Other", "Song", "Artist", false)]
+    [DataRow("", "Artist", "Song", "Artist", false)]
+    [DataRow("Song", "Artist", "", "Artist", false)]
+    public void EvaluateInstalledChartHashDestination_RequiresStrongAndPreservesKnownCandidate(string targetTitle, string targetArtist, string candidateTitle, string candidateArtist, bool strong)
+    {
+        WithAutoApplyAmbiguousInstallDestination(true, () =>
+        {
+            BmsLibraryInstallEstimationService service = CreateService();
+            const string destination = @"C:\Installed\Song";
+            ChartFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "missing.wav") with { RawTitle = targetTitle, Artist = targetArtist };
+            InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "candidate.bms")]);
+            int resolverCalls = 0;
+            InstallEstimationResult result = service.EvaluateInstalledChartHashDestination(destination, [PackageChartEntry.FromChart(target)], path =>
+            {
+                Assert.AreEqual(destination, path);
+                resolverCalls++;
+                return profile;
+            });
+            Assert.AreEqual(1, resolverCalls);
+            Assert.AreEqual(strong, result.Success);
+            Assert.AreEqual(strong, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(strong, result.SelectedCandidateMetadataEvidenceStrong);
+            Assert.IsTrue(result.HasViableDestination);
+            Assert.AreEqual(InstallEstimationFinalEvaluationMode.InstalledChartHash, result.FinalEvaluationMode);
+            InstallEstimationCandidate candidate = result.SelectedCandidate;
+            Assert.IsNotNull(candidate);
+            Assert.IsTrue(candidate.IsViableDestination);
+            Assert.AreEqual(destination, candidate.DirectoryPath);
+            Assert.AreEqual(profile.DominantPairDisplayTitle, candidate.RepresentativeTitle);
+            Assert.AreEqual(profile.DominantPairDisplayArtist, candidate.RepresentativeArtist);
+            Assert.AreEqual(0, candidate.AudioHealth);
+            Assert.AreEqual(0, candidate.AudioMatched);
+            Assert.AreEqual(0, result.TargetResourceCount);
+            Assert.AreEqual(strong ? InstallEstimationConfidence.High : InstallEstimationConfidence.Low, result.Confidence);
+            Assert.AreEqual(strong ? InstallEstimationLowConfidenceKind.None : InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+            if (!strong)
+            {
+                Assert.IsTrue(string.IsNullOrEmpty(result.DestinationDirectory));
+                CollectionAssert.AreEqual(new[] { destination }, result.SuggestedDestinationDirectories);
+            }
+        });
+    }
+
+    /// <summary>同一MD5の所持先が分散しているとき、一致譜面が最も多いフォルダだけを候補選択し、先に見つかった少数一致への誤決定を検出する。</summary>
+    /// <remarks>候補選択だけを保証します。自動設定のStrong条件は共通評価のケースへ分担します。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_PrefersDirectoryWithMostMatchingCharts()
     {
@@ -70,7 +120,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>BMSとBmsonを含む入力でも種類をまたいでMD5一致を数え、最多の所持フォルダを選び、Bmsonの集計漏れを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
+    /// <remarks>実ファイルからの候補選択を保証します。自動設定のStrong条件は共通評価のケースへ分担します。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonPackagePrefersDirectoryWithMostMatchingCharts()
     {
@@ -119,6 +169,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>一致数が同じ所持先を一つに確定せず全候補を返し、同点の先頭だけを確定する誤りを検出する。</summary>
+    /// <remarks>候補選択だけを保証します。自動設定のStrong条件は共通評価のケースへ分担します。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_ReturnsMultipleCandidateDirectoriesForTopTie()
     {
@@ -150,7 +201,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     }
 
     /// <summary>BMSとBmsonを合わせた所持先が同点なら複数候補として残し、種類による同点判定の偏りを検出する。</summary>
-    /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
+    /// <remarks>実ファイルからの候補選択を保証します。自動設定のStrong条件は共通評価のケースへ分担します。</remarks>
     [TestMethod]
     public void TryResolveInstalledDestinationFromPackage_MixedBmsAndBmsonTopTieReturnsMultipleCandidateDirectories()
     {
@@ -1217,7 +1268,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         };
         var entry = PackageChartEntry.FromChart((song));
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
-        entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
+        entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
 
         PackageChartEntry snapshot = entry.ToChartEntrySnapshot();
@@ -1238,7 +1289,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         string destinationDirectory = Path.Combine("C:\\Installed", "Package");
         string installedPath = Path.Combine(destinationDirectory, "chart.bms");
 
-        entry.ApplyInstallDestination(destinationDirectory, "Resolved Title", "Resolved Artist");
+        entry.ApplyInstallDestinationMetadata(destinationDirectory, "Resolved Title", "Resolved Artist");
         entry.SetWarning(ChartWarningKind.InstalledDestinationResolveFailed, "resolve failed");
         entry.ApplyInstalledPath(installedPath);
 

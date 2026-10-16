@@ -22,9 +22,11 @@ internal enum InstallEstimationLowConfidenceKind
     ReinstallNotImproved
 }
 
+/// <summary>最終評価の根拠です。ハッシュ候補ではリソースの件数・健康度を評価しません。</summary>
 internal enum InstallEstimationFinalEvaluationMode
 {
-    RelativeStrict
+    RelativeStrict,
+    InstalledChartHash
 }
 
 /// <summary>
@@ -37,6 +39,7 @@ internal sealed class InstallEstimationCandidate
 
     public bool IsSourceCandidate { get; set; }
 
+    /// <summary>Strongの検証前に、選択経路固有の候補要件を満たした場合に真です。</summary>
     public bool IsViableDestination { get; set; }
 
     public int AudioHealth { get; set; }
@@ -134,6 +137,7 @@ internal sealed class InstallEstimationResult
 
     public bool ShouldAutoApplyDestination { get; set; }
 
+    /// <summary>資源充足またはハッシュの単独最多・一意条件を満たす候補の有無です。自動適用にはStrongも必要です。</summary>
     public bool HasViableDestination { get; set; }
 
     public string ConfidenceReason { get; set; }

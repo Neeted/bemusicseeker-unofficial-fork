@@ -2477,7 +2477,6 @@ public partial class BMSLibrary : ObservableObject
         NoOp,
         UnsupportedResourcePath,
         SourceSurfaceScanLimitExceeded,
-        ResolvedInstalledDirectory,
         EstimatedResult,
         NotEvaluated
     }
@@ -2567,8 +2566,6 @@ public partial class BMSLibrary : ObservableObject
         public PendingInstallEstimateEvaluationRequest Request { get; set; }
 
         public PendingInstallEstimateEvaluationOutcomeKind OutcomeKind { get; set; }
-
-        public string ResolvedDirectory { get; set; }
 
         public InstalledDirectoryLookupResult InstalledResolution { get; set; }
 
@@ -3576,8 +3573,12 @@ public partial class BMSLibrary : ObservableObject
                 : EvaluateInstalledDestinationFromPackage(request.Package, request.MissingEntries, evaluationContext);
             if (result.InstalledResolution.Success)
             {
-                result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory;
-                result.ResolvedDirectory = result.InstalledResolution.InstallDirectory;
+                result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
+                result.EstimationData = EvaluateInstalledChartHashDestination(
+                    result.InstalledResolution.InstallDirectory,
+                    request.MissingEntries,
+                    useThreadSafeResolver: true,
+                    evaluationContext.OptionsSnapshot);
                 return result;
             }
             if (result.InstalledResolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
@@ -3755,12 +3756,6 @@ public partial class BMSLibrary : ObservableObject
                     currentMissingEntries,
                     evaluationResult.EstimationData?.SourceSurfaceMaxVisitedFileSystemEntryCount ?? PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries);
                 return false;
-            case PendingInstallEstimateEvaluationOutcomeKind.ResolvedInstalledDirectory:
-                if (!string.IsNullOrWhiteSpace(evaluationResult.ResolvedDirectory))
-                {
-                    ApplyResolvedInstallDestinationToEntries(currentMissingEntries, evaluationResult.ResolvedDirectory);
-                }
-                return HasPendingLowConfidenceInstallDestination(currentMissingEntries);
             case PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult:
                 {
                     LogInstallEstimationEvaluation(evaluationResult.EstimationData);
@@ -8874,13 +8869,17 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ApplyResolvedInstallDestinationToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
+    /// <summary>ハッシュ候補をサービスで評価し、通常の推定結果と同じ反映単位へ渡します。資源入力は構築しません。</summary>
+    private InstallEstimationEvaluationData EvaluateInstalledChartHashDestination(string destinationDirectory, IReadOnlyCollection<PackageChartEntry> entries, bool useThreadSafeResolver = false, BmsLibraryOptionsSnapshot optionsSnapshot = null)
     {
-        InstallEstimationMetadataProfile metadata = ResolveInstallDestinationMetadataProfileUnsafe(destinationDirectory);
-        foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
+        return new InstallEstimationEvaluationData
         {
-            entry.ApplyInstallDestination(destinationDirectory, metadata.DominantPairDisplayTitle, metadata.DominantPairDisplayArtist);
-        }
+            ChartCount = entries.Count,
+            Result = CreateInstallEstimationService(optionsSnapshot).EvaluateInstalledChartHashDestination(
+                destinationDirectory,
+                entries,
+                useThreadSafeResolver ? ResolveInstallDestinationMetadataProfileThreadSafe : ResolveInstallDestinationMetadataProfileUnsafe)
+        };
     }
 
     private void ApplyResolvedInstallDestinationPathAndMetadataToEntries(IEnumerable<PackageChartEntry> entries, string destinationDirectory)
@@ -9070,6 +9069,16 @@ public partial class BMSLibrary : ObservableObject
         InstallEstimationResult result = estimationData?.Result;
         if (result == null)
         {
+            return;
+        }
+        if (result.FinalEvaluationMode == InstallEstimationFinalEvaluationMode.InstalledChartHash)
+        {
+            // ハッシュ経路の未評価の資源数・健康度を、資源評価の診断へ混ぜません。
+            LogInstallPerformance("estimate_install evalMode=installed_chart_hash chartCount=" + estimationData.ChartCount
+                + " selected=" + (result.SelectedCandidate?.DirectoryPath ?? string.Empty)
+                + " dst=" + (result.DestinationDirectory ?? "(none)")
+                + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination
+                + " confidenceReason=" + result.ConfidenceReason + " metadata_validation=" + result.MetadataValidationSummary);
             return;
         }
         if (!estimationData.SourceSurfaceCacheHit && !estimationData.SourceSurfaceBatchHit && estimationData.SourceSurfaceTrackedFileCount > 0)

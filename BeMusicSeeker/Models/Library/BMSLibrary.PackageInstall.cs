@@ -1110,19 +1110,6 @@ public partial class BMSLibrary
         }
     }
 
-    private bool TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, out string resolvedDir)
-    {
-        resolvedDir = null;
-        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingEntries);
-        LogMixedPackageResolution(resolution, package?.path, missingEntries?.Count ?? 0);
-        if (!resolution.Success)
-        {
-            return false;
-        }
-        resolvedDir = resolution.InstallDirectory;
-        return true;
-    }
-
     private InstalledDirectoryLookupResult ResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries)
     {
         if (package == null || missingEntries == null || missingEntries.Count == 0)
@@ -1196,7 +1183,9 @@ public partial class BMSLibrary
                             LogMixedPackageResolution(resolution, package.path, missingEntries.Count);
                             if (resolution.Success)
                             {
-                                ApplyResolvedInstallDestinationToEntries(missingEntries, resolution.InstallDirectory);
+                                InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, missingEntries);
+                                LogInstallEstimationEvaluation(hashEstimation);
+                                ApplyInstallEstimationResultToEntries(missingEntries, hashEstimation.Result);
                                 return;
                             }
                             if (resolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
@@ -1386,7 +1375,9 @@ public partial class BMSLibrary
                         List<string> installedDirectories = GetDistinctInstalledDirectoriesForChartUnsafe(chartEntry.Chart);
                         if (installedDirectories.Count == 1)
                         {
-                            ApplyResolvedInstallDestinationToEntries([chartEntry], installedDirectories[0]);
+                            InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(installedDirectories[0], [chartEntry]);
+                            LogInstallEstimationEvaluation(hashEstimation);
+                            ApplyInstallEstimationResultToEntries([chartEntry], hashEstimation.Result);
                             resolvedInstalledDirectory = true;
                         }
                     }
@@ -1568,13 +1559,17 @@ public partial class BMSLibrary
         }
         LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + entries.Count);
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-        if (!TryResolveInstalledDestinationFromPackage(package, entries, out string resolvedDir))
+        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, entries);
+        LogMixedPackageResolution(resolution, package.path, entries.Count);
+        if (!resolution.Success)
         {
             SearchEstimatedInstallationDirectoryForChartsCore(package, entries, asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
             LogMergeDestinationResult(package, entries);
             return;
         }
-        ApplyResolvedInstallDestinationToEntries(entries, resolvedDir);
+        InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, entries);
+        LogInstallEstimationEvaluation(hashEstimation);
+        ApplyInstallEstimationResultToEntries(entries, hashEstimation.Result);
         LogMergeDestinationResult(package, entries);
     }
 

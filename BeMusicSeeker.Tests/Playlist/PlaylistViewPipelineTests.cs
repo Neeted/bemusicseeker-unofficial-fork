@@ -2328,7 +2328,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(ChartFileKind.Bmson, request.ChartFile.Kind);
 
         PackageChartEntry editEntry = request.GetOrCreateChartEntry();
-        editEntry.ApplyInstallDestination("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
+        editEntry.ApplyInstallDestinationMetadata("C:\\Installed\\Bmson", "Installed Bmson", "Installed Artist");
 
         Assert.IsNull(editEntry.GetBmsChartForTest());
         Assert.AreEqual("C:\\Installed\\Bmson", editEntry.Chart.InstallDestination);
@@ -2762,7 +2762,7 @@ public sealed class PlaylistViewPipelineTests
 
         var entry = PackageChartEntry.FromChart((bmson));
         entry.SetWarning(ChartWarningKind.AlreadyInstalled, "installed chart warning");
-        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var row = LibraryChartRow.FromPackageChartEntry(entry);
 
         Assert.AreEqual(ChartFileKind.Bmson, row.Chart.Kind);
@@ -2802,7 +2802,7 @@ public sealed class PlaylistViewPipelineTests
         var unresolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
 
-        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var resolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
 
         Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
@@ -2828,7 +2828,7 @@ public sealed class PlaylistViewPipelineTests
         var unresolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
         StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
 
-        entry.ApplyInstallDestination("C:\\Library\\Destination", string.Empty, string.Empty);
+        entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var resolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
 
         Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));

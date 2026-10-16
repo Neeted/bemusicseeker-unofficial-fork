@@ -449,7 +449,8 @@ internal static class PackageInstallEstimationSnapshotBuilder
         }
     }
 
-    private static InstallEstimationMetadataProfile BuildTargetMetadataProfile(IEnumerable<PackageChartEntry> targetEntries)
+    /// <summary>取得済み譜面から対象群の実在最頻ペアを作り、資源評価とハッシュ候補評価で共用します。</summary>
+    internal static InstallEstimationMetadataProfile BuildTargetMetadataProfile(IEnumerable<PackageChartEntry> targetEntries)
     {
         return InstallEstimationMetadataNormalizer.BuildProfile(
             (targetEntries ?? [])

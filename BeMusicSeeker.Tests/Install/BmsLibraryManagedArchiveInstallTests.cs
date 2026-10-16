@@ -16,6 +16,35 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>混在フォルダを実取り込み・保留DB確定・直接推定へ通し、所持先と未所持群が不一致なら入力・保留・候補・警告を保って受付を解放する。</summary>
+    /// <remarks>実SQLiteと本番の取り込み継続を通す代表フローです。Strong条件表はサービス、取消と兄弟Task回収は既存workflowケースへ分担します。</remarks>
+    [TestMethod]
+    public async Task AutoInstall_MixedFolderHashMetadataMismatchKeepsPendingInputAndCandidate()
+    {
+        using var fixture = new ManagedArchiveInstallFixture(knownCandidate: true);
+        await fixture.InitializeAsync();
+        string input = fixture.CreateInput("folder", "Different", resources: false);
+        File.Copy(Path.Combine(fixture.CandidateDirectory, "existing.bms"), Path.Combine(input, "owned.bms"));
+        PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
+            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+        Assert.IsTrue(result.HasDurableCommit);
+        Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
+        ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
+        PackageChartEntry entry = pending.ChartEntries.Single(item => Path.GetFileName(item.Chart.Path) == "chart.bms");
+        Assert.IsTrue(string.IsNullOrWhiteSpace(entry.Chart.InstallDestination));
+        Assert.AreEqual("Song", entry.Chart.InstallDestinationTitle);
+        Assert.AreEqual("Test", entry.Chart.InstallDestinationArtist);
+        CollectionAssert.AreEqual(new[] { fixture.CandidateDirectory }, entry.Chart.InstallDestinationSuggestions.ToArray());
+        Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+        Assert.IsTrue(File.Exists(entry.Chart.Path));
+        Assert.IsTrue(Directory.Exists(input));
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(pending.path, db.Table<LR2SongDBExtended.install>().Single().path);
+        Assert.AreEqual(1, fixture.Library.BmsCharts.Count);
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+        Assert.IsTrue(pending.ChartEntries.All(item => (item.Chart.Status & ChartFileStatus.SEARCHING) == 0));
+    }
+
     /// <summary>既存の音源不足7z・RAR・LZHを借用入力として実native展開から共通導入へ渡し、三譜面の実bytes、install DBと保留正本、借用元と対象外ファイルの保全を確認します。入れ子構造はZIPの共有経路代表へ分担します。</summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [DataTestMethod]
