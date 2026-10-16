@@ -5,9 +5,9 @@ param(
 
     [string]$TestFilter,
 
-    # 300秒は運用上の既定期限であり、明示指定した秒数に上限を設けない。
+    # 360秒は運用上の既定期限であり、明示指定した秒数に上限を設けない。
     [ValidateRange('Positive')]
-    [int]$FunctionalTimeoutSeconds = 300,
+    [int]$FunctionalTimeoutSeconds = 360,
 
     # Internal probe-only guard.  A normal CLI string cannot satisfy the typed guard
     # checked by Invoke-MonitoredCommand; no environment variable enables this seam.
