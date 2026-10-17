@@ -43,6 +43,48 @@ public class Resources
         }
     }
 
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnusedDefinitions => ResourceManager.GetString("ChartPropertiesUnusedDefinitions", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUndefinedReferences => ResourceManager.GetString("ChartPropertiesUndefinedReferences", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnusedDescription => ResourceManager.GetString("ChartPropertiesUnusedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUndefinedDescription => ResourceManager.GetString("ChartPropertiesUndefinedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesBmsonUnusedDescription => ResourceManager.GetString("ChartPropertiesBmsonUnusedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesBmsonUndefinedDescription => ResourceManager.GetString("ChartPropertiesBmsonUndefinedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartProperties => ResourceManager.GetString("ChartProperties", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesPath => ResourceManager.GetString("ChartPropertiesPath", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesIssues => ResourceManager.GetString("ChartPropertiesIssues", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesFailed => ResourceManager.GetString("ChartPropertiesFailed", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesMissing => ResourceManager.GetString("ChartPropertiesMissing", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesInvalidPath => ResourceManager.GetString("ChartPropertiesInvalidPath", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnsupported => ResourceManager.GetString("ChartPropertiesUnsupported", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesCp932Unsupported => ResourceManager.GetString("ChartPropertiesCp932Unsupported", resourceCulture);
+
     public static string Msg_warn_preview_temporary_files_remain => ResourceManager.GetString("Msg_warn_preview_temporary_files_remain", resourceCulture);
 
     public static string Lr2_song_db_sync_stage_queued => ResourceManager.GetString("Lr2_song_db_sync_stage_queued", resourceCulture);

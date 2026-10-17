@@ -334,7 +334,7 @@ internal sealed class BmsLibraryMaintenanceService
             }
 
             counters.RecordFileExistsFallback(GetFallbackKind(resourceKind));
-            if (ExistsWithCompatibleExtensions(chartDirectory, reference.LookupKey, extensions))
+            if (ChartResourceExistence.ExistsWithCompatibleExtensions(chartDirectory, reference.LookupKey, extensions))
             {
                 existingCount++;
             }
@@ -375,7 +375,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
 
         counters.RecordFileExistsFallback(ResourceHealthFallbackKind.OptionalImage);
-        return ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, ChartResourceExtensions.ImageExtensions);
+        return ChartResourceExistence.ExistsWithCompatibleExtensions(chartDirectory, normalizedPath, ChartResourceExtensions.ImageExtensions);
     }
 
     private static string NormalizeLookupDirectory(string chartDirectory)
@@ -413,26 +413,6 @@ internal sealed class BmsLibraryMaintenanceService
             ChartResourceKind.Movie => ResourceHealthFallbackKind.Movie,
             _ => ResourceHealthFallbackKind.Unknown
         };
-    }
-
-    private static bool ExistsWithCompatibleExtensions(string chartDirectory, string file, IEnumerable<string> extensions)
-    {
-        if (string.IsNullOrWhiteSpace(chartDirectory) || string.IsNullOrWhiteSpace(file))
-        {
-            return false;
-        }
-        try
-        {
-            string fullPath = LongPathFileSystem.NormalizePathForStorage(Path.Combine(chartDirectory, file));
-            string directory = Path.GetDirectoryName(fullPath) + Path.DirectorySeparatorChar;
-            string basename = Path.GetFileName(fullPath);
-            return LongPathFileSystem.FileExists(fullPath)
-                || (extensions ?? []).Any(ext => !string.IsNullOrWhiteSpace(ext) && LongPathFileSystem.FileExists(directory + basename + ext));
-        }
-        catch
-        {
-            return false;
-        }
     }
 
     /// <summary>文字化けの推定状態と修正済み状態に該当する共通譜面を返します。</summary>

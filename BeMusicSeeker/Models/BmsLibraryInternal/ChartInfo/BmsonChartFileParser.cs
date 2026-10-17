@@ -11,32 +11,42 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>捕捉済み入力からbmsonの基本値と不変リソース結果を直接作成します。</summary>
 internal static class BmsonChartFileParser
 {
-    /// <summary>同じ捕捉内容のハッシュと時刻を保持し、保存行を経由せずに基本値を返します。原題の省略・nullは空として保持し、合成表示で補完しません。</summary>
-    internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot)
+    /// <summary>同じ捕捉内容のハッシュと時刻を保持し、保存行を経由せずに基本値を返します。原題の省略・nullは空として保持し、合成表示で補完しません。任意のdetailsへだけ定義元・定義番号と未定義BGA参照を渡します。</summary>
+    internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot, ChartResourceParseDetails details = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         string json = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false).GetString(snapshot.Bytes);
         BmsonDocument root = BmsonJsonParser.Parse(json);
         BmsonInfo info = root?.Info ?? new BmsonInfo();
         var references = new List<ChartResourceReference>();
-        string banner = ExtractComponentPath(info.BannerImage, references, ChartResourceKind.Image, ChartResourceUsage.Banner);
-        string backbmp = ExtractComponentPath(info.BackImage, references, ChartResourceKind.Image, ChartResourceUsage.Backbmp);
-        string stagefile = ExtractComponentPath(info.EyecatchImage, references, ChartResourceKind.Image, ChartResourceUsage.Stagefile);
-        string preview = string.IsNullOrWhiteSpace(info.PreviewMusic) ? string.Empty : ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio);
-        foreach ((string Name, bool HasNotes) channel in EnumerateAudioChannels(root))
+        string banner = ExtractComponentPath(info.BannerImage, references, ChartResourceKind.Image, ChartResourceUsage.Banner, details: details, source: "info.banner_image");
+        string backbmp = ExtractComponentPath(info.BackImage, references, ChartResourceKind.Image, ChartResourceUsage.Backbmp, details: details, source: "info.back_image");
+        string stagefile = ExtractComponentPath(info.EyecatchImage, references, ChartResourceKind.Image, ChartResourceUsage.Stagefile, details: details, source: "info.eyecatch_image");
+        string preview = string.IsNullOrWhiteSpace(info.PreviewMusic) ? string.Empty : ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio, details: details, source: "info.preview_music");
+        foreach ((string Name, bool HasNotes, string Source) channel in EnumerateAudioChannels(root, details != null))
         {
-            ExtractComponentPath(channel.Name, references, ChartResourceKind.Audio, isUsed: channel.HasNotes);
+            ExtractComponentPath(channel.Name, references, ChartResourceKind.Audio, isUsed: channel.HasNotes, details: details, source: channel.Source);
         }
         var usedBgaIds = new HashSet<int>((root?.Bga?.BgaEvents ?? []).Concat(root?.Bga?.LayerEvents ?? [])
             .Concat(root?.Bga?.PoorEvents ?? []).Where(note => note?.Id.HasValue == true).Select(note => note.Id.Value));
-        foreach (BmsonBgaHeader header in root?.Bga?.BgaHeader ?? [])
+        BmsonBgaHeader[] headers = root?.Bga?.BgaHeader ?? [];
+        for (int index = 0; index < headers.Length; index++)
         {
+            BmsonBgaHeader header = headers[index];
             if (header == null)
             {
                 continue;
             }
 
-            ExtractComponentPath(header.Name, references, ChartResourceKind.Unknown, isUsed: header.Id.HasValue && usedBgaIds.Contains(header.Id.Value));
+            ExtractComponentPath(header.Name, references, ChartResourceKind.Unknown,
+                isUsed: header.Id.HasValue && usedBgaIds.Contains(header.Id.Value), details: details,
+                definitionId: details == null ? null : header.Id?.ToString(CultureInfo.InvariantCulture), source: details == null ? null : $"bga_header[{index}]");
+        }
+        if (details != null)
+        {
+            var definedBgaIds = new HashSet<int>(headers.Where(header => header?.Id.HasValue == true).Select(header => header.Id.Value));
+            details.UndefinedReferences.AddRange(usedBgaIds.Where(id => !definedBgaIds.Contains(id)).OrderBy(id => id)
+                .Select(id => new ChartResourceReferenceNumber("bga_header", id.ToString(CultureInfo.InvariantCulture))));
         }
         string subtitle = ComposeSubtitle(info.Subtitle, info.ChartName);
         string title = string.IsNullOrWhiteSpace(subtitle) ? info.Title ?? string.Empty
@@ -58,18 +68,25 @@ internal static class BmsonChartFileParser
             LastWriteTimeUtc = snapshot.LastWriteTimeUtc
         };
     }
-    private static IEnumerable<(string Name, bool HasNotes)> EnumerateAudioChannels(BmsonDocument document)
+    private static IEnumerable<(string Name, bool HasNotes, string Source)> EnumerateAudioChannels(BmsonDocument document, bool includeSources)
     {
-        return (document?.SoundChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0))
-            .Concat((document?.KeyChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0)))
-            .Concat((document?.MineChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0)));
+        return (document?.SoundChannels ?? []).Select((channel, index) => (Channel: channel, Index: index))
+            .Where(item => item.Channel != null).Select(item => (item.Channel.Name, item.Channel.Notes?.Length > 0,
+                includeSources ? $"sound_channels[{item.Index}]" : null))
+            .Concat((document?.KeyChannels ?? []).Select((channel, index) => (Channel: channel, Index: index))
+                .Where(item => item.Channel != null).Select(item => (item.Channel.Name, item.Channel.Notes?.Length > 0,
+                    includeSources ? $"key_channels[{item.Index}]" : null)))
+            .Concat((document?.MineChannels ?? []).Select((channel, index) => (Channel: channel, Index: index))
+                .Where(item => item.Channel != null).Select(item => (item.Channel.Name, item.Channel.Notes?.Length > 0,
+                    includeSources ? $"mine_channels[{item.Index}]" : null)));
     }
 
     /// <summary>原文と解析状態を一回の入口で確定します。使用される通常参照はnullも照合不能として保持し、任意画像の省略と音声分類は維持します。</summary>
     private static string ExtractComponentPath(string path, ICollection<ChartResourceReference> references,
-        ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal, bool isUsed = true)
+        ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal, bool isUsed = true,
+        ChartResourceParseDetails details = null, string definitionId = null, string source = null)
     {
-        if (path == null && (usage != ChartResourceUsage.Normal || !isUsed))
+        if (path == null && (usage != ChartResourceUsage.Normal || (!isUsed && details == null)))
         {
             return string.Empty;
         }
@@ -81,7 +98,11 @@ internal static class BmsonChartFileParser
                 || (expectedKind == ChartResourceKind.Unknown && reference.Kind == ChartResourceKind.Audio)
                     ? ChartResourceKind.Unknown : reference.Kind;
         reference = new ChartResourceReference(kind, usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey, reference.Status, isUsed);
-        references.Add(reference);
+        if (path != null || isUsed)
+        {
+            references.Add(reference);
+        }
+        details?.Definitions.Add(new ChartResourceDefinition(source, definitionId, reference));
         return reference.Status == ChartResourcePathNormalizationStatus.Valid ? reference.NormalizedPath : string.Empty;
     }
 

@@ -249,6 +249,7 @@
         <MenuItem Name="tableContextMenuItemAutoRenameFolder" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Rename_folder_auto, Mode=OneWay}" Click="tableContextMenuItemAutoRenameFolderClick" />
         <Separator Name="tableContextMenuSeparatorForConvert" />
         <MenuItem Name="tableContextMenuItemConvertToAudioFile" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Convert_to_audio_file, Mode=OneWay}" Click="tableContextMenuItemConvertToAudioFileClick" />
+        <MenuItem Name="tableContextMenuItemChartProperties" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartProperties, Mode=OneWay}" Click="TableContextMenuItemChartPropertiesClick" />
         <MenuItem Name="tableContextMenuItemDeleteInstallPackages" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Delete_from_list, Mode=OneWay}" Click="tableContextMenuItemDeleteInstallPackagesClick" />
         <MenuItem Name="tableContextMenuItemRemoveChartInfoParseFailure" Visibility="Collapsed" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Remove_chart_info_parse_failure_record, Mode=OneWay}" Click="tableContextMenuItemRemoveChartInfoParseFailureClick" />
       </ContextMenu>

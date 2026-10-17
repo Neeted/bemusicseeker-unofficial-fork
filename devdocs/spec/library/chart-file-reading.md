@@ -26,6 +26,8 @@
 | 詳細解析 | `ChartInfoParser.ParseBytesDetailed` | 譜面情報、診断、時間超過、解析失敗を生成する |
 | 文字コードによる再読解 | `ReloadBMSMetadataWithEncodingDetection` | 同じバイト列から表示用の基本情報を読み直す |
 
+[譜面プロパティ](../ui/chart-properties.md)では、同じ軽量解析の任意受取先 `ChartResourceParseDetails` にだけ定義元・定義番号と未定義参照番号を収集します。通常のライブラリ解析の戻り値・DB・長寿命のモデルには追加しません。
+
 基本解析の戻り値は `ChartFile` です。保存行を経由せず、同じ捕捉入力のbytes/hash/timeを使用します。生title/subtitle/artist/subartistを表示合成から復元せず、bmsonの元chart_nameはファイル入力からだけ得ます。保存行への変換はDB境界だけに置きます。
 
 パスだけを持つ既存処理と保留の生成では、パスを受ける互換APIを使えます。新しい大量処理で同じ譜面をハッシュ・軽量解析・詳細解析のために別々に読みません。長パスI/Oは専用の境界を通し、保存するパスに拡張長プレフィックスを含めません。

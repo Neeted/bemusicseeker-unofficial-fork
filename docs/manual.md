@@ -39,6 +39,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Selecting and Editing Rows](#selecting-and-editing-rows)
     - [Copy Operations](#copy-operations)
     - [Context Menu](#context-menu)
+    - [Checking Chart Properties](#checking-chart-properties)
     - [Tree Context Menu](#tree-context-menu)
     - [Other Popup Menus](#other-popup-menus)
 - [Search](#search)
@@ -481,6 +482,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 
 #### Checking Encoding and File State
 
+- `Chart properties`: Check the [resource details](#checking-chart-properties) in a read-only window.
 - `Fix character encoding`: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. `Mark as fixed` treats the current estimated result as confirmed.
 - `File scan`: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. `Rescan all charts` targets all charts in the library. `Add to ignore list` / `Remove from ignore list` are settings used to exclude or include charts in displays such as the full resource scan.
 
@@ -522,6 +524,20 @@ Rename BMS-family charts to `.bmx` and PMS-family charts to `.pmx` so they are n
 > If an identical file already exists at the destination or a numbered candidate name, the original chart is deleted as a duplicate. Keep a copy first if you need the original.
 
 Choose `Delete file` → `Rename to invalid extension (*.bmx/*.pmx)`. If a same-name file has different contents, or a same-name folder exists, an available numbered name such as `name(1).bmx` is used. Processed charts are removed from the library list or pending package.
+
+### Checking Chart Properties
+
+Select one chart with a local file and choose `Chart properties` from the list context menu. Charts inside pending packages are supported too: the actual pending file is checked, rather than its installation destination. Multiple selections and unowned charts are unavailable.
+
+The window shows the title, artist and chart path, with three categories:
+
+- `Missing / unverifiable`: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as `#WAV01 sound.wav (Missing)` or `#BMP02 movie.mp4 (Missing)`. Specified STAGEFILE/BACKBMP/BANNER images are included.
+- `Unused resource definitions`: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.
+- `Undefined reference numbers`: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. `#WAV01` and `#BMP01` are listed separately.
+
+For BMSON, the window lists unused audio channels and `bga_header` definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as `sound_channels` and `info.back_image`.
+
+Select text in values or lists and use Ctrl+A to select all and Ctrl+C to copy. Results are read when the window opens. If reading or analysis fails, a message appears below the chart path. To check again, close the window with the title-bar close button or Esc and reopen it. You can close it while reading or after a failure.
 
 ### Tree Context Menu
 

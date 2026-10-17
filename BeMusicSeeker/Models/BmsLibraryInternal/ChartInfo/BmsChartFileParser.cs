@@ -16,13 +16,14 @@ internal static class BmsChartFileParser
     private static readonly Regex visibleObjectChRegex = new("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback());
 
-    /// <summary>捕捉済みの内容・ハッシュ・時刻を使って共通の基本値を返します。</summary>
-    internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis")
+    /// <summary>捕捉済みの内容・ハッシュ・時刻を使って共通の基本値を返します。任意のdetailsへだけ定義元・定義番号・使用状態・採用行のCP932復号状態と未定義参照を渡し、通常解析の結果には保持しません。</summary>
+    internal static ChartFile ParseSnapshot(ChartFileSnapshot snapshot, string codepageName = "shift_jis", ChartResourceParseDetails details = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         using var stream = new MemoryStream(snapshot.Bytes, writable: false);
         using var reader = new StreamReader(stream, Encoding.GetEncoding(codepageName), detectEncodingFromByteOrderMarks: !IsShiftJis(codepageName));
-        ChartFile chart = ParseLines(ReadLines(reader), snapshot.Path, () => snapshot.Md5, () => snapshot.Sha256);
+        using IEnumerator<bool> diagnosticLines = details == null ? null : EnumerateCp932LineDecodeStatuses(snapshot.Bytes).GetEnumerator();
+        ChartFile chart = ParseLines(ReadLines(reader), snapshot.Path, () => snapshot.Md5, () => snapshot.Sha256, details, diagnosticLines);
         if (HasCp932DecodeUnsupportedResourceValue(snapshot.Bytes, out ChartResourceKind kind))
         {
             chart = chart with
@@ -172,7 +173,9 @@ internal static class BmsChartFileParser
         IEnumerable<string> enumerable,
         string filePath,
         Func<string> md5Provider,
-        Func<string> sha256Provider)
+        Func<string> sha256Provider,
+        ChartResourceParseDetails details,
+        IEnumerator<bool> diagnosticLines)
     {
         string title = string.Empty;
         string subtitle = string.Empty;
@@ -182,6 +185,9 @@ internal static class BmsChartFileParser
         string banner = null;
         string stagefile = null;
         string backbmp = null;
+        bool bannerUndecodable = false;
+        bool stagefileUndecodable = false;
+        bool backbmpUndecodable = false;
         int level = 0;
         int difficulty = -1;
         int mode = 5;
@@ -207,6 +213,7 @@ internal static class BmsChartFileParser
         // 詳細ノート解析や分岐評価をせず、全構文上の参照を収集します。
         foreach (string item in enumerable)
         {
+            bool lineUndecodable = diagnosticLines?.MoveNext() == true && diagnosticLines.Current;
             // 定義行と同じ行頭空白を許容し、コロン後と末尾のチャンネル原文は変更しません。
             string resourceLine = item.TrimStart();
             if (TryReadNamedDirective(resourceLine, "BASE", out string numberBase) && numberBase == "62")
@@ -315,10 +322,18 @@ internal static class BmsChartFileParser
             switch (directive)
             {
                 case BmsDirective.Wav:
-                    definitions.Add((item.TrimStart().Substring(4, 2), true, ChartResourceReference.Parse(value, ChartResourceKind.Audio)));
+                    var audioReference = ChartResourceReference.Parse(value, ChartResourceKind.Audio);
+                    string audioId = item.TrimStart().Substring(4, 2);
+                    definitions.Add((audioId, true, audioReference));
+                    details?.Definitions.Add(new ChartResourceDefinition("#WAV", audioId,
+                        ForDiagnostic(audioReference, lineUndecodable)));
                     break;
                 case BmsDirective.Bmp:
-                    definitions.Add((item.TrimStart().Substring(4, 2), false, ChartResourceReference.Parse(value, ChartResourceKind.Unknown)));
+                    var visualReference = ChartResourceReference.Parse(value, ChartResourceKind.Unknown);
+                    string visualId = item.TrimStart().Substring(4, 2);
+                    definitions.Add((visualId, false, visualReference));
+                    details?.Definitions.Add(new ChartResourceDefinition("#BMP", visualId,
+                        ForDiagnostic(visualReference, lineUndecodable)));
                     break;
                 case BmsDirective.Title:
                     if (string.IsNullOrWhiteSpace(title))
@@ -368,18 +383,21 @@ internal static class BmsChartFileParser
                     if (string.IsNullOrWhiteSpace(banner))
                     {
                         banner = value;
+                        bannerUndecodable = lineUndecodable;
                     }
                     break;
                 case BmsDirective.StageFile:
                     if (string.IsNullOrWhiteSpace(stagefile))
                     {
                         stagefile = value;
+                        stagefileUndecodable = lineUndecodable;
                     }
                     break;
                 case BmsDirective.BackBmp:
                     if (string.IsNullOrWhiteSpace(backbmp))
                     {
                         backbmp = value;
+                        backbmpUndecodable = lineUndecodable;
                     }
                     break;
             }
@@ -397,12 +415,48 @@ internal static class BmsChartFileParser
             visualIds.Add("00");
         }
 
-        foreach ((string Id, bool Audio, ChartResourceReference Reference) definition in definitions)
+        for (int index = 0; index < definitions.Count; index++)
         {
-            bool audio = definition.Audio;
-            resourceReferences.Add(definition.Reference.WithUsage((audio ? audioIds : visualIds).Contains(definition.Id)));
+            (string Id, bool Audio, ChartResourceReference Reference) definition = definitions[index];
+            ChartResourceReference reference = definition.Reference.WithUsage((definition.Audio ? audioIds : visualIds).Contains(definition.Id));
+            resourceReferences.Add(reference);
+            if (details != null)
+            {
+                ChartResourceDefinition diagnostic = details.Definitions[index];
+                details.Definitions[index] = diagnostic with { Reference = diagnostic.Reference.WithUsage(reference.IsUsed) };
+            }
+        }
+        if (details != null)
+        {
+            var definedAudioIds = new HashSet<string>(definitions.Where(item => item.Audio).Select(item => item.Id), idComparer);
+            var definedVisualIds = new HashSet<string>(definitions.Where(item => !item.Audio).Select(item => item.Id), idComparer);
+            details.UndefinedReferences.AddRange(audioIds.Where(id => !definedAudioIds.Contains(id)).OrderBy(id => id, idComparer)
+                .Select(id => new ChartResourceReferenceNumber("#WAV", id)));
+            details.UndefinedReferences.AddRange(visualIds.Where(id => !definedVisualIds.Contains(id)).OrderBy(id => id, idComparer)
+                .Select(id => new ChartResourceReferenceNumber("#BMP", id)));
         }
         AddOptionalImages(resourceReferences, stagefile, backbmp, banner);
+        if (details != null)
+        {
+            foreach (ChartResourceReference reference in resourceReferences.Skip(definitions.Count))
+            {
+                bool undecodable = reference.Usage switch
+                {
+                    ChartResourceUsage.Banner => bannerUndecodable,
+                    ChartResourceUsage.Stagefile => stagefileUndecodable,
+                    ChartResourceUsage.Backbmp => backbmpUndecodable,
+                    _ => false
+                };
+                string source = reference.Usage switch
+                {
+                    ChartResourceUsage.Stagefile => "#STAGEFILE",
+                    ChartResourceUsage.Backbmp => "#BACKBMP",
+                    ChartResourceUsage.Banner => "#BANNER",
+                    _ => throw new InvalidOperationException("Unexpected optional resource usage.")
+                };
+                details.Definitions.Add(new ChartResourceDefinition(source, null, undecodable ? WithCp932DecodeUnsupported(reference) : reference));
+            }
+        }
         if (forcePmsMode)
         {
             mode = 9;
@@ -973,11 +1027,7 @@ internal static class BmsChartFileParser
         int lineStart = 0;
         while (lineStart < bytes.Length)
         {
-            int lineEnd = lineStart;
-            while (lineEnd < bytes.Length && bytes[lineEnd] != '\r' && bytes[lineEnd] != '\n')
-            {
-                lineEnd++;
-            }
+            int lineEnd = FindByteLineEnd(bytes, lineStart);
             if (TryGetBmsResourceDirectiveValue(bytes, lineStart, lineEnd, out ChartResourceKind resourceKind, out int valueStart, out int valueLength)
                 && !CanDecodeCp932(bytes, valueStart, valueLength))
             {
@@ -988,14 +1038,64 @@ internal static class BmsChartFileParser
             {
                 break;
             }
-            lineStart = lineEnd + 1;
-            if (bytes[lineEnd] == '\r' && lineStart < bytes.Length && bytes[lineStart] == '\n')
-            {
-                lineStart++;
-            }
+            lineStart = AdvancePastByteLine(bytes, lineEnd);
         }
         return false;
     }
+
+    private static int FindByteLineEnd(byte[] bytes, int start)
+    {
+        int end = start;
+        while (end < bytes.Length && bytes[end] != '\r' && bytes[end] != '\n')
+        {
+            end++;
+        }
+        return end;
+    }
+
+    private static int AdvancePastByteLine(byte[] bytes, int end)
+    {
+        int next = end < bytes.Length ? end + 1 : end;
+        if (end < bytes.Length && bytes[end] == '\r' && next < bytes.Length && bytes[next] == '\n')
+        {
+            next++;
+        }
+        return next;
+    }
+
+    // 不正な先行バイトが改行を消費すると、既存StreamReaderは後続の物理行を同じ値として読みます。
+    // 同じ既定デコーダーで行終端の有無を確認し、厳格な検査の結果だけを実際の入力行へ対応付けます。
+    private static IEnumerable<bool> EnumerateCp932LineDecodeStatuses(byte[] bytes)
+    {
+        var encoding = Encoding.GetEncoding("shift_jis");
+        bool undecodable = false;
+        bool hasPendingLine = false;
+        for (int start = 0; start < bytes.Length;)
+        {
+            int next = AdvancePastByteLine(bytes, FindByteLineEnd(bytes, start));
+            undecodable |= !CanDecodeCp932(bytes, start, next - start);
+            string text = encoding.GetString(bytes, start, next - start);
+            hasPendingLine = true;
+            if (text.EndsWith('\r') || text.EndsWith('\n'))
+            {
+                yield return undecodable;
+                undecodable = false;
+                hasPendingLine = false;
+            }
+            start = next;
+        }
+        if (hasPendingLine)
+        {
+            yield return undecodable;
+        }
+    }
+
+    private static ChartResourceReference ForDiagnostic(ChartResourceReference reference, bool undecodable)
+        => undecodable ? WithCp932DecodeUnsupported(reference) : reference;
+
+    private static ChartResourceReference WithCp932DecodeUnsupported(ChartResourceReference reference)
+        => new(reference.Kind, reference.Usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey,
+            ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported, reference.IsUsed);
 
     private static bool TryGetBmsResourceDirectiveValue(
         byte[] bytes,

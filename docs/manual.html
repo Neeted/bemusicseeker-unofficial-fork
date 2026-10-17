@@ -522,6 +522,7 @@ hr {
 <li class="toc-level-4"><a href="#removing-list-items-and-parse-records">Removing List Items and Parse Records</a></li>
 <li class="toc-level-4"><a href="#rename-to-invalid-extension">Rename to Invalid Extension</a></li>
 </ul></details></li>
+<li class="toc-level-3"><a href="#checking-chart-properties">Checking Chart Properties</a></li>
 <li class="toc-level-3"><a href="#tree-context-menu">Tree Context Menu</a></li>
 <li class="toc-level-3"><a href="#other-popup-menus">Other Popup Menus</a></li>
 </ul></details></li>
@@ -692,6 +693,7 @@ hr {
 <li><a href="#selecting-and-editing-rows">Selecting and Editing Rows</a></li>
 <li><a href="#copy-operations">Copy Operations</a></li>
 <li><a href="#context-menu">Context Menu</a></li>
+<li><a href="#checking-chart-properties">Checking Chart Properties</a></li>
 <li><a href="#tree-context-menu">Tree Context Menu</a></li>
 <li><a href="#other-popup-menus">Other Popup Menus</a></li>
 </ul>
@@ -1250,6 +1252,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 </ul>
 <h4 id="checking-encoding-and-file-state">Checking Encoding and File State</h4>
 <ul>
+<li><code>Chart properties</code>: Check the <a href="#checking-chart-properties">resource details</a> in a read-only window.</li>
 <li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
 <li><code>File scan</code>: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. <code>Rescan all charts</code> targets all charts in the library. <code>Add to ignore list</code> / <code>Remove from ignore list</code> are settings used to exclude or include charts in displays such as the full resource scan.</li>
 </ul>
@@ -1283,6 +1286,16 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <p>Rename BMS-family charts to <code>.bmx</code> and PMS-family charts to <code>.pmx</code> so they are no longer loaded as normal charts. Use this to exclude zero-note charts or mistakenly registered files.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If an identical file already exists at the destination or a numbered candidate name, the original chart is deleted as a duplicate. Keep a copy first if you need the original.</p></div>
 <p>Choose <code>Delete file</code> → <code>Rename to invalid extension (*.bmx/*.pmx)</code>. If a same-name file has different contents, or a same-name folder exists, an available numbered name such as <code>name(1).bmx</code> is used. Processed charts are removed from the library list or pending package.</p>
+<h3 id="checking-chart-properties">Checking Chart Properties</h3>
+<p>Select one chart with a local file and choose <code>Chart properties</code> from the list context menu. Charts inside pending packages are supported too: the actual pending file is checked, rather than its installation destination. Multiple selections and unowned charts are unavailable.</p>
+<p>The window shows the title, artist and chart path, with three categories:</p>
+<ul>
+<li><code>Missing / unverifiable</code>: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as <code>#WAV01 sound.wav (Missing)</code> or <code>#BMP02 movie.mp4 (Missing)</code>. Specified STAGEFILE/BACKBMP/BANNER images are included.</li>
+<li><code>Unused resource definitions</code>: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.</li>
+<li><code>Undefined reference numbers</code>: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. <code>#WAV01</code> and <code>#BMP01</code> are listed separately.</li>
+</ul>
+<p>For BMSON, the window lists unused audio channels and <code>bga_header</code> definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as <code>sound_channels</code> and <code>info.back_image</code>.</p>
+<p>Select text in values or lists and use Ctrl+A to select all and Ctrl+C to copy. Results are read when the window opens. If reading or analysis fails, a message appears below the chart path. To check again, close the window with the title-bar close button or Esc and reopen it. You can close it while reading or after a failure.</p>
 <h3 id="tree-context-menu">Tree Context Menu</h3>
 <p>The left sidebar tree also has context menus depending on location.</p>
 <p>Library:</p>

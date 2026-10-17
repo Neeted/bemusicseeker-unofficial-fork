@@ -1043,6 +1043,84 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             playlistWorkspaceDialogService: dialogs);
     }
 
+    /// <summary>compiledプロパティメニューから単一実ファイルをOwner付き表示要求へ渡します。メニュー表示時は譜面を読まず、複数選択と欠損を無効にします。保留可否の条件網羅はChartPropertiesViewModelTestsへ分担します。</summary>
+    [TestMethod]
+    public void ChartPropertiesMenu_ConnectsSingleLocalChartToOwnedDialogRequest()
+    {
+        string path = Path.GetTempFileName();
+        var dialogs = new ChartPropertiesRecordingDialogs();
+        try
+        {
+            LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
+            LibraryChartRow second = CreateChartRow(ChartFileKind.Bms, new string('b', 32), path);
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (viewModel, window) =>
+                {
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row, second };
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    table.SelectRowsByPredicate(_ => false);
+                    OpenContextMenu(menu);
+                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
+                    Assert.IsTrue(item.IsEnabled);
+                    Assert.AreEqual(0, dialogs.Calls);
+                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "chart properties compiled click");
+                    Assert.AreEqual(1, dialogs.Calls);
+                    Assert.AreSame(window, dialogs.Owner);
+                    Assert.AreEqual(path, dialogs.Path);
+                    table.SelectRowsByPredicate(_ => true);
+                    OpenContextMenu(menu);
+                    Assert.IsFalse(item.IsEnabled);
+                    table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
+                    File.Delete(path);
+                    OpenContextMenu(menu);
+                    Assert.IsFalse(item.IsEnabled);
+                },
+                playlistWorkspaceDialogService: dialogs);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private sealed class ChartPropertiesRecordingDialogs : IUiDialogService
+    {
+        internal int Calls { get; private set; }
+        internal Window? Owner { get; private set; }
+        internal string? Path { get; private set; }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default) where TWindow : Window
+        {
+            Calls++;
+            Owner = request.Owner;
+            TWindow window = request.CreateWindow();
+            try
+            {
+                Assert.IsInstanceOfType<ChartPropertiesWindow>(window);
+                Assert.IsInstanceOfType<ChartPropertiesViewModel>(window.DataContext);
+                Path = ((ChartPropertiesViewModel)window.DataContext).Path;
+                return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.ClosedByUser));
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     private static MainWindowSelectedChartContextMenuTerminals CreateTerminals(
         MainWindowSelectedChartMutationTerminal? mutation = null,
         MainWindowSelectedChartResourceHealthTerminal? resourceHealth = null,

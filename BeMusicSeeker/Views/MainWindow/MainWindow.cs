@@ -6614,6 +6614,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         Separator separatorExternalActions = null;
         Separator separator = null;
         MenuItem menuItem19 = null;
+        MenuItem menuItemChartProperties = null;
         Separator separator2 = null;
         MenuItem menuItemRemoveChartInfoParseFailure = null;
         foreach (Control item in (IEnumerable)contextMenu.Items)
@@ -6702,6 +6703,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "tableContextMenuSeparatorForFolderview":
                     separator = item as Separator;
+                    break;
+                case "tableContextMenuItemChartProperties":
+                    menuItemChartProperties = item as MenuItem;
                     break;
                 case "tableContextMenuItemConvertToAudioFile":
                     menuItem19 = item as MenuItem;
@@ -6892,6 +6896,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 && mainWindowViewModel.MaintenanceRescanWorkflow?.IsActive != true;
             menuItemFullScanAllCharts.Visibility = Visibility.Visible;
             menuItemFullScanAllCharts.IsEnabled = canRescanAllCharts;
+        }
+        if (menuItemChartProperties != null)
+        {
+            menuItemChartProperties.IsEnabled = ChartPropertiesViewModel.ResolveTarget(selectedTargets) != null;
         }
         if (menuItem19 != null && separator2 != null)
         {
@@ -8225,6 +8233,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         return false;
+    }
+
+    private async void TableContextMenuItemChartPropertiesClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (!TryGetContextMenuRow(e.Source, out object row))
+            {
+                return;
+            }
+            ChartOperationSourceScope scope = GetCurrentChartOperationSourceScope();
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(scope);
+            if (targets.Count == 0 && GridRowResolver.TryGetChartOperationTarget(row, scope, out ChartOperationTarget rowTarget))
+            {
+                targets.Add(rowTarget);
+            }
+            ChartOperationTarget target = ChartPropertiesViewModel.ResolveTarget(targets);
+            if (target == null)
+            {
+                return;
+            }
+            e.Handled = true;
+            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService.ShowWindowAsync(
+                new UiWindowDialogRequest<ChartPropertiesWindow, object>(
+                    () => new ChartPropertiesWindow(new ChartPropertiesViewModel(target.Chart)), _ => null, this));
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Chart properties");
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, nameof(TableContextMenuItemChartPropertiesClick));
+        }
     }
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)

@@ -3710,4 +3710,46 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Details_require_complete_used_resources_for_auto_install_description" xml:space="preserve">
     <value>OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。</value>
   </data>
+  <data name="ChartProperties" xml:space="preserve">
+    <value>譜面プロパティ</value>
+  </data>
+  <data name="ChartPropertiesPath" xml:space="preserve">
+    <value>譜面パス</value>
+  </data>
+  <data name="ChartPropertiesIssues" xml:space="preserve">
+    <value>不足・確認不能</value>
+  </data>
+  <data name="ChartPropertiesFailed" xml:space="preserve">
+    <value>譜面の読取りまたは解析に失敗しました。再確認するには閉じて開き直してください。</value>
+  </data>
+  <data name="ChartPropertiesMissing" xml:space="preserve">
+    <value>不足</value>
+  </data>
+  <data name="ChartPropertiesInvalidPath" xml:space="preserve">
+    <value>不正なパス</value>
+  </data>
+  <data name="ChartPropertiesUnsupported" xml:space="preserve">
+    <value>未対応の参照またはパス</value>
+  </data>
+  <data name="ChartPropertiesCp932Unsupported" xml:space="preserve">
+    <value>リソース値をCP932で復号できません</value>
+  </data>
+  <data name="ChartPropertiesUnusedDefinitions" xml:space="preserve">
+    <value>未使用リソース定義</value>
+  </data>
+  <data name="ChartPropertiesUndefinedReferences" xml:space="preserve">
+    <value>未定義参照番号</value>
+  </data>
+  <data name="ChartPropertiesUnusedDescription" xml:space="preserve">
+    <value>定義はあるものの、この譜面の発音・表示用の参照に使われていない #WAV・#BMP を表示します。別の定義番号や譜面が同じファイルを使う場合があります。</value>
+  </data>
+  <data name="ChartPropertiesUndefinedDescription" xml:space="preserve">
+    <value>譜面から参照されているものの、対応する #WAV・#BMP 定義が存在しない定義番号を表示します。無音ノーツなどが該当します。</value>
+  </data>
+  <data name="ChartPropertiesBmsonUnusedDescription" xml:space="preserve">
+    <value>この譜面の発音・表示に使われていない音声チャンネルと bga_header の定義を表示します。別のチャンネルや譜面が同じファイルを使う場合があります。</value>
+  </data>
+  <data name="ChartPropertiesBmsonUndefinedDescription" xml:space="preserve">
+    <value>BGAイベントから参照されているものの、対応する bga_header 定義が存在しない定義番号を表示します。</value>
+  </data>
 </root>
