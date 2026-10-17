@@ -9,8 +9,7 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Calculates installation destinations against snapshots owned by BMSLibrary.
-/// The facade must acquire the required locks before invoking this service.
+/// 捕捉済み使用資源と候補索引から導入先を評価します。同梱込みの充足と候補自身の一致を区別します。
 /// </summary>
 internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapshot options, int innerWavHealthThreshold)
 {
@@ -27,15 +26,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     internal static int ResolveCandidateEvaluationDegree(bool asParallel)
     {
         return asParallel ? ResolveDefaultCandidateEvaluationDegree() : 1;
-    }
-
-    internal sealed class SourceBaselineEvaluation
-    {
-        public int PrimaryHealth { get; set; }
-
-        public bool IsViableDestination { get; set; }
-
-        public string Summary { get; set; } = string.Empty;
     }
 
     private sealed class MetadataValidationResult
@@ -115,21 +105,21 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
         public int OptionalImageHealth => ComputeHealth(OptionalImageMatched, OptionalImageDefined);
 
-        public int AudioPrecision => ComputePrecision(AudioMatched, AudioDefined, AudioCandidateCount);
+        public int AudioPrecision => ComputePrecision(AudioExactMatched, AudioDefined, AudioCandidateCount);
 
-        public int VisualPrecision => ComputePrecision(VisualMatched, VisualDefined, VisualCandidateCount);
+        public int VisualPrecision => ComputePrecision(VisualExactMatched, VisualDefined, VisualCandidateCount);
 
-        public int MoviePrecision => ComputePrecision(MovieMatched, MovieDefined, MovieCandidateCount);
+        public int MoviePrecision => ComputePrecision(MovieExactMatched, MovieDefined, MovieCandidateCount);
 
-        public int OptionalImagePrecision => ComputePrecision(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount);
+        public int OptionalImagePrecision => ComputePrecision(OptionalImageExactMatched, OptionalImageDefined, OptionalImageCandidateCount);
 
-        public int AudioJaccard => ComputeJaccard(AudioMatched, AudioDefined, AudioCandidateCount);
+        public int AudioJaccard => ComputeJaccard(AudioExactMatched, AudioDefined, AudioCandidateCount);
 
-        public int VisualJaccard => ComputeJaccard(VisualMatched, VisualDefined, VisualCandidateCount);
+        public int VisualJaccard => ComputeJaccard(VisualExactMatched, VisualDefined, VisualCandidateCount);
 
-        public int MovieJaccard => ComputeJaccard(MovieMatched, MovieDefined, MovieCandidateCount);
+        public int MovieJaccard => ComputeJaccard(MovieExactMatched, MovieDefined, MovieCandidateCount);
 
-        public int OptionalImageJaccard => ComputeJaccard(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount);
+        public int OptionalImageJaccard => ComputeJaccard(OptionalImageExactMatched, OptionalImageDefined, OptionalImageCandidateCount);
 
         public string ToSummary()
         {
@@ -170,37 +160,37 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         public bool HasSamePrimaryMetrics(CandidateEvaluation other)
         {
             return other != null
-                && AudioHealth == other.AudioHealth
-                && AudioMatched == other.AudioMatched
-                && VisualHealth == other.VisualHealth
-                && VisualMatched == other.VisualMatched
-                && MovieHealth == other.MovieHealth
-                && MovieMatched == other.MovieMatched
-                && OptionalImageHealth == other.OptionalImageHealth
-                && OptionalImageMatched == other.OptionalImageMatched;
+                && CompareRatioMetric(BuildFulfillmentMetric(AudioMatched, AudioDefined), BuildFulfillmentMetric(other.AudioMatched, other.AudioDefined)) == 0
+                && AudioExactMatched == other.AudioExactMatched
+                && CompareRatioMetric(BuildFulfillmentMetric(VisualMatched, VisualDefined), BuildFulfillmentMetric(other.VisualMatched, other.VisualDefined)) == 0
+                && VisualExactMatched == other.VisualExactMatched
+                && CompareRatioMetric(BuildFulfillmentMetric(MovieMatched, MovieDefined), BuildFulfillmentMetric(other.MovieMatched, other.MovieDefined)) == 0
+                && MovieExactMatched == other.MovieExactMatched
+                && CompareRatioMetric(BuildFulfillmentMetric(OptionalImageMatched, OptionalImageDefined), BuildFulfillmentMetric(other.OptionalImageMatched, other.OptionalImageDefined)) == 0
+                && OptionalImageExactMatched == other.OptionalImageExactMatched;
         }
 
         public bool HasSameRankingMetrics(CandidateEvaluation other)
         {
             return HasSamePrimaryMetrics(other)
                 && other != null
-                && CompareRatioMetric(BuildJaccardMetric(AudioMatched, AudioDefined, AudioCandidateCount), BuildJaccardMetric(other.AudioMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
-                && CompareRatioMetric(BuildPrecisionMetric(AudioMatched, AudioDefined, AudioCandidateCount), BuildPrecisionMetric(other.AudioMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
-                && CompareRatioMetric(BuildJaccardMetric(VisualMatched, VisualDefined, VisualCandidateCount), BuildJaccardMetric(other.VisualMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
-                && CompareRatioMetric(BuildPrecisionMetric(VisualMatched, VisualDefined, VisualCandidateCount), BuildPrecisionMetric(other.VisualMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
-                && CompareRatioMetric(BuildJaccardMetric(MovieMatched, MovieDefined, MovieCandidateCount), BuildJaccardMetric(other.MovieMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
-                && CompareRatioMetric(BuildPrecisionMetric(MovieMatched, MovieDefined, MovieCandidateCount), BuildPrecisionMetric(other.MovieMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
-                && CompareRatioMetric(BuildJaccardMetric(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildJaccardMetric(other.OptionalImageMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0
-                && CompareRatioMetric(BuildPrecisionMetric(OptionalImageMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildPrecisionMetric(other.OptionalImageMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0;
+                && CompareRatioMetric(BuildJaccardMetric(AudioExactMatched, AudioDefined, AudioCandidateCount), BuildJaccardMetric(other.AudioExactMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(AudioExactMatched, AudioDefined, AudioCandidateCount), BuildPrecisionMetric(other.AudioExactMatched, other.AudioDefined, other.AudioCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(VisualExactMatched, VisualDefined, VisualCandidateCount), BuildJaccardMetric(other.VisualExactMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(VisualExactMatched, VisualDefined, VisualCandidateCount), BuildPrecisionMetric(other.VisualExactMatched, other.VisualDefined, other.VisualCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(MovieExactMatched, MovieDefined, MovieCandidateCount), BuildJaccardMetric(other.MovieExactMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(MovieExactMatched, MovieDefined, MovieCandidateCount), BuildPrecisionMetric(other.MovieExactMatched, other.MovieDefined, other.MovieCandidateCount)) == 0
+                && CompareRatioMetric(BuildJaccardMetric(OptionalImageExactMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildJaccardMetric(other.OptionalImageExactMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0
+                && CompareRatioMetric(BuildPrecisionMetric(OptionalImageExactMatched, OptionalImageDefined, OptionalImageCandidateCount), BuildPrecisionMetric(other.OptionalImageExactMatched, other.OptionalImageDefined, other.OptionalImageCandidateCount)) == 0;
         }
 
         private static int ComputeHealth(int matched, int defined)
         {
             if (defined <= 0)
             {
-                return 100;
+                return 0;
             }
-            return (int)Math.Round(100.0 * matched / defined, MidpointRounding.AwayFromZero);
+            return (int)((long)matched * 100 / defined);
         }
 
         private static int ComputePrecision(int matched, int defined, int candidateCount)
@@ -226,7 +216,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             {
                 return 0;
             }
-            int unionCount = defined + candidateCount - matched;
+            long unionCount = (long)defined + candidateCount - matched;
             if (unionCount <= 0)
             {
                 return 100;
@@ -372,7 +362,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    /// <summary>既所持ハッシュの一致数から候補を選びます。成功は単独最多の選択を表し、自動設定には別途対象群との共通Strong評価が必要です。</summary>
+    /// <summary>既所持ハッシュの一致数から候補を選びます。成功は単独最多の選択を表し、自動設定には別途対象群とのStrongと使用音源完全性が必要です。</summary>
     public InstalledDirectoryLookupResult TryResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries, IInstalledChartLookupIndex installedDirectoryIndex)
     {
         var result = new InstalledDirectoryLookupResult();
@@ -429,11 +419,11 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return result;
     }
 
-    /// <summary>単独最多または一意に選択済みの所持先を、対象群との共通Strongで評価します。資源索引・音声充足は要求しません。</summary>
+    /// <summary>単独最多または一意に選択済みの所持先を、対象群との共通Strongで評価します。同梱と候補の和集合による音声完全性を自動確定の必要条件とし、同梱だけで完全なら候補索引の未取得を理由に拒みません。</summary>
     /// <param name="destinationDirectory">ハッシュ候補選択が成功した所持先。</param>
     /// <param name="targetEntries">この推定要求が評価する譜面群。混在パッケージでは未所持群だけを渡します。</param>
     /// <param name="metadataProfileResolver">所持現在値の候補プロファイルを返す既存の解決処理。</param>
-    internal InstallEstimationResult EvaluateInstalledChartHashDestination(string destinationDirectory, IEnumerable<PackageChartEntry> targetEntries, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver)
+    internal InstallEstimationResult EvaluateInstalledChartHashDestination(string destinationDirectory, IEnumerable<PackageChartEntry> targetEntries, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, PackageInstallEstimationSnapshot resourceSnapshot = null, DirectoryResourceLookupCache directoryLookupCache = null)
     {
         InstallEstimationMetadataProfile targetProfile = PackageInstallEstimationSnapshotBuilder.BuildTargetMetadataProfile(targetEntries);
         InstallEstimationMetadataProfile candidateProfile = metadataProfileResolver?.Invoke(destinationDirectory) ?? InstallEstimationMetadataProfile.Empty;
@@ -451,12 +441,18 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             RepresentativeArtist = candidateProfile.DominantPairDisplayArtist
         });
         MetadataValidationResult validation = EvaluateSelectedCandidateMetadata(destinationDirectory, targetProfile, candidateProfile);
-        if (ApplySelectedCandidateMetadata(result, validation))
+        if (ApplySelectedCandidateMetadata(result, validation) && resourceSnapshot?.SourceSurfaceScanLimitExceeded != true
+            && HasCompleteAudio(resourceSnapshot?.DefinedResources, resourceSnapshot?.BundledResources, directoryLookupCache?.GetEntryOrNull(destinationDirectory)))
         {
             result.DestinationDirectory = destinationDirectory;
             result.ShouldAutoApplyDestination = true;
             result.ConfidenceReason = "installed_chart_hash_strong";
         }
+        if (!result.ShouldAutoApplyDestination && !result.SuggestedDestinationDirectories.Contains(destinationDirectory))
+        {
+            result.SuggestedDestinationDirectories.Add(destinationDirectory);
+        }
+
         return result;
     }
 
@@ -465,57 +461,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return InstallEstimationFinalEvaluationMode.RelativeStrict;
     }
 
-
-    internal SourceBaselineEvaluation EvaluateSourceBaseline(PackageInstallEstimationSnapshot snapshot)
-    {
-        if (snapshot?.RepresentativeChart == null)
-        {
-            return new SourceBaselineEvaluation();
-        }
-
-        return EvaluateSourceBaseline(
-            snapshot.DefinedResources,
-            snapshot.SourceDirectory,
-            snapshot.BundledResources,
-            snapshot.SourceCandidateResources);
-    }
-
-    internal SourceBaselineEvaluation EvaluateSourceBaseline(
-        ChartResourceSnapshot resourceSnapshot,
-        string sourceDirectory,
-        DirectoryResourceLookupCache.Entry bundledResources,
-        DirectoryResourceLookupCache.Entry sourceCandidateResources)
-    {
-        var result = new SourceBaselineEvaluation();
-        ChartResourceSnapshot effectiveSnapshot = resourceSnapshot ?? new ChartResourceSnapshot();
-        if (effectiveSnapshot.TotalReferenceCount == 0)
-        {
-            result.PrimaryHealth = 100;
-            result.IsViableDestination = true;
-            return result;
-        }
-
-        InstallEstimationFinalEvaluationMode evaluationMode = GetFinalEvaluationMode(effectiveSnapshot);
-        DirectoryResourceLookupCache.Entry effectiveBundledResources = bundledResources ?? new DirectoryResourceLookupCache.Entry();
-        CandidateResourceView bundledView = evaluationMode == InstallEstimationFinalEvaluationMode.RelativeStrict
-            ? CreateCandidateResourceView(effectiveBundledResources)
-            : null;
-        CandidateEvaluation evaluation = EvaluateCandidate(
-            sourceDirectory ?? string.Empty,
-            effectiveSnapshot,
-            null,
-            effectiveBundledResources,
-            bundledView,
-            sourceCandidateResources ?? new DirectoryResourceLookupCache.Entry(),
-            candidateView: null,
-            evaluationMode,
-            diagnostics: null,
-            isSourceCandidate: true);
-        result.PrimaryHealth = GetPrimaryHealth(effectiveSnapshot, evaluation);
-        result.IsViableDestination = IsViableDestination(result.PrimaryHealth);
-        result.Summary = evaluation.ToSummary();
-        return result;
-    }
 
     /// <summary>リソース順位と実在ペアの強一致で評価し、強一致を自動適用の必要条件として同じペアの表記を表示へ渡します。</summary>
     public InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, bool asParallel, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver = null, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver = null)
@@ -560,9 +505,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         var result = new InstallEstimationResult();
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
         result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
-        bool isMergeMode = estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
         bool isReinstallCorrectionMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
-        bool useBundledResources = !(isMergeMode || isReinstallCorrectionMode);
+        bool useBundledResources = !isReinstallCorrectionMode;
         if (snapshot?.RepresentativeChart == null)
         {
             return result;
@@ -748,7 +692,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         result.CandidateMatchMs = diagnostics.CandidateMatchMs;
         result.CandidateViewBuildCount = diagnostics.CandidateViewBuildCount;
         result.AncestorShadowEvaluationMs = hierarchyInfo.HasHierarchy ? ancestorShadowStopwatch.ElapsedMilliseconds : 0L;
-        if (orderedCandidates.Count > 0 && IsViableDestination(GetPrimaryHealth(resourceSnapshot, orderedCandidates[0])))
+        if (orderedCandidates.Count > 0 && IsViableDestination(resourceSnapshot, orderedCandidates[0]))
         {
             ApplyMetadataTieBreakFrontier(orderedCandidates, snapshot.TargetMetadataProfile, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver, result);
         }
@@ -766,12 +710,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         CandidateEvaluation secondCandidateEvaluation = orderedCandidates.FirstOrDefault(evaluation => !ReferenceEquals(evaluation, selectedCandidateEvaluation));
         int selectedPrimaryHealth = GetPrimaryHealth(resourceSnapshot, selectedCandidateEvaluation);
         result.SelectedCandidatePrimaryHealth = selectedPrimaryHealth;
-        bool selectedViable = IsViableDestination(selectedPrimaryHealth);
+        bool selectedViable = IsViableDestination(resourceSnapshot, selectedCandidateEvaluation);
         bool hasMultipleViableCandidates = selectedViable
-            && orderedCandidates.Skip(1).Any(evaluation => IsViableDestination(GetPrimaryHealth(resourceSnapshot, evaluation)));
+            && orderedCandidates.Skip(1).Any(evaluation => IsViableDestination(resourceSnapshot, evaluation));
         bool topTwoViableTie = secondCandidateEvaluation != null
             && selectedViable
-            && IsViableDestination(GetPrimaryHealth(resourceSnapshot, secondCandidateEvaluation))
+            && IsViableDestination(resourceSnapshot, secondCandidateEvaluation)
             && selectedCandidateEvaluation.HasSameRankingMetrics(secondCandidateEvaluation);
         bool metadataTieBreakDistinct = !isReinstallCorrectionMode && topTwoViableTie && IsMetadataTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver);
         bool directoryHashCountTieBreakDistinct = !isReinstallCorrectionMode && topTwoViableTie && IsDirectoryHashCountTieBreakDistinct(selectedCandidateEvaluation, secondCandidateEvaluation, snapshot.TargetMetadataProfile, metadataProfileResolver, candidateDirectoryUniquePrimaryHashCountResolver);
@@ -781,7 +725,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
         for (int i = 0; i < result.Candidates.Count && i < orderedCandidates.Count; i++)
         {
-            result.Candidates[i].IsViableDestination = IsViableDestination(GetPrimaryHealth(resourceSnapshot, orderedCandidates[i]));
+            result.Candidates[i].IsViableDestination = IsViableDestination(resourceSnapshot, orderedCandidates[i]);
         }
         List<string> viableNonSourceSuggestions = [.. result.Candidates
             .Where(candidate => candidate != null && candidate.IsViableDestination)
@@ -849,7 +793,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         else
         {
             result.HasViableDestination = true;
-            bool reinstallNotImproved = isReinstallCorrectionMode && selectedPrimaryHealth <= result.SourceBaselinePrimaryHealth;
+            bool reinstallNotImproved = isReinstallCorrectionMode && CompareRatioMetric(GetPrimaryFulfillment(resourceSnapshot, selectedCandidateEvaluation), GetPrimaryFulfillment(resourceSnapshot, sourceBaselineEvaluation)) <= 0;
             if (reinstallNotImproved)
             {
                 result.Confidence = InstallEstimationConfidence.Low;
@@ -870,6 +814,14 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.LowConfidenceKind = InstallEstimationLowConfidenceKind.None;
             result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
             result.ShouldAutoApplyDestination = true;
+        }
+        if (resourceSnapshot.HasUnresolvedAudio || selectedCandidateEvaluation.AudioMatched != resourceSnapshot.AudioReferenceCount)
+        {
+            result.ShouldAutoApplyDestination = false;
+            if (!result.SuggestedDestinationDirectories.Contains(selectedCandidateEvaluation.DirectoryPath))
+            {
+                result.SuggestedDestinationDirectories.Add(selectedCandidateEvaluation.DirectoryPath);
+            }
         }
         return result;
     }
@@ -996,21 +948,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return false;
     }
 
-    private int GetRequiredMatchedForViableAudioHealth(int defined)
-    {
-        if (defined <= 0)
-        {
-            return 0;
-        }
-        for (int matched = 0; matched <= defined; matched++)
-        {
-            if (ComputeHealth(matched, defined) > innerWavHealthThreshold)
-            {
-                return matched;
-            }
-        }
-        return defined + 1;
-    }
+    private int GetRequiredMatchedForViableAudioHealth(int defined) => defined <= 0
+        ? 0 : (int)((long)defined * innerWavHealthThreshold / 100) + 1;
 
     private static bool HasRequiredAudioMatchesForViability(IReadOnlyCollection<ChartResourceSnapshot.ResourceReference> targetAudioReferences, CandidateResourceView candidateView, CandidateResourceView bundledView, int requiredMatchedForViableHealth)
     {
@@ -1042,15 +981,6 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
 
         return false;
-    }
-
-    private static int ComputeHealth(int matched, int defined)
-    {
-        if (defined <= 0)
-        {
-            return 100;
-        }
-        return (int)Math.Round(100.0 * matched / defined, MidpointRounding.AwayFromZero);
     }
 
     private static void SetNoViableDestinationResult(InstallEstimationResult result)
@@ -1251,10 +1181,10 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             VisualDefined = snapshot.VisualReferenceCount,
             MovieDefined = snapshot.MovieReferenceCount,
             OptionalImageDefined = snapshot.OptionalImageReferenceCount,
-            AudioCandidateCount = CountUnion(candidateView.AudioRelativePathHashes, bundledView.AudioRelativePathHashes),
-            VisualCandidateCount = CountUnion(candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes),
-            MovieCandidateCount = CountUnion(candidateView.MovieRelativePathHashes, bundledView.MovieRelativePathHashes),
-            OptionalImageCandidateCount = CountUnion(candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes),
+            AudioCandidateCount = candidateView.AudioRelativePathHashes.Count,
+            VisualCandidateCount = candidateView.VisualRelativePathHashes.Count,
+            MovieCandidateCount = candidateView.MovieRelativePathHashes.Count,
+            OptionalImageCandidateCount = candidateView.VisualRelativePathHashes.Count,
             AudioFileCount = CountUnion(candidateView.AudioRelativePathHashes, candidateView.VisualRelativePathHashes, candidateView.MovieRelativePathHashes, bundledView.AudioRelativePathHashes, bundledView.VisualRelativePathHashes, bundledView.MovieRelativePathHashes)
         };
         if (candidateView.TotalResourceCount > 0 || bundledView.TotalResourceCount > 0)
@@ -1264,13 +1194,13 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             int movieMatched = CountMatchedReferences(snapshot.MovieReferences, candidateView.MovieRelativePathHashes, bundledView.MovieRelativePathHashes);
             int optionalMatched = CountMatchedReferences(snapshot.OptionalImageReferences, candidateView.VisualRelativePathHashes, bundledView.VisualRelativePathHashes);
             evaluation.AudioMatched = audioMatched;
-            evaluation.AudioExactMatched = audioMatched;
+            evaluation.AudioExactMatched = CountMatchedReferences(snapshot.AudioReferences, candidateView.AudioRelativePathHashes, null);
             evaluation.VisualMatched = visualMatched;
-            evaluation.VisualExactMatched = visualMatched;
+            evaluation.VisualExactMatched = CountMatchedReferences(snapshot.VisualReferences, candidateView.VisualRelativePathHashes, null);
             evaluation.MovieMatched = movieMatched;
-            evaluation.MovieExactMatched = movieMatched;
+            evaluation.MovieExactMatched = CountMatchedReferences(snapshot.MovieReferences, candidateView.MovieRelativePathHashes, null);
             evaluation.OptionalImageMatched = optionalMatched;
-            evaluation.OptionalImageExactMatched = optionalMatched;
+            evaluation.OptionalImageExactMatched = CountMatchedReferences(snapshot.OptionalImageReferences, candidateView.VisualRelativePathHashes, null);
         }
 
         if (matchStopwatch != null)
@@ -1436,6 +1366,30 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return total;
     }
 
+    private static RatioMetric GetPrimaryFulfillment(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
+    {
+        if (evaluation == null)
+        {
+            return new RatioMetric(0, 0, 1);
+        }
+
+        if (snapshot.AudioReferenceCount > 0)
+        {
+            return BuildFulfillmentMetric(evaluation.AudioMatched, evaluation.AudioDefined);
+        }
+
+        RatioMetric best = BuildFulfillmentMetric(evaluation.VisualMatched, evaluation.VisualDefined);
+        foreach (RatioMetric next in new[] { BuildFulfillmentMetric(evaluation.MovieMatched, evaluation.MovieDefined), BuildFulfillmentMetric(evaluation.OptionalImageMatched, evaluation.OptionalImageDefined) })
+        {
+            if (CompareRatioMetric(next, best) > 0)
+            {
+                best = next;
+            }
+        }
+
+        return best;
+    }
+
     private static int GetPrimaryHealth(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
     {
         if (evaluation == null)
@@ -1447,12 +1401,40 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             : Math.Max(evaluation.VisualHealth, Math.Max(evaluation.MovieHealth, evaluation.OptionalImageHealth));
     }
 
-    private bool IsViableDestination(int primaryHealth)
+    private bool IsViableDestination(ChartResourceSnapshot snapshot, CandidateEvaluation evaluation)
     {
-        return primaryHealth > innerWavHealthThreshold;
+        if (evaluation == null)
+        {
+            return false;
+        }
+
+        bool Above(int matched, int defined) => defined > 0 && (long)matched * 100 > (long)defined * innerWavHealthThreshold;
+        return snapshot.AudioReferenceCount > 0 ? Above(evaluation.AudioMatched, evaluation.AudioDefined)
+            : Above(evaluation.VisualMatched, evaluation.VisualDefined) || Above(evaluation.MovieMatched, evaluation.MovieDefined)
+                || Above(evaluation.OptionalImageMatched, evaluation.OptionalImageDefined);
     }
 
+    /// <summary>同梱と候補の和集合で音声欠損ゼロを検査します。未取得や定義済み参照の照合不能を空成功へ置き換えません。</summary>
+    internal static bool HasCompleteAudio(ChartResourceSnapshot resources, DirectoryResourceLookupCache.Entry bundled, DirectoryResourceLookupCache.Entry candidate)
+    {
+        if (resources == null || resources.HasUnresolvedAudio)
+        {
+            return false;
+        }
 
+        if (resources.AudioReferenceCount == 0)
+        {
+            return true;
+        }
+
+        if (candidate == null && bundled == null)
+        {
+            return false;
+        }
+
+        return CountMatchedReferences(resources.AudioReferences, CreateCandidateResourceView(candidate).AudioRelativePathHashes,
+            CreateCandidateResourceView(bundled).AudioRelativePathHashes) == resources.AudioReferenceCount;
+    }
 
     private static void ApplyMetadataTieBreakFrontier(List<CandidateEvaluation> orderedCandidates, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, InstallEstimationResult result)
     {
@@ -1650,85 +1632,85 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             return -1;
         }
 
-        int comparison = CompareDescending(left.AudioHealth, right.AudioHealth);
+        int comparison = CompareRatioForSort(BuildFulfillmentMetric(left.AudioMatched, left.AudioDefined), BuildFulfillmentMetric(right.AudioMatched, right.AudioDefined));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareDescending(left.AudioMatched, right.AudioMatched);
+        comparison = CompareDescending(left.AudioExactMatched, right.AudioExactMatched);
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildJaccardMetric(left.AudioMatched, left.AudioDefined, left.AudioCandidateCount), BuildJaccardMetric(right.AudioMatched, right.AudioDefined, right.AudioCandidateCount));
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.AudioExactMatched, left.AudioDefined, left.AudioCandidateCount), BuildJaccardMetric(right.AudioExactMatched, right.AudioDefined, right.AudioCandidateCount));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildPrecisionMetric(left.AudioMatched, left.AudioDefined, left.AudioCandidateCount), BuildPrecisionMetric(right.AudioMatched, right.AudioDefined, right.AudioCandidateCount));
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-
-        comparison = CompareDescending(left.VisualHealth, right.VisualHealth);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-        comparison = CompareDescending(left.VisualMatched, right.VisualMatched);
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-        comparison = CompareRatioForSort(BuildJaccardMetric(left.VisualMatched, left.VisualDefined, left.VisualCandidateCount), BuildJaccardMetric(right.VisualMatched, right.VisualDefined, right.VisualCandidateCount));
-        if (comparison != 0)
-        {
-            return comparison;
-        }
-        comparison = CompareRatioForSort(BuildPrecisionMetric(left.VisualMatched, left.VisualDefined, left.VisualCandidateCount), BuildPrecisionMetric(right.VisualMatched, right.VisualDefined, right.VisualCandidateCount));
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.AudioExactMatched, left.AudioDefined, left.AudioCandidateCount), BuildPrecisionMetric(right.AudioExactMatched, right.AudioDefined, right.AudioCandidateCount));
         if (comparison != 0)
         {
             return comparison;
         }
 
-        comparison = CompareDescending(left.MovieHealth, right.MovieHealth);
+        comparison = CompareRatioForSort(BuildFulfillmentMetric(left.VisualMatched, left.VisualDefined), BuildFulfillmentMetric(right.VisualMatched, right.VisualDefined));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareDescending(left.MovieMatched, right.MovieMatched);
+        comparison = CompareDescending(left.VisualExactMatched, right.VisualExactMatched);
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildJaccardMetric(left.MovieMatched, left.MovieDefined, left.MovieCandidateCount), BuildJaccardMetric(right.MovieMatched, right.MovieDefined, right.MovieCandidateCount));
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.VisualExactMatched, left.VisualDefined, left.VisualCandidateCount), BuildJaccardMetric(right.VisualExactMatched, right.VisualDefined, right.VisualCandidateCount));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildPrecisionMetric(left.MovieMatched, left.MovieDefined, left.MovieCandidateCount), BuildPrecisionMetric(right.MovieMatched, right.MovieDefined, right.MovieCandidateCount));
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.VisualExactMatched, left.VisualDefined, left.VisualCandidateCount), BuildPrecisionMetric(right.VisualExactMatched, right.VisualDefined, right.VisualCandidateCount));
         if (comparison != 0)
         {
             return comparison;
         }
 
-        comparison = CompareDescending(left.OptionalImageHealth, right.OptionalImageHealth);
+        comparison = CompareRatioForSort(BuildFulfillmentMetric(left.MovieMatched, left.MovieDefined), BuildFulfillmentMetric(right.MovieMatched, right.MovieDefined));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareDescending(left.OptionalImageMatched, right.OptionalImageMatched);
+        comparison = CompareDescending(left.MovieExactMatched, right.MovieExactMatched);
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildJaccardMetric(left.OptionalImageMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildJaccardMetric(right.OptionalImageMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.MovieExactMatched, left.MovieDefined, left.MovieCandidateCount), BuildJaccardMetric(right.MovieExactMatched, right.MovieDefined, right.MovieCandidateCount));
         if (comparison != 0)
         {
             return comparison;
         }
-        comparison = CompareRatioForSort(BuildPrecisionMetric(left.OptionalImageMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildPrecisionMetric(right.OptionalImageMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.MovieExactMatched, left.MovieDefined, left.MovieCandidateCount), BuildPrecisionMetric(right.MovieExactMatched, right.MovieDefined, right.MovieCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+
+        comparison = CompareRatioForSort(BuildFulfillmentMetric(left.OptionalImageMatched, left.OptionalImageDefined), BuildFulfillmentMetric(right.OptionalImageMatched, right.OptionalImageDefined));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareDescending(left.OptionalImageExactMatched, right.OptionalImageExactMatched);
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildJaccardMetric(left.OptionalImageExactMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildJaccardMetric(right.OptionalImageExactMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
+        if (comparison != 0)
+        {
+            return comparison;
+        }
+        comparison = CompareRatioForSort(BuildPrecisionMetric(left.OptionalImageExactMatched, left.OptionalImageDefined, left.OptionalImageCandidateCount), BuildPrecisionMetric(right.OptionalImageExactMatched, right.OptionalImageDefined, right.OptionalImageCandidateCount));
         if (comparison != 0)
         {
             return comparison;
@@ -1840,7 +1822,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             if (ancestor == null
                 || suppressedDirectories.Contains(ancestor.DirectoryPath ?? string.Empty)
-                || !IsViableDestination(GetPrimaryHealth(snapshot, ancestor)))
+                || !IsViableDestination(snapshot, ancestor))
             {
                 continue;
             }
@@ -1854,7 +1836,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             List<CandidateEvaluation> viableDescendants = [.. descendantDirectories
                 .Where(descendantDir => !string.IsNullOrWhiteSpace(descendantDir) && !suppressedDirectories.Contains(descendantDir))
                 .Select(descendantDir => evaluationsByDirectory.TryGetValue(descendantDir, out CandidateEvaluation descendant) ? descendant : null)
-                .Where(descendant => descendant != null && IsViableDestination(GetPrimaryHealth(snapshot, descendant)))];
+                .Where(descendant => descendant != null && IsViableDestination(snapshot, descendant))];
             if (viableDescendants.Count == 0)
             {
                 continue;
@@ -1913,6 +1895,9 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         return right.CompareTo(left);
     }
 
+    private static RatioMetric BuildFulfillmentMetric(int matched, int defined) => defined <= 0
+        ? new RatioMetric(0, 0, 1) : new RatioMetric(1, matched, defined);
+
     private static RatioMetric BuildPrecisionMetric(int matched, int defined, int candidateCount)
     {
         if (defined <= 0)
@@ -1936,7 +1921,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         {
             return new RatioMetric(0, 0L, 1L);
         }
-        int unionCount = defined + candidateCount - matched;
+        long unionCount = (long)defined + candidateCount - matched;
         if (unionCount <= 0)
         {
             return new RatioMetric(2, 1L, 1L);

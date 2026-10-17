@@ -321,6 +321,12 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 
 意味付きの説明がないメイン一覧の通常テキスト列は原則として省略時に全文を表示します。ただし `Status`、`Mode`、`Clear`、`Rank`、`Rate`、`ChartDifficulty`、`ChartJudge`、`WavHealth`、`BgaHealth`、`MovieHealth` は対象外です。プレイリスト一覧では `PlaylistId`、`OutputBase`、`CompatPrefix`、`Symbol`、`IsExternalSync`、`IsRootFolder`、`BmtSort`、`IsBmtOutput` を対象外とします。
 
+### リソース健全性の3列
+
+`WAV`・`BGA`・`MOVIE` は、各カテゴリの使用ファイルキーの存在数／要求数を百分率で表示します。未使用定義の欠損を分母へ加えず、同一ファイルへの複数ID参照は一件です。不足が一件でもあれば100%と表示しません。要求0件は対象外の `-`、未検査・未解決で数値を求められない場合も `-` とします。内部の検査済み判定は表示値から決めません。
+
+不足警告の詳細は `WARNING` のツールチップで確認します。列の表示やツールチップのために譜面の再読取りや広域走査を開始しません。計数・保存は[リソース健全性](../core/data-and-indexes.md#リソース健全性)、警告の投影・更新は[警告仕様](../library/warnings.md#リソース状態の評価)に従います。
+
 ### 列定義と変更時の整合
 
 `CustomTableColumn` は識別子、見出し、設定、並べ替え項目、文字列・色・説明・チェック状態の取得方法、セルの種類、編集先と候補取得方法を定義します。セルの種類は `Text`、`DownloadIcon`、`StatusIcon`、`ActionText`、`CheckBox` です。`SortMemberPath` がなければ並べ替え不可、`EditPropertyName` がなければ編集不可です。
@@ -333,6 +339,7 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | --- | --- | --- |
 | 保存済み列設定の保持と欠損補完 | [`CustomTableColumnSettings`](../../../BeMusicSeeker/ViewModels/ChartList/CustomTableColumnSettings.cs)、[`PlaylistSummaryColumnSettings`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistSummaryColumnSettings.cs) | [`CustomTableColumnSettingsTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnSettingsTests.cs) は保存済みの選択・幅等を保持し、欠損した設定だけを補うことと非表示列を含む表示位置の一意性を確認する。既定値の全一覧・全順序は固定しない。 |
 | 列の定義、意味付きの説明、表示と編集の値 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) |
+| WAV・BGA・MOVIEの未判定／対象外表示と数値の百分率表示 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の各列の文字列取得 | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) で実際の列formatterへnullと数値を渡し、3列の `-` と百分率を確認する。計数・検査済み判定は保守テストへ分担する。 |
 | 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
 | 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
 | 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |

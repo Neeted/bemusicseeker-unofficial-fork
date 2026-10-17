@@ -36,7 +36,7 @@ public sealed class BMSFileSnapshotTests
                 + "#STAGEFILE stage.png\r\n"
                 + "#BACKBMP back.png\r\n"
                 + "#WAV01 keysound.wav\r\n"
-                + "#BMP01 image.png\r\n"
+                + "#BMP01 image.png\r\n#00104:01\r\n"
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
             var lastWriteTimeUtc = new DateTime(2026, 5, 2, 1, 2, 3, DateTimeKind.Utc);
@@ -254,11 +254,11 @@ public sealed class BMSFileSnapshotTests
                 + "#STAGEFILE stage.jpg\r\n"
                 + "#BACKBMP back.jpeg\r\n"
                 + "#WAV01 sound.ogg\r\n"
-                + "#WAV02 audio/hit.mp3\r\n"
-                + "#WAV03\r\n"
-                + "#BMP01 image.jpg\r\n"
-                + "#BMP02 movie.mp4\r\n"
-                + "#BMP03 C:\\absolute.png\r\n"
+                + "#WAV02 audio/hit.mp3\r\n#00101:02\r\n"
+                + "#WAV03\r\n#00101:03\r\n"
+                + "#BMP01 image.jpg\r\n#00104:01\r\n"
+                + "#BMP02 movie.mp4\r\n#00104:02\r\n"
+                + "#BMP03 C:\\absolute.png\r\n#00104:03\r\n"
                 + "#UNKNOWN ignored\r\n"
                 + "#00111 01\r\n"
                 + "#00112:00\r\n"
@@ -482,9 +482,9 @@ public sealed class BMSFileSnapshotTests
                 "#PLAYER 1\r\n"
                 + "#TITLE Resources\r\n"
                 + "#WAV01 .\\sound\\kick.wav\r\n"
-                + "#BMP01 visual\\bg.final.png\r\n"
-                + "#BMP02 movie\\op.mpg\r\n"
-                + "#WAV02 ..\\shared\\hit.wav\r\n"
+                + "#BMP01 visual\\bg.final.png\r\n#00104:01\r\n"
+                + "#BMP02 movie\\op.mpg\r\n#00104:02\r\n"
+                + "#WAV02 ..\\shared\\hit.wav\r\n#00101:02\r\n"
                 + "#00111:01\r\n",
                 Encoding.GetEncoding("shift_jis"));
 
@@ -643,7 +643,7 @@ public sealed class BMSFileSnapshotTests
             const string subartist = "obj:Tester";
             const string genre = "KoreanGenre";
             File.WriteAllText(filePath,
-                "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n",
+                "#PLAYER 1\r\n#TITLE " + title + "\r\n#SUBTITLE " + subtitle + "\r\n#ARTIST " + artist + "\r\n#SUBARTIST " + subartist + "\r\n#GENRE " + genre + "\r\n#WAV01 sound.wav\r\n#00101:01\r\n",
                 Encoding.GetEncoding("ks_c_5601-1987"));
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(filePath);
             ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);

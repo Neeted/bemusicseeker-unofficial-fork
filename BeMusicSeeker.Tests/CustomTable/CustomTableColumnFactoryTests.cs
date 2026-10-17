@@ -298,6 +298,46 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsTrue(columns["Hash"].AutoTrimTooltip);
     }
 
+    /// <summary>実健康度列のformatterで未検査・要求0・未解決を「-」にし、要求ありの0/25/100%と別列のKEYS表示を保持します。</summary>
+    [TestMethod]
+    public void CreateMainColumns_ResourceHealthFormatsUnknownAsDashAndRetainsNumericSuffixes()
+    {
+        var settings = new CustomTableColumnSettings();
+        settings.WavHealth.Visibility = settings.BgaHealth.Visibility = settings.MovieHealth.Visibility = settings.Mode.Visibility = Visibility.Visible;
+        var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
+        CustomTableColumn[] healthColumns = [columns["WavHealth"], columns["BgaHealth"], columns["MovieHealth"]];
+        var uncheckedRow = LibraryChartRow.FromChartFile(ChartTestValues.Empty());
+        foreach (CustomTableColumn column in healthColumns)
+        {
+            Assert.AreEqual("-", column.GetText(uncheckedRow), column.Id);
+        }
+
+        // 件数を持つ通常行を実列へ渡し、0要求と要求あり0%を表示境界でも区別します。
+        foreach ((int? defined, int? existing, string expected) in new (int?, int?, string)[]
+            { (0, 0, "-"), (null, null, "-"), (4, 0, "0%"), (4, 1, "25%"), (1, 1, "100%") })
+        {
+            var info = new ResourceHealthMaintenanceSnapshot
+            {
+                StagefileDefined = false,
+                BannerDefined = false,
+                BackbmpDefined = false,
+                WavFilesDefined = defined,
+                WavFilesExisting = existing,
+                BgaFilesDefined = defined,
+                BgaFilesExisting = existing,
+                MovieFilesDefined = defined,
+                MovieFilesExisting = existing
+            };
+            var row = LibraryChartRow.FromChartFile(ChartFileProjection.WithMaintenance(ChartTestValues.Empty(), info));
+            foreach (CustomTableColumn column in healthColumns)
+            {
+                Assert.AreEqual(expected, column.GetText(row), column.Id);
+            }
+        }
+        Assert.AreEqual("?KEYS", columns["Mode"].GetText(uncheckedRow));
+        Assert.AreEqual("7KEYS", columns["Mode"].GetText(LibraryChartRow.FromChartFile(ChartTestValues.Empty() with { Mode = 7 })));
+    }
+
     /// <summary>表示した履歴の全テキスト列を省略時tooltipの対象へ渡すことを確認し、履歴の長い表示内容へ到達できなくなる設定漏れを検出します。</summary>
     [TestMethod]
     public void CreateMainColumns_PlayHistoryTextColumnsUseTrimTooltips()

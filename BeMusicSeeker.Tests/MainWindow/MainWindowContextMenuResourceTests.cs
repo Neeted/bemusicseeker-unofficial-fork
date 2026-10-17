@@ -230,26 +230,23 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateManualInstall([null!]));
     }
 
-    /// <summary>単独譜面を実パスのentryへ変換してパッケージ対象と区別し、探索種別と不正要求拒否を保つことを確認し、探索対象や導入先/結合先の誤配送を検出します。</summary>
+    /// <summary>単独譜面を実パスのentryへ変換してパッケージ対象と区別し、不正要求拒否を保つことを確認し、探索対象の誤配送を検出します。</summary>
     [TestMethod]
-    public void PendingInstallDestinationSearchRequest_MaterializesLooseTargetsAndPreservesKind()
+    public void PendingInstallDestinationSearchRequest_MaterializesLooseTargets()
     {
         ChartOperationTarget target = CreateContextMenuTarget(
             ChartFileKind.Bms,
             ChartOperationCapabilities.UpdateInstallDestination);
 
         var installSearch = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
-        var mergeSearch = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
 
-        Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, installSearch.Kind);
         Assert.IsTrue(installSearch.HasTargets);
         Assert.AreEqual(1, installSearch.SelectedRowCount);
         Assert.AreEqual(0, installSearch.PackageTargets.Count);
         Assert.AreEqual(1, installSearch.LooseEntries.Count);
         Assert.AreEqual(target.Chart.Path, installSearch.LooseEntries[0].Chart.Path);
-        Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, mergeSearch.Kind);
         Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([]));
-        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([null!]));
+        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([null!]));
     }
 
     /// <summary>単独譜面を実パスのentryへ変換し空・欠損選択は解除要求を作らないことを確認し、対象変換漏れや空操作の受付を検出します。</summary>

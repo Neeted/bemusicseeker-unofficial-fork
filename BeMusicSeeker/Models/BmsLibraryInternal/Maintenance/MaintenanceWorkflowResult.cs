@@ -4,9 +4,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class MaintenanceWorkflowResult
 {
-    /// <summary>確定後に所持集合へ適用する共通現在値です。</summary>
+    /// <summary>保存が必要な値の確定後に反映する現在値です。保存同値でDB書込みを要しない警告投影だけの変更も含みます。</summary>
     internal List<ChartFile> ChangedCharts { get; } = [];
 
+    /// <summary>保存値または警告投影に更新があるかを表します。DB書込みの有無とは別に、保存同値の警告表示変更も含みます。</summary>
     public bool HasUpdates { get; set; }
 
     public int CheckedFileCount { get; set; }
@@ -153,6 +154,7 @@ internal sealed class MaintenanceWorkflowResultFacts
         TotalMs = source?.TotalMs ?? 0L;
     }
 
+    /// <summary>保存値または警告投影に更新があるかを保持します。保存同値の警告表示変更も含み、DB書込みの有無は表しません。</summary>
     internal bool HasUpdates { get; }
     internal int CheckedFileCount { get; }
     internal int BmsResourceTargetCount { get; }
@@ -199,7 +201,7 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal bool Canceled { get; }
     internal long TotalMs { get; }
 
-    /// <summary>DB確定済みの共通現在値を、受渡し中に変更されない対象集合として保持します。</summary>
+    /// <summary>保存が必要な値の確定後に反映する共通現在値を、不変の対象集合として保持します。DB書込みを要しない保存同値の警告投影変更も含みます。</summary>
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
 
     internal static MaintenanceWorkflowResultFacts From(MaintenanceWorkflowResult source)

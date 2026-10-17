@@ -1575,6 +1575,22 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>自動新規導入に音声以外を含む全使用リソースの完全性を要求します。既定は無効です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool RequireCompleteUsedResourcesForAutoInstall
+    {
+        get
+        {
+            return (bool)this["RequireCompleteUsedResourcesForAutoInstall"];
+        }
+        set
+        {
+            this["RequireCompleteUsedResourcesForAutoInstall"] = value;
+        }
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]

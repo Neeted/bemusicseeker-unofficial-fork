@@ -33,6 +33,29 @@ BMSは `BMSDecoder`、`Section`、`BMSModel`、`TimeLine`、BMSONは `BMSONDecod
 
 チャンネル行は `#mmmcc\s*:(.*)` の形を許容しますが、コロンの後をトリムしません。コロンのない行も従来の切出しで受理し、行全体をチャンネルデータとして扱います。後続を二文字ずつ切り、最後の一文字は無視します。例えば `#01301: 100` の先頭は空白と `1` の組であり、空白を取り除いて有効ノートへ変えません。
 
+### 軽量解析の使用リソース
+
+健康度と導入先推定は、定義行の全数ではなく、使用されるIDから解決したファイルを要求します。同じ種別・正規化済み相対キーへの複数ID参照は一件です。詳細解析のノート配置やRANDOMの選択結果を軽量解析へ持ち込みません。
+
+| 形式・記述 | 使用要求の条件 |
+| --- | --- |
+| BMS/PMSの01、1x/2x、3x/4x、5x/6x | 非ゼロの音声ID。LNOBJの定義先も音声要求へ含める |
+| BMS/PMSのDx/Ex | 非ゼロの地雷があり、WAV00が定義されている場合だけ地雷音を要求する。データ値はダメージであり音声IDではない |
+| BMS/PMSの04/06/07/0A | 非ゼロの画像IDからBMP定義を解決する。定義されたBMP00は初期ミス画像として使用する |
+| BMS/PMSのRANDOM/IF | 到達可能性を評価せず、記述された全分岐の使用参照を集める。同一使用IDに複数パスの定義があればすべてを対象にする |
+| BMS/PMSのBASE62 | 音声・画像IDの大小文字を区別する。チャンネル識別自体の解釈とは分ける |
+| BMSONのsound/key/mineチャンネル | ノートを持つチャンネルの音声を対象にする。preview_musicの既存の明示参照も維持する |
+| BMSONのBGA/LAYER/POORイベント | 数値IDで参照されたヘッダーを対象にし、未参照ヘッダーを要求しない |
+| 補助画像 | STAGEFILE・BANNER・BACKBMP等の既存の明示参照を別用途として維持する |
+
+軽量解析ではRANDOM/IFの実行条件を評価せず、不成立のIFや入れ子を含む全行から使用IDを収集します。LNOBJによる除外は行いません。同じ使用IDの定義先は、条件の有無や行順を問わずすべて要求へ含め、同じ種別・正規化済みパスの重複を除きます。これは詳細ノート解析や再生側の条件分岐・LNOBJ解釈とは別の契約です。
+
+WAV00・BMP00の省略や、定義のない使用WAV/BMP IDは要求へ含めません。BMSONのBGA/LAYER/POORイベントにも、対応ヘッダーのないIDは同じ扱いを適用します。これらは健康度・不足警告・導入自動設定を変えません。定義済みの使用参照の不正パスや空nameなどの照合不能・読取り失敗は0件成功へ読み替えません。未使用定義の欠損や親参照は使用要求の完全性を妨げません。
+
+パッケージ発見・グループ化は全定義由来の存在確認・共通率を維持します。LR2の原文・CP932・パス診断も別用途として維持し、使用要求と混同しません。全定義と使用IDの集合を永続化しません。
+
+地雷音の用途は[参照解析器](https://github.com/exch-bms2/jbms-parser/blob/master/src/bms/model/Section.java)、BMP00と0Aは[プレイヤーの仕様](https://github.com/lifthrasiir/angolmois/blob/master/INTERNALS.md)、BMSONの音声・BGAイベントは[形式仕様](https://bmson-spec.readthedocs.io/en/master/doc/index.html)を根拠とします。使用判定は構文上の参照収集であり、すべてのプレイヤーの実行結果の再現を保証するものではありません。
+
 ### 整数と浮動小数点数
 
 整数はJavaの `Integer.parseInt` 相当とし、文字列全体が有効である必要があります。`12abc`、`12.5`、桁あふれを先頭の整数として受け入れません。Unicodeの十進数字は受け入れ、`４` は4、`2８` は28になります。
@@ -162,6 +185,7 @@ BGA使用は、BMSのBGA・LAYERチャンネルまたはBMSONの `bga_events` �
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 文字コード、構文、条件分岐、LN、BMSON、難易度 | [`ChartInfoParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs) |
+| 軽量解析の使用参照、重複キー、特殊ID、全行収集、未定義除外 | [`BmsChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsChartFileParser.cs)、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | [`ChartResourceSnapshotTests`](../../../BeMusicSeeker.Tests/Resources/ChartResourceSnapshotTests.cs)、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) で実入力から使用要求と定義済み照合不能を確認する。`ParseSnapshot_CollectsAllLinesWithoutEvaluatingConditions` は不成立IF・入れ子の収集、`ParseSnapshot_LnobjDefinitionIsRequiredForEveryAudioChannel` はLNOBJを除外しない音声要求を確認する。詳細ノート解析とは分担する。 |
 | 生成済み前駆、非単調座標、LN探索・被覆、診断順、文字列保持モード | [`BMS入力と疎な操作`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.BmsTimeline.cs)、[`共通集計とUTF-8出力`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/ChartInfoParser.Output.cs) | [`ChartInfoParserBoundaryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBoundaryTests.cs)。基準版の小入力結果、全rowのdoubleビット、診断・hash・文字列を確認する。 |
 | Java互換の数値読取りと文字列化 | [`JavaDoubleParserJdk17`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleParserJdk17.cs)、[`JavaDoubleToStringJdk21`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/JavaDoubleToStringJdk21.cs) | [`ChartInfoParserBehaviorTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoParserBehaviorTests.cs)、[`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |
 | 参照DBとの値比較、RANDOMと未定義の扱い | [`ChartInfoCompareRunner`](../../../tools/chart-info-compare/ChartInfoCompareCore.cs) | [`ChartInfoProductionCompareTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoProductionCompareTests.cs) |

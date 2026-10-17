@@ -73,8 +73,20 @@ internal sealed class ChartResourceSnapshot
 
     public int UnsupportedResourceReferenceCount => resourceReferences.Count(IsUnsupported);
 
-    /// <summary>独立した <c>..</c> セグメントが解析で検出された非対応参照を含むかを返します。</summary>
-    public bool HasUnsupportedParentTraversalReference => resourceReferences.Any(reference => reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
+    /// <summary>使用参照に独立した <c>..</c> セグメントがあるかを返します。未使用定義のLR2診断は全原文から別に評価します。</summary>
+    public bool HasUnsupportedParentTraversalReference => resourceReferences.Any(reference => reference.IsUsed && reference.Status == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported);
+
+    /// <summary>定義された使用音声に照合不能なパスがあるかを返します。未定義IDは参照へ含めません。</summary>
+    internal bool HasUnresolvedAudio => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind == ChartResourceKind.Audio);
+
+    /// <summary>種類を確定できないBMPも画像・動画双方の未判定理由にします。</summary>
+    internal bool HasUnresolvedVisual => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind is ChartResourceKind.Image or ChartResourceKind.Unknown);
+
+    /// <summary>使用動画の照合不能と種類不明BMPを返します。</summary>
+    internal bool HasUnresolvedMovie => resourceReferences.Any(reference => IsUnresolved(reference) && reference.Kind is ChartResourceKind.Movie or ChartResourceKind.Unknown);
+
+    private static bool IsUnresolved(ChartResourceReference reference) => reference.IsUsed && reference.Usage == ChartResourceUsage.Normal
+        && (reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey));
 
     public int PathSegmentReferenceCount { get; private set; }
 
@@ -125,14 +137,14 @@ internal sealed class ChartResourceSnapshot
         return Create(chart.Resources ?? throw new InvalidOperationException("Resource references have not been acquired."));
     }
 
-    /// <summary>解析入口で確定済みの結果を索引化します。I/Oや再正規化を行いません。</summary>
-    internal static ChartResourceSnapshot Create(IReadOnlyList<ChartResourceReference> resources)
+    /// <summary>解析入口で確定済みの使用参照を索引化します。発見・グループ化だけはincludeUnusedで全定義を一時取得します。I/Oや再正規化を行いません。</summary>
+    internal static ChartResourceSnapshot Create(IReadOnlyList<ChartResourceReference> resources, bool includeUnused = false)
     {
         ArgumentNullException.ThrowIfNull(resources);
         var snapshot = new ChartResourceSnapshot();
         foreach (ChartResourceReference reference in resources)
         {
-            snapshot.AddReference(reference);
+            snapshot.AddReference(reference, includeUnused);
         }
 
         snapshot.PathSegmentReferenceCount = snapshot.EnumerateAllRelativePaths().Count(IsNormalizedPathAware);
@@ -154,10 +166,11 @@ internal sealed class ChartResourceSnapshot
         return aggregate;
     }
 
-    private void AddReference(ChartResourceReference reference)
+    private void AddReference(ChartResourceReference reference, bool includeUnused = false)
     {
         resourceReferences.Add(reference);
-        if (reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey))
+        if ((!includeUnused && !reference.IsUsed)
+            || reference.Status != ChartResourcePathNormalizationStatus.Valid || string.IsNullOrWhiteSpace(reference.LookupKey))
         {
             return;
         }

@@ -846,6 +846,8 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool tempKeepInstallablePackagesPending;
 
+    private bool tempRequireCompleteUsedResourcesForAutoInstall;
+
     private bool tempAutoApplyAmbiguousInstallDestination;
 
     private bool tempDeletePendingPackageSourceAfterInstall;
@@ -3709,6 +3711,23 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>自動新規導入で音声・画像・動画・補助画像をすべて要求するかを編集します。</summary>
+    public bool RequireCompleteUsedResourcesForAutoInstall
+    {
+        get
+        {
+            return ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall;
+        }
+        set
+        {
+            if (ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall != value)
+            {
+                ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = value;
+                RaisePropertyChanged("RequireCompleteUsedResourcesForAutoInstall");
+            }
+        }
+    }
+
     public bool AutoApplyAmbiguousInstallDestination
     {
         get
@@ -6301,6 +6320,7 @@ public partial class SettingsDialogViewModel : ViewModel
         tempEnableDownloadLr2IrScoreAndDetectUnsent = ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent;
         tempEnableAutoInstall = ApplicationSettings.AutoInstall;
         tempKeepInstallablePackagesPending = ApplicationSettings.KeepInstallablePackagesPending;
+        tempRequireCompleteUsedResourcesForAutoInstall = ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall;
         tempAutoApplyAmbiguousInstallDestination = ApplicationSettings.AutoApplyAmbiguousInstallDestination;
         tempDeletePendingPackageSourceAfterInstall = ApplicationSettings.DeletePendingPackageSourceAfterInstall;
         tempEnableSmartComponentOverwrite = ApplicationSettings.EnableSmartComponentOverwrite;
@@ -6435,6 +6455,7 @@ public partial class SettingsDialogViewModel : ViewModel
             || tempEnableDownloadLr2IrScoreAndDetectUnsent != ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent
             || tempEnableAutoInstall != ApplicationSettings.AutoInstall
             || tempKeepInstallablePackagesPending != ApplicationSettings.KeepInstallablePackagesPending
+            || tempRequireCompleteUsedResourcesForAutoInstall != ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall
             || tempAutoApplyAmbiguousInstallDestination != ApplicationSettings.AutoApplyAmbiguousInstallDestination
             || tempDeletePendingPackageSourceAfterInstall != ApplicationSettings.DeletePendingPackageSourceAfterInstall
             || tempEnableSmartComponentOverwrite != ApplicationSettings.EnableSmartComponentOverwrite
@@ -7619,6 +7640,7 @@ public partial class SettingsDialogViewModel : ViewModel
         ApplicationSettings.EnableDownloadLr2IrScoreAndDetectUnsent = tempEnableDownloadLr2IrScoreAndDetectUnsent;
         ApplicationSettings.AutoInstall = tempEnableAutoInstall;
         ApplicationSettings.KeepInstallablePackagesPending = tempKeepInstallablePackagesPending;
+        ApplicationSettings.RequireCompleteUsedResourcesForAutoInstall = tempRequireCompleteUsedResourcesForAutoInstall;
         ApplicationSettings.AutoApplyAmbiguousInstallDestination = tempAutoApplyAmbiguousInstallDestination;
         ApplicationSettings.DeletePendingPackageSourceAfterInstall = tempDeletePendingPackageSourceAfterInstall;
         ApplicationSettings.EnableSmartComponentOverwrite = tempEnableSmartComponentOverwrite;
@@ -7721,6 +7743,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(EnableDownloadLr2IrScoreAndDetectUnsent));
         RaisePropertyChanged(nameof(EnableAutoInstall));
         RaisePropertyChanged(nameof(KeepInstallablePackagesPending));
+        RaisePropertyChanged(nameof(RequireCompleteUsedResourcesForAutoInstall));
         RaisePropertyChanged(nameof(AutoApplyAmbiguousInstallDestination));
         RaisePropertyChanged(nameof(DeletePendingPackageSourceAfterInstall));
         RaisePropertyChanged(nameof(EnableSmartComponentOverwrite));

@@ -99,12 +99,15 @@ function New-FunctionalShardPlan {
     $parallelTests = @($regularTests | Where-Object { -not [bool]$_.DoNotParallelize })
     $parallelATests = @()
     $parallelBTests = @()
-    for ($index = 0; $index -lt $parallelTests.Count; $index++) {
-        if (($index % 2) -eq 0) {
-            $parallelATests += $parallelTests[$index]
+    foreach ($test in $parallelTests) {
+        # 無関係なメソッドの追加・削除で既存テストの所属を反転させない。
+        $nameBytes = [System.Text.Encoding]::UTF8.GetBytes([string]$test.FullyQualifiedName)
+        $nameHash = [System.Security.Cryptography.SHA256]::HashData($nameBytes)
+        if (($nameHash[0] % 2) -eq 0) {
+            $parallelATests += $test
         }
         else {
-            $parallelBTests += $parallelTests[$index]
+            $parallelBTests += $test
         }
     }
     if ($parallelATests.Count -eq 0 -or $parallelBTests.Count -eq 0) {

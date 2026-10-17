@@ -2357,7 +2357,7 @@ public sealed class PlaylistViewPipelineTests
 
     }
 
-    /// <summary>bmsonの最新maintenance encoding・healthと導入先・警告を同じ表示譜面へ合成し、一方の投影が他方を落としません。</summary>
+    /// <summary>bmsonの最新maintenance encoding・healthと導入先・警告を同じ表示譜面へ合成し、一方の投影が他方を落としません。動画0件は対象外のnullを維持します。</summary>
     [TestMethod]
     public void LibraryChartRow_BmsonChartCombinesFreshSongMaintenanceWithTransientState()
     {
@@ -2385,7 +2385,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(100, chart.WAVHealth);
         Assert.AreEqual(100, chart.BGAHealth);
-        Assert.AreEqual(100, chart.MovieHealth);
+        Assert.IsNull(chart.MovieHealth);
         Assert.AreEqual("utf-16", chart.EncodingName);
         Assert.AreEqual("C:\\Installed\\Bmson", chart.InstallDestination);
         Assert.IsTrue(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAmbiguous));

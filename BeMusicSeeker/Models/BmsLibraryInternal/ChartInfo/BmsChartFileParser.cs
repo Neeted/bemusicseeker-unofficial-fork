@@ -10,7 +10,7 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>捕捉済みの入力からBMS基本値と同じ不変リソース結果を生成します。保存行の生成や再読取りを行いません。</summary>
+/// <summary>捕捉済み入力からBMS基本値と不変リソース結果を生成します。条件分岐やLNOBJを評価せず全行の使用IDと全定義先を対応付け、未定義IDは要求へ含めません。保存行の生成や再読取りを行いません。</summary>
 internal static class BmsChartFileParser
 {
     private static readonly Regex visibleObjectChRegex = new("^[\\s\u3000]*#[0-9]{3}(?:[12][1-9A-Z]|[56][1-9A-Z])(?:[\\s\u3000]*:[\\s\u3000]*|[\\s\u3000]+)(?:[\\s\u3000]*00)*[\\s\u3000]*(?!00)[0-9A-Z]{2}", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -122,6 +122,40 @@ internal static class BmsChartFileParser
         return !ReadLines(reader).Any(line => visibleObjectChRegex.IsMatch(line));
     }
 
+    private static bool TryReadNamedDirective(string line, string name, out string value)
+    {
+        int end = name.Length + 1;
+        value = string.Empty;
+        if (line.Length <= end || line[0] != '#' || !line.AsSpan(1, name.Length).Equals(name, StringComparison.OrdinalIgnoreCase)
+            || !char.IsWhiteSpace(line[end]))
+        {
+            return false;
+        }
+
+        value = line[end..].Trim();
+        return true;
+    }
+
+    private static bool TryReadResourceChannel(string line, out string channel, out string data)
+    {
+        channel = data = string.Empty;
+        if (line.Length <= 6 || line[0] != '#' || !line.AsSpan(1, 3).ToString().All(char.IsAsciiDigit))
+        {
+            return false;
+        }
+
+        int separator = 6;
+        while (separator < line.Length && char.IsWhiteSpace(line[separator]))
+        {
+            separator++;
+        }
+
+        channel = line.Substring(4, 2).ToUpperInvariant();
+        // 軽量解析ではコロン後の原文を二文字ずつ読み、コロンがない行は行全体を使います。
+        data = separator < line.Length && line[separator] == ':' ? line[(separator + 1)..] : line;
+        return true;
+    }
+
     private static bool IsShiftJis(string encodingName)
         => Encoding.GetEncoding(encodingName).CodePage == 932;
 
@@ -153,6 +187,11 @@ internal static class BmsChartFileParser
         int mode = 5;
         int judge = 2;
         var resourceReferences = new List<ChartResourceReference>();
+        var definitions = new List<(string Id, bool Audio, ChartResourceReference Reference)>();
+        var audioIds = new HashSet<string>();
+        var visualIds = new HashSet<string>();
+        bool base62 = false;
+        bool hasMine = false;
         bool flag8 = false;
         bool flag9 = false;
         bool flag10 = false;
@@ -165,8 +204,45 @@ internal static class BmsChartFileParser
         bool flag17 = false;
         bool flag18 = false;
         bool forcePmsMode = filePath.EndsWith(".pms", StringComparison.OrdinalIgnoreCase);
+        // 詳細ノート解析や分岐評価をせず、全構文上の参照を収集します。
         foreach (string item in enumerable)
         {
+            // 定義行と同じ行頭空白を許容し、コロン後と末尾のチャンネル原文は変更しません。
+            string resourceLine = item.TrimStart();
+            if (TryReadNamedDirective(resourceLine, "BASE", out string numberBase) && numberBase == "62")
+            {
+                base62 = true;
+            }
+
+            if (TryReadResourceChannel(resourceLine, out string channel, out string data))
+            {
+                bool audio = channel == "01" || channel[0] is '1' or '2' or '3' or '4' or '5' or '6';
+                bool visual = channel is "04" or "06" or "07" or "0A";
+                bool mine = channel[0] is 'D' or 'E';
+                for (int index = 0; index + 1 < data.Length; index += 2)
+                {
+                    string id = data.Substring(index, 2);
+                    if (id == "00" || !id.All(char.IsAsciiLetterOrDigit))
+                    {
+                        continue;
+                    }
+
+                    if (audio)
+                    {
+                        audioIds.Add(id);
+                    }
+
+                    if (visual)
+                    {
+                        visualIds.Add(id);
+                    }
+
+                    if (mine)
+                    {
+                        hasMine = true;
+                    }
+                }
+            }
             if (IsFpDscDirective(item))
             {
                 forcePmsMode = true;
@@ -239,10 +315,10 @@ internal static class BmsChartFileParser
             switch (directive)
             {
                 case BmsDirective.Wav:
-                    resourceReferences.Add(ChartResourceReference.Parse(value, ChartResourceKind.Audio));
+                    definitions.Add((item.TrimStart().Substring(4, 2), true, ChartResourceReference.Parse(value, ChartResourceKind.Audio)));
                     break;
                 case BmsDirective.Bmp:
-                    resourceReferences.Add(ChartResourceReference.Parse(value, ChartResourceKind.Unknown));
+                    definitions.Add((item.TrimStart().Substring(4, 2), false, ChartResourceReference.Parse(value, ChartResourceKind.Unknown)));
                     break;
                 case BmsDirective.Title:
                     if (string.IsNullOrWhiteSpace(title))
@@ -307,6 +383,24 @@ internal static class BmsChartFileParser
                     }
                     break;
             }
+        }
+        StringComparer idComparer = base62 ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
+        audioIds = new HashSet<string>(audioIds, idComparer);
+        visualIds = new HashSet<string>(visualIds, idComparer);
+        if (hasMine && definitions.Any(definition => definition.Audio && definition.Id == "00"))
+        {
+            audioIds.Add("00");
+        }
+
+        if (definitions.Any(definition => !definition.Audio && definition.Id == "00"))
+        {
+            visualIds.Add("00");
+        }
+
+        foreach ((string Id, bool Audio, ChartResourceReference Reference) definition in definitions)
+        {
+            bool audio = definition.Audio;
+            resourceReferences.Add(definition.Reference.WithUsage((audio ? audioIds : visualIds).Contains(definition.Id)));
         }
         AddOptionalImages(resourceReferences, stagefile, backbmp, banner);
         if (forcePmsMode)

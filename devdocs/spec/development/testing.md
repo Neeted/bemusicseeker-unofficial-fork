@@ -113,12 +113,12 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 | `bass-collectible` | 1、`MethodLevel` | `BassCollectibleLoadContextTests`。ポータブル設定完了後に独立して実行する。 |
 | `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をOrdinal順に並べ、偶数番目を交互割当した集合。 |
 | `shared-state-b` | 1、`MethodLevel` | 同じ集合の奇数番目を交互割当した集合。 |
-| `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で偶数番目に交互割当した集合。 |
-| `parallel-b` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で奇数番目に交互割当した集合。 |
+| `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストの完全修飾名をUTF-8でSHA-256へ通し、先頭バイトが偶数となる集合。 |
+| `parallel-b` | `ProcessorCount`、`MethodLevel` | 同じ通常テストのSHA-256先頭バイトが奇数となる集合。 |
 
-クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストはOrdinal順の偶奇で二つのホストへ交互に割り当て、`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。専用クラス、共有状態、通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
+クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストは完全修飾名の固定ハッシュで二つのホストへ割り当て、入力順や無関係な追加・削除で既存メソッドの所属を変えません。ハッシュは所属だけに用い、テストの識別には完全一致の名前を使います。`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。専用クラス、共有状態、通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
 
-`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の交互割当は負荷分散の規則です。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホスト、専用ホストで保ちます。
+`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の固定ハッシュ割当は、メソッド追加に伴う大量の所属反転を避けながら負荷を分散する規則です。特定の名前や実行結果に合わせた例外・調整は設けません。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホスト、専用ホストで保ちます。
 
 テストアセンブリの`AssemblyInitialize`では、既存のIO完了ポート下限を保持したまま、worker下限を `max(既存値, 7 * ProcessorCount + ProcessorCount)` に設定します。7は小規模fixtureで同時に占有される既知のパイプライン主体（テスト本体、reader、parser、post-parse、2つのcollector、writer）の数であり、本番の最大値や厳密な上限ではありません。各通常ホストの最大ProcessorCount並列に継続処理用のProcessorCount分を加え、同期的なテスト待機によるworker補充遅延を避けるテスト環境専用の設定です。設定に失敗した場合は検証を失敗として扱います。この設定はテストアセンブリだけに適用し、本番のスレッドプール設定や上限・監視は変更しません。
 
@@ -302,7 +302,7 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 通常開発と正式リリース前の検証区分、変更に応じた追加検証 | 本書の[実行範囲の選択](#実行範囲の選択)、[開発指針](../../../AGENTS.md#文書と検証)、[リリース手順](release.md#配布物の生成と検証)、[エージェント運用](agent-workflow.md#統合と予備レビュー) | 作業段階・公開候補の確定と各文書の案内を照合する。運用文言を固定する自動テストは設けない。 |
-| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
+| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | [`VerificationRunnerContractTests`](../../../BeMusicSeeker.Tests/Verification/VerificationRunnerContractTests.cs)（`ProcessIntegration`）は実計画生成とrunsettingsで対象の完全な分割、追加・削除・順序変更・別プロセスに対する所属の不変、非空条件を確認する。実起動の接続と期限は、実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
 | テスト整理前後の比較 | [標準スクリプト](../../../scripts/verify-refactor.ps1)、本書 | 同条件の全体経過時間、ホスト終了時刻、実行件数・スキップを照合し、保証整理と時間目標を分けて報告する。 |
 | 変更範囲・全体の自動整形、整形後の検証、失敗時の停止 | [共通の整形処理](../../../scripts/format-code.ps1)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormattingPhase` | [`RepositoryFormattingTests`](../../../BeMusicSeeker.Tests/Verification/RepositoryFormattingTests.cs)（`ProcessIntegration`）は実 Git による対象選択と、外部コマンドを代替した標準経路の実行順・対象ゼロ・失敗伝播・共有期限を確認する。SDK 自体の修正内容はこのテストの対象外。 |
 | 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |

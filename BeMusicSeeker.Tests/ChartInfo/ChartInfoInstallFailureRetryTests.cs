@@ -49,7 +49,7 @@ public sealed class ChartInfoInstallFailureRetryTests
                     + "#EXLEVEL 9\r\n"
                     + "#RANK 3\r\n"
                     + "#TOTAL 300\r\n"
-                    + "#BMP01 bg.png\r\n"
+                    + "#BMP01 bg.png\r\n#00104:01\r\n"
                     + "#00111:0100\r\n"
                     + "#00112:0001\r\n"
                     + "#00116:0100\r\n"

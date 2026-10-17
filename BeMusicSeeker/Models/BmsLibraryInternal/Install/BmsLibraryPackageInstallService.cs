@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -620,7 +621,7 @@ internal sealed class BmsLibraryPackageInstallService
         {
             return false;
         }
-        ResourceHealthMaintenanceSnapshot maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart);
+        ResourceHealthMaintenanceSnapshot maintenanceInfo = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart, includeUnused: true);
         return maintenanceInfo?.WavFilesExisting > 0
             || maintenanceInfo?.BgaFilesExisting > 0
             || maintenanceInfo?.MovieFilesExisting > 0;
@@ -628,7 +629,7 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static IEnumerable<string> EnumeratePackageGroupingResourcePaths(PackageChartEntry entry)
     {
-        ChartResourceSnapshot resources = entry?.ResourceSnapshot;
+        ChartResourceSnapshot resources = entry?.Chart?.Resources == null ? null : ChartResourceSnapshot.Create(entry.Chart.Resources, includeUnused: true);
         if (resources == null)
         {
             return [];
@@ -640,24 +641,40 @@ internal sealed class BmsLibraryPackageInstallService
 
     private static ResourceHealthMaintenanceSnapshot BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry)
     {
-        if (entry?.Chart == null || entry.ResourceSnapshot.TotalReferenceCount <= 0)
+        if (entry?.Chart == null)
         {
             return null;
         }
 
-        return BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(entry.Chart);
+        ChartFile chart = entry.Chart;
+        ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
+        ResourceHealthMaintenanceSnapshot captured = BmsLibraryMaintenanceService.GetResourceHealthSnapshot(chart);
+        // 同じ操作で計算し検査完了した値だけ、全定義の消費時に確定したLR2診断を引き継ぎます。DB由来の古い診断は再利用しません。
+        // 所持譜面の手動再スキャンは別入口で本文を再解析し、全定義から再評価します。
+        return result != null && captured?.Origin == MaintenanceInfoOrigin.Calculated && captured.IsInformationChecked && chart.Kind == ChartFileKind.Bms
+            ? result with { Lr2WarningFlags = captured.Lr2WarningFlags, Lr2ResourceMaxRelativeCp932Bytes = captured.Lr2ResourceMaxRelativeCp932Bytes, Lr2ResourceHasParentTraversal = captured.Lr2ResourceHasParentTraversal }
+            : result;
     }
 
+    /// <summary>同じ取得結果から件数・警告・LR2診断を項目へ投影し、消費済みの未使用定義を解放します。</summary>
     internal static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry)
+        => ApplyPendingResourceHealthProjection(entry, out _);
+
+    private static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry, out ResourceHealthMaintenanceSnapshot maintenanceInfo)
     {
         entry?.AcquireResources();
-        ResourceHealthMaintenanceSnapshot maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
+        maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
         if (maintenanceInfo == null)
         {
             entry?.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
             return [];
         }
         IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(maintenanceInfo);
+        // 発見・グループ化が終わった後は、全定義を保持せず、LR2診断を確定値へ引き継ぎます。
+        ChartFile evaluated = ChartFileProjection.WithMaintenance(entry.Chart, maintenanceInfo);
+        using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
+        entry.ApplyCurrentChart(evaluated with { Resources = evaluated.Resources.Where(reference => reference.IsUsed || reference.Usage == ChartResourceUsage.InputDiagnostic).ToImmutableList() });
+        entry.ReplaceWarningsByCategory(ChartWarningCategory.Lr2Compatibility, evaluated.Warnings.Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
         entry.ReplaceResourceHealthProjection(maintenanceInfo, warnings);
         return warnings;
     }
@@ -2253,10 +2270,10 @@ internal sealed class BmsLibraryPackageInstallService
 
 
     /// <summary>
-    /// Discovers detached install candidates, excluding registered BMS roots and
-    /// their descendants before either automatic installation or pending publication.
-    /// The roots describe configured ownership, not directories found in the chart index.
+    /// 登録済みBMSルートと配下を除外して入力を発見し、捕捉した完全性設定で自動新規導入と保留へ分類します。
+    /// 全定義による発見・グループ化を終えてから、使用資源の件数と警告を確定します。
     /// </summary>
+    /// <param name="requireCompleteUsedResourcesForAutoInstall">音声に加え、使用画像・動画・補助画像も必須にする場合はtrue。今回の操作で捕捉済みの値を渡します。</param>
     public AutoInstallWorkflowResult PrepareAutoInstallWorkflow(
         IEnumerable<string> installPaths,
         IEnumerable<ChartPackage> currentPendingPackages,
@@ -2264,7 +2281,7 @@ internal sealed class BmsLibraryPackageInstallService
         Func<ChartFile, bool> isInstalledChart,
         double dupRateThreshInOnePkg,
         IPrimaryHashLookup installedChartLookup = null,
-        CancellationToken token = default)
+        CancellationToken token = default, bool requireCompleteUsedResourcesForAutoInstall = false)
     {
         var result = new AutoInstallWorkflowResult();
         var totalStopwatch = Stopwatch.StartNew();
@@ -2405,9 +2422,13 @@ internal sealed class BmsLibraryPackageInstallService
                     pendingByPackage[pkg] = true;
                 }
             }
-            if (ApplyPendingResourceHealthProjectionToEntries(pkg.ChartEntries) > 0)
+            foreach (PackageChartEntry entry in pkg.ChartEntries)
             {
-                pendingByPackage[pkg] = true;
+                ApplyPendingResourceHealthProjection(entry, out ResourceHealthMaintenanceSnapshot health);
+                if (!HasCompleteUsedAudio(health) || (requireCompleteUsedResourcesForAutoInstall && !HasCompleteUsedResources(health)))
+                {
+                    pendingByPackage[pkg] = true;
+                }
             }
         }
         warningClassificationStopwatch.Stop();
@@ -2434,6 +2455,19 @@ internal sealed class BmsLibraryPackageInstallService
         totalStopwatch.Stop();
         result.TotalMs = totalStopwatch.ElapsedMilliseconds;
         return result;
+    }
+
+    /// <summary>取得済みの使用音源件数で完全性を判断し、要求0件も充足として扱います。</summary>
+    internal static bool HasCompleteUsedAudio(ResourceHealthMaintenanceSnapshot health)
+    {
+        return health?.WavFilesDefined.HasValue == true && health.WavFilesExisting == health.WavFilesDefined;
+    }
+
+    private static bool HasCompleteUsedResources(ResourceHealthMaintenanceSnapshot health)
+    {
+        return HasCompleteUsedAudio(health) && health.BgaFilesDefined.HasValue && health.BgaFilesExisting == health.BgaFilesDefined
+            && health.MovieFilesDefined.HasValue && health.MovieFilesExisting == health.MovieFilesDefined
+            && health.GetStagefileHealth() == true && health.GetBannerHealth() == true && health.GetBackbmpHealth() == true;
     }
 
     private static bool HasAlreadyInstalledWarning(PackageChartEntry entry)

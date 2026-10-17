@@ -1,5 +1,3 @@
-using System;
-
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>共通譜面が捕捉する変更不能な資源健全性と検査の由来です。</summary>
@@ -34,15 +32,21 @@ internal sealed record ResourceHealthMaintenanceSnapshot
     /// <summary>既存の文字コード修正状態を保存時にも保持します。</summary>
     internal bool EncodingFixed { get; init; }
 
-    /// <summary>資源と画像の検査件数が確定しているかを返します。</summary>
-    internal bool IsInformationChecked => GetWavHealth().HasValue && GetBgaHealth().HasValue
-        && GetMovieHealth().HasValue && GetStagefileHealth().HasValue
-        && GetBannerHealth().HasValue && GetBackbmpHealth().HasValue;
+    /// <summary>補助画像3役割と件数ペアの保存形から検査完了を導きます。未解決null/nullと旧0/nullも完了として保持します。</summary>
+    internal bool IsInformationChecked => IsCountChecked(WavFilesDefined, WavFilesExisting)
+        && IsCountChecked(BgaFilesDefined, BgaFilesExisting) && IsCountChecked(MovieFilesDefined, MovieFilesExisting)
+        && GetStagefileHealth().HasValue && GetBannerHealth().HasValue && GetBackbmpHealth().HasValue;
 
+    private static bool IsCountChecked(int? defined, int? existing)
+        => existing.HasValue ? defined.HasValue : !defined.HasValue || defined == 0;
+
+    /// <summary>使用音声の存在数/要求数を整数率へ変換します。0件と未判定はnullで、不足は100へ丸めません。</summary>
     internal int? GetWavHealth() => CalculateCountHealth(WavFilesDefined, WavFilesExisting);
 
+    /// <summary>使用画像の存在数/要求数を整数率へ変換します。0件と未判定はnullで、不足は100へ丸めません。</summary>
     internal int? GetBgaHealth() => CalculateCountHealth(BgaFilesDefined, BgaFilesExisting);
 
+    /// <summary>使用動画の存在数/要求数を整数率へ変換します。0件と未判定はnullで、不足は100へ丸めません。</summary>
     internal int? GetMovieHealth() => CalculateCountHealth(MovieFilesDefined, MovieFilesExisting);
 
     internal bool? GetStagefileHealth() => CalculateFlagHealth(StagefileDefined, StagefileExisting);
@@ -57,11 +61,15 @@ internal sealed record ResourceHealthMaintenanceSnapshot
         {
             return null;
         }
-        if (defined == 0 || existing == defined)
+        if (defined == 0)
+        {
+            return null;
+        }
+        if (existing == defined)
         {
             return 100;
         }
-        return (int)(100.0 * ((double)existing.Value - Math.Sqrt(existing.Value)) / defined.Value);
+        return (int)((long)existing.Value * 100 / defined.Value);
     }
 
     private static bool? CalculateFlagHealth(bool? defined, bool? existing)

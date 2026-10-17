@@ -350,7 +350,7 @@ public partial class BMSLibrary
             return !string.IsNullOrWhiteSpace(hash) && installed.ContainsPrimaryHash(hash);
         }
         AutoInstallWorkflowResult workflow = packageInstallService.PrepareAutoInstallWorkflow(expandedPaths, pending,
-            registeredBmsRoots, IsInstalled, dupRateThreshInOnePkg, installed, token);
+            registeredBmsRoots, IsInstalled, dupRateThreshInOnePkg, installed, token, options.RequireCompleteUsedResourcesForAutoInstall);
         workflow.OptionsSnapshot = options;
         workflow.PendingPackageSnapshot = pending;
         workflow.InstalledChartLookup = installed;
@@ -384,7 +384,6 @@ public partial class BMSLibrary
         BmsLibraryOptionsSnapshot options = workflow.OptionsSnapshot;
         List<ChartPackage> pendingPackagesToEstimate = [];
         List<ChartPackage> deferredPendingEstimatePackages = [];
-        Dictionary<ChartPackage, int> deferredPendingEstimateHealthByPackage = [];
         List<ChartPackage> registeredPackages = [];
         List<string> regroupEligibleSourceDirectories = [];
         PendingEstimateSourceBatchSnapshot pendingBatchSourceSnapshot = null;
@@ -562,13 +561,11 @@ public partial class BMSLibrary
                 PendingInstallEstimatePreparationResult estimatePreparation = PreparePendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall, options);
                 pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
                 deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
-                deferredPendingEstimateHealthByPackage = estimatePreparation.DeferredSourceHealthByPackage;
                 pendingBatchSourceSnapshot = estimatePreparation.BatchSourceSnapshot;
                 regroupEligibleSourceDirectories = [.. workflow.RegroupEligibleSourceDirectories];
                 foreach (ChartPackage deferredPackage in deferredPendingEstimatePackages)
                 {
-                    deferredPendingEstimateHealthByPackage.TryGetValue(deferredPackage, out int sourceHealth);
-                    LogPendingEstimateSkippedPackage("auto_install", deferredPackage, sourceHealth);
+                    LogPendingEstimateSkippedPackage("auto_install", deferredPackage);
                 }
                 if (!token.IsCancellationRequested && pendingPackagesToEstimate.Count > 0)
                 {
@@ -986,7 +983,7 @@ public partial class BMSLibrary
     /// <param name="package">推定対象 package。loose chart の場合は null。</param>
     /// <param name="targetEntries">インストール対象の chart entry リスト（通常は同一パッケージ内の譜面群）</param>
     /// <param name="asParallel">既存フォルダの走査（各フォルダとのマッチング評価）を並列実行するかどうか</param>
-    /// <param name="estimateMode">通常推定、merge 候補探索、再インストール先修正などの推定モード</param>
+    /// <param name="estimateMode">同梱を含む通常推定、または候補先だけを評価する再導入先修正</param>
     /// <remarks>
     /// 【設計意図・背景】
     /// 差分 chart package（追加の譜面データや難易度変更ファイル等）は、音源（WAV/OGGやBGA等）の実体を含まないことが多いため、
@@ -1161,31 +1158,34 @@ public partial class BMSLibrary
                             return;
                         }
                         List<PackageChartEntry> alreadyInstalledEntries = partition.AlreadyInstalledEntries;
-                        List<PackageChartEntry> missingEntries = partition.MissingEntries;
+                        List<PackageChartEntry> targetEntries = partition.EstimationEntries;
                         ApplyPackageMixedInstallWarningsToEntries(alreadyInstalledEntries);
-                        if (missingEntries.Count == 0)
-                        {
-                            return;
-                        }
-                        foreach (PackageChartEntry entry in missingEntries)
+
+                        foreach (PackageChartEntry entry in targetEntries)
                         {
                             entry.AcquireResources();
                         }
-                        if (HasUnsupportedResourcePath(missingEntries))
+                        if (HasUnsupportedResourcePath(targetEntries))
                         {
-                            ApplyUnsupportedResourcePathToPackageUnsafe(package, missingEntries);
+                            ApplyUnsupportedResourcePathToPackageUnsafe(package, targetEntries);
                             return;
                         }
                         // 部分既所持パッケージでは、既存譜面の実配置先を優先利用して未所持譜面の導入先を補完する。
                         if (alreadyInstalledEntries.Count > 0)
                         {
-                            InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, missingEntries);
-                            LogMixedPackageResolution(resolution, package.path, missingEntries.Count);
+                            InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, targetEntries);
+                            LogMixedPackageResolution(resolution, package.path, targetEntries.Count);
                             if (resolution.Success)
                             {
-                                InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, missingEntries);
+                                InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, targetEntries, package: package);
+                                if (hashEstimation.SourceSurfaceScanLimitExceeded)
+                                {
+                                    LogSourceSurfaceScanLimitExceeded(hashEstimation, package.path);
+                                    ApplySourceSurfaceScanLimitExceededToPackageUnsafe(package, targetEntries, hashEstimation.SourceSurfaceMaxVisitedFileSystemEntryCount);
+                                    return;
+                                }
                                 LogInstallEstimationEvaluation(hashEstimation);
-                                ApplyInstallEstimationResultToEntries(missingEntries, hashEstimation.Result);
+                                ApplyInstallEstimationResultToEntries(targetEntries, hashEstimation.Result);
                                 return;
                             }
                             if (resolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
@@ -1193,13 +1193,13 @@ public partial class BMSLibrary
                                 if (!HasUsableDirectoryLookupCache(
                                     libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache))
                                 {
-                                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + missingEntries.Count + " candidateDirs=" + resolution.CandidateDirectoryCount);
-                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingEntries);
+                                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + targetEntries.Count + " candidateDirs=" + resolution.CandidateDirectoryCount);
+                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, targetEntries);
                                     return;
                                 }
                                 InstallEstimationEvaluationData estimationData = EvaluateInstallEstimation(
                                     package,
-                                    missingEntries,
+                                    targetEntries,
                                     BmsLibraryInstallEstimationService.ResolveCandidateEvaluationDegree(asParallel: true),
                                     ChartInstallationEstimateMode.Normal,
                                     candidateDirectoryOverride: resolution.CandidateDirectories,
@@ -1208,27 +1208,27 @@ public partial class BMSLibrary
                                 if (estimationData.SourceSurfaceScanLimitExceeded)
                                 {
                                     LogSourceSurfaceScanLimitExceeded(estimationData, package?.path);
-                                    ApplySourceSurfaceScanLimitExceededToPackageUnsafe(package, missingEntries, estimationData.SourceSurfaceMaxVisitedFileSystemEntryCount);
+                                    ApplySourceSurfaceScanLimitExceededToPackageUnsafe(package, targetEntries, estimationData.SourceSurfaceMaxVisitedFileSystemEntryCount);
                                     return;
                                 }
                                 LogInstallEstimationEvaluation(estimationData);
                                 if (estimationData.Result?.HasViableDestination == true)
                                 {
-                                    ApplyInstallEstimationResultToEntries(missingEntries, estimationData.Result);
+                                    ApplyInstallEstimationResultToEntries(targetEntries, estimationData.Result);
                                 }
                                 else
                                 {
-                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingEntries);
+                                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, targetEntries);
                                 }
                                 return;
                             }
-                            LogInstallPerformance("mixed_package_resolve failed reason=installed_destination_unresolved missing=" + missingEntries.Count);
-                            ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, missingEntries);
+                            LogInstallPerformance("mixed_package_resolve failed reason=installed_destination_unresolved missing=" + targetEntries.Count);
+                            ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, targetEntries);
                             return;
                         }
-                        if (missingEntries.Count > 0)
+                        if (targetEntries.Count > 0)
                         {
-                            SearchEstimatedInstallationDirectoryForChartsCore(package, missingEntries, asParallel: true, ChartInstallationEstimateMode.Normal);
+                            SearchEstimatedInstallationDirectoryForChartsCore(package, targetEntries, asParallel: true, ChartInstallationEstimateMode.Normal);
                         }
                     }
                 }
@@ -1535,93 +1535,6 @@ public partial class BMSLibrary
             ClearInstallEstimationProgress();
             LogInstallPerformance("manual_estimate_progress done kind=loose_files total=" + targetEntries.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
-    }
-
-    public void SearchMergeDestinationForPendingPackage(ChartPackage package)
-    {
-        if (package == null)
-        {
-            throw new ArgumentNullException("package");
-        }
-        if (!ChartPackagesPending.Contains(package))
-        {
-            return;
-        }
-        List<PackageChartEntry> entries = [.. package.ChartEntries.Where(entry => entry?.Chart != null)];
-        if (entries.Count == 0)
-        {
-            LogInstallPerformance("estimated_merge_skip reason=no_target package=" + package.path);
-            return;
-        }
-        foreach (PackageChartEntry entry in entries)
-        {
-            entry.ClearInstallDestination();
-        }
-        LogInstallPerformance("estimated_merge_start package=" + package.path + " targets=" + entries.Count);
-        package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
-        InstalledDirectoryLookupResult resolution = ResolveInstalledDestinationFromPackage(package, entries);
-        LogMixedPackageResolution(resolution, package.path, entries.Count);
-        if (!resolution.Success)
-        {
-            SearchEstimatedInstallationDirectoryForChartsCore(package, entries, asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
-            LogMergeDestinationResult(package, entries);
-            return;
-        }
-        InstallEstimationEvaluationData hashEstimation = EvaluateInstalledChartHashDestination(resolution.InstallDirectory, entries);
-        LogInstallEstimationEvaluation(hashEstimation);
-        ApplyInstallEstimationResultToEntries(entries, hashEstimation.Result);
-        LogMergeDestinationResult(package, entries);
-    }
-
-    private void LogMergeDestinationResult(ChartPackage package, IReadOnlyCollection<PackageChartEntry> entries)
-    {
-        List<PackageChartEntry> targetEntries = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
-        int targetCount = targetEntries.Count;
-        int num = targetEntries.Count(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination));
-        if (num == 0)
-        {
-            LogInstallPerformance("estimated_merge_skip reason=unresolved package=" + package.path + " targets=" + targetCount);
-            return;
-        }
-        string resolvedDestination = targetEntries.Select(entry => entry.Chart?.InstallDestination).Where(d => !string.IsNullOrWhiteSpace(d)).Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault();
-        bool metadataResolved = targetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestinationArtist));
-        LogInstallPerformance("estimated_merge_done package=" + package.path + " resolved=" + num + " targets=" + targetCount + " dst=" + resolvedDestination + " metadataResolved=" + metadataResolved);
-    }
-
-    internal void SearchMergeDestinationForPendingCharts(IEnumerable<PackageChartEntry> chartEntries)
-    {
-        if (chartEntries == null)
-        {
-            throw new ArgumentNullException(nameof(chartEntries));
-        }
-        List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
-        if (entries.Count == 0)
-        {
-            LogInstallPerformance("estimated_merge_skip reason=no_target");
-            return;
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    ClearDeferredEstimateReasonForEntriesUnsafe(entries);
-                }
-            }
-        }
-        foreach (PackageChartEntry entry in entries)
-        {
-            entry.ClearInstallDestination();
-            SearchEstimatedInstallationDirectoryForChartsCore(null, [entry], asParallel: true, ChartInstallationEstimateMode.MergeCandidateOnly);
-        }
-        int num = entries.Count(entry => !string.IsNullOrWhiteSpace(entry.Chart?.InstallDestination));
-        if (num == 0)
-        {
-            LogInstallPerformance("estimated_merge_skip reason=unresolved targets=" + entries.Count);
-            return;
-        }
-        LogInstallPerformance("estimated_merge_done resolved=" + num + " targets=" + entries.Count);
     }
 
     /// <summary>

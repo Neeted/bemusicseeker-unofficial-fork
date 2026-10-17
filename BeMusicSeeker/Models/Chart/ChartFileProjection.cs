@@ -156,12 +156,12 @@ internal static class ChartFileProjection
             InstallDestinationArtist = state.HasInstallDestinationState ? state.InstallDestinationArtist : source.InstallDestinationArtist,
             InstallDestinationSuggestions = state.HasInstallDestinationState ? state.InstallDestinationSuggestions : source.InstallDestinationSuggestions,
             Warnings = SelectTransientWarnings(source.Warnings, state, includeWarningSnapshot),
-            WAVHealth = state.WAVHealth ?? source.WAVHealth,
-            BGAHealth = state.BGAHealth ?? source.BGAHealth,
-            MovieHealth = state.MovieHealth ?? source.MovieHealth,
-            StagefileHealth = state.StagefileHealth ?? source.StagefileHealth,
-            BannerHealth = state.BannerHealth ?? source.BannerHealth,
-            BackbmpHealth = state.BackbmpHealth ?? source.BackbmpHealth,
+            WAVHealth = state.HasResourceHealthProjection ? state.WAVHealth : state.WAVHealth ?? source.WAVHealth,
+            BGAHealth = state.HasResourceHealthProjection ? state.BGAHealth : state.BGAHealth ?? source.BGAHealth,
+            MovieHealth = state.HasResourceHealthProjection ? state.MovieHealth : state.MovieHealth ?? source.MovieHealth,
+            StagefileHealth = state.HasResourceHealthProjection ? state.StagefileHealth : state.StagefileHealth ?? source.StagefileHealth,
+            BannerHealth = state.HasResourceHealthProjection ? state.BannerHealth : state.BannerHealth ?? source.BannerHealth,
+            BackbmpHealth = state.HasResourceHealthProjection ? state.BackbmpHealth : state.BackbmpHealth ?? source.BackbmpHealth,
             EncodingName = string.IsNullOrWhiteSpace(state.EncodingName) ? source.EncodingName : state.EncodingName
         };
     }

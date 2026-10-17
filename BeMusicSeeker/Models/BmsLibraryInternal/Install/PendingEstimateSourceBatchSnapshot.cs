@@ -27,13 +27,6 @@ internal sealed class SourceSurfaceEntryView
     public int MaxVisitedFileSystemEntryCount { get; set; }
 }
 
-internal sealed class SourceBaselinePrefilterResult
-{
-    public bool Deferred { get; set; }
-
-    public int PrimaryHealth { get; set; }
-}
-
 internal sealed class PendingEstimateSourceBatchPackageState
 {
     public ChartPackage Package { get; set; }
@@ -46,7 +39,8 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public List<PackageChartEntry> AlreadyInstalledEntries { get; set; } = [];
 
-    public List<PackageChartEntry> MissingEntries { get; set; } = [];
+    /// <summary>未所持群、または全既所持時の全対象です。</summary>
+    public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
@@ -57,13 +51,15 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public SourceSurfaceEntryView SourceSurface { get; set; }
 
-    public SourceBaselinePrefilterResult BaselinePrefilter { get; set; } = new SourceBaselinePrefilterResult();
+    /// <summary>音源完全でハッシュ候補がない入力の新規リソース探索を省略します。既知ハッシュ候補のStrong評価や手動推定では設定しません。</summary>
+    public bool SkipAutomaticEstimation { get; set; }
 
     public bool UsesBatchSourceSurface { get; set; }
 
-    public bool HasMissingFiles => MissingEntries.Count > 0;
+    /// <summary>評価する使用資源の譜面群を持つかを返します。</summary>
+    public bool HasTargetEntries => TargetEntries.Count > 0;
 
-    public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasMissingFiles;
+    public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasTargetEntries;
 }
 
 internal sealed class PendingEstimateSourceBatchSnapshot

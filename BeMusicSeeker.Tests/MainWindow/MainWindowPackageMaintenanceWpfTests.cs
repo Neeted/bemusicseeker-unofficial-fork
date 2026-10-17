@@ -771,14 +771,14 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 return Task.FromResult(PackageCatalogMutationResult.Rejected);
             });
         var pendingInstallEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
-            (kind, packages) =>
+            packages =>
             {
-                pendingEstimationCalls.Add(("search-package:" + kind, packages.Single()));
+                pendingEstimationCalls.Add(("search-package", packages.Single()));
                 return Task.CompletedTask;
             },
             request =>
             {
-                pendingEstimationCalls.Add(("search-pending:" + request.Kind, request));
+                pendingEstimationCalls.Add(("search-pending", request));
                 return Task.CompletedTask;
             },
             request =>
@@ -821,9 +821,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 TreeViewItem pendingTarget = new() { DataContext = pendingPackage };
                 var packageMenu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
                 packageMenu.PlacementTarget = pendingTarget;
-                MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.Count == 5);
+                MenuItem installMenu = packageMenu.Items.OfType<MenuItem>().Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
                 MenuItem[] installCommands = installMenu.Items.OfType<MenuItem>().ToArray();
-                Assert.AreEqual(5, installCommands.Length);
 
                 foreach (MenuItem command in installCommands)
                 {
@@ -853,8 +852,7 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 CollectionAssert.AreEquivalent(
                     new[]
                     {
-                        "search-package:InstallDestination",
-                        "search-package:MergeDestination",
+                        "search-package",
                         "clear-packages"
                     },
                     pendingEstimationCalls.Select(call => call.Action).ToArray());
@@ -923,8 +921,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     menu.PlacementTarget = new TreeViewItem { DataContext = new ChartPackage { path = @"C:\pending-source" } };
                 }
                 MenuItem group = menu.Items.OfType<MenuItem>()
-                    .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
-                RaiseMenuClick(group.Items.OfType<MenuItem>().ElementAt(manual ? 2 : 3));
+                    .Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
+                RaiseMenuClick(group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, manual ? Resources.Install_to_estimation : Resources.Force_install)));
                 Assert.AreEqual(1, calls);
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(System.Windows.MessageBoxImage.Warning, dialogs.Messages[0].Icon);
@@ -1302,7 +1300,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var repairCalls = new List<(string Kind, RepairInstalledLocationRequest Request)>();
         var catalogRemovalCalls = new List<PackageCatalogRemovalRequest>();
         var searchInstallCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var searchMergeCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var clearCompletion = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var forceCompletion = new TaskCompletionSource<PendingPackageMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var manualCompletion = new TaskCompletionSource<PendingPackageMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1319,13 +1316,11 @@ public sealed class MainWindowPackageMaintenanceWpfTests
         var pendingEntry = PackageChartEntry.FromChart((pendingFile));
         var pendingRow = LibraryChartRow.FromPackageChartEntry(pendingEntry);
         var pendingEstimationTerminal = new MainWindowPendingInstallEstimationTerminal(
-            (kind, packages) => Task.CompletedTask,
+            packages => Task.CompletedTask,
             request =>
             {
-                pendingEstimateCalls.Add((request.Kind.ToString(), request));
-                return request.Kind == PendingInstallDestinationSearchKind.InstallDestination
-                    ? searchInstallCompletion.Task
-                    : searchMergeCompletion.Task;
+                pendingEstimateCalls.Add(("estimate", request));
+                return searchInstallCompletion.Task;
             },
             request =>
             {
@@ -1387,15 +1382,13 @@ public sealed class MainWindowPackageMaintenanceWpfTests
 
                     MenuItem installGroup = tableMenu.Items
                         .OfType<MenuItem>()
-                        .Single(item => item.Items.OfType<MenuItem>().Count() == 5);
-                    string[] installHeaders = [Resources.Estimate_install_loc, Resources.Estimate_merge_loc, Resources.Install_to_estimation, Resources.Force_install, Resources.Clear_estimation];
+                        .Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
+                    string[] installHeaders = [Resources.Estimate_install_loc, Resources.Install_to_estimation, Resources.Force_install, Resources.Clear_estimation];
                     MenuItem[] installCommands = installHeaders.Select(header => installGroup.Items.OfType<MenuItem>().Single(item => Equals(item.Header, header))).ToArray();
-                    Assert.AreEqual(5, installCommands.Length);
                     var searchInstallArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[0]);
                     installCommands[0].RaiseEvent(searchInstallArgs);
                     Assert.IsTrue(searchInstallArgs.Handled);
                     Assert.IsFalse(searchInstallCompletion.Task.IsCompleted);
-                    Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, pendingEstimateCalls[0].Request.Kind);
                     Assert.AreEqual(1, pendingEstimateCalls.Count);
                     Assert.AreEqual(1, pendingEstimateCalls[0].Request.PackageTargets.Count);
                     Assert.AreEqual(1, pendingEstimateCalls[0].Request.SelectedRowCount);
@@ -1403,20 +1396,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     searchInstallCompletion.SetResult(null);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-terminal-delegate-result");
 
-                    var searchMergeArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[1]);
-                    installCommands[1].RaiseEvent(searchMergeArgs);
-                    Assert.IsTrue(searchMergeArgs.Handled);
-                    Assert.IsFalse(searchMergeCompletion.Task.IsCompleted);
-                    Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, pendingEstimateCalls[1].Request.Kind);
-                    Assert.AreEqual(2, pendingEstimateCalls.Count);
-                    Assert.AreEqual(1, pendingEstimateCalls[1].Request.PackageTargets.Count);
-                    Assert.AreEqual(1, pendingEstimateCalls[1].Request.SelectedRowCount);
-                    Assert.AreSame(pendingEntry, pendingEstimateCalls[1].Request.PackageTargets[0].PackageEntry);
-                    searchMergeCompletion.SetResult(null);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchMergeCompletion.Task, "compiled-terminal-delegate-result");
-
-                    var manualArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[2]);
-                    installCommands[2].RaiseEvent(manualArgs);
+                    var manualArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[1]);
+                    installCommands[1].RaiseEvent(manualArgs);
                     Assert.IsTrue(manualArgs.Handled);
                     Assert.IsFalse(manualCompletion.Task.IsCompleted);
                     Assert.AreEqual(1, installCalls.Count);
@@ -1427,8 +1408,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     manualCompletion.SetResult(PendingPackageMutationResult.Rejected);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(manualCompletion.Task, "compiled-terminal-delegate-result");
 
-                    var forceArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[3]);
-                    installCommands[3].RaiseEvent(forceArgs);
+                    var forceArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[2]);
+                    installCommands[2].RaiseEvent(forceArgs);
                     Assert.IsTrue(forceArgs.Handled);
                     Assert.IsFalse(forceCompletion.Task.IsCompleted);
                     Assert.AreEqual(2, installCalls.Count);
@@ -1439,8 +1420,8 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                     forceCompletion.SetResult(PendingPackageMutationResult.Rejected);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(forceCompletion.Task, "compiled-terminal-delegate-result");
 
-                    var clearArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[4]);
-                    installCommands[4].RaiseEvent(clearArgs);
+                    var clearArgs = new RoutedEventArgs(MenuItem.ClickEvent, installCommands[3]);
+                    installCommands[3].RaiseEvent(clearArgs);
                     Assert.IsTrue(clearArgs.Handled);
                     Assert.IsFalse(clearCompletion.Task.IsCompleted);
                     Assert.AreEqual(1, clearPendingCalls.Count);
@@ -1521,8 +1502,6 @@ public sealed class MainWindowPackageMaintenanceWpfTests
                 {
                     searchInstallCompletion.TrySetResult(null);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(searchInstallCompletion.Task, "compiled-finally-delegate");
-                    searchMergeCompletion.TrySetResult(null);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(searchMergeCompletion.Task, "compiled-finally-delegate");
                     clearCompletion.TrySetResult(null);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(clearCompletion.Task, "compiled-finally-delegate");
                     forceCompletion.TrySetResult(PendingPackageMutationResult.Rejected);

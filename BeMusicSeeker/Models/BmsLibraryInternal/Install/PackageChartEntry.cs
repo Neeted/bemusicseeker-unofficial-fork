@@ -265,7 +265,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
             forceProjection: true);
     }
 
-    /// <summary>推定結果の導入先・代表情報・候補・警告を一つの項目変更で反映します。</summary>
+    /// <summary>推定結果を一つの項目変更で反映し、音源不足などで自動確定できない場合も候補を保持します。</summary>
     internal void ApplyInstallEstimationResult(InstallEstimationResult result)
     {
         InstallEstimationCandidate selectedCandidate = result?.SelectedCandidate;
@@ -280,7 +280,7 @@ internal sealed class PackageChartEntry : INotifyPropertyChanged
                 : null,
             result?.HasViableDestination == true ? selectedCandidate?.RepresentativeTitle ?? string.Empty : string.Empty,
             result?.HasViableDestination == true ? selectedCandidate?.RepresentativeArtist ?? string.Empty : string.Empty,
-            isLowConfidence ? suggestionPaths : [],
+            isLowConfidence || result?.ShouldAutoApplyDestination != true ? suggestionPaths : [],
             forceProjection: true);
         ApplyInstallEstimationWarnings(result);
     }

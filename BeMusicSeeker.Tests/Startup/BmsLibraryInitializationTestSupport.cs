@@ -109,7 +109,7 @@ internal static class BmsLibraryInitializationTestSupport
         return "{"
             + "\"version\":\"1.0.0\","
             + "\"info\":{\"title\":\"Resource\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\"},"
-            + "\"sound_channels\":[{\"name\":\"" + soundFileName + "\",\"notes\":[]}],"
+            + "\"sound_channels\":[{\"name\":\"" + soundFileName + "\",\"notes\":[{\"x\":1,\"y\":0}]}],"
             + "\"lines\":[{\"y\":0}]"
             + "}";
     }

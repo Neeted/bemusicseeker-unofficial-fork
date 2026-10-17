@@ -636,8 +636,6 @@
   "Msg_confirm_skip_init_playlist_load": "Playlist update checks will not run at startup.\n\nThis change takes effect after restart.",
   "Msg_confirm_enable_offline_score_ranking_estimation": "Offline ranking estimation for unsent scores will run when the LR2IR ranking cache is updated.\nAdditional ranking cache XML may be read for charts whose local score is higher than the LR2IR score.\n\nThis change takes effect after restart.",
   "Msg_confirm_enable_lr2ir_ranking_cache_startup_update": "LR2IR ranking cache will be updated after startup.\nThis updates the RANKING, RANK UPDATE, T-SCORE, and ΔMAX columns, but CPU and disk usage may increase significantly during the first build or after changing LR2ID.\n\nThis change takes effect after restart.",
-  "Estimate_merge_loc": "Estimate merge destination",
-  "Msg_estimate_merge_confirm": "Re-estimate a merge destination using only the resources already at the destination, without using bundled resources from the source folder.\nExisting estimates will be overwritten.\nContinue?",
   "Msg_open_install_destination_missing": "Could not determine the install destination.\nThe estimated destination is not set, or it could not be reverse-looked up from owned charts.",
   "Msg_open_install_destination_multiple_selected": "Multiple items are selected. Only the first chart will be used.",
   "Msg_open_install_destination_not_found": "Install destination folder not found.\n{0}",
@@ -746,9 +744,9 @@
   "Warn_LR2LeapYearBugDetected": "LR2 leap year (2/29) bug detected.\nSome songs may be reloaded due to the fix.",
   "Error_InitializationFailed": "An error occurred during initialization.\nPlease check if the file is accessible.\nTarget file: {0}\n\nThe application may become unstable.\n\n{1}",
   "Error_BmsLoadFailedSkip": "Failed to load the BMS file.\nThis file will be skipped.\nPlease check if it is accessible.\n{0}\n\n{1}",
-  "Warning_WavFilesNotFound": "[{0,2}%] WAV files not found. ({1}/{2})",
-  "Warning_BgaFilesNotFound": "[{0,2}%] BGA files not found. ({1}/{2})",
-  "Warning_MovieFilesNotFound": "[{0,2}%] MOVIE files not found. ({1}/{2})",
+  "Warning_WavFilesNotFound": "[{0,2}%] Used WAV files present / required: {1}/{2}",
+  "Warning_BgaFilesNotFound": "[{0,2}%] Used BGA files present / required: {1}/{2}",
+  "Warning_MovieFilesNotFound": "[{0,2}%] Used MOVIE files present / required: {1}/{2}",
   "Warning_StagefileNotFound": "[ 0%] STAGEFILE not found. (1/1)",
   "Warning_BackbmpNotFound": "[ 0%] BACKBMP not found. (1/1)",
   "Warning_BannerNotFound": "[ 0%] BANNER not found. (1/1)",
@@ -1117,5 +1115,7 @@
   "Statusbar_progress_task_playlist_property_update": "Update playlist properties",
   "Statusbar_progress_task_folder_rename": "Rename folders automatically",
   "Statusbar_progress_task_playlist_external_property_initialization": "Initializing playlist properties from external sources",
-  "Error_PreparedChartTargetMismatch": "The prepared chart target does not match the currently owned item, format, or location. No changes were made."
+  "Error_PreparedChartTargetMismatch": "The prepared chart target does not match the currently owned item, format, or location. No changes were made.",
+  "Details_require_complete_used_resources_for_auto_install": "Require all used resources for automatic new installation",
+  "Details_require_complete_used_resources_for_auto_install_description": "OFF: Automatically install when audio is complete, even if BGA, movies or auxiliary images are missing. ON: Require all used resources. If audio is complete and only non-audio resources are missing, keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Check warnings and estimate manually in the pending view. Missing audio triggers automatic estimation."
 }

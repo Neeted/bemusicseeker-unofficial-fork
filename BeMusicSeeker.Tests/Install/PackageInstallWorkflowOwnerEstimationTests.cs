@@ -19,6 +19,268 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
+    /// <summary>元音源99%でも欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略します。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ProductionImport_UsesCapturedCompletenessPolicyAndEstimatesMissingAudio(bool onlyVisualMissing, bool invalidAuxiliary)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string libraryRoot = Path.Combine(root, "Library");
+        string candidate = Path.Combine(libraryRoot, "Candidate");
+        string source = Path.Combine(root, "Input");
+        Directory.CreateDirectory(candidate);
+        Directory.CreateDirectory(source);
+        string[] sounds = Enumerable.Range(0, onlyVisualMissing ? 1 : 100).Select(i => "sound" + i + ".wav").ToArray();
+        string body = "#TITLE Song\n#ARTIST Artist\n#BPM 120\n" + string.Join("", sounds.Select((name, i) =>
+            "#WAV" + (i + 1).ToString("X2") + " " + name + "\n#00101:" + (i + 1).ToString("X2") + "\n"))
+            + (onlyVisualMissing ? "#BMP01 missing.png\n#00104:01\n" : "");
+        if (invalidAuxiliary)
+        {
+            body = "{\"info\":{\"title\":\"Song\",\"artist\":\"Artist\",\"init_bpm\":120,\"eyecatch_image\":\"../missing.png\"},"
+                + "\"sound_channels\":[{\"name\":\"sound0.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}";
+        }
+        string installedChart = Path.Combine(candidate, "chart.bms");
+        File.WriteAllText(installedChart, "#TITLE Song\n#ARTIST Artist\n#BPM 120\n", Encoding.ASCII);
+        File.WriteAllText(Path.Combine(source, "diff." + (invalidAuxiliary ? "bmson" : "bms")), body, Encoding.ASCII);
+        foreach (string sound in sounds.Take(onlyVisualMissing ? 1 : 99))
+        {
+            File.WriteAllBytes(Path.Combine(source, sound), [1]);
+        }
+
+        string[] candidateSounds = onlyVisualMissing ? sounds : sounds.Skip(98).ToArray();
+        foreach (string sound in candidateSounds)
+        {
+            File.WriteAllBytes(Path.Combine(candidate, sound), [1]);
+        }
+
+        string songDb = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDb, []);
+        BmsLibraryOptionsSnapshot Options(bool strict) => new()
+        {
+            OperationModeLR2DB = false,
+            ScanBmsFilesOnStartup = true,
+            BMSInstallDir = libraryRoot,
+            FolderNameFormat = "%TITLE%",
+            RequireCompleteUsedResourcesForAutoInstall = strict
+        };
+        BmsLibraryOptionsSnapshot options = Options(onlyVisualMissing);
+        var background = new ConcurrentQueue<Func<Task>>();
+        var admission = new ChartFileOperationSynchronizer();
+        var observer = new CompletenessEstimationObserver();
+        var library = new TestBmsLibrary(songDb, null, null, null, new FileDbReportRecordingDialogs(),
+            new TestUiScheduler(() => null), () => options,
+            CapturedChartFileScanner.FromFixture([installedChart], new Dictionary<string, IEnumerable<string>> { [candidate] = candidateSounds }, [candidate]), observer, admission)
+        {
+            SearchTargets = [libraryRoot],
+            StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
+        };
+        var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
+            new BmsLibraryPackageInstallMutationPort(), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
+        owner.AttachLibrary(library);
+        PackageInstallFailure? failure = null;
+        owner.FailurePublished += value => failure = value;
+        int changed = 0;
+        owner.StatusChanged += status =>
+        {
+            if (status.IsActive && status.CompletedPathCount == 1 && Interlocked.Exchange(ref changed, 1) == 0)
+            {
+                options = Options(!onlyVisualMissing);
+            }
+        };
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            while (background.TryDequeue(out Func<Task>? work))
+            {
+                await work();
+            }
+
+            Assert.IsTrue(owner.Enqueue([source]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(failure, failure?.Exception.ToString());
+            ChartPackage package = library.ChartPackagesPending.Single();
+            Assert.AreEqual(1, changed);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDb).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, db.Table<LR2SongDBExtended.install>().Count());
+            }
+
+            Assert.AreEqual(onlyVisualMissing ? 0 : 1, observer.WorkCount);
+            if (onlyVisualMissing)
+            {
+                // 親参照の既存非対応判定も自動推定を省略します。通常画像不足では音源完全による省略を確認します。
+                Assert.AreEqual(invalidAuxiliary ? PendingEstimateDeferredReason.UnsupportedResourcePath : PendingEstimateDeferredReason.CompleteSourceAudio,
+                    package.DeferredEstimateReason);
+                Assert.IsTrue(string.IsNullOrEmpty(package.ChartEntries.Single().Chart.InstallDestination));
+                ChartWarningKind expectedWarning = invalidAuxiliary ? ChartWarningKind.ResourceStagefileMissing : ChartWarningKind.ResourceBgaMissing;
+                Assert.IsTrue(package.ChartEntries.Single().Chart.Warnings.Any(warning => warning.Kind == expectedWarning));
+                if (!invalidAuxiliary)
+                {
+                    library.SearchEstimatedInstallationDirectory(package);
+                    Assert.AreEqual(candidate, package.ChartEntries.Single().Chart.InstallDestination);
+                    string next = Path.Combine(root, "NextInput");
+                    Directory.CreateDirectory(next);
+                    File.WriteAllText(Path.Combine(next, "next.bms"), body + "#PLAYLEVEL 12\n", Encoding.ASCII);
+                    File.WriteAllBytes(Path.Combine(next, sounds[0]), [1]);
+                    Assert.IsTrue(owner.Enqueue([next]));
+                    await owner.WaitForIdleAsync();
+                    Assert.IsNull(failure, failure?.Exception.ToString());
+                    Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
+                    Assert.AreEqual(1, library.ChartPackagesPending.Count);
+                }
+            }
+            else
+            {
+                Assert.AreEqual(candidate, package.ChartEntries.Single().Chart.InstallDestination);
+            }
+
+            Assert.IsTrue(package.ChartEntries.All(entry => (entry.Chart.Status & ChartFileStatus.SEARCHING) == 0));
+        }
+        finally
+        {
+            try
+            {
+                await owner.WaitForIdleAsync(); while (background.TryDequeue(out Func<Task>? work))
+                {
+                    await work();
+                }
+            }
+            finally { library.RequestShutdown("resource-completeness-test"); Directory.Delete(root, recursive: true); }
+        }
+    }
+
+    /// <summary>音源完全な実混在取り込みでも既知ハッシュ候補を評価します。未所持群だけの最頻ペアで一意先のStrong可否を判定し、同点は限定集合を維持して候補外の強一致先へ迂回しません。</summary>
+    /// <remarks>本番ownerの受理からidleまでを通し、一意先は同梱だけに音源を用意します。同点は候補自身の既存最低一致条件も満たし、詳細条件表は下位・手動入口の既存系列へ分担します。</remarks>
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    public async Task ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates(bool strong, bool tied)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        string libraryRoot = Path.Combine(root, "Library");
+        string candidate = Path.Combine(libraryRoot, "A");
+        string second = Path.Combine(libraryRoot, "B");
+        string outside = Path.Combine(libraryRoot, "Outside");
+        string source = Path.Combine(root, "Input");
+        foreach (string directory in new[] { candidate, second, outside, source }) { Directory.CreateDirectory(directory); }
+        var installed = new List<string>();
+        void WriteInstalled(string directory, string name, string text)
+        {
+            string path = Path.Combine(directory, name);
+            File.WriteAllText(path, text, Encoding.ASCII);
+            installed.Add(path);
+        }
+        // 所持Other 4件を混ぜるとOtherが最頻になる。未所持群だけならSong 2件が最頻。
+        for (int i = 0; i < 4; i++)
+        {
+            string text = "#TITLE Other\n#ARTIST Artist\n#GENRE owned" + i + "\n";
+            string name = "owned" + i + ".bms";
+            File.WriteAllText(Path.Combine(source, name), text, Encoding.ASCII);
+            WriteInstalled(candidate, name, text);
+            if (tied) { WriteInstalled(second, name, text); }
+        }
+        for (int i = 0; i < 3; i++)
+        {
+            string text = "#TITLE " + (i < 2 ? "Song" : "Another") + "\n#ARTIST Artist\n#GENRE missing" + i
+                + "\n#WAV01 sound.wav\n#00111:01\n";
+            File.WriteAllText(Path.Combine(source, "missing" + i + ".bms"), text, Encoding.ASCII);
+        }
+        if (strong)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                string text = "#TITLE Song\n#ARTIST Artist\n#GENRE candidate" + i + "\n";
+                WriteInstalled(candidate, "candidate" + i + ".bms", text);
+                if (tied) { WriteInstalled(second, "candidate" + i + ".bms", text); }
+            }
+        }
+        WriteInstalled(outside, "outside.bms", "#TITLE Song\n#ARTIST Artist\n#GENRE outside\n");
+        File.WriteAllBytes(Path.Combine(source, "sound.wav"), [1]);
+        File.WriteAllBytes(Path.Combine(outside, "sound.wav"), [1]);
+        if (tied)
+        {
+            File.WriteAllBytes(Path.Combine(candidate, "sound.wav"), [1]);
+            File.WriteAllBytes(Path.Combine(second, "sound.wav"), [1]);
+        }
+        var indexed = new Dictionary<string, IEnumerable<string>> { [candidate] = tied ? ["sound.wav"] : [], [outside] = ["sound.wav"] };
+        if (tied) { indexed[second] = ["sound.wav"]; }
+        var background = new ConcurrentQueue<Func<Task>>();
+        var admission = new ChartFileOperationSynchronizer();
+        var observer = new CompletenessEstimationObserver();
+        var options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = false,
+            ScanBmsFilesOnStartup = true,
+            KeepInstallablePackagesPending = true,
+            AutoApplyAmbiguousInstallDestination = true
+        };
+        string dbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(dbPath, []);
+        var library = new TestBmsLibrary(dbPath, null, null, null, new FileDbReportRecordingDialogs(),
+            new TestUiScheduler(() => null), () => options,
+            CapturedChartFileScanner.FromFixture(installed, indexed, indexed.Keys), observer, admission)
+        {
+            SearchTargets = [libraryRoot],
+            StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
+        };
+        var owner = new PackageInstallWorkflowOwner(new FileDbReportRecordingDialogs(), admission, new ChartMutationActivityOwner(),
+            new BmsLibraryPackageInstallMutationPort(), new NoOpChartMutationPlaybackPort(), action => { action(); return true; });
+        owner.AttachLibrary(library);
+        PackageInstallFailure? failure = null;
+        owner.FailurePublished += value => failure = value;
+        try
+        {
+            library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+            while (background.TryDequeue(out Func<Task>? work)) { await work(); }
+            Assert.IsTrue(owner.Enqueue([source]));
+            await owner.WaitForIdleAsync();
+            Assert.IsNull(failure, failure?.Exception.ToString());
+            Assert.AreEqual(1, observer.WorkCount);
+            ChartPackage package = library.ChartPackagesPending.Single();
+            Assert.AreEqual(PendingEstimateDeferredReason.None, package.DeferredEstimateReason);
+            var missing = package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path).StartsWith("missing", StringComparison.Ordinal)).ToList();
+            Assert.AreEqual(3, missing.Count);
+            foreach (PackageChartEntry entry in missing)
+            {
+                Assert.AreEqual(strong ? candidate : string.Empty, entry.Chart.InstallDestination ?? string.Empty);
+                Assert.AreEqual(strong ? "Song" : "Other", entry.Chart.InstallDestinationTitle);
+                Assert.AreEqual("Artist", entry.Chart.InstallDestinationArtist);
+                Assert.AreEqual(!strong, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
+                Assert.AreEqual(tied, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstalledDestinationAutoAppliedAmbiguous));
+                Assert.IsFalse(entry.Chart.InstallDestinationSuggestions.Contains(outside));
+                if (!strong) { CollectionAssert.AreEqual(new[] { candidate }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
+                if (tied) { CollectionAssert.AreEqual(new[] { candidate, second }, entry.Chart.InstallDestinationSuggestions.ToArray()); }
+                Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
+            }
+        }
+        finally
+        {
+            try { await owner.WaitForIdleAsync(); }
+            finally
+            {
+                try { while (background.TryDequeue(out Func<Task>? work)) { await work(); } }
+                finally { library.RequestShutdown("complete-source-hash-test"); Directory.Delete(root, recursive: true); }
+            }
+        }
+    }
+
+    private sealed class CompletenessEstimationObserver : IInstallEstimationExecutionObserver
+    {
+        private int workCount;
+        internal int WorkCount => Volatile.Read(ref workCount);
+        public IDisposable BeginWorkItem(InstallEstimationWorkItemObservation observation)
+        {
+            Interlocked.Increment(ref workCount);
+            return new WorkScope();
+        }
+        public void ObserveProgress(InstallEstimationProgressObservation observation) { }
+        public void ObserveResultApplied(InstallEstimationAppliedObservation observation) { }
+        private sealed class WorkScope : IDisposable { public void Dispose() { } }
+    }
+
     /// <summary>実候補探索後の交差Busyは停止・物理変更を行わず、受理Lをworker cleanup終端まで保持します。純推定へPは追加しません。</summary>
     /// <remarks>実ライブラリのDB確定・譜面情報公開と共通受付を接続する。開始した背景Taskとownerのidle終端を回収し、通知の到達だけで受付解放としない。</remarks>
     [TestMethod]

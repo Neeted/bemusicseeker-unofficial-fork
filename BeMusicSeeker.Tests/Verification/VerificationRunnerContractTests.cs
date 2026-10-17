@@ -6,6 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -14,6 +15,179 @@ namespace BeMusicSeeker.Tests;
 [TestCategory("ProcessIntegration")]
 public sealed class VerificationRunnerContractTests
 {
+    /// <summary>
+    /// 実DLLの通常対象を過不足なく割り当て、順序変更・無関係な追加削除・別プロセスで既存所属が変わる誤りを検出する。
+    /// </summary>
+    /// <remarks>本番の計画・検査・runsettings生成を通し、対象集合は計画の自己申告ではなく先に取得したメタデータから求める。</remarks>
+    [TestMethod]
+    public void FunctionalShardPlanKeepsExactCoverageAndStableMembership()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker-FunctionalPlanTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            using JsonDocument first = ReadFunctionalPlanProbe(root, "variations");
+            string[] expectedNames = GetProperty(first.RootElement, "Metadata").EnumerateArray()
+                .Where(item => !GetProperty(item, "DoNotParallelize").GetBoolean()
+                    && GetRequiredString(GetProperty(item, "ClassName")) is not
+                        ("BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests" or "BeMusicSeeker.Tests.BassCollectibleLoadContextTests"))
+                .Select(item => GetRequiredString(GetProperty(item, "FullyQualifiedName")))
+                .ToArray();
+            JsonElement plans = GetProperty(first.RootElement, "Plans");
+            Dictionary<string, string> baseline = ReadParallelMembership(plans[0], expectedNames);
+            AssertSameMembership(baseline, ReadParallelMembership(plans[1], expectedNames));
+
+            string addedName = GetRequiredString(GetProperty(first.RootElement, "AddedName"));
+            Assert.IsTrue(StringComparer.Ordinal.Compare(addedName, expectedNames.Min(StringComparer.Ordinal)) < 0);
+            Dictionary<string, string> added = ReadParallelMembership(plans[2], expectedNames.Append(addedName).ToArray());
+            AssertSameMembership(baseline, added);
+            string removedName = GetRequiredString(GetProperty(first.RootElement, "RemovedName"));
+            Dictionary<string, string> removed = ReadParallelMembership(plans[3], expectedNames.Where(name => name != removedName).ToArray());
+            AssertSameMembership(removed, baseline);
+
+            using JsonDocument secondProcess = ReadFunctionalPlanProbe(root, "baseline");
+            AssertSameMembership(baseline, ReadParallelMembership(GetProperty(secondProcess.RootElement, "Plans")[0], expectedNames));
+
+            string[] hostNames = ["portable-settings", "bass-collectible", "shared-state-a", "shared-state-b", "parallel-a", "parallel-b"];
+            CollectionAssert.AreEqual(hostNames, GetProperty(plans[0], "Shards").EnumerateArray()
+                .Select(shard => GetRequiredString(GetProperty(shard, "Name"))).ToArray());
+            const string categoryFilter = "TestCategory!=Net10Performance&TestCategory!=Performance&TestCategory!=LargeFixture&TestCategory!=ParserCompatibilityFull&TestCategory!=ParserCompatibilitySlow&TestCategory!=ProductionDiffFull&TestCategory!=ProcessIntegration&TestCategory!=ReleaseAcceptance";
+            foreach (JsonElement shard in GetProperty(plans[0], "Shards").EnumerateArray())
+            {
+                string hostName = GetRequiredString(GetProperty(shard, "Name"));
+                var settings = XElement.Load(Path.Combine(root, hostName + ".runsettings"));
+                XElement parallelize = GetRequiredElement(GetRequiredElement(settings, "MSTest"), "Parallelize");
+                Assert.AreEqual(hostName.StartsWith("parallel-", StringComparison.Ordinal) ? Math.Max(1, Environment.ProcessorCount) : 1,
+                    (int)GetRequiredElement(parallelize, "Workers"));
+                Assert.AreEqual("MethodLevel", GetRequiredElement(parallelize, "Scope").Value);
+                string filter = GetRequiredElement(GetRequiredElement(settings, "RunConfiguration"), "TestCaseFilter").Value;
+                string prefix = "(" + categoryFilter + ")&(";
+                Assert.IsTrue(filter.StartsWith(prefix, StringComparison.Ordinal) && filter.EndsWith(')'));
+                string[] includes = filter[prefix.Length..^1].Split('|');
+                Assert.IsTrue(includes.All(include => include.StartsWith("FullyQualifiedName=", StringComparison.Ordinal)));
+                CollectionAssert.AreEquivalent(GetProperty(shard, "TestNames").EnumerateArray().Select(GetRequiredString).ToArray(),
+                    includes.Select(include => include["FullyQualifiedName=".Length..]).ToArray());
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>通常対象一件では両側非空を作れず、対象を複製したり空側を許して成功にする誤りを検出する。</summary>
+    [TestMethod]
+    public void FunctionalShardPlanRejectsSingleRegularMethod()
+    {
+        using JsonDocument result = ReadFunctionalPlanProbe(Path.GetTempPath(), "single");
+        Assert.IsTrue(GetProperty(result.RootElement, "Rejected").GetBoolean(), result.RootElement.GetRawText());
+        StringAssert.Contains(GetRequiredString(GetProperty(result.RootElement, "Message")), "two nonempty parallel queues");
+    }
+
+    private static Dictionary<string, string> ReadParallelMembership(JsonElement plan, string[] expectedNames)
+    {
+        var membership = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (JsonElement shard in GetProperty(plan, "Shards").EnumerateArray()
+            .Where(shard => GetRequiredString(GetProperty(shard, "Name")) is "parallel-a" or "parallel-b"))
+        {
+            string hostName = GetRequiredString(GetProperty(shard, "Name"));
+            JsonElement names = GetProperty(shard, "TestNames");
+            Assert.IsTrue(names.GetArrayLength() > 0, hostName);
+            foreach (JsonElement name in names.EnumerateArray())
+            {
+                string fullyQualifiedName = GetRequiredString(name);
+                Assert.IsTrue(membership.TryAdd(fullyQualifiedName, hostName), "Duplicate exact FQN: " + fullyQualifiedName);
+            }
+        }
+        CollectionAssert.AreEquivalent(expectedNames, membership.Keys.ToArray());
+        return membership;
+    }
+
+    private static string GetRequiredString(JsonElement element)
+    {
+        string? value = element.GetString();
+        Assert.IsNotNull(value, "Required JSON string was null: " + element.GetRawText());
+        return value;
+    }
+
+    private static XElement GetRequiredElement(XElement parent, string name)
+    {
+        XElement? element = parent.Element(name);
+        Assert.IsNotNull(element, "Required XML element was missing: " + name);
+        return element;
+    }
+
+    private static void AssertSameMembership(Dictionary<string, string> expected, Dictionary<string, string> actual)
+    {
+        foreach (KeyValuePair<string, string> item in expected)
+        {
+            Assert.IsTrue(actual.TryGetValue(item.Key, out string? hostName), item.Key);
+            Assert.AreEqual(item.Value, hostName, item.Key);
+        }
+    }
+
+    private static JsonDocument ReadFunctionalPlanProbe(string directory, string scenario)
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string command = $$"""
+            $ErrorActionPreference = 'Stop'
+            . {{QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verification-process-lifecycle.ps1"))}}
+            $signal = [System.Threading.ManualResetEventSlim]::new($false)
+            try {
+                $guard = [VerificationPostStartFaultGuard]::new($signal)
+                . {{QuotePowerShellLiteral(Path.Combine(repositoryRoot, "scripts", "verify-refactor.ps1"))}} -InternalTestGuard $guard
+                $originalMetadata = @(Get-VerificationTestMetadata -AssemblyPath $functionalTestAssemblyPath)
+                $ordinary = @($originalMetadata | Where-Object {
+                    -not $_.DoNotParallelize -and $_.ClassName -cne 'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests' -and
+                    $_.ClassName -cne 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+                })
+                if ({{QuotePowerShellLiteral(scenario)}} -eq 'single') {
+                    $script:probeMetadata = @($originalMetadata | Where-Object {
+                        $_.DoNotParallelize -or $_.ClassName -ceq 'BeMusicSeeker.Tests.PlayerPanelStateSettingsCompatibilityTests' -or
+                        $_.ClassName -ceq 'BeMusicSeeker.Tests.BassCollectibleLoadContextTests'
+                    }) + @($ordinary[0])
+                    function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
+                    $caught = $null
+                    try { $null = New-FunctionalShardPlan } catch { $caught = $_.Exception.Message }
+                    [pscustomobject]@{ Rejected = $null -ne $caught; Message = $caught } | ConvertTo-Json -Compress
+                    return
+                }
+                $baseline = New-FunctionalShardPlan
+                Assert-FunctionalShardConfiguration -Plan $baseline
+                $plans = @($baseline)
+                $addedName = 'A.Unrelated.Method'
+                $removedName = $ordinary[0].FullyQualifiedName
+                if ({{QuotePowerShellLiteral(scenario)}} -eq 'variations') {
+                    foreach ($shard in $baseline.Shards) {
+                        Write-MSTestParallelRunSettings -Path (Join-Path {{QuotePowerShellLiteral(directory)}} ($shard.Name + '.runsettings')) `
+                            -Workers $shard.Workers -Scope $shard.Scope -TestCaseFilter $shard.Filter
+                    }
+                    function Get-VerificationTestMetadata { param($AssemblyPath) $script:probeMetadata }
+                    $script:probeMetadata = $originalMetadata.Clone()
+                    [array]::Reverse($script:probeMetadata)
+                    $plans += New-FunctionalShardPlan
+                    $script:probeMetadata = @([pscustomobject]@{ FullyQualifiedName = $addedName; ClassName = 'A.Unrelated'; DoNotParallelize = $false }) + $originalMetadata
+                    $added = New-FunctionalShardPlan
+                    Assert-FunctionalShardConfiguration -Plan $added
+                    $plans += $added
+                    $script:probeMetadata = @($originalMetadata | Where-Object FullyQualifiedName -cne $removedName)
+                    $deleted = New-FunctionalShardPlan
+                    Assert-FunctionalShardConfiguration -Plan $deleted
+                    $plans += $deleted
+                }
+                [pscustomobject]@{
+                    Metadata = @($originalMetadata | Select-Object FullyQualifiedName, ClassName, DoNotParallelize)
+                    AddedName = $addedName
+                    RemovedName = $removedName
+                    Plans = @($plans | ForEach-Object { [pscustomobject]@{
+                        Shards = @($_.Shards | Select-Object Name, TestNames)
+                    } })
+                } | ConvertTo-Json -Depth 8 -Compress
+            } finally { $signal.Dispose() }
+            """;
+        return ReadPowerShellJson(new[] { "-Command", command });
+    }
+
     /// <summary>
     /// 必須FQNの大文字小文字を含む完全一致と一件だけのPassedを要求し、欠落・重複・非成功をリリース合格にする誤りを検出する。
     /// </summary>

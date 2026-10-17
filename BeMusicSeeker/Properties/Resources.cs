@@ -360,7 +360,6 @@ public class Resources
 
     public static string Estimate_install_loc => ResourceManager.GetString("Estimate_install_loc", resourceCulture);
 
-    public static string Estimate_merge_loc => ResourceManager.GetString("Estimate_merge_loc", resourceCulture);
 
     public static string Estimate_reinstall_loc => ResourceManager.GetString("Estimate_reinstall_loc", resourceCulture);
 
@@ -827,7 +826,6 @@ public class Resources
     /// </summary>
     public static string Msg_manual_installation_delete_source => ResourceManager.GetString("Msg_manual_installation_delete_source", resourceCulture);
 
-    public static string Msg_estimate_merge_confirm => ResourceManager.GetString("Msg_estimate_merge_confirm", resourceCulture);
 
     public static string Msg_merge_bms_destination => ResourceManager.GetString("Msg_merge_bms_destination", resourceCulture);
 
@@ -1600,6 +1598,12 @@ public class Resources
 
     public static string Error_BmsLoadFailedSkip => ResourceManager.GetString("Error_BmsLoadFailedSkip", resourceCulture);
 
+
+    /// <summary>全使用リソースを必須にする詳細設定の表示名です。</summary>
+    public static string Details_require_complete_used_resources_for_auto_install => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install", resourceCulture);
+
+    /// <summary>設定ON/OFFと新規候補の自動探索省略を説明します。既知ハッシュ候補のTITLE/ARTIST判定は残します。</summary>
+    public static string Details_require_complete_used_resources_for_auto_install_description => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install_description", resourceCulture);
 
     public static string Warning_WavFilesNotFound => ResourceManager.GetString("Warning_WavFilesNotFound", resourceCulture);
 

@@ -8,6 +8,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
 
 namespace BeMusicSeeker.Tests;
 
@@ -15,7 +16,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class AppSchemaPreflightServiceTests
 {
     /// <summary>
-    /// startup schemaを実DBへ作成し、刷新履歴の未記録読取りと初回保存・読戻しまで成立させ、起動時の表準備漏れを検出する。
+    /// startup schemaの表・索引・現行版を新しい読取り接続で確認し、刷新履歴の初回保存・読戻しと起動対象の準備漏れを検出する。
     /// </summary>
     [TestMethod]
     public void EnsureLibraryStartupSchema_ContainsLibraryOwnedTables()
@@ -28,18 +29,115 @@ public sealed class AppSchemaPreflightServiceTests
             AssertIrScoreRefreshMetadataFirstSave(gateway);
 
             using LR2SongDBExtended db = new BmsLibraryDbGateway(tempDbPath).OpenSongDbReadOnly();
-            List<string> tableNames = [.. db.Query<ColumnNameRow>(
-                "SELECT name FROM sqlite_master WHERE type = 'table';")
-                .Select(row => row.name)];
-            CollectionAssert.IsSubsetOf(
-                new[] { "folder", "install", "ir_score", "ir_score_refresh_metadata", "ir_data", "chart_info" },
-                tableNames);
+            AssertLibraryStartupSchema(db);
         }
         finally
         {
             DeleteTempSongDbDirectory(tempDbPath);
         }
     }
+
+    /// <summary>
+    /// 起動準備終盤の実SQLite障害で今回の表・索引・列・版を全て戻し、元の行を保持して原因除去後の明示再実行を成立させます。
+    /// </summary>
+    [TestMethod]
+    public void EnsureLibraryStartupSchema_LateFailureRollsBackAllChangesAndAllowsExplicitRetry()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        const string hash = "0123456789abcdef0123456789abcdef";
+        const string chartPath = @"D:\BMS\startup-original.bms";
+        const string failureMessage = "deterministic startup schema late failure";
+        try
+        {
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(tempDbPath, seed =>
+            {
+                seed.CreateTable<LR2SongDB.song>();
+                seed.Insert(new LR2SongDB.song { hash = hash, path = chartPath, title = "Original startup song" });
+                seed.Execute("CREATE TABLE maintenance (hash TEXT NULL, path TEXT PRIMARY KEY, encoding TEXT NULL, is_files_warning_ignored INTEGER NOT NULL DEFAULT 0);");
+                seed.Execute("INSERT INTO maintenance (hash, path, encoding, is_files_warning_ignored) VALUES (?, ?, 'shift_jis', 1);", hash, chartPath);
+                seed.CreateTable<LR2SongDBExtended.app_schema_version>();
+                seed.Insert(new LR2SongDBExtended.app_schema_version { name = "app_schema", version = 0 });
+                seed.Execute("CREATE TRIGGER startup_schema_late_failure BEFORE INSERT ON app_schema_version BEGIN SELECT RAISE(ABORT, '" + failureMessage + "'); END;");
+            });
+
+            var gateway = new BmsLibraryDbGateway(tempDbPath);
+            string[] beforeSchema;
+            string[] beforeColumns;
+            using (LR2SongDBExtended before = gateway.OpenSongDbReadOnly())
+            {
+                beforeSchema = ReadLogicalSchema(before);
+                beforeColumns = ReadMaintenanceColumnDefinitions(before);
+            }
+
+            Exception? failure = null;
+            try { gateway.EnsureLibraryStartupSchema(); }
+            catch (Exception exception) { failure = exception; }
+            Assert.IsNotNull(failure);
+            bool sqliteCausePreserved = false;
+            for (Exception? cause = failure; cause != null; cause = cause.InnerException)
+            {
+                sqliteCausePreserved |= cause is SQLiteException && cause.Message.Contains(failureMessage, StringComparison.Ordinal);
+            }
+            Assert.IsTrue(sqliteCausePreserved, failure.ToString());
+
+            using (LR2SongDBExtended afterFailure = gateway.OpenSongDbReadOnly())
+            {
+                CollectionAssert.AreEqual(beforeSchema, ReadLogicalSchema(afterFailure));
+                CollectionAssert.AreEqual(beforeColumns, ReadMaintenanceColumnDefinitions(afterFailure));
+                Assert.AreEqual(0, afterFailure.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema';"));
+                AssertOriginalRows(afterFailure);
+            }
+            using (var removeFailure = new LR2SongDBExtended(tempDbPath))
+            {
+                removeFailure.Execute("DROP TRIGGER startup_schema_late_failure;");
+            }
+
+            gateway.EnsureLibraryStartupSchema();
+            using LR2SongDBExtended afterRetry = gateway.OpenSongDbReadOnly();
+            AssertLibraryStartupSchema(afterRetry);
+            AssertOriginalRows(afterRetry);
+        }
+        finally
+        {
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+
+        static void AssertOriginalRows(LR2SongDBExtended db)
+        {
+            LR2SongDB.song song = db.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(hash, song.hash);
+            Assert.AreEqual(chartPath, song.path);
+            Assert.AreEqual("Original startup song", song.title);
+            LR2SongDBExtended.maintenance maintenance = db.Table<LR2SongDBExtended.maintenance>().Single();
+            Assert.AreEqual(hash, maintenance.hash);
+            Assert.AreEqual(chartPath, maintenance.path);
+            Assert.AreEqual("shift_jis", maintenance.encoding);
+            Assert.IsTrue(maintenance.is_files_warning_ignored);
+        }
+    }
+
+    private static void AssertLibraryStartupSchema(LR2SongDBExtended db)
+    {
+        string[] tableNames = db.Query<ColumnNameRow>("SELECT name FROM sqlite_master WHERE type = 'table';")
+            .Select(row => row.name).ToArray();
+        CollectionAssert.IsSubsetOf(new[] { "song", "folder", "install", "maintenance", "ir_score", "ir_score_refresh_metadata", "ir_data",
+            "chart_info", "chart_info_parse_failure", "chart_info_import_history", "app_schema_version" }, tableNames);
+        string[] indexNames = db.Query<ColumnNameRow>("SELECT name FROM sqlite_master WHERE type = 'index';")
+            .Select(row => row.name).ToArray();
+        CollectionAssert.IsSubsetOf(new[] { "hashidx", "parentidx", "song_idx_folder", "song_idx_path_nocase", "hashidx_mtn", "maintenance_idx_path_nocase",
+            "ir_data_idx", "ir_data_idx_lr2id_hash", "chart_info_idx_md5", "chart_info_idx_charthash", "chart_info_idx_parser_version",
+            "chart_info_parse_failure_idx_sha256", "chart_info_parse_failure_idx_parser_version", "chart_info_import_history_idx_bundle_sha256" }, indexNames);
+        Assert.AreEqual(BmsLibraryDbGateway.CurrentAppSchemaVersion,
+            db.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema';"));
+    }
+
+    private static string[] ReadLogicalSchema(LR2SongDBExtended db)
+        => db.Query<ColumnNameRow>("SELECT type || ':' || name || ':' || tbl_name || ':' || COALESCE(sql, '') AS name FROM sqlite_master ORDER BY type, name;")
+            .Select(row => row.name).ToArray();
+
+    private static string[] ReadMaintenanceColumnDefinitions(LR2SongDBExtended db)
+        => db.Query<ColumnNameRow>("SELECT cid || ':' || name || ':' || type || ':' || [notnull] || ':' || COALESCE(dflt_value, '') || ':' || pk AS name FROM pragma_table_info('maintenance') ORDER BY cid;")
+            .Select(row => row.name).ToArray();
 
     /// <summary>
     /// 旧playlist_entryを検査してSHA256とschema版の修復警告を返し、Inspect自体は旧表や版行を変更しない。

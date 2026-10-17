@@ -111,6 +111,7 @@ public sealed class BmsLibraryInitializationLoadTests
                     {
                         songDb.CreateTable<LR2SongDB.song>();
                         songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                        songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = Path.Combine(lr2RootPath, "zero.bms"), hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", wav_files_defined = 0, bga_files_defined = 0, movie_files_defined = 0, is_stagefile_defined = false, is_banner_defined = false, is_backbmp_defined = false }, typeof(LR2SongDBExtended.maintenance));
                         songDb.InsertOrReplace(new LR2SongDBExtended.maintenance { path = rootedChartPath, hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", encoding = "shift_jis", is_encoding_fixed = true, wav_files_existing = 10, wav_files_defined = 12, bga_files_existing = 3, bga_files_defined = 4, movie_files_existing = 1, movie_files_defined = 2, is_stagefile_existing = true, is_stagefile_defined = true, is_banner_existing = false, is_banner_defined = true, is_backbmp_existing = true, is_backbmp_defined = false, is_files_warning_ignored = true, lr2_warning_flags = 11, lr2_resource_max_relative_cp932_bytes = 55, lr2_resource_has_parent_traversal = true }, typeof(LR2SongDBExtended.maintenance));
                     });
                 }
@@ -120,10 +121,15 @@ public sealed class BmsLibraryInitializationLoadTests
                     new BmsLibraryDbGateway(songDbPath),
                     new BmsLibraryOptionsSnapshot());
 
-                Assert.AreEqual(1L, result.MaintenanceTableCount);
+                Assert.AreEqual(2L, result.MaintenanceTableCount);
                 Assert.AreEqual("raw_string", result.MaintenanceMaterializeMode);
-                Assert.AreEqual(1, result.MaintenanceRawRows);
-                Assert.AreEqual(1, result.MaintenanceMap.Count);
+                Assert.AreEqual(2, result.MaintenanceRawRows);
+                Assert.AreEqual(2, result.MaintenanceMap.Count);
+                ResourceHealthMaintenanceSnapshot zero = result.MaintenanceMap[Path.Combine(lr2RootPath, "zero.bms")];
+                Assert.IsTrue(zero.IsInformationChecked);
+                Assert.IsNull(zero.GetWavHealth());
+                Assert.IsNull(zero.WavFilesExisting);
+                Assert.AreEqual(0, zero.WavFilesDefined);
                 Assert.IsTrue(result.ReadOnly);
                 Assert.AreEqual(0L, result.DbLockWaitMs);
                 Assert.IsTrue(result.MaintenanceMap.TryGetValue(rootedChartPath, out ResourceHealthMaintenanceSnapshot? info));
@@ -146,6 +152,64 @@ public sealed class BmsLibraryInitializationLoadTests
                 Assert.AreEqual(11, loadedInfo.Lr2WarningFlags);
                 Assert.AreEqual(55, loadedInfo.Lr2ResourceMaxRelativeCp932Bytes);
                 Assert.AreEqual(true, loadedInfo.Lr2ResourceHasParentTraversal);
+            });
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", previousMode);
+        }
+    }
+
+    /// <summary>実DB復元のnull/null件数と補助完了から検査済みを導き、非force保守では読取りも書込みも行いません。手動forceでは同じ入力を再評価できます。</summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadMaintenanceTable_UnresolvedCompletedCountsSkipAutomaticMaintenanceAndAllowForce()
+    {
+        string? previousMode = Environment.GetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE");
+        Environment.SetEnvironmentVariable("BMS_MAINTENANCE_TABLE_LOAD_MODE", null);
+        try
+        {
+            WithTemporaryLr2SongDb((root, songDbPath) =>
+            {
+                string path = Path.Combine(root, "unresolved.bms");
+                File.WriteAllText(path, "#TITLE Unresolved\n#WAV01 .wav\n#BMP01 invalid\0path\n#00111:01\n#00104:01\n", Encoding.ASCII);
+                ChartFile parsed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+                ResourceHealthMaintenanceSnapshot evaluated = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(parsed) with { Encoding = "shift_jis" };
+                ExecuteSongDbFixtureTransaction(songDbPath, db =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                    db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(evaluated), typeof(LR2SongDBExtended.maintenance));
+                });
+                var gateway = new BmsLibraryDbGateway(songDbPath);
+                ResourceHealthMaintenanceSnapshot restored = new BmsLibraryInitializationService()
+                    .LoadMaintenanceTable(gateway, new BmsLibraryOptionsSnapshot()).MaintenanceMap[path];
+                Assert.AreEqual(MaintenanceInfoOrigin.DbHydrated, restored.Origin);
+                Assert.IsTrue(restored.IsInformationChecked);
+                Assert.IsNull(restored.WavFilesDefined);
+                Assert.IsNull(restored.WavFilesExisting);
+                Assert.IsNull(restored.BgaFilesDefined);
+                Assert.IsNull(restored.BgaFilesExisting);
+                Assert.IsNull(restored.MovieFilesDefined);
+                Assert.IsNull(restored.MovieFilesExisting);
+                ChartFile loaded = ChartFileProjection.WithMaintenance(parsed with { Resources = null }, restored);
+                var owner = new CatalogMutationOwner(new CatalogOwnedCollectionOwner(), gateway);
+                int writes = 0;
+                CatalogMaintenanceWriteReceipt Write(CatalogMaintenanceWriteRequest request)
+                {
+                    writes++;
+                    return owner.ApplyMaintenanceWrite(request);
+                }
+                var maintenance = new BmsLibraryMaintenanceService();
+                MaintenanceWorkflowResult automatic = maintenance.UpdateMaintenanceInfo([loaded], false, Write, null);
+                Assert.AreEqual(0, automatic.HealthTargetCount);
+                Assert.AreEqual(0, automatic.CheckedFileCount);
+                Assert.AreEqual(0, writes);
+                MaintenanceWorkflowResult forced = maintenance.UpdateMaintenanceInfo([loaded], true, Write, null);
+                Assert.AreEqual(1, forced.HealthTargetCount);
+                Assert.AreEqual(1, forced.CheckedFileCount);
+                Assert.AreEqual(1, forced.MaintenanceInfoUnchangedCount);
+                Assert.AreEqual(0, writes);
             });
         }
         finally

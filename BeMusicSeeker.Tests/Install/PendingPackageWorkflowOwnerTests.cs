@@ -742,31 +742,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             events);
     }
 
-    /// <summary>結合推定の確認を取消した場合、確認文を表示してstoreと変更境界を開始しない。</summary>
+    /// <summary>パッケージ単位の通常推定で対象をstoreへ渡して抑制・activity終端後に更新を通知する。</summary>
     [TestMethod]
-    public async Task SearchPendingAsync_MergeRejectionDoesNotStartMutation()
-    {
-        var events = new List<string>();
-        var store = new RecordingStore(events);
-        var dialogs = new FakeUiDialogService
-        {
-            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
-        };
-        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
-        var request =
-            PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([CreateTarget(CreateChart())]);
-
-        await owner.SearchPendingAsync(request);
-
-        Assert.IsNotNull(dialogs.ConfirmationRequest);
-        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm, dialogs.ConfirmationRequest.MessageBoxText);
-        Assert.AreEqual(0, store.SearchPendingCount);
-        CollectionAssert.AreEqual(Array.Empty<string>(), events);
-    }
-
-    /// <summary>パッケージ単位の結合推定を承認すると、対象と推定種別をstoreへ渡して抑制・activity終端後に更新を通知する。</summary>
-    [TestMethod]
-    public async Task SearchPackagesAsync_MergeAcceptanceRunsMutation()
+    public async Task SearchPackagesAsync_RunsMutation()
     {
         var events = new List<string>();
         var store = new RecordingStore(events);
@@ -774,9 +752,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
         var package = new ChartPackage();
 
-        await owner.SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [package]);
+        await owner.SearchPackagesAsync([package]);
 
-        Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, store.LastSearchKind);
         CollectionAssert.AreEqual(new[] { package }, (System.Collections.ICollection)store.LastPackages);
         CollectionAssert.AreEqual(
             new[]
@@ -790,26 +767,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 "identity-refresh"
             },
             events);
-    }
-
-    /// <summary>結合推定の確認表示が失敗した場合は拒否へ読み替えず元例外を伝え、storeや変更境界を開始しない。</summary>
-    [TestMethod]
-    public async Task SearchPendingAsync_DialogFailureIsNotTreatedAsRejection()
-    {
-        var events = new List<string>();
-        var store = new RecordingStore(events);
-        var failure = new InvalidOperationException("dialog failed");
-        var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.Failed(failure) };
-        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
-        var request =
-            PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([CreateTarget(CreateChart())]);
-
-        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => owner.SearchPendingAsync(request));
-
-        Assert.AreSame(failure, exception.InnerException);
-        Assert.AreEqual(0, store.SearchPendingCount);
-        CollectionAssert.AreEqual(Array.Empty<string>(), events);
     }
 
     /// <summary>ライブラリ未接続でも保留集合の解除storeを呼び、抑制・activityの終端後に導入先の失効通知を送る。</summary>
@@ -973,7 +930,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 chartFileOperations: gate);
 
             await owner.SearchPackagesAsync(
-                PendingInstallDestinationSearchKind.InstallDestination,
                 [new ChartPackage()]);
 
             Assert.IsTrue(dispatchedAfterCleanup);
@@ -1065,7 +1021,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
             AggregateException exception = await Assert.ThrowsExceptionAsync<AggregateException>(
                 () => owner.SearchPackagesAsync(
-                    PendingInstallDestinationSearchKind.InstallDestination,
                     [new ChartPackage()]));
 
             CollectionAssert.AreEqual(
@@ -2048,7 +2003,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             try
             {
                 await owner.SearchPackagesAsync(
-                    PendingInstallDestinationSearchKind.InstallDestination,
                     [new ChartPackage()]);
                 Assert.AreEqual(0, store.SearchPackagesCount);
                 Assert.IsFalse(gate.TryEnter(out IDisposable afterRejection));
@@ -2063,7 +2017,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             }
 
             await owner.SearchPackagesAsync(
-                PendingInstallDestinationSearchKind.InstallDestination,
                 [new ChartPackage()]);
             Assert.AreEqual(1, store.SearchPackagesCount);
         }
@@ -2798,7 +2751,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
         internal int SearchPendingCount { get; private set; }
 
-        internal PendingInstallDestinationSearchKind LastSearchKind { get; private set; }
 
         internal IReadOnlyList<ChartPackage> LastPackages { get; private set; } = [];
 
@@ -2840,12 +2792,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
         public void SearchPackages(
             BMSLibrary library,
-            PendingInstallDestinationSearchKind kind,
             IReadOnlyList<ChartPackage> packages)
         {
             events.Add("store-search-packages");
             SearchPackagesCount++;
-            LastSearchKind = kind;
             LastPackages = packages;
             SearchPackagesAction?.Invoke(library);
             ThrowIfConfigured();

@@ -639,8 +639,6 @@
   "Msg_open_install_destination_multiple_selected": "複数選択されているため先頭の譜面のみを対象にします。",
   "Msg_open_install_destination_missing": "インストール先を特定できませんでした。\n推定先が未設定か、既所持譜面からインストール先を逆引きできません。",
   "Msg_open_install_destination_not_found": "インストール先フォルダが見つかりません。\n{0}",
-  "Estimate_merge_loc": "マージ先を推定",
-  "Msg_estimate_merge_confirm": "元フォルダの同梱リソースを使わず、既存リソースだけで成立するマージ先を再推定します。\n既存の推定先は上書きされます。\n続行しますか？",
   "Details_test_keep_installable_pending": "新規判定でも自動インストールせず保留に追加する",
   "Success": "成功",
   "Playlist_summary_header": "プレイリストサマリー",
@@ -746,9 +744,9 @@
   "Warn_LR2LeapYearBugDetected": "LR2の閏年(2/29)バグを検出しました\n修正を行ったため一部の楽曲でリロードが発生する場合があります",
   "Error_InitializationFailed": "初期化中に下記のエラーが発生しました。\nファイルへのアクセスが可能か確認してください。\n対象ファイル: {0}\n\nアプリケーションの動作が不安定になる場合があります。\n\n{1}",
   "Error_BmsLoadFailedSkip": "BMSファイルの読み込みに失敗しました。\nこのファイルの調査はスキップされます。\n正常にアクセスできるか確認してください。\n{0}\n\n{1}",
-  "Warning_WavFilesNotFound": "[{0,2}%] WAVファイルが見つかりませんでした。({1}/{2})",
-  "Warning_BgaFilesNotFound": "[{0,2}%] BGAファイルが見つかりませんでした。({1}/{2})",
-  "Warning_MovieFilesNotFound": "[{0,2}%] MOVIEファイルが見つかりませんでした。({1}/{2})",
+  "Warning_WavFilesNotFound": "[{0,2}%] WAV使用ファイルの存在数 / 要求数: {1}/{2}",
+  "Warning_BgaFilesNotFound": "[{0,2}%] BGA使用ファイルの存在数 / 要求数: {1}/{2}",
+  "Warning_MovieFilesNotFound": "[{0,2}%] MOVIE使用ファイルの存在数 / 要求数: {1}/{2}",
   "Warning_StagefileNotFound": "[ 0%] STAGEFILEが見つかりませんでした。(1/1)",
   "Warning_BackbmpNotFound": "[ 0%] BACKBMPが見つかりませんでした。(1/1)",
   "Warning_BannerNotFound": "[ 0%] BANNERが見つかりませんでした。(1/1)",
@@ -1117,5 +1115,7 @@
   "Statusbar_progress_task_playlist_property_update": "プレイリストのプロパティ更新",
   "Statusbar_progress_task_folder_rename": "フォルダ名の自動変更",
   "Statusbar_progress_task_playlist_external_property_initialization": "プレイリストの外部プロパティ初期化",
-  "Error_PreparedChartTargetMismatch": "準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。"
+  "Error_PreparedChartTargetMismatch": "準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。",
+  "Details_require_complete_used_resources_for_auto_install": "自動新規インストールにすべての使用リソースを要求する",
+  "Details_require_complete_used_resources_for_auto_install_description": "OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。"
 }

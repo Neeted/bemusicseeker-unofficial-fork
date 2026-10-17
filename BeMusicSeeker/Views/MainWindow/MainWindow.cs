@@ -5924,42 +5924,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 e.Handled = true;
                 await pendingInstallEstimationTerminal
-                    .SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg]);
+                    .SearchPackagesAsync([pkg]);
             }
         }
         catch (Exception exception)
         {
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
-        }
-    }
-
-    private async void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            if (ShouldBlockChartPackageMutationInteraction("tree_package_search_merge_destination"))
-            {
-                e.Handled = true;
-                return;
-            }
-            if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
-            {
-                return;
-            }
-            if (placementTarget.DataContext is not ChartPackage pkg)
-            {
-                return;
-            }
-            if (base.DataContext is MainWindowViewModel viewModel)
-            {
-                e.Handled = true;
-                await pendingInstallEstimationTerminal
-                    .SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [pkg]);
-            }
-        }
-        catch (Exception exception)
-        {
-            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuSearchMergeDestinationClick");
         }
     }
 
@@ -8255,41 +8225,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         return false;
-    }
-
-    private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            await SearchMergeDestinationSelectedPendingChartsAsync(e);
-        }
-        catch (Exception exception)
-        {
-            await NotifyMainWindowOperationFailureAsync(exception, "searchMergeDestinationSelectedPendingCharts");
-        }
-    }
-
-    private async Task SearchMergeDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
-    {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_search_merge_destination"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!TryGetContextMenuRow(e.Source, out _))
-        {
-            return;
-        }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
-        if (targets == null || targets.Count == 0)
-        {
-            return;
-        }
-        var request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        e.Handled = true;
-        await pendingInstallEstimationTerminal
-            .SearchPendingAsync(request);
     }
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)

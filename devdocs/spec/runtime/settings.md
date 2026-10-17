@@ -70,6 +70,22 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 詳細のメッセージ表示に `ShowNewPackageInstallConfirmMsg` を配置します。既定値は true で、旧設定にキーがない場合も確認を有効にします。設定変更の検出、保存、取消時の復元とプロパティ通知は他の確認設定と同じ経路を使います。false で省略するのは導入先未設定の保留パッケージの新規導入確認だけです。設定済みの導入先を使わない確認は常に残します。表示する確認は No を既定とし、未選択で閉じても新規導入を承認しません。
 
+### 自動新規導入に要求するリソース
+
+詳細のインストール設定に `RequireCompleteUsedResourcesForAutoInstall` を配置します。既定はfalseで、旧設定にキーがなくてもOFFです。編集・取消・保存・再読込みは既存の設定経路を使い、チェックボックスの直下へON/OFF時の動作を説明します。
+
+| 使用音源 | 非音声の使用リソース | OFF | ON | 保留になった場合の新規リソース探索 |
+| --- | --- | --- | --- | --- |
+| 完全（要求0件を含む） | 完全 | 自動新規導入を許可 | 自動新規導入を許可 | 不要 |
+| 完全（要求0件を含む） | 欠損または定義済み参照の照合不能 | 自動新規導入を許可 | 保留 | 省略。手動推定は可能 |
+| 欠損または定義済み参照の照合不能 | 任意 | 保留 | 保留 | 実行。元の充足率が70%超でも省略しない |
+
+「許可」はリソース条件だけを指します。既所持・単体・入れ子・利用者の保留維持設定・ライブラリ未準備・取消・失敗など、他の保留条件を解除しません。非音声には使用BGA・動画と、STAGEFILE・BANNER・BACKBMP等の補助画像の明示参照を含めます。BMSONに非空の不正な補助画像パスや親参照が明記されている場合も、入力を拒否せず既存の補助画像不足WARNINGを表示し、音源完全ならONで保留・新規リソース探索省略、OFFで自動新規導入を許可します。未指定・null・空文字は対象外です。OFFで非音声不足を許可してもWARNINGを保持します。
+
+完全音源で省略するのは、リソースから新たに候補を探す処理だけです。既所持ハッシュで候補が分かる場合は、一意先のStrong判定と同点の限定候補評価を残します。混在時は未所持群を評価し、Strongと音源完全性が成立すれば導入先を設定します。不成立・比較不能では候補と警告を保持して未設定とし、別候補へ迂回しません。未定義IDは必要集合へ含めず、分類・警告・推定可否へ影響させません。
+
+初期分類、保留追加、後続推定は同じ操作で捕捉した設定と取得済みのリソースを使います。途中で設定を再取得して分類を変えません。この設定は自動新規導入と保留後の自動推定の要否を変えるもので、[導入先自動確定の音源完全性](../library/install-estimation.md#確信度と画面への適用)を緩めません。
+
 ### LR2の場所と設定XML
 
 `LR2RootPath`、`LR2SongDBPath`、`LR2ConfigXmlPath` は独立した保存値です。通常の起動で子パスをルートから再生成しません。保存された設定XMLのパスが欠落・読取不能・不正な場合も、別設定の保存や画面の再表示を理由に生のパスを消しません。パス文字列、解析済み設定、表示用の状態を分けます。
@@ -209,6 +225,7 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 自動新規導入の完全性設定、既定OFF、実編集・取消・保存・再読込み | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の欠落キー既定値、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の詳細設定の実Bindingと保存・新provider・取消を確認する。分類と同一操作の設定捕捉は[導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・コールバック例外と、同じ値・バイト列・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |
 | 10カテゴリのcompiled編集から実保存・稼働値・新画面への接続 | `SettingsWindow`、`SettingsDialogViewModel`、実編集session・専用provider、`ApplicationComposition` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は一般・導入・playlist・外観・再生・音声・録音・backup・詳細・右クリックの各一代表を実Bindingで変更し、専用providerの新reader、本番が参照する設定窓口、新dialogのeditor値を確認する。保存後の取消と再表示、未編集設定・別Web actionも保持する。個々の副作用、外部起動・引数展開、未知キーの条件は既存機能・永続化系列へ分担し、文化・テーマ・Window・設定ownerの終端を回収する。 |
 | 実生成アプリデータの撤去とLR2・利用者データ保全 | [`LR2SongDBExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs)、[`Lr2ApplicationDataUninstallStore`](../../../BeMusicSeeker/Models/LR2/Lr2ApplicationDataUninstallStore.cs) | [`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs)の実起動/アプリスキーマ・IR保存・フォルダ索引前後の`sqlite_schema`差分、実撤去後の新規接続観測と非対象行・`sqlite_sequence`・譜面保全。受付・取消・失敗・通知・終了は既存 [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)が分担する。 |

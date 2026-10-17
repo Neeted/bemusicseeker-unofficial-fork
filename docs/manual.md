@@ -63,7 +63,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Installation Steps](#installation-steps)
     - [New](#new)
     - [Pending](#pending)
-    - [Install-Destination and Merge-Destination Estimation](#install-destination-and-merge-destination-estimation)
+    - [Install-Destination Estimation](#install-destination-estimation)
     - [Smart Overwrite](#smart-overwrite)
     - [Advanced Features](#advanced-features)
 - [Maintenance](#maintenance)
@@ -346,6 +346,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | LR2 Integration | Download LR2IR scores and detect unsent IR scores | OFF | Retrieves LR2IR score information and detects unsent state from differences with local scores. |
 | Install | Try to run installation automatically after download | OFF | Try automatic retrieval and installation from a single URL-cell click. Also enable startup BMS file scanning. Nested archives may require manual extraction. Multi-row URL import attempts installation regardless of this setting. |
 | Install | Add to pending instead of auto-installing even for new entries | OFF | Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list. |
+| Install | Require all used resources for automatic new installation | OFF | When OFF, complete used audio permits automatic new installation even if images, videos, or auxiliary images are missing. When ON, these are required too; non-audio shortages keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Missing audio keeps it pending and triggers estimation with either setting. |
 | Install | Even if multiple candidates remain, use the first candidate as the install destination when its title and artist match strongly | OFF | Automatically set the first candidate when TITLE / ARTIST match strongly. Multiple-candidate warnings may remain. |
 | Install | Delete the source package after a normal installation even if it still contains already-owned charts | OFF | Clean up remaining already-owned charts and empty source folders after installation. Unowned or unidentifiable remnants are retained. Moved source files are removed even when OFF. |
 | Install | Optimize bundled file overwrite by comparing modified date and size on diff install | ON | Enables [Smart Overwrite](#smart-overwrite). |
@@ -486,7 +487,6 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 #### Installation and Destination Correction
 
 - `Install` -> `Estimate install destination`: Estimates the install destination for pending charts.
-- `Install` -> `Estimate merge destination`: Performs estimation for packages that contain only already-owned charts, or for resource-focused merging, without adding bundled resources to the evaluation.
 - `Install` -> `Install to estimated install destination`: Installs to `INSTL DST`.
 - `Install` -> `Install as new`: Treats the package as an ordinary new install without using the estimated destination.
 - `Install` -> `Clear install destination`: Clears `INSTL DST`, estimated-destination display, estimation warnings, and candidates.
@@ -544,7 +544,7 @@ Install:
 
 - `New` root: `Clear all` empties the new package display.
 - `Pending` root: You can run `Clear all` and `Advanced features`. For advanced features, see [Advanced Features](#advanced-features).
-- Pending package: You can run `Open in Explorer`, `Open install destination`, the `Install` submenu, and `Remove from list`. The `Install` submenu contains `Estimate install destination`, `Estimate merge destination`, `Install to estimated install destination`, `Install as new`, and `Clear install destination`.
+- Pending package: You can run `Open in Explorer`, `Open install destination`, the `Install` submenu, and `Remove from list`. The `Install` submenu contains `Estimate install destination`, `Install to estimated install destination`, `Install as new`, and `Clear install destination`.
 - Installed package: You can run `Open in Explorer` and `Remove from list`.
 
 Maintenance:
@@ -927,8 +927,8 @@ Supported inputs are BMS / bmson charts, work folders, and `.zip`, `.7z`, `.rar`
 ### Installation Steps
 
 1. Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.
-2. Items that appear to be new unowned works and have enough bundled resources are normally installed to the `New install destination` configured in the settings dialog. If `Add to pending instead of auto-installing even for new entries` is enabled in Advanced settings, they remain in Pending even when judged as new.
-3. Items with few resources that appear to be differential charts for existing works are added to `Pending`, and install-destination estimation is performed.
+2. New unowned works with all used audio files present are normally installed to the `New install destination` configured in the settings dialog. To require images and videos too, turn ON `Require all used resources for automatic new installation` in Advanced settings. If `Add to pending instead of auto-installing even for new entries` is enabled, they remain in Pending even when judged as new.
+3. Items with missing used audio files are added to `Pending`, and install-destination estimation is performed. When the setting above keeps a package pending solely for missing images or videos, searching for new candidates is skipped. Candidates known from owned charts still undergo TITLE/ARTIST matching, and the destination is set when the conditions are met. You can estimate its destination manually from Pending.
 4. Check `WARNING`, `TITLE`, `ARTIST`, `INSTL DST TITLE`, `INSTL DST ARTIST`, and related columns. If necessary, manually enter `INSTL DST` or choose it from the suggested candidates.
 5. Select rows that look correct, then run `Install` -> `Install to estimated install destination` from the context menu.
 
@@ -951,7 +951,7 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 ![Install Pending](img/一覧_インストール_保留.PNG)
 
-`Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination and Merge-Destination Estimation](#install-destination-and-merge-destination-estimation).
+`Pending` contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run `Install` → `Estimate install destination` from the context menu. You can also re-estimate using [Install-Destination Estimation](#install-destination-estimation).
 
 #### Checking Destinations and WARNING
 
@@ -969,7 +969,7 @@ For example, a differential chart by itself is typically added to `Pending` with
 | --- | --- |
 | Multiple estimated / install destinations | Compare candidate locations, titles, and artists. |
 | TITLE/ARTIST unconfirmed / Install estimation | Matching resources may still give a low-confidence result. Check that it is the correct work. |
-| Missing resources | Check missing WAV, BGA, or video percentages. A standalone additional chart normally lacks resources before installation. |
+| Missing resources | Check the existing / required WAV, BGA, or video file counts. A standalone additional chart normally lacks resources before installation. |
 | Install destination unknown / Unsupported resource path / Search limit | Read the details and specify a destination manually or re-estimate. |
 | Already installed | The package contains owned charts. For resource updates, consider merging or [Advanced Features](#advanced-features). |
 
@@ -988,13 +988,11 @@ You can enter an owned chart's full path or its containing directory. Full paths
 
 `Remove from list` removes ordinary user folders or manually selected archives from Pending without deleting their source files. Application-managed temporary packages created by URL import may also have their temporary files deleted.
 
-### Install-Destination and Merge-Destination Estimation
+### Install-Destination Estimation
 
-The `Install` context menu contains several similarly named estimation operations.
+Use `Install` → `Estimate install destination` for both additional charts and packages containing only already-owned charts. It compares how many files used by the charts will be available after combining bundled resources with each candidate folder. When combined coverage is equal, candidates with more matching files of their own rank higher.
 
-`Estimate install destination` is for ordinary differential-chart installation. Resources bundled in the pending package are counted as resources that will become available after installation, and BeMusicSeeker looks for the destination that works best when combined with the existing directory. Usually, use this operation. **In other words, bundled additional audio files are also considered.**
-
-`Estimate merge destination` is for pending packages that contain only already-owned charts, or for cases where you want to move only resources into an existing folder. It does not add bundled resources inside the pending package to the evaluation; it searches for a merge destination using only resources already present in the existing library. Existing `INSTL DST` values are overwritten. A confirmation dialog is shown before execution.
+Automatic confirmation of `INSTL DST` requires a strong TITLE / ARTIST match and all used audio files to be available from the package and candidate together. If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.
 
 `Install to estimated install destination` installs pending packages whose `INSTL DST` is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty `INSTL DST` remain in Pending. Same-name collisions among bundled files are handled according to [Smart Overwrite](#smart-overwrite) in the settings dialog.
 
@@ -1117,6 +1115,13 @@ For failed moves or merges, see [File Moving or Merging Fails](#file-moving-or-m
 ![Full Resource Scan](img/一覧_構成ファイルフルスキャン.PNG)
 
 This view checks missing WAV, BGA, video, image, and similar resources.
+
+`WAV`, `BGA`, and `MOVIE` show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows `-`.
+
+`-` also appears before a check or when coverage cannot be determined. IDs without a resource definition are excluded from missing-resource checks. Rescanning also updates older saved counts to the used-file basis.
+
+An explicitly specified invalid auxiliary image path or parent-folder reference (`../`) in BMSON also produces a missing-image warning. With complete audio, requiring all used resources keeps the package pending when ON and permits automatic new installation when OFF.
+
 `Rescan all charts` is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.
 
 ## Play Log

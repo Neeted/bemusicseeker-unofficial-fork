@@ -636,8 +636,6 @@
   "Msg_confirm_skip_init_playlist_load": "Les vérifications de mise à jour des playlists ne seront pas exécutées au démarrage.\n\nCe changement prendra effet après redémarrage.",
   "Msg_confirm_enable_offline_score_ranking_estimation": "L’estimation du classement hors ligne pour les scores non envoyés sera exécutée lors de la mise à jour du cache de classement LR2IR.\nDes XML supplémentaires du cache de classement peuvent être lus pour les charts dont le score local est supérieur au score LR2IR.\n\nCe changement prendra effet après redémarrage.",
   "Msg_confirm_enable_lr2ir_ranking_cache_startup_update": "Le cache de classement LR2IR sera mis à jour après le démarrage.\nCela met à jour les colonnes RANKING, RANK UPDATE, T-SCORE et ΔMAX, mais l'utilisation CPU et disque peut augmenter fortement lors de la première construction ou après un changement de LR2ID.\n\nCe changement prendra effet après redémarrage.",
-  "Estimate_merge_loc": "Estimer la destination de fusion",
-  "Msg_estimate_merge_confirm": "Ré-estimer une destination de fusion pouvant être valide uniquement avec les ressources déjà présentes, sans utiliser les ressources incluses dans le dossier source.\nLes estimations existantes seront écrasées.\nVoulez-vous continuer ?",
   "Msg_open_install_destination_missing": "Impossible de déterminer la destination d’installation.\nLa destination estimée n’est pas définie, ou elle n’a pas pu être retrouvée à partir des charts possédés.",
   "Msg_open_install_destination_multiple_selected": "Plusieurs éléments sont sélectionnés. Seul le premier chart sera utilisé.",
   "Msg_open_install_destination_not_found": "Dossier de destination d'installation introuvable.\n{0}",
@@ -746,9 +744,9 @@
   "Warn_LR2LeapYearBugDetected": "Bug d'année bissextile LR2 (29/02) détecté.\nCertaines chansons peuvent être rechargées suite à la correction.",
   "Error_InitializationFailed": "Une erreur s'est produite lors de l'initialisation.\nVeuillez vérifier si le fichier est accessible.\nFichier cible : {0}\n\nL'application peut devenir instable.\n\n{1}",
   "Error_BmsLoadFailedSkip": "Échec du chargement du fichier BMS.\nCe fichier sera ignoré.\nVeuillez vérifier s'il est accessible.\n{0}\n\n{1}",
-  "Warning_WavFilesNotFound": "[{0,2}%] Fichiers WAV introuvables. ({1}/{2})",
-  "Warning_BgaFilesNotFound": "[{0,2}%] Fichiers BGA introuvables. ({1}/{2})",
-  "Warning_MovieFilesNotFound": "[{0,2}%] Fichiers MOVIE introuvables. ({1}/{2})",
+  "Warning_WavFilesNotFound": "[{0,2}%] Fichiers WAV utilisés présents / requis : {1}/{2}",
+  "Warning_BgaFilesNotFound": "[{0,2}%] Fichiers BGA utilisés présents / requis : {1}/{2}",
+  "Warning_MovieFilesNotFound": "[{0,2}%] Fichiers MOVIE utilisés présents / requis : {1}/{2}",
   "Warning_StagefileNotFound": "[ 0%] STAGEFILE introuvable. (1/1)",
   "Warning_BackbmpNotFound": "[ 0%] BACKBMP introuvable. (1/1)",
   "Warning_BannerNotFound": "[ 0%] BANNER introuvable. (1/1)",
@@ -1117,5 +1115,7 @@
   "Statusbar_progress_task_playlist_property_update": "Mise à jour des propriétés des listes de lecture",
   "Statusbar_progress_task_folder_rename": "Renommage automatique des dossiers",
   "Statusbar_progress_task_playlist_external_property_initialization": "Initialisation des propriétés des playlists depuis les sources externes",
-  "Error_PreparedChartTargetMismatch": "La cible de partition préparée ne correspond pas à l’élément actuellement présent dans la bibliothèque, à son format ou à son emplacement. Aucune modification n’a été effectuée."
+  "Error_PreparedChartTargetMismatch": "La cible de partition préparée ne correspond pas à l’élément actuellement présent dans la bibliothèque, à son format ou à son emplacement. Aucune modification n’a été effectuée.",
+  "Details_require_complete_used_resources_for_auto_install": "Exiger toutes les ressources utilisées pour une nouvelle installation automatique",
+  "Details_require_complete_used_resources_for_auto_install_description": "Désactivé : installer automatiquement si les sons sont complets, même si des BGA, vidéos ou images auxiliaires manquent. Activé : exiger toutes les ressources utilisées. Si les sons sont complets et seules des ressources non sonores manquent, conserver le paquet en attente sans rechercher automatiquement de nouveaux candidats. Les candidats connus grâce aux partitions possédées restent évalués selon TITLE/ARTIST. Consultez les avertissements et lancez une estimation manuelle depuis la vue en attente. Des sons manquants déclenchent une estimation automatique."
 }

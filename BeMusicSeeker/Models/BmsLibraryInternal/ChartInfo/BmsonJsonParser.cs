@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -546,6 +547,24 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
     }
 }
 
+/// <summary>従来は未解釈だったBGAイベントIDだけを任意の参照として読みます。数値変換規則を共有し、解釈不能値は未指定として受理します。</summary>
+internal sealed class BmsonBgaEventIdJsonConverter : JsonConverter
+{
+    /// <summary>イベントの省略可能な整数IDだけを対象にします。</summary>
+    public override bool CanConvert(Type objectType) => objectType == typeof(int?);
+
+    /// <summary>値全体を消費し、通常の整数変換に失敗したイベントIDから参照を作りません。JSON構文失敗は伝播します。</summary>
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    {
+        var value = JToken.Load(reader);
+        try { return value.ToObject<int?>(serializer); }
+        catch (JsonSerializationException) { return null; }
+    }
+
+    /// <summary>取得済みイベントIDを通常の数値として出力します。</summary>
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) => writer.WriteValue(value);
+}
+
 internal sealed class BmsonDoubleJsonConverter : JsonConverter
 {
     public override bool CanConvert(Type objectType)
@@ -833,8 +852,9 @@ internal sealed class BmsonBga
 
 internal sealed class BmsonBgaHeader
 {
+    /// <summary>参照に使う数値IDです。省略をID 0へ読み替えません。</summary>
     [JsonProperty("id")]
-    public int Id { get; set; }
+    public int? Id { get; set; }
 
     [JsonProperty("name")]
     public string Name { get; set; } = string.Empty;
@@ -842,6 +862,11 @@ internal sealed class BmsonBgaHeader
 
 internal sealed class BmsonBgaNote
 {
+    /// <summary>有効な数値IDでBGAヘッダーを参照します。解釈不能値は未指定とし、従来受理したイベントを拒否しません。</summary>
+    [JsonProperty("id")]
+    [JsonConverter(typeof(BmsonBgaEventIdJsonConverter))]
+    public int? Id { get; set; }
+
     [JsonProperty("y")]
     public int Y { get; set; }
 }

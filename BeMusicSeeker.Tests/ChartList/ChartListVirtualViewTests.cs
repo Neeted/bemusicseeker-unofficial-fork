@@ -2883,7 +2883,7 @@ public sealed class ChartListVirtualViewTests
                 adapterlessBmsonEntry);
 
             var request =
-                PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
+                PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
             new BmsLibraryPendingPackageStore().SearchPending(library, request);
 
             Assert.IsNull(adapterlessBmsonEntry.GetBmsChartForTest());

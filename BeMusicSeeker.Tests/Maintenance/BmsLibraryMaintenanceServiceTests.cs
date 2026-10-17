@@ -22,6 +22,139 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryMaintenanceServiceTests
 {
+    /// <summary>保守件数から単純充足率を計算し、不足を100へ丸めません。補助3役割と両値あり・0/null・null/nullの件数を検査済みとし、片側欠落・補助未取得・encoding-onlyを区別します。</summary>
+    [TestMethod]
+    public void ResourceHealthCounts_DistinguishZeroUncheckedAndIncompleteRatios()
+    {
+        ResourceHealthMaintenanceSnapshot Complete(int? defined, int? existing) => new()
+        {
+            WavFilesDefined = defined,
+            WavFilesExisting = existing,
+            BgaFilesDefined = 0,
+            MovieFilesDefined = 0,
+            StagefileDefined = false,
+            BannerDefined = false,
+            BackbmpDefined = false
+        };
+        Assert.AreEqual(25, Complete(4, 1).GetWavHealth());
+        Assert.IsTrue(Complete(1000, 999).GetWavHealth() < 100);
+        foreach (int? existing in new int?[] { 0, null })
+        {
+            ResourceHealthMaintenanceSnapshot zero = Complete(0, existing);
+            Assert.IsTrue(zero.IsInformationChecked);
+            Assert.IsNull(zero.GetWavHealth());
+        }
+        // 正常行から件数または補助の一要素だけを変え、由来に依存しない完了条件を確認します。
+        foreach (MaintenanceInfoOrigin origin in new[] { MaintenanceInfoOrigin.Calculated, MaintenanceInfoOrigin.DbHydrated })
+        {
+            foreach ((int? defined, int? existing, bool completed) in new (int?, int?, bool)[]
+                { (1, 1, true), (2, 1, true), (0, 0, true), (0, null, true), (null, null, true), (1, null, false), (null, 0, false), (null, 1, false) })
+            {
+                ResourceHealthMaintenanceSnapshot baseline = Complete(1, 1) with { Origin = origin };
+                foreach (ResourceHealthMaintenanceSnapshot candidate in new[]
+                {
+                    baseline with { WavFilesDefined = defined, WavFilesExisting = existing },
+                    baseline with { BgaFilesDefined = defined, BgaFilesExisting = existing },
+                    baseline with { MovieFilesDefined = defined, MovieFilesExisting = existing }
+                })
+                {
+                    Assert.AreEqual(completed, candidate.IsInformationChecked);
+                }
+            }
+            foreach ((bool? defined, bool? existing, bool completed) in new (bool?, bool?, bool)[]
+                { (false, null, true), (false, false, true), (false, true, true), (true, false, true), (true, true, true), (true, null, false), (null, null, false), (null, true, false), (null, false, false) })
+            {
+                ResourceHealthMaintenanceSnapshot baseline = Complete(1, 1) with { Origin = origin };
+                foreach (ResourceHealthMaintenanceSnapshot candidate in new[]
+                {
+                    baseline with { StagefileDefined = defined, StagefileExisting = existing },
+                    baseline with { BannerDefined = defined, BannerExisting = existing },
+                    baseline with { BackbmpDefined = defined, BackbmpExisting = existing }
+                })
+                {
+                    Assert.AreEqual(completed, candidate.IsInformationChecked);
+                }
+            }
+            Assert.IsFalse((new ResourceHealthMaintenanceSnapshot { Origin = origin, Encoding = "shift_jis" }).IsInformationChecked);
+        }
+        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        ChartWarning warning = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(Complete(4, 1)).Single();
+        Assert.AreEqual(string.Format(Resources.Warning_WavFilesNotFound, 25, 1, 4), warning.Message);
+    }
+
+    /// <summary>使用集合ごとに保守キャッシュを分離します。未定義IDを混ぜても定義先二件中一件の50%を保ち、未定義だけなら0件・N/A・不足警告なし、定義済み不正は照合不能とします。</summary>
+    [TestMethod]
+    public void BuildResourceHealthSnapshot_UsedSetsAndUndefinedIdsDoNotMixInCacheOrProjection()
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "present.wav"), "");
+            ChartFile Parse(string used) => BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(Path.Combine(root, used + ".bms"),
+                Encoding.ASCII.GetBytes("#WAV01 present.wav\n#WAV02 missing.wav\n#WAV03 ../unused.wav\n#00101:" + used + "\n#00104:99\n"), DateTime.UtcNow, used, used));
+            var context = new ResourceHealthLookupContext(null);
+            var service = new BmsLibraryMaintenanceService();
+            ResourceHealthMaintenanceSnapshot first = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("01"), context);
+            ResourceHealthMaintenanceSnapshot second = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("02"), context);
+            Assert.AreEqual(1, first.WavFilesDefined);
+            Assert.AreEqual(1, first.WavFilesExisting);
+            Assert.AreEqual(0, second.WavFilesExisting);
+            Assert.AreEqual(true, first.Lr2ResourceHasParentTraversal);
+            ResourceHealthMaintenanceSnapshot mixed = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("010204"), context);
+            Assert.AreEqual(2, mixed.WavFilesDefined);
+            Assert.AreEqual(1, mixed.WavFilesExisting);
+            Assert.AreEqual(50, mixed.GetWavHealth());
+            Assert.AreEqual(0, mixed.BgaFilesDefined);
+            Assert.AreEqual(ChartWarningKind.ResourceWavMissing, BmsLibraryMaintenanceService.BuildResourceHealthWarnings(mixed).Single().Kind);
+            ChartFile undefined = Parse("04");
+            ResourceHealthMaintenanceSnapshot empty = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(undefined, context);
+            Assert.AreEqual(0, empty.WavFilesDefined);
+            Assert.AreEqual(0, empty.WavFilesExisting);
+            Assert.IsNull(empty.GetWavHealth());
+            Assert.IsTrue(empty.IsInformationChecked);
+            ChartFile projected = ChartFileProjection.WithMaintenance(undefined, empty) with { Resources = null };
+            Assert.AreEqual(0, service.BuildResourceHealthWarnings(projected).Count);
+            Assert.IsFalse(ResourceHealthIndexSnapshot.Build([projected], service, 1).GetProjection(projected).HasIssues);
+            ChartFile old = projected with { WAVHealth = 100 };
+            ChartFile updated = ChartFileProjection.WithTransientState(old, ChartFileTransientState.FromResourceHealthSnapshot(empty));
+            Assert.IsNull(updated.WAVHealth);
+            Assert.IsNull(LibraryChartRow.FromChartFile(updated).WAVHealth);
+            Assert.AreEqual(100, old.WAVHealth);
+            Assert.IsNull(BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(Parse("03"), context).WavFilesDefined);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>BMSONの未定義BGAイベントは0件・N/Aとして警告を出さず、定義済み画像がある場合だけ実在する一件/二件の不足を表示します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BuildResourceHealthSnapshot_BmsonUndefinedEventsDoNotAffectDefinedImageHealth(bool definedImages)
+    {
+        string root = Path.Combine(Path.GetTempPath(), nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(root, "present.png"), [1]);
+            string bga = definedImages
+                ? "\"bga_header\":[{\"id\":1,\"name\":\"present.png\"},{\"id\":2,\"name\":\"missing.png\"}],\"bga_events\":[{\"id\":1},{\"id\":2},{\"id\":99}]"
+                : "\"bga_events\":[{\"id\":99}],\"layer_events\":[{\"id\":98}],\"poor_events\":[{\"id\":97}]";
+            ChartFile chart = BmsonChartFileParser.ParseSnapshot(new ChartFileSnapshot(Path.Combine(root, "chart.bmson"),
+                Encoding.UTF8.GetBytes("{\"info\":{},\"bga\":{" + bga + "}}"), DateTime.UnixEpoch, "md5", "sha256"));
+            ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
+            Assert.AreEqual(0, health.WavFilesDefined);
+            Assert.IsNull(health.GetWavHealth());
+            Assert.AreEqual(definedImages ? 2 : 0, health.BgaFilesDefined);
+            Assert.AreEqual(definedImages ? 1 : 0, health.BgaFilesExisting);
+            Assert.AreEqual(definedImages ? (int?)50 : null, health.GetBgaHealth());
+            IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(health);
+            Assert.AreEqual(definedImages ? 1 : 0, warnings.Count);
+            if (definedImages) { Assert.AreEqual(ChartWarningKind.ResourceBgaMissing, warnings.Single().Kind); }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>
     /// 音声定義二件のうち一件が不足する保守値から不足警告を一件作り、欠落件数に対応する警告生成の見逃しを検出する。
     /// </summary>
@@ -160,37 +293,49 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Assert.AreEqual("[1] LR2パス非対応", ChartWarningCollection.BuildDigestText(file.Warnings, file.InstallDestination));
     }
 
-    /// <summary>
-    /// 同じ実入力の強制保守を二度行うと二度目は評価済みを保って保存値変更なしを返し、同値再評価による不要な更新を検出する。
-    /// </summary>
+    /// <summary>計算済み件数を実DBから読み戻して同値再スキャンし、DB書込み・不要な表示更新を発生させません。未定義IDだけの0件も同じ保存値を保ちます。</summary>
     [TestMethod]
-    public void EvaluateMaintenanceForInline_ForceUpdateReportsUnchangedWhenPersistentRowIsSame()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void UpdateMaintenanceInfo_ForceUpdateDoesNotPersistUnchangedHydratedValues(bool undefined)
     {
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
-        try
+        WithTemporarySongDb(songDbPath =>
         {
-            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException("Song DB has no parent directory."), "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:" + (undefined ? "02" : "01") + "\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
-
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult first =
                 BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(file, snapshot, lookupContext: null, forceUpdate: true);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(MaintenanceStorageMapping.ToStorage(first.MaintenanceInfo), typeof(LR2SongDBExtended.maintenance));
+            }
+            ResourceHealthMaintenanceSnapshot hydrated;
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                hydrated = MaintenanceStorageMapping.ToCommon(db.Table<LR2SongDBExtended.maintenance>().Single(), MaintenanceInfoOrigin.DbHydrated);
+            }
+            Assert.IsTrue(hydrated.IsInformationChecked);
+            ChartFile reloaded = ChartFileProjection.WithMaintenance(file with { Resources = null }, hydrated);
             BmsLibraryMaintenanceService.MaintenanceEvaluationResult second =
-                BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(first.CurrentChart, snapshot, lookupContext: null, forceUpdate: true);
-
+                BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(reloaded, snapshot, lookupContext: null, forceUpdate: true);
             Assert.IsTrue(first.MaintenanceInfoChanged);
             Assert.IsFalse(second.MaintenanceInfoChanged);
             Assert.IsTrue(second.MaintenanceInfo.IsInformationChecked);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectoryPath))
-            {
-                Directory.Delete(tempDirectoryPath, recursive: true);
-            }
-        }
+
+            int writes = 0;
+            MaintenanceWorkflowResult result = new BmsLibraryMaintenanceService().UpdateMaintenanceInfo([reloaded], forceUpdate: true,
+                request =>
+                {
+                    writes++;
+                    return CreateDurableWriter(songDbPath)(request);
+                }, null);
+            Assert.AreEqual(1, result.CheckedFileCount);
+            Assert.AreEqual(0, writes);
+            Assert.AreEqual(0, result.MaintenanceInfoUpsertCount);
+            Assert.IsFalse(result.HasUpdates);
+        });
     }
 
     /// <summary>
@@ -204,7 +349,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
         try
         {
-            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:01\r\n", Encoding.ASCII);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
             file = BmsLibraryMaintenanceService.EvaluateMaintenanceForInline(file, snapshot, lookupContext: null, forceUpdate: true).CurrentChart;
@@ -236,7 +381,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string chartPath = Path.Combine(tempDirectoryPath, "chart.bms");
         try
         {
-            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n", Encoding.ASCII);
+            File.WriteAllText(chartPath, "#TITLE test\r\n#WAV01 missing.wav\r\n#00101:01\r\n", Encoding.ASCII);
             File.WriteAllText(Path.Combine(tempDirectoryPath, "hit.wav"), string.Empty);
             ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(chartPath);
             ChartFile file = BmsChartFileParser.ParseSnapshot(snapshot);
@@ -324,43 +469,51 @@ public sealed class BmsLibraryMaintenanceServiceTests
         }
     }
 
-    /// <summary>
-    /// 同じ親参照stagefileでもBMSとBmsonの任意画像定義の扱いを分け、異なる結果を別キャッシュへ保持して、形式を越える再利用を検出する。
-    /// </summary>
+    /// <summary>実BMSONの3役割で非空不正/親参照を定義あり・既存なしと対応する不足警告へ投影します。同一contextで対象外→無効→対象外を評価し、未指定/null/空とのキャッシュ混同を検出します。</summary>
     [TestMethod]
-    public void BuildResourceHealthSnapshot_OptionalDefinitionFormatDifferenceKeepsCacheEntriesDistinct()
+    [DataRow("eyecatch_image")]
+    [DataRow("banner_image")]
+    [DataRow("back_image")]
+    public void BuildResourceHealthSnapshot_BmsonOptionalImagesDistinguishAbsentAndInvalidReferences(string field)
     {
         string directory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try
         {
-            ImmutableList<ChartResourceReference> resources = TestChartResources.Create(stagefile: @"..\stage.png");
-            ChartFile bmsOwner = ChartTestValues.Empty() with
-            {
-                Path = Path.Combine(directory, "chart.bms"),
-                Resources = resources,
-                Stagefile = "saved-only.png"
-            };
-            ChartFile bmsonOwner = ChartTestValues.Empty(ChartFileKind.Bmson) with
-            {
-                Path = Path.Combine(directory, "chart.bmson"),
-                Resources = resources,
-                Stagefile = "saved-only.png"
-            };
-            ChartFile bms = ChartFileProjection.ToImmutableSnapshot((bmsOwner));
-            ChartFile bmson = ChartFileProjection.ToImmutableSnapshot((bmsonOwner));
             var cache = new DirectoryResourceLookupCache();
             cache.AddDir(directory, [], [], []);
             var context = new ResourceHealthLookupContext(cache);
-
-            ResourceHealthMaintenanceSnapshot bmsHealth = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bms, context);
-            ResourceHealthMaintenanceSnapshot bmsonHealth = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(bmson, context);
-
-            Assert.AreEqual(true, bmsHealth.StagefileDefined);
-            Assert.AreEqual(false, bmsonHealth.StagefileDefined);
-            Assert.AreEqual(false, bmsHealth.StagefileExisting);
-            Assert.IsNull(bmsonHealth.StagefileExisting);
-            Assert.AreEqual(2, context.ResourceHealthSetCacheEntryCount);
+            // null要素はプロパティ省略、文字列nullはJSONの明示null。NULは有効JSONのエスケープで渡します。
+            foreach (string? value in new string?[] { null, "null", "\"\"", "\"../image.png\"", "\"bad\\u0000.png\"", "\"\"", "null", null })
+            {
+                bool defined = value is not (null or "null" or "\"\"");
+                string json = "{\"info\":{" + (value == null ? "" : "\"" + field + "\":" + value) + "},\"sound_channels\":[]}";
+                ChartFile chart = BmsonChartFileParser.ParseSnapshot(new ChartFileSnapshot(Path.Combine(directory, "chart.bmson"),
+                    Encoding.UTF8.GetBytes(json), DateTime.UtcNow, "md5", "sha256"));
+                ResourceHealthMaintenanceSnapshot info = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, context);
+                Assert.AreEqual(defined && field == "eyecatch_image", info.StagefileDefined);
+                Assert.AreEqual(defined && field == "banner_image", info.BannerDefined);
+                Assert.AreEqual(defined && field == "back_image", info.BackbmpDefined);
+                bool? existing = field switch
+                {
+                    "eyecatch_image" => info.StagefileExisting,
+                    "banner_image" => info.BannerExisting,
+                    _ => info.BackbmpExisting
+                };
+                Assert.AreEqual(defined ? false : (bool?)null, existing);
+                IReadOnlyList<ChartWarning> warnings = BmsLibraryMaintenanceService.BuildResourceHealthWarnings(info);
+                Assert.AreEqual(defined ? 1 : 0, warnings.Count);
+                if (defined)
+                {
+                    ChartWarningKind expected = field switch
+                    {
+                        "eyecatch_image" => ChartWarningKind.ResourceStagefileMissing,
+                        "banner_image" => ChartWarningKind.ResourceBannerMissing,
+                        _ => ChartWarningKind.ResourceBackbmpMissing
+                    };
+                    Assert.AreEqual(expected, warnings.Single().Kind);
+                }
+            }
         }
         finally
         {
@@ -1056,6 +1209,23 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Assert.AreEqual("unknown", file.ResourceHealthMaintenanceSnapshot.Encoding);
                 Assert.AreEqual("shift_jis", OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library).Collection
                     .ResolveCurrentChart(LibraryChartRef.FromChartFile(file)).ResourceHealthMaintenanceSnapshot.Encoding);
+                ChartFile current = GetOwnedCollectionOwner(library).Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(file));
+                ResourceHealthIndexSnapshot index = library.GetResourceHealthIndexSnapshotForView("same-maintenance-before-force");
+                for (int repeat = 0; repeat < 2; repeat++)
+                {
+                    int beforeRepeat = library.NormalLibraryRefreshNotificationVersion;
+                    MaintenanceWorkflowResult unchanged = library.RescanResourceHealthCharts([current]);
+                    Assert.IsFalse(unchanged.HasUpdates);
+                    Assert.AreEqual(0, unchanged.MaintenanceInfoUpsertCount);
+                    Assert.AreEqual(0, unchanged.SongUpsertCount);
+                    Assert.AreSame(index, library.TryGetCurrentResourceHealthIndexSnapshotForView());
+                    NormalLibraryRefreshNotificationBatch noChange = library.GetNormalLibraryRefreshNotificationsAfter(beforeRepeat);
+                    Assert.IsFalse(noChange.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+                    Assert.IsFalse(noChange.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+                    Assert.AreEqual(ownedVersion, library.OwnedCollectionVersion);
+                    Assert.AreSame(current.Token, GetOwnedCollectionOwner(library).Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(current)).Token);
+                }
+                Assert.AreSame(index, library.GetResourceHealthIndexSnapshotForView("same-maintenance-after-force"));
             }
             finally
             {
@@ -2497,7 +2667,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2557,7 +2727,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2608,7 +2778,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\", \"eyecatch_image\": \"missing.png\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2669,7 +2839,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2721,7 +2891,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2774,7 +2944,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2833,7 +3003,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         string songDbPath = Path.Combine(tempDirectoryPath, "song.db");
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -2884,12 +3054,12 @@ public sealed class BmsLibraryMaintenanceServiceTests
         try
         {
             string path = Path.Combine(directory, "chart.bmson");
-            File.WriteAllText(path, "{\"info\":{\"title\":\"Before\",\"eyecatch_image\":\"before.png\"},\"sound_channels\":[{\"name\":\"before.wav\",\"notes\":[]}]}");
+            File.WriteAllText(path, "{\"info\":{\"title\":\"Before\",\"eyecatch_image\":\"before.png\"},\"sound_channels\":[{\"name\":\"before.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
             ChartFile song = ChartTestValues.ReadBmson(path);
             song = song with { Resources = hadResources ? song.Resources : null };
             ResourceHealthMaintenanceSnapshot originalInfo = MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = song.Path, hash = song.Md5, encoding = "utf-8" });
             song = song with { ResourceHealthMaintenanceSnapshot = originalInfo };
-            File.WriteAllText(path, "{\"info\":{\"title\":\"After\",\"eyecatch_image\":\"after.png\"},\"sound_channels\":[{\"name\":\"after.wav\",\"notes\":[]}]}");
+            File.WriteAllText(path, "{\"info\":{\"title\":\"After\",\"eyecatch_image\":\"after.png\"},\"sound_channels\":[{\"name\":\"after.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
             File.SetLastWriteTimeUtc(path, song.LastWriteTimeUtc.AddMinutes(1));
             int writeCount = 0;
 
@@ -2933,7 +3103,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Encoding.GetEncoding("shift_jis", new EncoderExceptionFallback(), new DecoderExceptionFallback()));
         File.WriteAllText(
             bmsonFilePath,
-            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\" }, \"sound_channels\": [{ \"name\": \"missing-bmson.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Bmson\", \"artist\": \"Artist\" }, \"sound_channels\": [{ \"name\": \"missing-bmson.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {
@@ -3239,7 +3409,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFilePath,
             "#PLAYER 1\r\n"
             + "#WAV01 audio\\hit.wav\r\n"
-            + "#WAV02 audio\\missing.wav\r\n"
+            + "#WAV02 audio\\missing.wav\r\n#00101:02\r\n"
             + "#BMP01 image\\pic.png\r\n"
             + "#BMP02 movie\\clip.mp4\r\n"
             + "#STAGEFILE stage.png\r\n"
@@ -3346,7 +3516,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         File.WriteAllText(invalidBmsonPath, "{ \"info\": { \"title\": \"Broken\" }, \"bga\": \"unterminated", new UTF8Encoding(false));
         File.WriteAllText(
             validBmsonPath,
-            "{ \"info\": { \"title\": \"Valid\", \"artist\": \"Artist\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [] }] }",
+            "{ \"info\": { \"title\": \"Valid\", \"artist\": \"Artist\" }, \"sound_channels\": [{ \"name\": \"missing.wav\", \"notes\": [{\"x\":1,\"y\":0}] }] }",
             new UTF8Encoding(false));
         try
         {

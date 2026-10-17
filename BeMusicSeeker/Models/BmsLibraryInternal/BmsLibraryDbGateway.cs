@@ -859,17 +859,24 @@ internal sealed class BmsLibraryDbGateway(
     /// ライブラリの起動後に必要な表と索引を明示的に準備します。
     /// 初回の刷新履歴読取り前に保存先を作成し、繰返し準備しても既存の刷新履歴・本人スコア・楽曲行は保持します。
     /// </summary>
+    /// <remarks>
+    /// 同じ接続の一トランザクションで準備し、DDLごとの確定による共通DBロックの占有を減らします。
+    /// 途中失敗では今回の構造・版変更を全て戻して元の失敗を返し、原因除去後の明示再実行を可能にします。
+    /// </remarks>
     public void EnsureLibraryStartupSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        EnsureSongLookupIndexes(songDb);
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.CreateTable<LR2SongDBExtended.install>();
-        EnsureMaintenanceSchema(songDb);
-        songDb.CreateTable<LR2SongDBExtended.ir_score>();
-        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
-        EnsureIrDataSchema(songDb);
-        EnsureChartInfoSchema(songDb);
+        ExecuteAppOwnedSchemaTransaction(songDb, connection =>
+        {
+            EnsureSongLookupIndexes(connection);
+            connection.CreateTable<LR2SongDB.folder>();
+            connection.CreateTable<LR2SongDBExtended.install>();
+            EnsureMaintenanceSchema(connection);
+            connection.CreateTable<LR2SongDBExtended.ir_score>();
+            connection.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+            EnsureIrDataSchema(connection);
+            EnsureChartInfoSchema(connection);
+        });
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
+using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -12,6 +13,150 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceSnapshotTests
 {
+    /// <summary>実BMS/PMSの全行から使用チャンネル・特殊ID・BASE62・同IDの全定義先を収集します。LNOBJを除外せず、未定義IDと地雷ダメージをファイルへ加えません。</summary>
+    [TestMethod]
+    [DataRow("bms", "")]
+    [DataRow("pms", "")]
+    [DataRow("bms", " \t")]
+    [DataRow("pms", " \t")]
+    [DataRow("bms", "\u3000")]
+    [DataRow("pms", "\u3000")]
+    public void ParseSnapshot_CollectsUsedResourceIdsWithoutCountingUnusedDefinitions(string extension, string prefix)
+    {
+        const string text = """
+            #BASE 62
+            #LNOBJ ZZ
+            #WAV01 same.wav
+            #WAV02 same.ogg
+            #WAV03 hidden.wav
+            #WAV04 long.wav
+            #WAV05 unused.wav
+            #WAV06 bgm.wav
+            #WAVZZ terminal.wav
+            #WAV0F damage.wav
+            #WAV00 mine.wav
+            #WAVAA upper.wav
+            #WAVaa lower.wav
+            #BMP00 poor.png
+            #BMP01 bg.png
+            #BMP02 movie.mp4
+            #BMP03 unused.png
+            #00111:0102ZZAA
+            #00131:03
+            #00151:04
+            #00101:06
+            #001D1:0F
+            #00104:01
+            #00106:02
+            #00107:01
+            #0010A:02
+            #RANDOM 2
+            #IF 1
+            #WAV07 branch1.wav
+            #00101:07
+            #ELSE
+            #WAV07 branch2.wav
+            #ENDIF
+            #WAV07 unconditional.wav
+            #WAV07 unconditional.ogg
+            #00121:09
+            #00104:0A
+            """;
+        string prefixed = string.Join("\n", text.Split('\n').Select(line => prefix + line));
+        ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\chart." + extension,
+            Encoding.GetEncoding("shift_jis").GetBytes(prefixed), DateTime.UtcNow, "md5", "sha256"));
+        var used = ChartResourceSnapshot.Create(chart);
+        CollectionAssert.AreEquivalent(new[] { "same", "hidden", "long", "bgm", "mine", "upper", "branch1", "branch2", "unconditional", "terminal" }, used.AudioRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "poor", "bg" }, used.VisualRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "movie" }, used.MovieRelativePaths.ToArray());
+        Assert.IsFalse(used.HasUnresolvedAudio);
+        Assert.IsFalse(used.HasUnresolvedVisual);
+        Assert.IsFalse(used.HasUnresolvedMovie);
+        var all = ChartResourceSnapshot.Create(chart.Resources, includeUnused: true);
+        Assert.AreEqual(used.AudioReferenceCount + 3, all.AudioReferenceCount);
+        Assert.AreEqual(used.VisualReferenceCount + 1, all.VisualReferenceCount);
+        Assert.IsFalse(used.AudioRelativePaths.Contains("unused"));
+        Assert.IsFalse(used.AudioRelativePaths.Contains("lower"));
+    }
+
+    /// <summary>軽量検査はRANDOM上限・不成立IF・入れ子の相関を評価せず、LNOBJ定義先も通常の使用音声として収集します。</summary>
+    [TestMethod]
+    [DataRow("#RANDOM 1\n#IF 2\n#LNOBJ 01\n#00111:01\n#ENDIF\n#ENDRANDOM\n", "r01")]
+    [DataRow("#RANDOM 2\n#IF 1\n#IF 2\n#00111:02\n#ENDIF\n#ELSE\n#00111:03\n#ENDIF\n#ENDRANDOM\n#LNOBJ 02\n", "r02,r03")]
+    public void ParseSnapshot_CollectsAllLinesWithoutEvaluatingConditions(string body, string expected)
+    {
+        foreach (string extension in new[] { "bms", "pms" })
+        {
+            string definitions = "#WAV01 r01.wav\n#WAV02 r02.wav\n#WAV03 r03.wav\n";
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\branch." + extension,
+                Encoding.ASCII.GetBytes(definitions + body), DateTime.UnixEpoch, "md5", "sha256"));
+            CollectionAssert.AreEquivalent(expected.Split(','), ChartResourceSnapshot.Create(chart).AudioRelativePaths.ToArray());
+        }
+    }
+    /// <summary>軽量検査では全音声チャンネルでLNOBJの定義先を要求します。</summary>
+    [TestMethod]
+    [DataRow("01", true)]
+    [DataRow("11", true)]
+    [DataRow("21", true)]
+    [DataRow("31", true)]
+    [DataRow("41", true)]
+    [DataRow("51", true)]
+    [DataRow("61", true)]
+    public void ParseSnapshot_LnobjDefinitionIsRequiredForEveryAudioChannel(string channel, bool required)
+    {
+        string text = "#WAV01 sound.wav\n#LNOBJ 01\n#001" + channel + ":01\n";
+        ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\role.bms",
+            Encoding.ASCII.GetBytes(text), DateTime.UnixEpoch, "md5", "sha256"));
+        var resources = ChartResourceSnapshot.Create(chart);
+        Assert.AreEqual(required ? 1 : 0, resources.AudioReferenceCount);
+        Assert.IsFalse(resources.HasUnresolvedAudio);
+    }
+
+    /// <summary>チャンネル行頭の空白を許容して原文を二文字ずつ切り、コロン後の空白除去や末尾一文字の補修で別IDを作りません。コロンなしは従来どおり行全体をデータとして解釈します。</summary>
+    [TestMethod]
+    [DataRow("#00111: 100", "")]
+    [DataRow("#00011: 0102", "10")]
+    [DataRow("#00111:0 10", "10")]
+    [DataRow("#00111:1", "")]
+    [DataRow("#00111:010", "01")]
+    [DataRow("#00111 :01", "01")]
+    [DataRow("#00111 10", "01,11")]
+    [DataRow(" \t#00111:01", "01")]
+    [DataRow("\u3000#00111:01", "01")]
+    [DataRow(" \t#00111: 100", "")]
+    [DataRow("\u3000#00111: 100", "")]
+    [DataRow(" \t#00111:0 10", "10")]
+    [DataRow("\u3000#00111:010", "01")]
+    [DataRow("\u3000#00111 10", "01,11")]
+    public void ParseSnapshot_ResourceUsagePreservesChannelPairBoundaries(string channelLine, string expectedIds)
+    {
+        string text = "#WAV01 one.wav\n#WAV02 two.wav\n#WAV10 ten.wav\n#WAV11 eleven.wav\n" + channelLine + "\n";
+        ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\pairs.bms",
+            Encoding.GetEncoding("shift_jis").GetBytes(text), DateTime.UtcNow, "md5", "sha256"));
+        var resources = ChartResourceSnapshot.Create(chart);
+        string[] expectedPaths = expectedIds.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(id => id switch
+        { "01" => "one", "10" => "ten", _ => "eleven" }).ToArray();
+        CollectionAssert.AreEquivalent(expectedPaths, resources.AudioRelativePaths.ToArray());
+        Assert.IsFalse(resources.HasUnresolvedAudio);
+    }
+
+    /// <summary>WAV00は地雷がある時だけ、BMP00は定義だけでも要求し、LNOBJ終端は要求へ含め、地雷ダメージと同じIDの定義は除きます。</summary>
+    [TestMethod]
+    public void ParseSnapshot_SpecialResourceIdsFollowTheirPlaybackRole()
+    {
+        foreach (bool mine in new[] { false, true })
+        {
+            string text = "#WAV00 mine.wav\n#WAVZZ terminal.wav\n#WAV12 damage.wav\n#BMP00 poor.png\n#LNOBJ ZZ\n#00111:ZZ\n" + (mine ? "#001E1:12\n" : "");
+            ChartFile chart = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\chart.bms", Encoding.ASCII.GetBytes(text), DateTime.UtcNow, "md5", "sha256"));
+            var resources = ChartResourceSnapshot.Create(chart);
+            Assert.AreEqual(mine ? 2 : 1, resources.AudioReferenceCount);
+            Assert.IsTrue(resources.AudioRelativePaths.Contains("terminal"));
+            Assert.IsFalse(resources.AudioRelativePaths.Contains("damage"));
+            Assert.AreEqual(1, resources.VisualReferenceCount);
+            Assert.IsFalse(resources.HasUnresolvedAudio);
+        }
+    }
+
     /// <summary>
     /// 保証：リソース集合の捕捉後に元の資源を追加しても既存のパス・ハッシュ集合を変更せず、操作途中の入力を固定する。
     /// </summary>
@@ -138,7 +283,7 @@ public sealed class ChartResourceSnapshotTests
     }
 
     /// <summary>
-    /// 保証：実BMSの拡張子だけの空キーは定義件数へ数えず、通常の音声・画像・動画キーと未知記述を取得したまま保持する。
+    /// 保証：実BMSの拡張子だけの空キーは照合件数へ加えず、使用カテゴリを未判定にする。通常キーと未知記述の取得・正規化・親参照判定を維持する。
     /// </summary>
     /// <remarks>本番のファイル読取り・解析から資源分類へ接続し、合成済みreferenceでは分からない空キーの生産を確認する。</remarks>
     [TestMethod]
@@ -151,8 +296,8 @@ public sealed class ChartResourceSnapshotTests
             string chartPath = Path.Combine(tempDirectory, "resources.bms");
             File.WriteAllText(chartPath,
                 "#PLAYER 1\r\n#TITLE Resources\r\n"
-                + "#WAVAA .\\sound\\kick.wav\r\n#WAVAB .wav\r\n#WAVAC .ogg\r\n"
-                + "#BMPAA bg.final.png\r\n#BMPAB movie.mpg\r\n#BMPAC .png\r\n#BMPAD mystery.xyz\r\n"
+                + "#WAVAA .\\sound\\kick.wav\r\n#WAVAB .wav\r\n#00101:AB\r\n#WAVAC .ogg\r\n#00101:AC\r\n"
+                + "#BMPAA bg.final.png\r\n#00104:AA\r\n#BMPAB movie.mpg\r\n#00104:AB\r\n#BMPAC .png\r\n#00104:AC\r\n#BMPAE .mp4\r\n#00104:AE\r\n#BMPAD mystery.xyz\r\n#00104:AD\r\n"
                 + "#BANNER .png\r\n#BACKBMP \r\n#STAGEFILE .png\r\n#00111:AA\r\n");
             ChartFile file = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartPath));
             Assert.IsTrue(file.Resources.Any(reference => reference.NormalizedPath == "mystery.xyz"));
@@ -165,6 +310,9 @@ public sealed class ChartResourceSnapshotTests
                 Assert.AreEqual(1, snapshot.VisualReferenceCount);
                 Assert.AreEqual(1, snapshot.MovieReferenceCount);
                 Assert.AreEqual(0, snapshot.OptionalImageReferenceCount);
+                Assert.IsTrue(snapshot.HasUnresolvedAudio);
+                Assert.IsTrue(snapshot.HasUnresolvedVisual);
+                Assert.IsTrue(snapshot.HasUnresolvedMovie);
                 CollectionAssert.AreEquivalent(new[] { Path.Combine("sound", "kick"), "bg.final", "movie" }, snapshot.EnumerateAllRelativePaths().ToArray());
                 CollectionAssert.AreEquivalent(new[] { ChartResourceKeyHash.GetLookupHash(Path.Combine("sound", "kick")), ChartResourceKeyHash.GetLookupHash("bg.final"), ChartResourceKeyHash.GetLookupHash("movie") }, snapshot.EnumerateAllRelativePathHashes().ToArray());
                 Assert.AreEqual(0, snapshot.UnsupportedResourceReferenceCount);
@@ -237,7 +385,7 @@ public sealed class ChartResourceSnapshotTests
                 "#PLAYER 1\r\n"
                 + "#TITLE Raw Resource\r\n"
                 + "#WAVAA .\\sound\\kick.wav\r\n"
-                + "#BMPAA visual\\bg.final.png\r\n"
+                + "#BMPAA visual\\bg.final.png\r\n#00104:AA\r\n"
                 + "#BMPAB movie\\op.mpg\r\n"
                 + "#00111:AA\r\n"
                 + "#00104:AB\r\n");
@@ -379,7 +527,7 @@ public sealed class ChartResourceSnapshotTests
         try
         {
             string path = Path.Combine(directory, "chart.bms");
-            File.WriteAllText(path, "#WAV01 .\\audio\\foo.v2.flac\n#WAV02 audio/foo.v2.ogg\n#BMP01 mystery.xyz\n#BMP02 .png\n#WAV03 ..\\base\\hit.wav\n#BANNER .\\banner.jpeg\n#BACKBMP ..\\back.png\n#STAGEFILE stage.png\n");
+            File.WriteAllText(path, "#WAV01 .\\audio\\foo.v2.flac\n#00101:01\n#WAV02 audio/foo.v2.ogg\n#00101:02\n#BMP01 mystery.xyz\n#00104:01\n#BMP02 .png\n#00104:02\n#WAV03 ..\\base\\hit.wav\n#00101:03\n#BANNER .\\banner.jpeg\n#BACKBMP ..\\back.png\n#STAGEFILE stage.png\n");
             ChartFile owner = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
             ChartFile chart = (owner);
             ChartFile detached = ChartFileProjection.ToImmutableSnapshot(chart);
@@ -408,7 +556,8 @@ public sealed class ChartResourceSnapshotTests
                 CollectionAssert.AreEqual(chart.Resources.ToArray(), index.ResourceReferences.ToArray());
                 CollectionAssert.AreEqual(chart.Resources.ToArray(), ChartResourceSnapshot.CreateAggregate([result]).ResourceReferences.ToArray());
                 ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(result);
-                Assert.AreEqual(1, health.WavFilesDefined);
+                Assert.IsNull(health.WavFilesDefined);
+                Assert.IsTrue(health.IsInformationChecked);
                 Assert.AreEqual(true, health.StagefileDefined);
                 Assert.AreEqual(true, health.BannerDefined);
                 Assert.AreEqual(true, health.BackbmpDefined);

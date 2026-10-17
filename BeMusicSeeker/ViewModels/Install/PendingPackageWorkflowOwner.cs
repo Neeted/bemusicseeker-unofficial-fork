@@ -164,9 +164,9 @@ internal interface IPendingPackageStore
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
     IPendingPackageStore ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
 
+    /// <summary>通常の導入先推定へ保留パッケージを渡します。既所持だけの対象も含みます。</summary>
     void SearchPackages(
         BMSLibrary library,
-        PendingInstallDestinationSearchKind kind,
         IReadOnlyList<ChartPackage> packages);
 
     IReadOnlyList<ChartFile> SearchPending(
@@ -398,10 +398,8 @@ internal sealed class PendingPackageWorkflowOwner
 
     /// <summary>保留パッケージの導入先を推定し、受付解放後に一覧への影響をまとめて通知します。</summary>
     internal Task SearchPackagesAsync(
-        PendingInstallDestinationSearchKind kind,
         IEnumerable<ChartPackage> packages)
     {
-        ValidateKind(kind);
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
@@ -411,11 +409,11 @@ internal sealed class PendingPackageWorkflowOwner
         {
             return ShowPendingOperationAdmissionBusyAsync("Pending package destination search");
         }
-        return RunSearchAsync(kind, async () =>
+        return RunSearchAsync(async () =>
         {
             await ExecuteInstallDestinationMutation((library, operationStore) =>
             {
-                operationStore.SearchPackages(library, kind, packageSnapshot);
+                operationStore.SearchPackages(library, packageSnapshot);
                 return [];
             }, operationGate, identitySortKeyChanged: true);
         }, operationGate);
@@ -428,12 +426,11 @@ internal sealed class PendingPackageWorkflowOwner
         {
             throw new ArgumentNullException(nameof(request));
         }
-        ValidateKind(request.Kind);
         if (!TryEnterPendingOperation(out IDisposable operationGate))
         {
             return ShowPendingOperationAdmissionBusyAsync("Pending destination search");
         }
-        return RunSearchAsync(request.Kind, async () =>
+        return RunSearchAsync(async () =>
         {
             await ExecuteInstallDestinationMutation(
                 (library, operationStore) => operationStore.SearchPending(library, request),
@@ -1293,14 +1290,9 @@ internal sealed class PendingPackageWorkflowOwner
     }
 
     private Task RunSearchAsync(
-        PendingInstallDestinationSearchKind kind,
         Func<Task> operation,
         IDisposable acquiredOperationGate = null)
     {
-        if (kind == PendingInstallDestinationSearchKind.MergeDestination)
-        {
-            return ConfirmAndRunSearchAsync(operation, acquiredOperationGate);
-        }
         try
         {
             return Task.Run(operation);
@@ -1309,33 +1301,6 @@ internal sealed class PendingPackageWorkflowOwner
         {
             acquiredOperationGate?.Dispose();
             throw;
-        }
-    }
-
-    private async Task ConfirmAndRunSearchAsync(Func<Task> operation, IDisposable acquiredOperationGate)
-    {
-        bool operationScheduled = false;
-        try
-        {
-            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
-                BeMusicSeeker.Properties.Resources.Msg_estimate_merge_confirm,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Asterisk));
-            if (!ToConfirmationDecision(result, "Merge destination confirmation"))
-            {
-                return;
-            }
-            var operationTask = Task.Run(operation);
-            operationScheduled = true;
-            await operationTask;
-        }
-        finally
-        {
-            if (!operationScheduled)
-            {
-                acquiredOperationGate?.Dispose();
-            }
         }
     }
 
@@ -1622,14 +1587,6 @@ internal sealed class PendingPackageWorkflowOwner
         }
     }
 
-    private static void ValidateKind(PendingInstallDestinationSearchKind kind)
-    {
-        if (kind != PendingInstallDestinationSearchKind.InstallDestination
-            && kind != PendingInstallDestinationSearchKind.MergeDestination)
-        {
-            throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported install destination search kind.");
-        }
-    }
 }
 
 internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
@@ -1661,49 +1618,24 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         return new BmsLibraryPendingPackageStore(capability, destinations, options);
     }
 
-    public void SearchPackages(
-        BMSLibrary library,
-        PendingInstallDestinationSearchKind kind,
-        IReadOnlyList<ChartPackage> packages)
-    {
-        if (kind == PendingInstallDestinationSearchKind.InstallDestination)
-        {
-            library.SearchEstimatedInstallationDirectory(packages);
-            return;
-        }
-        foreach (ChartPackage package in packages)
-        {
-            library.SearchMergeDestinationForPendingPackage(package);
-        }
-    }
+    /// <summary>既所持のみを含め、通常の導入先推定へ統合して渡します。</summary>
+    public void SearchPackages(BMSLibrary library, IReadOnlyList<ChartPackage> packages)
+        => library.SearchEstimatedInstallationDirectory(packages);
 
-    public IReadOnlyList<ChartFile> SearchPending(
-        BMSLibrary library,
-        PendingInstallDestinationSearchRequest request)
+    /// <summary>パッケージと独立譜面の選択を、それぞれ通常入口へ渡します。</summary>
+    public IReadOnlyList<ChartFile> SearchPending(BMSLibrary library, PendingInstallDestinationSearchRequest request)
     {
         IReadOnlyList<ChartPackage> packages = ResolvePackages(library, request.PackageTargets);
-        if (request.Kind == PendingInstallDestinationSearchKind.InstallDestination)
+        if (packages.Count > 0)
         {
-            if (packages.Count > 0)
-            {
-                library.SearchEstimatedInstallationDirectory(packages);
-            }
-            if (request.LooseEntries.Count > 0)
-            {
-                library.SearchEstimatedInstallationDirectoryForLooseCharts(request.LooseEntries);
-            }
+            library.SearchEstimatedInstallationDirectory(packages);
         }
-        else
+
+        if (request.LooseEntries.Count > 0)
         {
-            foreach (ChartPackage package in packages)
-            {
-                library.SearchMergeDestinationForPendingPackage(package);
-            }
-            if (request.LooseEntries.Count > 0)
-            {
-                library.SearchMergeDestinationForPendingCharts(request.LooseEntries);
-            }
+            library.SearchEstimatedInstallationDirectoryForLooseCharts(request.LooseEntries);
         }
+
         return [.. request.LooseEntries.Select(entry => entry?.Chart).Where(chart => chart != null)];
     }
 

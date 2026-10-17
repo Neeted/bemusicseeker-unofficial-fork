@@ -22,14 +22,21 @@ internal static class BmsonChartFileParser
         string banner = ExtractComponentPath(info.BannerImage, references, ChartResourceKind.Image, ChartResourceUsage.Banner);
         string backbmp = ExtractComponentPath(info.BackImage, references, ChartResourceKind.Image, ChartResourceUsage.Backbmp);
         string stagefile = ExtractComponentPath(info.EyecatchImage, references, ChartResourceKind.Image, ChartResourceUsage.Stagefile);
-        string preview = ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio);
-        foreach (string name in EnumerateAudioChannelNames(root))
+        string preview = string.IsNullOrWhiteSpace(info.PreviewMusic) ? string.Empty : ExtractComponentPath(info.PreviewMusic, references, ChartResourceKind.Audio);
+        foreach ((string Name, bool HasNotes) channel in EnumerateAudioChannels(root))
         {
-            ExtractComponentPath(name, references, ChartResourceKind.Audio);
+            ExtractComponentPath(channel.Name, references, ChartResourceKind.Audio, isUsed: channel.HasNotes);
         }
+        var usedBgaIds = new HashSet<int>((root?.Bga?.BgaEvents ?? []).Concat(root?.Bga?.LayerEvents ?? [])
+            .Concat(root?.Bga?.PoorEvents ?? []).Where(note => note?.Id.HasValue == true).Select(note => note.Id.Value));
         foreach (BmsonBgaHeader header in root?.Bga?.BgaHeader ?? [])
         {
-            ExtractComponentPath(header?.Name, references, ChartResourceKind.Unknown);
+            if (header == null)
+            {
+                continue;
+            }
+
+            ExtractComponentPath(header.Name, references, ChartResourceKind.Unknown, isUsed: header.Id.HasValue && usedBgaIds.Contains(header.Id.Value));
         }
         string subtitle = ComposeSubtitle(info.Subtitle, info.ChartName);
         string title = string.IsNullOrWhiteSpace(subtitle) ? info.Title ?? string.Empty
@@ -51,18 +58,18 @@ internal static class BmsonChartFileParser
             LastWriteTimeUtc = snapshot.LastWriteTimeUtc
         };
     }
-    private static IEnumerable<string> EnumerateAudioChannelNames(BmsonDocument document)
+    private static IEnumerable<(string Name, bool HasNotes)> EnumerateAudioChannels(BmsonDocument document)
     {
-        return (document?.SoundChannels ?? []).Select(channel => channel?.Name)
-            .Concat((document?.KeyChannels ?? []).Select(channel => channel?.Name))
-            .Concat((document?.MineChannels ?? []).Select(channel => channel?.Name));
+        return (document?.SoundChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0))
+            .Concat((document?.KeyChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0)))
+            .Concat((document?.MineChannels ?? []).Where(channel => channel != null).Select(channel => (channel.Name, channel.Notes?.Length > 0)));
     }
 
-    /// <summary>原文と解析状態を一回の入口で確定します。bmsonの音声分類と任意画像定義条件を維持します。</summary>
+    /// <summary>原文と解析状態を一回の入口で確定します。使用される通常参照はnullも照合不能として保持し、任意画像の省略と音声分類は維持します。</summary>
     private static string ExtractComponentPath(string path, ICollection<ChartResourceReference> references,
-        ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal)
+        ChartResourceKind expectedKind, ChartResourceUsage usage = ChartResourceUsage.Normal, bool isUsed = true)
     {
-        if (path == null)
+        if (path == null && (usage != ChartResourceUsage.Normal || !isUsed))
         {
             return string.Empty;
         }
@@ -73,7 +80,7 @@ internal static class BmsonChartFileParser
             : (expectedKind == ChartResourceKind.Audio && reference.Kind != ChartResourceKind.Audio)
                 || (expectedKind == ChartResourceKind.Unknown && reference.Kind == ChartResourceKind.Audio)
                     ? ChartResourceKind.Unknown : reference.Kind;
-        reference = new ChartResourceReference(kind, usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey, reference.Status);
+        reference = new ChartResourceReference(kind, usage, reference.RawPath, reference.NormalizedPath, reference.LookupKey, reference.Status, isUsed);
         references.Add(reference);
         return reference.Status == ChartResourcePathNormalizationStatus.Valid ? reference.NormalizedPath : string.Empty;
     }

@@ -10,6 +10,97 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsonSongParserTests
 {
+    /// <summary>音声はノートのあるsound/key/mineだけ、BGAはイベントの数値IDだけを使用集合へ解決します。previewと補助画像を保持し、空notesと未参照ヘッダーを除きます。</summary>
+    [TestMethod]
+    public void ParseSnapshot_UsesChannelNotesAndNumericBgaEventIds()
+    {
+        const string json = """
+            {"info":{"preview_music":"preview.ogg","banner_image":"banner.png"},
+             "sound_channels":[{"name":"same.wav","notes":[{"x":1}]},{"name":"same.ogg","notes":[{"x":2}]},{"name":"unused.wav","notes":[]}],
+             "key_channels":[{"name":"hidden.wav","notes":[{"x":1}]}],
+             "mine_channels":[{"name":"mine.wav","notes":[{"x":1}]}],
+             "bga":{"bga_header":[{"id":40,"name":"unused.png"},{"id":20,"name":"bg.png"},{"id":60,"name":"movie.mp4"},{"id":70,"name":"poor.png"}],
+                    "bga_events":[{"id":20}],"layer_events":[{"id":60}],"poor_events":[{"id":99},{"id":70}]}}
+            """;
+        ChartFile chart = BmsonChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\chart.bmson",
+            System.Text.Encoding.UTF8.GetBytes(json), DateTime.UtcNow, "md5", "sha256"));
+        var resources = ChartResourceSnapshot.Create(chart);
+        CollectionAssert.AreEquivalent(new[] { "same", "hidden", "mine", "preview" }, resources.AudioRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "bg", "poor" }, resources.VisualRelativePaths.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "movie" }, resources.MovieRelativePaths.ToArray());
+        Assert.AreEqual(1, resources.OptionalImageReferenceCount);
+        Assert.IsFalse(resources.HasUnresolvedAudio);
+        Assert.IsFalse(resources.HasUnresolvedVisual);
+        Assert.IsFalse(resources.HasUnresolvedMovie);
+    }
+
+    /// <summary>従来無視されたイベントIDの文字列・objectをBGA/LAYER/POORすべてで受理します。有効な数値IDだけを使用要求へ残し、詳細配置・ノート数・時間をIDなし入力から変えません。</summary>
+    [TestMethod]
+    [DataRow("\"bad\"")]
+    [DataRow("{\"unsupported\":1}")]
+    public void ParseSnapshotAndDetailed_InvalidBgaEventIdsRemainAccepted(string invalidId)
+    {
+        string Json(string extra) => "{\"info\":{\"title\":\"Song\",\"init_bpm\":120,\"resolution\":240},"
+            + "\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0},{\"x\":2,\"y\":240}]}],"
+            + "\"bga\":{\"bga_header\":[{\"id\":0,\"name\":\"unused-zero.png\"},{\"id\":20,\"name\":\"bg.png\"},"
+            + "{\"id\":30,\"name\":\"movie.mp4\"},{\"id\":40,\"name\":\"poor.png\"}],"
+            + string.Join(",", new[] { ("bga_events", 20), ("layer_events", 30), ("poor_events", 40) }.Select(item =>
+                "\"" + item.Item1 + "\":[{\"y\":0,\"id\":" + item.Item2 + "},{\"y\":120" + extra + "},{\"y\":240,\"id\":99}]")) + "}}";
+        byte[] baseline = System.Text.Encoding.UTF8.GetBytes(Json(string.Empty));
+        byte[] changed = System.Text.Encoding.UTF8.GetBytes(Json(",\"id\":" + invalidId));
+        foreach (byte[] bytes in new[] { baseline, changed })
+        {
+            ChartFile chart = BmsonChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\event.bmson", bytes, DateTime.UnixEpoch, "md5", "sha256"));
+            var resources = ChartResourceSnapshot.Create(chart);
+            CollectionAssert.AreEquivalent(new[] { "bg", "poor" }, resources.VisualRelativePaths.ToArray());
+            CollectionAssert.AreEquivalent(new[] { "movie" }, resources.MovieRelativePaths.ToArray());
+            Assert.IsFalse(resources.HasUnresolvedVisual);
+            Assert.IsFalse(resources.HasUnresolvedMovie);
+        }
+        ChartInfoParser.ChartInfoParseResult expected = ChartInfoParser.ParseBytesDetailed(baseline, "event.bmson");
+        ChartInfoParser.ChartInfoParseResult actual = ChartInfoParser.ParseBytesDetailed(changed, "event.bmson");
+        Assert.IsNotNull(expected.ChartString);
+        Assert.AreEqual(expected.ChartString, actual.ChartString);
+        Assert.AreEqual(2, expected.Row.notes);
+        Assert.AreEqual(expected.Row.notes, actual.Row.notes);
+        Assert.AreEqual(expected.Row.n, actual.Row.n);
+        Assert.AreEqual(expected.Row.length, actual.Row.length);
+        Assert.AreEqual(expected.Row.speedchange, actual.Row.speedchange);
+    }
+
+    /// <summary>ノートを持つ音声と参照済みBGAのnull/空nameを省略へ読み替えず、使用カテゴリを照合不能として保持します。previewと補助画像の未指定は要求に加えません。</summary>
+    [TestMethod]
+    [DataRow("sound_channels", "null")]
+    [DataRow("key_channels", "null")]
+    [DataRow("mine_channels", "null")]
+    [DataRow("bga", "null")]
+    [DataRow("sound_channels", "\"\"")]
+    [DataRow("key_channels", "\"\"")]
+    [DataRow("mine_channels", "\"\"")]
+    [DataRow("bga", "\"\"")]
+    public void ParseSnapshot_UsedResourcesWithMissingNamesRemainUnresolved(string kind, string name)
+    {
+        string component = kind == "bga"
+            ? "\"bga\":{\"bga_header\":[{\"id\":20,\"name\":" + name + "}],\"bga_events\":[{\"id\":20}]}"
+            : "\"" + kind + "\":[{\"name\":" + name + ",\"notes\":[{\"x\":1,\"y\":0}]}]";
+        string json = "{\"info\":{\"preview_music\":null,\"banner_image\":null}," + component + "}";
+        ChartFile chart = BmsonChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Pending\missing-name.bmson",
+            System.Text.Encoding.UTF8.GetBytes(json), DateTime.UtcNow, "md5", "sha256"));
+        var resources = ChartResourceSnapshot.Create(chart);
+        Assert.AreEqual(0, resources.TotalReferenceCount);
+        Assert.AreEqual(kind != "bga", resources.HasUnresolvedAudio);
+        Assert.AreEqual(kind == "bga", resources.HasUnresolvedVisual);
+        Assert.AreEqual(kind == "bga", resources.HasUnresolvedMovie);
+        Assert.AreEqual(1, resources.ResourceReferences.Count(reference => reference.IsUsed && reference.Usage == ChartResourceUsage.Normal));
+        ResourceHealthMaintenanceSnapshot health = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
+        Assert.IsTrue(health.IsInformationChecked);
+        Assert.AreEqual(kind == "bga" ? (int?)0 : null, health.WavFilesDefined);
+        Assert.AreEqual(kind == "bga" ? (int?)0 : null, health.WavFilesExisting);
+        Assert.AreEqual(kind == "bga" ? null : (int?)0, health.BgaFilesDefined);
+        Assert.AreEqual(kind == "bga" ? null : (int?)0, health.MovieFilesDefined);
+        Assert.AreEqual(false, health.BannerDefined);
+    }
+
     /// <summary>原題省略・null・空文字でも副題と譜面名の表示を保ち、原題への合成表示の混入を検出する。</summary>
     [DataTestMethod]
     [DataRow("")]
@@ -115,8 +206,8 @@ public sealed class BmsonSongParserTests
                 + "\"artist\":\"Artist\","
                 + "\"preview_music\":\"preview.ogg\",\"banner_image\":\".png\",\"back_image\":\"\",\"eyecatch_image\":\".png\""
                 + "},"
-                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]},{\"name\":\".wav\",\"notes\":[]},{\"name\":\".ogg\",\"notes\":[]}],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"movie.mp4\"},{\"id\":2,\"name\":\"image.png\"},{\"id\":3,\"name\":\".png\"},{\"id\":4,\"name\":\"mystery.xyz\"}]},"
+                + "\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[{\"x\":1,\"y\":0}]},{\"name\":\".wav\",\"notes\":[{\"x\":1,\"y\":0}]},{\"name\":\".ogg\",\"notes\":[{\"x\":1,\"y\":0}]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"movie.mp4\"},{\"id\":2,\"name\":\"image.png\"},{\"id\":3,\"name\":\".png\"},{\"id\":4,\"name\":\"mystery.xyz\"}],\"bga_events\":[{\"id\":1,\"y\":0},{\"id\":2,\"y\":0},{\"id\":3,\"y\":0},{\"id\":4,\"y\":0}]},"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
@@ -165,8 +256,8 @@ public sealed class BmsonSongParserTests
                 + "\"preview_music\":\"..\\\\Base\\\\preview.ogg\","
                 + "\"eyecatch_image\":\"..\\\\Base\\\\stage.png\""
                 + "},"
-                + "\"sound_channels\":[{\"name\":\"..\\\\Base\\\\keysound.wav\",\"notes\":[]}],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"..\\\\Base\\\\movie.mp4\"}]},"
+                + "\"sound_channels\":[{\"name\":\"..\\\\Base\\\\keysound.wav\",\"notes\":[{\"x\":1,\"y\":0}]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"..\\\\Base\\\\movie.mp4\"}],\"bga_events\":[{\"id\":1,\"y\":0}]},"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
@@ -213,10 +304,10 @@ public sealed class BmsonSongParserTests
                 + "\"eyecatch_image\":\"stage.png\""
                 + "},"
                 + "\"metadata\":{\"name\":\"ignored.ogg\"},"
-                + "\"sound_channels\":[{\"name\":\"sounds/keysound.ogg\",\"notes\":[]}],"
-                + "\"key_channels\":[{\"name\":\"keys/hidden.mp3\",\"notes\":[]}],"
-                + "\"mine_channels\":[{\"name\":\"mines/mine.wav\",\"notes\":[]}],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"images\\\\layer.jpg\"},{\"id\":2,\"name\":\"movies\\\\clip.mp4\"}]},"
+                + "\"sound_channels\":[{\"name\":\"sounds/keysound.ogg\",\"notes\":[{\"x\":1,\"y\":0}]}],"
+                + "\"key_channels\":[{\"name\":\"keys/hidden.mp3\",\"notes\":[{\"x\":1,\"y\":0}]}],"
+                + "\"mine_channels\":[{\"name\":\"mines/mine.wav\",\"notes\":[{\"x\":1,\"y\":0}]}],"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"images\\\\layer.jpg\"},{\"id\":2,\"name\":\"movies\\\\clip.mp4\"}],\"bga_events\":[{\"id\":1,\"y\":0},{\"id\":2,\"y\":0}]},"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 

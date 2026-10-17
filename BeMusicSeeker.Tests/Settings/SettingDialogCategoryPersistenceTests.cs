@@ -29,6 +29,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("Recording", "EncoderAmplifier")]
     [DataRow("Backup", "LR2BackupNum")]
     [DataRow("Advanced", "KeepInstallablePackagesPending")]
+    [DataRow("Advanced", "RequireCompleteUsedResourcesForAutoInstall")]
     [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
     public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
     {
@@ -63,6 +64,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 Directory.CreateDirectory(values.LR2BackupPath);
                 values.LR2BackupNum = 2;
                 values.KeepInstallablePackagesPending = false;
+                values.RequireCompleteUsedResourcesForAutoInstall = false;
                 values.FolderNameFormat = "%TITLE%";
                 values.RightClickActionsJson = "{\"webActions\":[{\"id\":\"edited\",\"name\":\"Before\",\"urlTemplate\":\"https://example.com/{md5}\",\"enabled\":true,\"chartKind\":\"All\"},{\"id\":\"kept\",\"name\":\"Other\",\"urlTemplate\":\"https://example.org/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}";
                 values.Save();
@@ -97,9 +99,9 @@ public sealed partial class SettingDialogEditCompletionTests
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "category saved Window close");
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                 Assert.IsNull(window.DataContext);
-                AssertCategoryRuntime(owner, category);
+                AssertCategoryRuntime(owner, category, bindingPath);
                 Settings fresh = PortableSettingsPersistenceTests.OpenSettings(config);
-                AssertCategoryPersisted(fresh, category);
+                AssertCategoryPersisted(fresh, category, bindingPath);
                 Assert.AreEqual(untouched, fresh.EncodeFileNameFormat);
                 freshOwner = CreateViewModel(new SettingsEditSession(fresh), firstStartup: false);
                 SetActiveLibraryProfile(freshOwner, true);
@@ -113,8 +115,8 @@ public sealed partial class SettingDialogEditCompletionTests
                 reopened.Closed += (_, _) => cancelled.TrySetResult();
                 freshOwner.SettingDialog.CancelCommand.Execute();
                 TestUiDispatcherHost.AwaitPresentationOnDispatcher(cancelled.Task, "category Cancel close");
-                AssertCategoryRuntime(freshOwner, category);
-                AssertCategoryPersisted(PortableSettingsPersistenceTests.OpenSettings(config), category);
+                AssertCategoryRuntime(freshOwner, category, bindingPath);
+                AssertCategoryPersisted(PortableSettingsPersistenceTests.OpenSettings(config), category, bindingPath);
                 reopened = OpenSettingsWindow(scope, freshOwner.SettingDialog);
                 freshPresentation.CurrentWindow = reopened;
                 Assert.AreEqual(expected, ReadCategoryEditor(reopened, category, bindingPath));
@@ -195,7 +197,7 @@ public sealed partial class SettingDialogEditCompletionTests
     }
 
     /// <summary>本番compositionが実稼働側へ渡す窓口と同じactionの読取りから、保存後の指定値を確認します。</summary>
-    private static void AssertCategoryRuntime(MainWindowViewModel owner, string category)
+    private static void AssertCategoryRuntime(MainWindowViewModel owner, string category, string bindingPath)
     {
         ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
         object ReadField(object target, string name) => target.GetType().GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target)
@@ -210,13 +212,13 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, ((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().SampleRateConversionQuality); break;
             case "Recording": Assert.AreEqual(1.3f, ((IAudioSettingsGateway)ReadField(composition, "audioSettingsGateway")).CaptureEncodingSettings().EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, composition.StartupSettingsProvider().LR2BackupNum); break;
-            case "Advanced": Assert.IsTrue(composition.BmsLibraryOptionsProvider().KeepInstallablePackagesPending); break;
+            case "Advanced": Assert.IsTrue(bindingPath == "RequireCompleteUsedResourcesForAutoInstall" ? composition.BmsLibraryOptionsProvider().RequireCompleteUsedResourcesForAutoInstall : composition.BmsLibraryOptionsProvider().KeepInstallablePackagesPending); break;
             case "RightClick": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
         }
     }
 
     /// <summary>同じSettings instanceの再確認と分け、新providerの実永続値をカテゴリごとに確認します。</summary>
-    private static void AssertCategoryPersisted(Settings settings, string category)
+    private static void AssertCategoryPersisted(Settings settings, string category, string bindingPath)
     {
         switch (category)
         {
@@ -228,7 +230,7 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
             case "Recording": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, settings.LR2BackupNum); break;
-            case "Advanced": Assert.IsTrue(settings.KeepInstallablePackagesPending); break;
+            case "Advanced": Assert.IsTrue(bindingPath == "RequireCompleteUsedResourcesForAutoInstall" ? settings.RequireCompleteUsedResourcesForAutoInstall : settings.KeepInstallablePackagesPending); break;
             case "RightClick": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;
         }
     }

@@ -25,6 +25,9 @@ internal sealed class ChartFileTransientState
 
     internal bool HasInstallEstimationWarningProjection { get; private set; }
 
+    /// <summary>未判定nullを含めて明示的に資源健康度を投影するかを表します。</summary>
+    internal bool HasResourceHealthProjection { get; private set; }
+
     internal int? WAVHealth { get; private set; }
 
     internal int? BGAHealth { get; private set; }
@@ -52,6 +55,7 @@ internal sealed class ChartFileTransientState
         || HasWarningProjection
         || HasInstallEstimationWarningProjection
         || (Warnings?.Count ?? 0) > 0
+        || HasResourceHealthProjection
         || WAVHealth.HasValue
         || BGAHealth.HasValue
         || MovieHealth.HasValue
@@ -81,6 +85,7 @@ internal sealed class ChartFileTransientState
             HasInstallDestinationProjection = forceInstallDestinationProjection,
             Warnings = includeWarningSnapshot ? chart.Warnings : [],
             HasWarningProjection = forceWarningProjection || (includeWarningSnapshot && (chart.Warnings?.Count ?? 0) > 0),
+            HasResourceHealthProjection = chart.ResourceHealthMaintenanceSnapshot != null,
             WAVHealth = chart.WAVHealth,
             BGAHealth = chart.BGAHealth,
             MovieHealth = chart.MovieHealth,
@@ -104,6 +109,7 @@ internal sealed class ChartFileTransientState
             Warnings = [],
             HasWarningProjection = false,
             HasInstallEstimationWarningProjection = false,
+            HasResourceHealthProjection = HasResourceHealthProjection,
             WAVHealth = WAVHealth,
             BGAHealth = BGAHealth,
             MovieHealth = MovieHealth,
@@ -140,6 +146,7 @@ internal sealed class ChartFileTransientState
         };
     }
 
+    /// <summary>件数由来の未判定nullも明示的に上書きする資源表示を捕捉します。</summary>
     internal static ChartFileTransientState FromResourceHealthSnapshot(BmsLibraryInternal.ResourceHealthMaintenanceSnapshot maintenanceInfo)
     {
         if (maintenanceInfo == null)
@@ -149,6 +156,7 @@ internal sealed class ChartFileTransientState
 
         return new ChartFileTransientState
         {
+            HasResourceHealthProjection = true,
             WAVHealth = maintenanceInfo.GetWavHealth(),
             BGAHealth = maintenanceInfo.GetBgaHealth(),
             MovieHealth = maintenanceInfo.GetMovieHealth(),
@@ -159,6 +167,7 @@ internal sealed class ChartFileTransientState
         };
     }
 
+    /// <summary>資源表示を捕捉し、明示的な保守値がある場合はnullも投影します。未取得の空表示だけでは投影を作りません。</summary>
     internal static ChartFileTransientState FromResourceHealthChart(ChartFile chart)
     {
         if (chart == null)
@@ -168,6 +177,7 @@ internal sealed class ChartFileTransientState
 
         return new ChartFileTransientState
         {
+            HasResourceHealthProjection = chart.ResourceHealthMaintenanceSnapshot != null,
             WAVHealth = chart.WAVHealth,
             BGAHealth = chart.BGAHealth,
             MovieHealth = chart.MovieHealth,

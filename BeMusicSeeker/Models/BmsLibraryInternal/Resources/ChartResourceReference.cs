@@ -17,7 +17,7 @@ internal readonly struct ChartResourceReference
 {
     /// <summary>解析済みの値を保持します。原文を照合用の拡張子別名へ置き換えません。</summary>
     internal ChartResourceReference(ChartResourceKind kind, ChartResourceUsage usage, string rawPath,
-        string normalizedPath, string lookupKey, ChartResourcePathNormalizationStatus status)
+        string normalizedPath, string lookupKey, ChartResourcePathNormalizationStatus status, bool isUsed = true)
     {
         Kind = kind;
         Usage = usage;
@@ -25,6 +25,7 @@ internal readonly struct ChartResourceReference
         NormalizedPath = normalizedPath ?? string.Empty;
         LookupKey = lookupKey ?? string.Empty;
         Status = status;
+        IsUsed = isUsed;
     }
 
     /// <summary>既存の解析規則で採用したリソース種別です。</summary>
@@ -39,6 +40,12 @@ internal readonly struct ChartResourceReference
     public string LookupKey { get; }
     /// <summary>入口で実際に得たパス解析状態です。Unknownや空キーを非対応理由へ読み替えません。</summary>
     public ChartResourcePathNormalizationStatus Status { get; }
+
+    /// <summary>実際の使用参照かを表します。全定義は発見とLR2診断の短い取得寿命だけ共有します。</summary>
+    public bool IsUsed { get; }
+
+    /// <summary>使用状態だけを確定し、一回解析したパスと原文を共有します。</summary>
+    internal ChartResourceReference WithUsage(bool isUsed) => new(Kind, Usage, RawPath, NormalizedPath, LookupKey, Status, isUsed);
 
     /// <summary>入力参照を一回解析します。種類不明や空キーも原文と実際の状態を保持します。</summary>
     internal static ChartResourceReference Parse(string rawPath, ChartResourceKind kind,

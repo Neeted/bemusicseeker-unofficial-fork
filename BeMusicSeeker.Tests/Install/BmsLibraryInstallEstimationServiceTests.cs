@@ -14,6 +14,163 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    /// <summary>同梱98件で両候補が100%になる場合も、候補自身の一致90件を2件より優先します。同梱との重複を二重計数しません。</summary>
+    [TestMethod]
+    public void EstimateInstallationDirectory_UnionFulfillmentRanksCandidateOwnMatches()
+    {
+        BmsLibraryInstallEstimationService service = CreateService();
+        string[] names = Enumerable.Range(0, 100).Select(i => "r" + i + ".wav").ToArray();
+        ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", names) with { RawTitle = "Song", Artist = "Artist" };
+        var index = new DirectoryResourceLookupCache();
+        index.AddDir(@"C:\Source", names.Take(98));
+        index.AddDir(@"C:\Candidate2", names.Skip(98));
+        index.AddDir(@"C:\Candidate90", names.Skip(10));
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = target,
+            DefinedResources = ChartResourceSnapshot.Create(target),
+            SourceDirectory = @"C:\Source",
+            BundledResources = index.GetEntryOrNull(@"C:\Source"),
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bms")])
+        };
+        InstallEstimationResult result = service.EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal,
+            _ => snapshot.TargetMetadataProfile);
+        Assert.AreEqual(@"C:\Candidate90", result.DestinationDirectory);
+        Assert.IsTrue(result.ShouldAutoApplyDestination);
+        Assert.AreEqual(100, result.SelectedCandidate.AudioMatched);
+        Assert.AreEqual(90, result.SelectedCandidate.AudioExactMatched);
+        Assert.AreEqual(100, result.Candidates[1].AudioMatched);
+        Assert.AreEqual(2, result.Candidates[1].AudioExactMatched);
+    }
+
+    /// <summary>候補提示の70%境界は表示整数でなく実比率で判定し、Strongかつ曖昧自動適用ONでも欠損音源を自動確定しません。</summary>
+    [TestMethod]
+    [DataRow(100, 70, false)]
+    [DataRow(100, 71, true)]
+    [DataRow(101, 71, true)]
+    public void EstimateInstallationDirectory_UsesExactViabilityRatioAndRequiresCompleteAudio(int required, int matched, bool viable)
+    {
+        WithAutoApplyAmbiguousInstallDestination(true, () =>
+        {
+            string[] names = Enumerable.Range(0, required).Select(i => "r" + i + ".wav").ToArray();
+            ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", names) with { RawTitle = "Song", Artist = "Artist" };
+            InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bms")]);
+            var snapshot = new PackageInstallEstimationSnapshot { RepresentativeChart = target, DefinedResources = ChartResourceSnapshot.Create(target), TargetMetadataProfile = profile };
+            var index = new DirectoryResourceLookupCache();
+            index.AddDir(@"C:\Candidate", names.Take(matched));
+            InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal, _ => profile);
+            Assert.AreEqual(viable, result.HasViableDestination);
+            Assert.IsFalse(result.ShouldAutoApplyDestination);
+            if (viable)
+            {
+                CollectionAssert.Contains(result.SuggestedDestinationDirectories, @"C:\Candidate");
+            }
+        });
+    }
+
+    /// <summary>所持hashの直接候補も音源完全性を必要とし、欠損・照合不能・未取得では候補を保持します。実BMSの未定義ID追加は完全音源の自動適用を妨げず、音源0件も完全として扱います。候補索引が未取得でも二譜面の全音源を同梱だけで満たせれば許可し、代表譜面だけの充足では許可しません。</summary>
+    [TestMethod]
+    [DataRow("complete", true)]
+    [DataRow("missing", false)]
+    [DataRow("undefined", true)]
+    [DataRow("empty-key", false)]
+    [DataRow("unavailable", false)]
+    [DataRow("zero", true)]
+    [DataRow("bundled-complete", true)]
+    [DataRow("bundled-partial", false)]
+    public void EvaluateInstalledChartHashDestination_RequiresCommonAudioCompleteness(string state, bool apply)
+    {
+        WithAutoApplyAmbiguousInstallDestination(true, () =>
+        {
+            ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", state == "zero" ? [] : state == "empty-key" ? [".wav"] : ["sound.wav"]) with { RawTitle = "Song", Artist = "Artist" };
+            if (state == "undefined")
+            {
+                target = BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(@"C:\Source\chart.bms",
+                    Encoding.ASCII.GetBytes("#TITLE Song\n#ARTIST Artist\n#WAV01 sound.wav\n#00111:01ZZ\n#00104:ZZ\n"), DateTime.UnixEpoch, "md5", "sha256"));
+            }
+
+            InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bms")]);
+            List<PackageChartEntry> entries = [PackageChartEntry.FromChart(target)];
+            bool bundledOnly = state is "bundled-complete" or "bundled-partial";
+            DirectoryResourceLookupCache.Entry? bundled = null;
+            if (bundledOnly)
+            {
+                ChartFile second = CreateFile("second", @"C:\Source\second.bms", "second.wav") with { RawTitle = "Song", Artist = "Artist" };
+                entries.Add(PackageChartEntry.FromChart(second));
+                var sourceIndex = new DirectoryResourceLookupCache();
+                sourceIndex.AddDir(@"C:\Source", state == "bundled-complete" ? ["sound.wav", "second.wav"] : ["sound.wav"]);
+                bundled = sourceIndex.GetEntryOrNull(@"C:\Source");
+                Assert.IsNotNull(bundled);
+            }
+            var snapshot = new PackageInstallEstimationSnapshot
+            {
+                RepresentativeChart = target,
+                DefinedResources = ChartResourceSnapshot.CreateAggregate(entries.Select(entry => entry.Chart)),
+                BundledResources = bundled
+            };
+            var index = new DirectoryResourceLookupCache();
+            index.AddDir(@"C:\Candidate", state is "complete" or "undefined" ? ["sound.ogg"] : []);
+            InstallEstimationResult result = CreateService().EvaluateInstalledChartHashDestination(@"C:\Candidate", entries, _ => profile,
+                state == "unavailable" ? null : snapshot, state == "unavailable" || bundledOnly ? null : index);
+            Assert.AreEqual(apply, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(apply, result.Success);
+            Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath);
+            if (!apply)
+            {
+                CollectionAssert.AreEqual(new[] { @"C:\Candidate" }, result.SuggestedDestinationDirectories);
+            }
+        });
+    }
+
+    /// <summary>実BMSONの完全音源は未定義BGA/LAYER/POORの追加で変わりません。定義済み画像不足だけは厳格ONで保留し、音源不足・空nameは両設定で保留とします。導入先の共通評価は音源完全性とStrongを使います。</summary>
+    [TestMethod]
+    [DataRow("complete")]
+    [DataRow("undefined")]
+    [DataRow("missing-image")]
+    [DataRow("missing-audio")]
+    [DataRow("empty-name")]
+    public void BmsonCompleteness_ControlsAutomaticInstallationWithoutUndefinedIdEffects(string condition)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BmsonCompleteness-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "sound.wav"), "sound");
+            string name = condition == "empty-name" ? "" : condition == "missing-audio" ? "missing.wav" : "sound.wav";
+            string bga = condition == "missing-image"
+                ? "\"bga_header\":[{\"id\":1,\"name\":\"missing.png\"}],\"bga_events\":[{\"id\":1,\"y\":0}]"
+                : condition == "undefined"
+                    ? "\"bga_events\":[{\"id\":99,\"y\":0}],\"layer_events\":[{\"id\":98,\"y\":0}],\"poor_events\":[{\"id\":97,\"y\":0}]" : "";
+            string text = "{\"info\":{\"title\":\"Song\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"" + name
+                + "\",\"notes\":[{\"x\":1,\"y\":0}]}],\"bga\":{" + bga + "}}";
+            string path = Path.Combine(root, "chart.bmson");
+            File.WriteAllText(path, text, new UTF8Encoding(false));
+            bool completeAudio = condition is not ("missing-audio" or "empty-name");
+            foreach (bool strict in new[] { false, true })
+            {
+                AutoInstallWorkflowResult workflow = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([root], [], [], _ => false, 0.6,
+                    requireCompleteUsedResourcesForAutoInstall: strict);
+                bool pending = !completeAudio || (strict && condition == "missing-image");
+                Assert.AreEqual(pending ? 1 : 0, workflow.PendingPackagesToAdd.Count, condition + "/" + strict);
+                Assert.AreEqual(pending ? 0 : 1, workflow.AutoInstallCandidates.Count, condition + "/" + strict);
+                ChartFile chart = workflow.DiscoveredPackages.Single().ChartEntries.Single().Chart;
+                Assert.AreEqual(condition is "missing-image" or "missing-audio", chart.Warnings.Any(w => w.Category == ChartWarningCategory.ResourceHealth));
+            }
+            ChartFile target = BmsonChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+            var resources = new PackageInstallEstimationSnapshot { RepresentativeChart = target, DefinedResources = ChartResourceSnapshot.Create(target) };
+            var index = new DirectoryResourceLookupCache();
+            index.AddDir(@"C:\Candidate", ["sound.wav"]);
+            InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Song", "Artist", "chart.bmson")]);
+            InstallEstimationResult estimate = CreateService().EvaluateInstalledChartHashDestination(@"C:\Candidate", [PackageChartEntry.FromChart(target)], _ => profile, resources, index);
+            Assert.AreEqual(completeAudio, estimate.ShouldAutoApplyDestination);
+            Assert.IsTrue(estimate.SelectedCandidateMetadataEvidenceStrong);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     // 値の変更だけを試すfixtureなので、他のtesthostの実設定ファイルは読み込まない。
     private readonly BeMusicSeeker.Properties.Settings testSettings =
         PortableSettingsPersistenceTests.OpenSettings(Path.Combine(
@@ -54,13 +211,16 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             const string destination = @"C:\Installed\Song";
             ChartFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\Pending\chart.bms", "missing.wav") with { RawTitle = targetTitle, Artist = targetArtist };
             InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([(candidateTitle, candidateArtist, "candidate.bms")]);
+            var resourceSnapshot = new PackageInstallEstimationSnapshot { RepresentativeChart = target, DefinedResources = ChartResourceSnapshot.Create(target) };
+            var resourceIndex = new DirectoryResourceLookupCache();
+            resourceIndex.AddDir(destination, ["missing.wav"]);
             int resolverCalls = 0;
             InstallEstimationResult result = service.EvaluateInstalledChartHashDestination(destination, [PackageChartEntry.FromChart(target)], path =>
             {
                 Assert.AreEqual(destination, path);
                 resolverCalls++;
                 return profile;
-            });
+            }, resourceSnapshot, resourceIndex);
             Assert.AreEqual(1, resolverCalls);
             Assert.AreEqual(strong, result.Success);
             Assert.AreEqual(strong, result.ShouldAutoApplyDestination);
@@ -282,7 +442,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     /// <summary>合流先だけを探すモードでは入力元を候補から除き、外部のリソース一致先を選び、元フォルダへの自己合流を検出する。</summary>
     /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
-    public void EstimateInstallationDirectory_MergeMode_SelectsExternalCandidateOnly()
+    public void EstimateInstallationDirectory_NormalMode_SelectsExternalCandidate()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -318,7 +478,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.Normal);
 
             Assert.AreEqual(mergeDir, result.SelectedCandidate?.DirectoryPath);
             Assert.AreEqual(1, result.CandidateDirectoryCount);
@@ -521,7 +681,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
     /// <summary>通常推定では同梱音声を一致率に加え、合流候補では加えず、モード間の評価入力の混同を検出する。</summary>
     /// <remarks>実ファイルの発見・解析または適用先の情報を入力へ取り込む境界を確認するため、対象フォルダを用いる。</remarks>
     [TestMethod]
-    public void EstimateInstallationDirectory_AudioHealthGate_UsesBundledResourcesInNormalMode_ButNotInMergeMode()
+    public void EstimateInstallationDirectory_AudioHealthGate_UsesBundledResourcesInNormalMode_ButNotInReinstallCorrectionMode()
     {
         using IDisposable cultureScope = TestResourceInitializer.UseJapaneseCulture();
         WithWorkspace(delegate (string tempRoot, BmsLibraryInstallEstimationService service)
@@ -559,7 +719,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.ReinstallCorrection);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.SelectedCandidate?.DirectoryPath);
@@ -1043,7 +1203,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
             File.WriteAllText(
                 bmsonPath,
-                "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Loose Title\",\"artist\":\"Loose Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound/00.wav\",\"notes\":[]}]}");
+                "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Loose Title\",\"artist\":\"Loose Artist\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound/00.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
             File.WriteAllText(Path.Combine(sourceDir, "sibling.wav"), "audio");
             File.WriteAllText(Path.Combine(nestedDir, "nested.wav"), "audio");
             ChartFile song = ChartTestValues.ReadBmson(bmsonPath);
@@ -1476,7 +1636,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 File.WriteAllText(
                     Path.Combine(sourceDir, "chart.bmson"),
                     "{\"info\":{\"title\":\"BMSON\",\"artist\":\"Artist\",\"mode_hint\":\"beat-7k\",\"level\":7},"
-                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[]}]}");
+                        + "\"sound_channels\":[{\"name\":\"sound/keysound.wav\",\"notes\":[{\"x\":1,\"y\":0}]}]}");
 
                 var package = new ChartPackage
                 {
@@ -1766,7 +1926,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Assert.IsTrue(result.Success);
             Assert.AreEqual(installDirectoryPath, result.ValidatedDestinationDirectory);
             Assert.AreEqual(1, result.TargetEntries.Count);
-            Assert.AreSame(pendingFile, result.TargetEntries[0].GetBmsChartForTest());
+            Assert.AreEqual(pendingFile.Path, result.TargetEntries[0].GetBmsChartForTest().Path);
         });
     }
 
@@ -2579,7 +2739,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             Directory.CreateDirectory(sourceDir);
             Directory.CreateDirectory(candidateDir);
             string bmsonPath = Path.Combine(sourceDir, "chart.bmson");
-            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[]}],\"lines\":[{\"y\":0}]}");
+            File.WriteAllText(bmsonPath, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Title\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"keysound.wav\",\"notes\":[{\"x\":1,\"y\":0}]}],\"lines\":[{\"y\":0}]}");
             File.WriteAllText(Path.Combine(candidateDir, "keysound.wav"), "dummy");
 
             ChartFile pendingSong = ChartTestValues.ReadBmson(bmsonPath);
@@ -2631,7 +2791,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 {
                     soundChannelsBuilder.Append(",");
                 }
-                soundChannelsBuilder.Append("{\"name\":\"").Append(oggNames[i]).Append("\",\"notes\":[]}");
+                soundChannelsBuilder.Append("{\"name\":\"").Append(oggNames[i]).Append("\",\"notes\":[{\"x\":1,\"y\":0}]}");
             }
             string bmsonPath = Path.Combine(sourceDir, "_circ_double_hard.bmson");
             File.WriteAllText(
@@ -2640,7 +2800,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 + "\"version\":\"1.0.0\","
                 + "\"info\":{\"title\":\"Title\",\"artist\":\"Artist\",\"preview_music\":\"preview.ogg\",\"banner_image\":\"banner.png\"},"
                 + "\"sound_channels\":[" + soundChannelsBuilder + "],"
-                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"cover.jpg\"}]},"
+                + "\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"cover.jpg\"}],\"bga_events\":[{\"id\":1,\"y\":0}]},"
                 + "\"lines\":[{\"y\":0}]"
                 + "}");
 
@@ -3771,7 +3931,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 snapshot,
                 lookupCache,
                 asParallel: false,
-                ChartInstallationEstimateMode.MergeCandidateOnly);
+                ChartInstallationEstimateMode.ReinstallCorrection);
 
             Assert.AreEqual(1, normalResult.CandidateDirectoryCountAfterAudioGate);
             Assert.AreEqual(candidateDir, normalResult.SelectedCandidate?.DirectoryPath);
@@ -4038,7 +4198,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
         {
             return null;
         }
-        bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection || estimateMode == ChartInstallationEstimateMode.MergeCandidateOnly;
+        bool isCorrectionLikeMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
         if (!isCorrectionLikeMode && installedHashes != null)
         {
             targetEntries = [.. targetEntries.Where(entry => !installedHashes.Contains(ChartLookupKey.GetPrimaryHash(entry.Chart)))];

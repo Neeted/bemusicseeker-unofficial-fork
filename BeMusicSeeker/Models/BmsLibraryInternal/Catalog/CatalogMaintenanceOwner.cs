@@ -170,6 +170,7 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
+    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。</summary>
     internal CatalogMaintenanceOperationReceipt ApplyMaintenance(
         ResourceMaintenanceTargetSet targetSet,
         bool forceUpdate,
@@ -253,6 +254,12 @@ internal sealed class CatalogMaintenanceOwner
                     inputMutation.Dispose();
                 }
                 targetInputVersion = inputMutation.TargetInputVersion;
+                if (workflowResult?.HasUpdates == false)
+                {
+                    // 入力保護の開始・終了だけで版は進むため、同値でも現在索引の版接続を保ちます。
+                    resourceHealthOwner.RebaseAfterInputMutation(inputMutation, new ResourceHealthIndexCurrentVersion(
+                        ownedCollectionOwner.CaptureVersionSnapshot(), ownedCollectionOwner.OwnedCollectionVersion, targetInputVersion));
+                }
             }
         }
         catch

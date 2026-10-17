@@ -40,6 +40,9 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public bool KeepInstallablePackagesPending { get; init; }
 
+    /// <summary>同じ取り込み操作の分類に使う全使用リソースの必須設定です。</summary>
+    public bool RequireCompleteUsedResourcesForAutoInstall { get; init; }
+
     public bool AutoApplyAmbiguousInstallDestination { get; init; }
 
     public bool EstimateOfflineScoreRanking { get; init; }
@@ -87,6 +90,7 @@ internal sealed class BmsLibraryOptionsSnapshot
             DeletePendingPackageSourceAfterInstall = settings.DeletePendingPackageSourceAfterInstall,
             ShowNewPackageInstallConfirmMsg = settings.ShowNewPackageInstallConfirmMsg,
             KeepInstallablePackagesPending = settings.KeepInstallablePackagesPending,
+            RequireCompleteUsedResourcesForAutoInstall = settings.RequireCompleteUsedResourcesForAutoInstall,
             AutoApplyAmbiguousInstallDestination = settings.AutoApplyAmbiguousInstallDestination,
             EstimateOfflineScoreRanking = settings.EstimateOfflineScoreRanking,
             UpdateLr2IrRankingCacheOnStartup = settings.UpdateLr2IrRankingCacheOnStartup,

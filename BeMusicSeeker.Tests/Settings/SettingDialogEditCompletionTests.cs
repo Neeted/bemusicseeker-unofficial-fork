@@ -4543,19 +4543,7 @@ public sealed partial class SettingDialogEditCompletionTests
                     startedTasks.Add(initialize);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "placement-real-initialize");
                     Assert.AreEqual(true, initialize.GetAwaiter().GetResult());
-                    if (owner.ProgressHub.IsStartupBackgroundInitializationActive)
-                    {
-                        // 次の手動操作のfixture準備だけで後続の実終端を待ち、初期化成功の条件には加えません。
-                        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                        PropertyChangedEventHandler finished = (_, args) => { if (args.PropertyName == nameof(OperationProgressHubViewModel.IsStartupBackgroundInitializationActive) && !owner.ProgressHub.IsStartupBackgroundInitializationActive) { terminal.TrySetResult(); } };
-                        owner.ProgressHub.PropertyChanged += finished;
-                        try
-                        {
-                            if (owner.ProgressHub.IsStartupBackgroundInitializationActive)
-                            { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal.Task, "placement-followup-terminal-before-manual-request"); }
-                        }
-                        finally { owner.ProgressHub.PropertyChanged -= finished; }
-                    }
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "placement-followup-terminal-before-manual-request");
                     BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library was not attached.");
                     BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Actual playlist was not attached.");
                     var table = new BMSTable
@@ -4569,9 +4557,34 @@ public sealed partial class SettingDialogEditCompletionTests
                         entries = [BmsPlaylistTestSupport.CreateEntry(new string('a', 32), "Folder A")],
                         Folder_order = ["Folder A"]
                     };
-                    Task registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "placement-registration");
-                    startedTasks.Add(registration);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(registration, "placement-registration");
+                    // 登録TaskはURL補完の予約までで返ります。OFF時の補完値消去も表を書き込むため、
+                    // 標準schedulerをそのまま使い、登録が予約した実workの終端まで待ってから編集を始めます。
+                    Func<string, string, string, Func<Task>, bool> registrationScheduler = playlist.StartupBackgroundTaskScheduler
+                        ?? throw new InvalidOperationException("Actual playlist background scheduler is unavailable.");
+                    var registrationRefresh = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    playlist.StartupBackgroundTaskScheduler = (name, reason, dependency, work) =>
+                        registrationScheduler(name, reason, dependency,
+                            name == "playlist_url_completion" && reason == "placement-registration"
+                                ? () =>
+                                {
+                                    Task refresh = work();
+                                    registrationRefresh.TrySetResult(refresh);
+                                    return refresh;
+                                }
+                    : work);
+                    try
+                    {
+                        Task registration = playlist.ExternalSyncOwner.RegistrateExternalTableAsync(table, false, "placement-registration");
+                        startedTasks.Add(registration);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(registration, "placement-registration");
+                        Task refresh = registrationRefresh.Task.Unwrap();
+                        startedTasks.Add(refresh);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(refresh, "placement-registration-background-terminal");
+                    }
+                    finally
+                    {
+                        playlist.StartupBackgroundTaskScheduler = registrationScheduler;
+                    }
                     open = owner.PlaylistWorkspace.OpenPropertyDialogAsync(table);
                     startedTasks.Add(open);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(open, "placement-old-editor");

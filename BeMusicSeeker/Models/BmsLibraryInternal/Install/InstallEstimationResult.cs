@@ -22,7 +22,7 @@ internal enum InstallEstimationLowConfidenceKind
     ReinstallNotImproved
 }
 
-/// <summary>最終評価の根拠です。ハッシュ候補ではリソースの件数・健康度を評価しません。</summary>
+/// <summary>最終評価の根拠です。ハッシュ候補にも共通の音源完全性条件を適用します。</summary>
 internal enum InstallEstimationFinalEvaluationMode
 {
     RelativeStrict,

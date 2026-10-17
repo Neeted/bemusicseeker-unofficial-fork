@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-保留パッケージや選択譜面について、所持ハッシュまたは要求リソースから既存フォルダを選び、対象とのStrong成立を推定による自動設定すべての必要条件とする仕様です。入力、候補抽出、順位、確信度、画面への適用を定めます。実際の導入の受付・保存・失敗は[変更操作](mutations.md)に従います。
+保留パッケージや選択譜面について、所持ハッシュまたは使用リソースから既存フォルダを選び、Strong成立と導入後の音源完全性を自動設定の必要条件とする仕様です。入力、候補抽出、順位、確信度、画面への適用を定めます。実際の導入の受付・保存・失敗は[変更操作](mutations.md)に従います。
 
 ## 用語
 
@@ -16,7 +16,9 @@
 
 ### 入力とリソースキー
 
-対象はパッケージまたは単独の譜面です。[取得済みの共通リソース結果](chart-model.md#譜面情報とリソース保守)を `ChartResourceSnapshot` へ索引化し、複数譜面では検索キーを和集合にして音声・画像・動画・任意画像を分けます。原文・用途・解析状態は失わず保持し、未取得を保存主体やファイルから隠れて補完しません。
+対象はパッケージまたは単独の譜面です。[取得済みの共通リソース結果](chart-model.md#譜面情報とリソース保守)の使用参照を `ChartResourceSnapshot` へ索引化し、複数譜面では検索キーを和集合にして音声・画像・動画・任意画像を分けます。分母は使用IDから解決した種別別のユニークな要求ファイルキー数です。未使用定義を含めず、同じファイルへの複数ID参照は一件とします。抽出条件は[軽量解析の使用リソース](parser-compatibility.md#軽量解析の使用リソース)に従います。原文・用途・解析状態は失わず保持し、未取得を保存主体やファイルから隠れて補完しません。
+
+BMS/PMSの未定義WAV/BMP IDとBMSONの参照先ヘッダーのないBGA/LAYER/POOR IDは、必要集合へ加えず、健康度・不足警告・導入自動設定へ影響させません。定義済みの使用参照の不正パスや空name・取得失敗は正常な要求0件へ置き換えません。未使用定義だけの親参照は使用要求の非対応理由にしません。
 
 キーは拡張子を除いた譜面相対のパスです。`foo.wav` と `./foo.wav` は `foo`、`sound/./foo.wav` は `sound/foo`、`sound/foo.v2.wav` は `sound/foo.v2` になります。`foo` と `sound/foo` は別であり、ファイル名だけに戻して一致させません。既に正規化した参照をパッケージ集約時に再正規化しません。
 
@@ -26,7 +28,7 @@
 
 ### 入力元に同梱されたリソース
 
-通常の導入推定では、候補のリソースとパッケージが持ち込む `BundledResources` の和集合を評価します。統合先と再導入先の修正では候補のリソースだけを評価します。
+通常の導入推定では、候補のリソース `C` とパッケージが持ち込む `BundledResources` の集合 `S` の和集合を評価します。既所持だけのパッケージも同じ入口を使います。再導入先の修正では、候補のリソースだけを評価します。
 
 ディレクトリ単位のパッケージは、そのルートだけを再帰的に調べます。一ルートあたりの訪問上限は50000件です。上限を越えた時点で止め、部分結果を推定に使わず `SourceSurfaceScanLimitExceeded` を付けます。複数パッケージの合計件数ではありません。全件を先に取得する方式ではなく、訪問中に上限を確認します。
 
@@ -42,31 +44,31 @@
 
 リソース経路の候補は `DirectoryResourceLookupCache.Keys` に含まれる譜面フォルダです。リソースだけの下位フォルダは候補にせず、入力元自身も除きます。
 
-照合の正本は音声・画像・動画別の相対キーと逆引きです。ファイル名だけの集合や全種類を混ぜた集合を、候補抽出・最終照合・音声条件の代わりに使いません。リソース経路は索引がない場合に推定不能とし、全ライブラリの走査に切り替えません。所持ハッシュの単独最多・一意候補の評価には資源索引を要求しません。起動時走査を無効にした設定では、推定できない場合があります。
+照合の正本は音声・画像・動画別の相対キーと逆引きです。ファイル名だけの集合や全種類を混ぜた集合を、候補抽出・最終照合・音声条件の代わりに使いません。リソース経路は索引がない場合に推定不能とし、全ライブラリの走査に切り替えません。所持ハッシュによる候補選択自体は資源索引なしでも保持しますが、自動適用には使用音源の完全性を評価できることを要求します。起動時走査を無効にした設定では、推定できない場合があります。
 
 ### 入口ごとの候補
 
 | 入口 | 候補と選び方 |
 | --- | --- |
-| 通常推定 | 未所持譜面を含むパッケージについて外部の譜面フォルダを探す。既所持だけなら通常推定しない |
+| 通常推定 | 未所持譜面を含むパッケージと既所持だけのパッケージについて、外部の譜面フォルダを探す |
 | 既所持・未所持が混在 | 既所持ハッシュの実配置先を数え、単独最多ならそのフォルダを選択し、未所持群とのStrongを検証する。同点ならその候補集合だけをリソース・基本情報で評価する |
-| 統合先 | 全対象の既所持ハッシュ一致数が単独最多なら選択し、要求対象群とのStrongを検証する。同点または一致なしなら、候補自身のリソースだけで評価する |
+| 全対象が既所持 | 全対象のハッシュ一致数が単独最多ならそのフォルダを選択し、全対象とのStrongと同梱込みの音源完全性を検証する。同点ならその候補集合を評価する |
 | 単独bmson | 所持先が一意ならそのフォルダを選択し、その譜面とのStrongを検証する |
 | 再導入先修正 | 現在の配置先を除いた既存フォルダを評価する。現在配置の状態は改善判定の基準だけに使う |
 
 混在パッケージでは、配置先候補が解決できない場合、または候補限定の評価に必要な索引がない場合、通常推定へ切り替えず `InstalledDestinationResolveFailed` とします。候補の基本情報まで同等なら、フォルダ内の一意な主ハッシュ数を補助条件とします。選択候補が後述の強一致を満たす場合だけ、単独最多を自動設定できます。ハッシュ候補選択の成功と、自動設定の許可は区別します。単独最多・一意候補がStrong不成立または比較不能なら、同じ候補と代表表示を保持して導入先を空、`Low / MetadataMismatch`、自動適用falseとします。ハッシュ解決失敗へ変えず、少数側や別のリソース候補へ再探索しません。
 
-選択候補が `Strong` を満たしても複数候補が解消しない場合、`AutoApplyAmbiguousInstallDestination` が有効なら自動設定と候補表示を行い、`InstalledDestinationAutoAppliedAmbiguous` を残します。設定無効なら導入先を空にし、`InstalledDestinationAmbiguous` と候補を表示します。選択候補が `Strong` を満たさない場合は、設定によらず `Low / MetadataMismatch` として自動適用せず、候補を保持します。
+選択候補が `Strong` と音源完全性を満たしても複数候補が解消しない場合、`AutoApplyAmbiguousInstallDestination` が有効なら自動設定と候補表示を行い、`InstalledDestinationAutoAppliedAmbiguous` を残します。設定無効なら導入先を空にし、`InstalledDestinationAmbiguous` と候補を表示します。選択候補が `Strong` を満たさない場合は、設定によらず `Low / MetadataMismatch` として自動適用せず、候補を保持します。
 
 ### 候補の絞込み
 
 まずカテゴリ別の逆引きで参照キーに合う候補を集めます。候補が0件でも全ライブラリへ戻らず、`no_viable_destination_below_threshold` とします。
 
-音声参照が二件以上なら候補自身で二件以上、一件なら一件以上の一致を要求します。音声参照がなければこの条件はありません。さらに、実際に使える音声の充足率が `innerWavHealthThreshold` を超える見込みがない候補を除きます。通常導入は同梱分を含め、統合・再導入は候補だけで判断します。
+音声参照が二件以上なら候補自身で二件以上、一件なら一件以上の一致を要求します。音声参照がなければこの条件はありません。さらに、実際に使える音声の充足率が `innerWavHealthThreshold` を超える見込みがない候補を除きます。通常導入は同梱分を含め、再導入は候補だけで判断します。要求キーが全カテゴリで0件の場合、リソース一致から新しい候補を作りません。所持ハッシュ等の別の根拠による候補は維持します。
 
 #### 通常推定の候補集合
 
-未所持譜面を含む通常推定で、候補をどこまで絞るかを示します。矢印は候補集合の絞込み・評価への入力であり、候補がなくなった後に全ライブラリへ戻る経路はありません。混在・統合・再導入の候補集合は前の表で別に定めます。
+リソース一致を使う通常推定で、候補をどこまで絞るかを示します。矢印は候補集合の絞込み・評価への入力であり、候補がなくなった後に全ライブラリへ戻る経路はありません。混在・全既所持・再導入の候補集合は前の表で別に定めます。
 
 ```mermaid
 flowchart TB
@@ -84,11 +86,11 @@ flowchart TB
 
 ### 評価値と順位
 
-カテゴリごとに一致数 `Matched`、充足率 `Health`、候補側件数 `CandidateCount`、適合率 `Precision`、和集合に対する一致率 `Jaccard` を求めます。`Health` は一致数を要求数で割った値です。
+要求集合を `R` とし、カテゴリごとに導入後一致数 `|R∩(S∪C)|`、候補自身の一致数 `|R∩C|`、候補自身の件数 `|C|` を求めます。充足率は導入後一致数を要求数で割った値、適合率は候補自身の一致数を候補件数で割った値、Jaccardは候補自身の一致数を `|R∪C|` で割った値です。再導入では `S` を空とします。
 
-有効候補の主な充足率は、音声参照があれば音声、なければ画像・動画・任意画像の最大値です。この値が `innerWavHealthThreshold` を超えることを要求します。
+有効候補の主な充足率は、音声要求があれば音声、なければ要求のある画像・動画・任意画像の最大値です。この値が70%を厳密に超えることを要求します。表示整数から判定せず、一致数×100と要求数×70を比較します。70%は候補提示のしきい値であり、自動確定の音源完全性を緩めません。
 
-順位は音声、画像、動画、任意画像の順で比較し、各カテゴリ内は充足率、一致数、Jaccard、適合率の順です。最後にディレクトリのパスで順序を安定させます。比率は表示用に丸めず、元の比で比較します。
+順位は音声、画像、動画、任意画像の順で比較し、各カテゴリ内は同梱込み充足率、候補自身の一致数、候補自身のJaccard、適合率の順です。要求0件のカテゴリは比較しません。最後にディレクトリのパスで順序を安定させます。比率は表示用に丸めず、元の比で比較します。同梱98件と候補2件、同梱98件と候補90件がともに全要求を満たすなら、候補自身の一致が大きい後者を上位とします。同順位・メタデータ比較範囲・祖先抑制も同じ指標を使います。
 
 ### 比較用の基本情報と導入先の代表ペア
 
@@ -123,7 +125,7 @@ TITLEは `()`・`[]`・`<>`・`【】`・`《》` の対応と入れ子を考慮
 
 自動設定先、未設定時の有効な先頭候補、手動入力・候補選択、所持先の直接解決、再グループ化の全経路で同じプロファイルを使います。既存キャッシュの所有・寿命・失効を共用し、所持現在値の更新後は比較キーと両表示表記を同じ再集計で更新します。
 
-対象の実在最頻ペアは混在パッケージでは未所持群、パッケージ統合では要求対象群、単独・looseの既存個別評価では各譜面から作ります。所持群を混ぜて未所持群の不一致を埋めず、全譜面それぞれの一致も要求しません。
+対象の実在最頻ペアは混在パッケージでは未所持群、全既所持パッケージでは全対象、単独・looseの既存個別評価では各譜面から作ります。所持群を混ぜて未所持群の不一致を埋めず、全譜面それぞれの一致も要求しません。
 
 ### メタデータの強一致と同順位の解決
 
@@ -139,18 +141,21 @@ Strong真を偽より優先し、真真または偽偽はメタデータ上同�
 
 ### 確信度と画面への適用
 
-候補の有効性はStrongより前の経路固有要件を表します。リソース経路は従来の充足条件、ハッシュ経路は単独最多・一意条件です。自動設定の許可は共通の `ShouldAutoApplyDestination` で表します。ハッシュ経路は `FinalEvaluationMode = InstalledChartHash` とし、資源数・健康度を評価しません。未評価の充足率を100にせず、診断も `installed_chart_hash` として資源件数・健康度・`relative_strict` の評価ログから区別します。
+候補の有効性はStrongより前の経路固有要件を表します。リソース経路は候補の充足条件、ハッシュ経路は単独最多・一意条件です。自動設定の許可は共通の `ShouldAutoApplyDestination` で表し、すべての経路で定義済み音声参照に照合不能がなく、同梱と候補を合わせて使用音源の欠損が0件であることを要求します。音声要求0件もこの条件を満たしますが、Strong・関連性・曖昧性の条件は残ります。BGA・動画・補助画像の欠損はこの必須条件に加えません。
+
+所持ハッシュで直接選んだ候補も同じ完全性評価を通します。候補抽出用の音声最低一致1～2件はハッシュ根拠には課しません。必要な候補リソースを評価できない場合は100%と仮定せず、候補と代表表示を保持して自動適用しません。
 
 有効候補がある場合、高確信度と自動適用には、対象と選択候補の強一致を必須とします。Strong不成立、非空TITLEの実在ペア欠如、リゾルバー未指定・空プロファイルは `Low / MetadataMismatch`・自動適用不可とし、有効候補とWARNINGを保持します。TITLE単独一致、リソース順位差、一意ハッシュ数、曖昧候補自動適用設定では救済しません。候補側に有効ペアがあれば、その表記を表示します。
 
-複数のStrong候補が補助条件でも解消しなければ、既存の曖昧候補として扱います。曖昧候補自動適用設定が有効なら、Strong真を前提に低確信度・候補・曖昧WARNINGを保ったまま自動設定できます。再導入では複数の有効候補を自動適用せず、一意でも現在配置より改善することを必要とします。所持ハッシュからの単独最多・一意解決にも同じStrongを要求します。有効候補がない場合の内部確信度は従来どおりです。手動入力・候補選択、保存済み値の復元、再グループ化の確定済み値引継ぎは推定による自動設定ではないため、低層setterで再検査しません。
+複数のStrong候補が補助条件でも解消しなければ、既存の曖昧候補として扱います。曖昧候補自動適用設定が有効なら、Strongと音源完全性を前提に低確信度・候補・曖昧WARNINGを保ったまま自動設定できます。再導入では複数の有効候補を自動適用せず、一意でも現在配置より改善することを必要とします。所持ハッシュからの単独最多・一意解決にも同じStrongと音源完全性を要求します。有効候補がない場合の内部確信度は従来どおりです。手動入力・候補選択、保存済み値の復元、再グループ化の確定済み値引継ぎは推定による自動設定ではないため、低層setterで再検査しません。
 
 | 結果 | 適用 |
 | --- | --- |
 | 有効候補なし | `Confidence=High`、導入先null、自動適用false。候補がないという判定の確信度であり、導入成功を意味しない |
-| 一意な有効候補でStrong成立 | 高い確信度で自動設定する |
+| 一意な有効候補でStrong成立・使用音源が完全 | 高い確信度で自動設定する |
 | Strong成立し、リソース同順位をStrong真偽または許可された一意ハッシュ数で解消 | 高い確信度にできる |
 | 解消しない複数候補、基本情報の不一致・比較材料不足 | 低い確信度と候補を返す |
+| 音源の欠損・定義済み参照の照合不能・完全性の評価不能 | 候補を保持し、自動設定しない。曖昧候補自動適用設定でも解除しない |
 | 再導入で現在配置より改善しない | 低い確信度と候補を返す |
 
 `INSTL DST` は、導入先があり `ShouldAutoApplyDestination=true` の場合だけ自動設定します。題名・アーティスト列、候補、警告も同じ結果から更新します。保留のリソース状態は代表譜面だけでなく全 `PackageChartEntry` に投影し、既所持・単一ファイル・入れ子の警告と両立させます。
@@ -161,11 +166,11 @@ Strong真を偽より優先し、真真または偽偽はメタデータ上同�
 
 ### 自動推定と並列処理
 
-新規取り込みで保留に入ったパッケージは一括処理の単位で自動推定します。起動時に復元した保留は自動推定せず、利用者の明示的な手動推定で処理します。入力元のリソースが十分なディレクトリパッケージは保留に残して自動推定を省略できますが、手動推定にはこの抑制を適用しません。
+新規取り込みで保留に入ったパッケージは、使用音源に欠損または定義済み参照の照合不能があれば一括処理の単位で自動推定します。入力元の音声充足率が70%を超えていても省略しません。使用音源が完全で既所持ハッシュの候補がない場合は、リソースから新たに候補を探す自動処理を開始しません。非音声だけの不足を理由に厳格設定で保留になった場合も、この新規探索を省略します。既所持ハッシュで一意・単独最多または同点の候補が分かる場合は、完全音源でも既存の候補集合とStrong評価を残します。混在時は未所持群を評価し、Strongと音源完全性が成立すれば導入先を設定します。不成立・比較不能では候補・代表情報・警告を保持して未設定とし、候補外へ再探索しません。手動推定は省略しません。自動新規導入の分類は[設定仕様](../runtime/settings.md#自動新規導入に要求するリソース)に従います。起動時に復元した保留は自動推定せず、利用者の明示的な手動推定で処理します。
 
 一件の手動推定では候補評価を並列化し、`asParallel=true` の並列数は `max(1, CPU数 - 1)`、falseなら1です。複数パッケージの一括推定は外側を並列化し、各候補評価は1にして二重並列を避けます。自動推定の外側並列数は `PendingInstallEstimateMaxParallelPackages`、0ならCPU数から決めます。手動の複数パッケージも同じ一括経路を使います。
 
-全選択譜面が保留パッケージに属する場合はパッケージ単位へまとめられます。単独譜面が混じる場合と再導入先修正は外側を逐次実行し、内側の候補を並列評価します。入力元の基準判定で作った参照集合は同じ対象の評価へ再利用します。
+全選択譜面が保留パッケージに属する場合はパッケージ単位へまとめられます。単独譜面が混じる場合と再導入先修正は外側を逐次実行し、内側の候補を並列評価します。取り込みで取得した参照集合は同じ対象の評価へ再利用します。
 
 取り込みから推定・regroupへの直接継続と受付終端は[競合ポリシー](../core/operation-concurrency-policy.md#ライブラリ保留保守)に従います。物理変更leaseの解放を推定完了と扱わず、確定済み登録・適用済み結果・未適用の保留を実結果へ区別します。
 
@@ -217,8 +222,10 @@ Strong真を偽より優先し、真真または偽偽はメタデータ上同�
 | 新規としての実導入先と設定先の非使用 | `BMSLibrary.PackageInstall`、`BmsLibraryPackageInstallService` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `ForceInstallPendingPackages_UsesPreflightDestinationAndWarmDelta`: 実導入先が設定済みExplicitと異なること、Explicitへ入力譜面・資源を作らないことを、既存の仕事量・通知・永続結果とともに確認する。 |
 | 実在最頻ペア・空ARTIST・同票・区切り群とMIX終端・同一レコード表示 | [`InstallEstimationMetadataNormalizer`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/InstallEstimationMetadataProfile.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `BuildProfile_SelectsRealDominantPairAndDisplay`、`BuildProfile_ExcludesEmptyTitleAndAcceptsEmptyArtist`、`BuildProfile_TiesUsePathThenInputOrderForGroupAndDisplay`、`NormalizeTitleForTieBreak_UsesRightmostGroupAndMixEnd`。候補への表示接続は `EstimateInstallationDirectory_PopulatesRepresentativeMetadataForTopCandidates`。 |
 | 唯一のStrong判定・Dice境界・同順位・主順位保持・比較不能 | `BmsLibraryInstallEstimationService`、`InstallEstimationMetadataNormalizer` | `BmsLibraryInstallEstimationServiceTests` の `ComputeTitleSimilarity_UsesNormalizedKeysAndCountedUtf16Bigrams`、`EstimateInstallationDirectory_StrongRequiresPairArtistAndTitleThreshold`、`EstimateInstallationDirectory_ExactTitleWithDifferentArtistsIsMetadataMismatch`、`EstimateInstallationDirectory_TiedCandidatesUseOnlyStrongThenHashCount`、`EstimateInstallationDirectory_StrongDoesNotOverrideResourceRanking`、`EstimateInstallationDirectory_MissingRealPairKeepsLowConfidenceCandidates`。閾値0.88、空ARTIST同値、再切断禁止、Strong真真の曖昧・ハッシュ補助、偽偽の不一致、リゾルバーなしを確認する。既存の再導入・候補なしケースも維持する。 |
-| ハッシュ候補の選択と共通Strongによる許可・拒否 | `BmsLibraryInstallEstimationService.EvaluateInstalledChartHashDestination`、`BMSLibrary`、`BMSLibrary.PackageInstall` | `BmsLibraryInstallEstimationServiceTests.EvaluateInstalledChartHashDestination_RequiresStrongAndPreservesKnownCandidate` は成立・不成立・比較不能、候補・代表表示・Low/MetadataMismatchと資源未評価を確認する。既存の `TryResolveInstalledDestinationFromPackage_*` 4件は候補選択を保証する。 |
-| ハッシュ経路の集約単位・拒否後停止・一括結果反映 | `BMSLibrary`、`BMSLibrary.PackageInstall` | `BmsLibraryPendingPackageRegroupTests` の `SearchEstimatedInstallationDirectory_HashCandidateUsesMissingGroupDominantPairWithoutResources`、`SearchEstimatedInstallationDirectory_BatchHashMetadataRejectionPublishesCandidatesAndCompletes`、`SearchEstimatedInstallationDirectory_StandaloneBmsonHashRequiresFolderStrong`、`SearchMergeDestinationForPendingPackage_MixedSplitInstalledDirectoriesUsesMostMatchingDirectory` は未所持群の最頻ペア、資源索引不要、単独bmson、最多候補拒否後の少数・資源候補への迂回防止、候補・警告・SEARCHING・進捗終端を分担する。 |
+| 使用集合、同梱込み充足と候補自身の順位、厳密な70%境界、0件 | [`BmsLibraryInstallEstimationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryInstallEstimationService.cs) | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) で同梱98件と候補2件／90件、端数のしきい値、要求0カテゴリ・種別・相対パス・祖先抑制を確認する。 |
+| ハッシュ候補の選択とStrong・音源完全性による自動適用 | `BmsLibraryInstallEstimationService.EvaluateInstalledChartHashDestination`、`BMSLibrary`、`BMSLibrary.PackageInstall` | [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) はStrong成立・不成立・比較不能、音源の完全・欠損・未解決・評価不能と候補保持を確認する。ハッシュによる候補選択と自動適用を区別する。 |
+| ハッシュ経路の集約単位・全既所持の通常推定・拒否後停止・一括結果反映 | `BMSLibrary`、`BMSLibrary.PackageInstall` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) で未所持群または全既所持群の代表、単独bmson、最多候補拒否後の迂回防止、候補・警告・SEARCHING・進捗終端を確認する。旧マージ専用入口の必要保証も通常推定へ移管する。 |
+| 自動新規導入の設定と音源不足時の自動推定 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs)、`BMSLibrary.PackageInstall` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) で設定ON/OFF・音源／非音声不足・未解決・補助画像・他の保留理由を確認する。同一操作の設定捕捉、70%超でも不足時に推定する接続を代表ケースで確認する。`PackageInstallWorkflowOwnerTests.ProductionImport_UsesCapturedCompletenessPolicyAndEstimatesMissingAudio` はハッシュ根拠なし完全音源でwork itemを開始しないことと手動推定を分担し、`ProductionImport_CompleteSourceAudioStillEvaluatesKnownHashCandidates` は実混在取り込みで一意先Strong成立・拒否と同点限定集合を維持する。 |
 | 混在取り込みのハッシュ候補拒否と保留確定 | `BMSLibrary.PackageInstall`、`BMSLibrary` | `BmsLibraryPackageInstallServiceTests.AutoInstall_MixedFolderHashMetadataMismatchKeepsPendingInputAndCandidate` は実フォルダ入力、実DB保留行、未所持入力・候補・表示・警告保持と受付解放を確認する。 |
 | Strong不成立の候補・WARNINGと生成済み行への投影 | `BMSLibrary`、`PackageChartEntry`、`LibraryChartRow` | [`BmsLibraryPendingPackageRegroupTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPendingPackageRegroupTests.cs) の `SearchEstimatedInstallationDirectory_MetadataMismatchLeavesInstallDestinationEmptyAndShowsSingleSuggestion` と二候補の既存ケースが実索引・実BMS入力から不一致候補を確認する。[`ChartListVirtualViewTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListVirtualViewTests.cs) の `PackageChartEntryDisplayRow_ReflectsUpdatedAdapterlessBmsonEntryState` は生成済み行へのMetadataMismatch・代表表示・候補・adapter非生成を確認する。判断の条件網羅はサービス側へ分担する。 |
 | BMS・bmsonの合成表示前の原題入力、bmsonの原題省略 | `PackageInstallEstimationSnapshotBuilder`、`BMSLibrary`、[`BmsonChartFileParser`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ChartInfo/BmsonChartFileParser.cs) | `BmsLibraryInstallEstimationServiceTests.PackageInstallEstimationSnapshotBuilder_BuildsTargetMetadataProfileFromDominantGroup` は実解析した両形式の対象入力、[`BmsonSongParserTests`](../../../BeMusicSeeker.Tests/ChartInfo/BmsonSongParserTests.cs) の `Parse_MissingTitleKeepsRawTitleEmptyAndComposedDisplay` は省略・null・空文字を確認する。候補側の原題と失効後の表示更新は `BmsLibraryPendingPackageRegroupTests` の`SearchEstimatedInstallationDirectory_MetadataTieBreakSelectsMatchingCandidate` の失効後の再推定、および既存手動設定・所持先解決・再グループ化のケースで確認する。 |

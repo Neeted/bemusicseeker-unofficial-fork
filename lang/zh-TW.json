@@ -636,8 +636,6 @@
   "Msg_confirm_skip_init_playlist_load": "啟動時將不會檢查播放清單更新。\n\n此變更將在重新啟動後生效。",
   "Msg_confirm_enable_offline_score_ranking_estimation": "更新 LR2IR 排名快取時，將對未傳送成績進行離線排名推定。\n本地成績高於 LR2IR 成績的譜面可能會額外讀取排名快取 XML。\n\n此變更將在重新啟動後生效。",
   "Msg_confirm_enable_lr2ir_ranking_cache_startup_update": "啟動後將更新 LR2IR 排名快取。\n這會更新 RANKING、RANK UPDATE、T-SCORE、ΔMAX 欄位，但首次建立或變更 LR2ID 後 CPU/磁碟使用率可能會大幅增加。\n\n此變更將在重新啟動後生效。",
-  "Estimate_merge_loc": "推定合併目標",
-  "Msg_estimate_merge_confirm": "重新推定一個在不使用來源資料夾附帶資源的情況下，僅靠既有資源也能成立的合併目標。\n現有的推定結果將被覆寫。\n確定要繼續嗎？",
   "Msg_open_install_destination_missing": "無法確定安裝目標的路徑。\n尚未設定推定安裝目標，或無法從已持有譜面推導出安裝目標。",
   "Msg_open_install_destination_multiple_selected": "由於選取了多個項目，將只處理第一個譜面。",
   "Msg_open_install_destination_not_found": "找不到安裝目標資料夾。\n{0}",
@@ -746,9 +744,9 @@
   "Warn_LR2LeapYearBugDetected": "偵測到LR2閏年(2/29)錯誤。\n由於修復，部分歌曲可能會被重新載入。",
   "Error_InitializationFailed": "初始化過程中發生錯誤。\n請確認檔案是否可以正常存取。\n目標檔案: {0}\n\n應用程式可能會變得不穩定。\n\n{1}",
   "Error_BmsLoadFailedSkip": "BMS檔案載入失敗。\n將略過此檔案的檢查。\n請確認是否可以正常存取。\n{0}\n\n{1}",
-  "Warning_WavFilesNotFound": "[{0,2}%] WAV檔案未找到。({1}/{2})",
-  "Warning_BgaFilesNotFound": "[{0,2}%] BGA檔案未找到。({1}/{2})",
-  "Warning_MovieFilesNotFound": "[{0,2}%] MOVIE檔案未找到。({1}/{2})",
+  "Warning_WavFilesNotFound": "[{0,2}%] 使用的 WAV 檔案存在數 / 需求數：{1}/{2}",
+  "Warning_BgaFilesNotFound": "[{0,2}%] 使用的 BGA 檔案存在數 / 需求數：{1}/{2}",
+  "Warning_MovieFilesNotFound": "[{0,2}%] 使用的 MOVIE 檔案存在數 / 需求數：{1}/{2}",
   "Warning_StagefileNotFound": "[ 0%] STAGEFILE未找到。(1/1)",
   "Warning_BackbmpNotFound": "[ 0%] BACKBMP未找到。(1/1)",
   "Warning_BannerNotFound": "[ 0%] BANNER未找到。(1/1)",
@@ -1117,5 +1115,7 @@
   "Statusbar_progress_task_playlist_property_update": "更新播放清單屬性",
   "Statusbar_progress_task_folder_rename": "自動變更資料夾名稱",
   "Statusbar_progress_task_playlist_external_property_initialization": "以外部資料初始化播放清單屬性",
-  "Error_PreparedChartTargetMismatch": "已準備的譜面目標與目前持有的項目、格式或位置不符。未執行任何變更。"
+  "Error_PreparedChartTargetMismatch": "已準備的譜面目標與目前持有的項目、格式或位置不符。未執行任何變更。",
+  "Details_require_complete_used_resources_for_auto_install": "自動新安裝時要求所有使用的資源完整",
+  "Details_require_complete_used_resources_for_auto_install_description": "關閉：音源完整時，即使 BGA、影片或輔助圖片缺失也自動新安裝。開啟：要求所有使用的資源完整。若音源完整且僅非音訊資源缺失，則保留待處理並略過新候選目錄的自動搜尋。如果能從已持有的譜面確定候選目錄，仍會進行 TITLE/ARTIST 比對。可在待處理畫面查看警告並手動推測。音源缺失時會自動推測。"
 }

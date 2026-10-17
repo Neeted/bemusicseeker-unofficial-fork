@@ -23,6 +23,7 @@ public sealed class PortableSettingsPersistenceTests
         settings.Lang = "fr-FR";
         settings.PlayerResamplingQuality = 4;
         settings.ShowNewPackageInstallConfirmMsg = false;
+        settings.RequireCompleteUsedResourcesForAutoInstall = true;
         // 有効な 1〜4 thread の利用者値をすべて保持し、同じ値への正規化で隠さないことを確認します。
         foreach (int threadCount in Enumerable.Range(1, 4))
         {
@@ -31,6 +32,7 @@ public sealed class PortableSettingsPersistenceTests
             Settings loaded = OpenSettings(files.Path);
             Assert.AreEqual("fr-FR", loaded.Lang);
             Assert.IsFalse(loaded.ShowNewPackageInstallConfirmMsg);
+            Assert.IsTrue(loaded.RequireCompleteUsedResourcesForAutoInstall);
             Assert.AreEqual(4, loaded.PlayerResamplingQuality, "既存の有効な品質4は新しい既定値2へ移行せず保持します。");
             Assert.AreEqual(threadCount, loaded.PlayerMixerThreadCount);
         }
@@ -47,9 +49,11 @@ public sealed class PortableSettingsPersistenceTests
     {
         using var files = new SettingsFiles();
         string defaultLanguage = OpenSettings(files.Path).Lang;
+        Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
         Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         File.WriteAllText(files.Path, Config());
         Assert.AreEqual(defaultLanguage, OpenSettings(files.Path).Lang);
+        Assert.IsFalse(OpenSettings(files.Path).RequireCompleteUsedResourcesForAutoInstall);
         Assert.IsNull(OpenSettings(files.Path).AssemblyVersion);
         Assert.IsTrue(OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         Assert.AreEqual(2, OpenSettings(files.Path).PlayerResamplingQuality);

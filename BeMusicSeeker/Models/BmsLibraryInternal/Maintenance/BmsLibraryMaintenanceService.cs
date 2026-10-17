@@ -55,9 +55,9 @@ internal sealed class BmsLibraryMaintenanceService
             && string.Equals(value.Hash, chart.Md5, StringComparison.OrdinalIgnoreCase) ? value : null;
     }
 
-    /// <summary>取得済み資源を評価し、不変の共通保守値を返します。保存行と譜面の現在値を変更しません。</summary>
+    /// <summary>取得済み使用資源を評価し、不変の保守値を返します。発見だけはincludeUnusedで全定義を一時評価します。保存行と譜面の現在値を変更しません。</summary>
     internal static ResourceHealthMaintenanceSnapshot BuildResourceHealthSnapshot(
-        ChartFile chart, ResourceHealthLookupContext lookupContext = null, bool forceUpdate = false)
+        ChartFile chart, ResourceHealthLookupContext lookupContext = null, bool forceUpdate = false, bool includeUnused = false)
     {
         if (chart == null || string.IsNullOrWhiteSpace(chart.Path)
             || (chart.Resources == null && !LongPathFileSystem.FileExists(chart.Path)))
@@ -69,8 +69,8 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return null;
         }
-        var resources = ChartResourceSnapshot.Create(chart);
-        ResourceHealthLookupContext.ResourceHealthSetSignature signature = BuildResourceHealthSetSignature(chart, resources);
+        var resources = ChartResourceSnapshot.Create(chart.Resources ?? throw new InvalidOperationException("Resource references have not been acquired."), includeUnused);
+        ResourceHealthLookupContext.ResourceHealthSetSignature signature = BuildResourceHealthSetSignature(resources);
         ResourceHealthLookupContext.ResourceHealthCounts counts;
         if (lookupContext?.TryGetResourceHealthCounts(chartDirectory, signature, out counts) != true)
         {
@@ -87,12 +87,12 @@ internal sealed class BmsLibraryMaintenanceService
             Hash = chart.Md5,
             Encoding = chart.Kind == ChartFileKind.Bmson ? "utf-8" : null,
             Origin = MaintenanceInfoOrigin.Calculated,
-            WavFilesDefined = counts.AudioDefined,
-            WavFilesExisting = counts.AudioDefined > 0 ? counts.AudioExisting : null,
-            BgaFilesDefined = counts.VisualDefined,
-            BgaFilesExisting = counts.VisualDefined > 0 ? counts.VisualExisting : null,
-            MovieFilesDefined = counts.MovieDefined,
-            MovieFilesExisting = counts.MovieDefined > 0 ? counts.MovieExisting : null,
+            WavFilesDefined = !includeUnused && resources.HasUnresolvedAudio ? null : counts.AudioDefined,
+            WavFilesExisting = !includeUnused && resources.HasUnresolvedAudio ? null : counts.AudioExisting,
+            BgaFilesDefined = !includeUnused && resources.HasUnresolvedVisual ? null : counts.VisualDefined,
+            BgaFilesExisting = !includeUnused && resources.HasUnresolvedVisual ? null : counts.VisualExisting,
+            MovieFilesDefined = !includeUnused && resources.HasUnresolvedMovie ? null : counts.MovieDefined,
+            MovieFilesExisting = !includeUnused && resources.HasUnresolvedMovie ? null : counts.MovieExisting,
             StagefileDefined = counts.StagefileDefined,
             StagefileExisting = counts.StagefileDefined ? counts.StagefileExisting : null,
             BackbmpDefined = counts.BackbmpDefined,
@@ -152,7 +152,7 @@ internal sealed class BmsLibraryMaintenanceService
                 ref counters)
             : 0;
         ChartResourceReference? stagefile = resources.GetOptionalImage(ChartResourceUsage.Stagefile);
-        bool stagefileDefined = IsOptionalImageDefined(chart.Kind, stagefile);
+        bool stagefileDefined = IsOptionalImageDefined(stagefile);
         bool stagefileExisting = stagefileDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -161,7 +161,7 @@ internal sealed class BmsLibraryMaintenanceService
             lookupContext,
             ref counters);
         ChartResourceReference? backbmp = resources.GetOptionalImage(ChartResourceUsage.Backbmp);
-        bool backbmpDefined = IsOptionalImageDefined(chart.Kind, backbmp);
+        bool backbmpDefined = IsOptionalImageDefined(backbmp);
         bool backbmpExisting = backbmpDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -170,7 +170,7 @@ internal sealed class BmsLibraryMaintenanceService
             lookupContext,
             ref counters);
         ChartResourceReference? banner = resources.GetOptionalImage(ChartResourceUsage.Banner);
-        bool bannerDefined = IsOptionalImageDefined(chart.Kind, banner);
+        bool bannerDefined = IsOptionalImageDefined(banner);
         bool bannerExisting = bannerDefined && ExistsOptionalImageResource(
             chartDirectory,
             lookupDirectory,
@@ -194,13 +194,13 @@ internal sealed class BmsLibraryMaintenanceService
             bannerExisting);
     }
 
-    private static ResourceHealthLookupContext.ResourceHealthSetSignature BuildResourceHealthSetSignature(ChartFile chart, ChartResourceSnapshot resources)
+    private static ResourceHealthLookupContext.ResourceHealthSetSignature BuildResourceHealthSetSignature(ChartResourceSnapshot resources)
     {
-        string stagefile = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Stagefile))
+        string stagefile = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Stagefile))
             ? resources.GetOptionalImage(ChartResourceUsage.Stagefile)?.LookupKey : null;
-        string backbmp = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Backbmp))
+        string backbmp = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Backbmp))
             ? resources.GetOptionalImage(ChartResourceUsage.Backbmp)?.LookupKey : null;
-        string banner = IsOptionalImageDefined(chart.Kind, resources.GetOptionalImage(ChartResourceUsage.Banner))
+        string banner = IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Banner))
             ? resources.GetOptionalImage(ChartResourceUsage.Banner)?.LookupKey : null;
         return new ResourceHealthLookupContext.ResourceHealthSetSignature(
             resources?.AudioRelativePaths,
@@ -211,13 +211,9 @@ internal sealed class BmsLibraryMaintenanceService
             banner);
     }
 
-    /// <summary>BMSの原文定義とbmsonの有効パス定義という既存の形式差を維持します。</summary>
-    private static bool IsOptionalImageDefined(ChartFileKind kind, ChartResourceReference? reference)
-    {
-        return reference.HasValue && (kind == ChartFileKind.Bms
-            ? !string.IsNullOrWhiteSpace(reference.Value.RawPath)
-            : reference.Value.Status == ChartResourcePathNormalizationStatus.Valid && !string.IsNullOrWhiteSpace(reference.Value.NormalizedPath));
-    }
+    /// <summary>形式を問わず非空の明示参照を定義として扱い、照合不能なパスは既存なしとして不足を通知します。</summary>
+    private static bool IsOptionalImageDefined(ChartResourceReference? reference)
+        => reference.HasValue && !string.IsNullOrWhiteSpace(reference.Value.RawPath);
 
     internal static IReadOnlyList<ChartWarning> BuildResourceHealthWarnings(
         ResourceHealthMaintenanceSnapshot snapshot)
@@ -583,7 +579,7 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    /// <summary>評価を完了してから一つの不変要求を確定します。取消時も評価済み対象を従来どおり確定します。</summary>
+    /// <summary>評価を完了してから一つの不変要求を確定します。保存同値の警告差はDBを書かず現在値へ返し、取消時も評価済み対象を従来どおり確定します。</summary>
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(IEnumerable<ChartFile> charts, bool forceUpdate,
         Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite, IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null, Action<string> progressLogger = null,
@@ -609,9 +605,8 @@ internal sealed class BmsLibraryMaintenanceService
                     progressReporter?.Invoke(progress);
                 }
             }, cancellationToken);
-        ApplyDurableWrite(durableWrite, pending.CreateRequest());
+        ApplyDurableWrite(durableWrite, pending.CreateRequest(result.ChangedCharts));
         durableCommitCompleted?.Invoke();
-        result.ChangedCharts.AddRange(pending.ChangedCharts);
         Action effects = () => { if (terminalProgress != null) { progressReporter?.Invoke(terminalProgress); } };
         if (postCommitEffectsSink == null)
         {
@@ -629,16 +624,15 @@ internal sealed class BmsLibraryMaintenanceService
     {
         private readonly List<ResourceHealthMaintenanceSnapshot> maintenanceInfos = [];
         private readonly List<ChartFile> songs = [];
-        internal List<ChartFile> ChangedCharts { get; } = [];
         internal CatalogMaintenanceWriteReceipt Capture(CatalogMaintenanceWriteRequest request)
         {
             maintenanceInfos.AddRange(request.MaintenanceInfos);
             songs.AddRange(request.Songs);
-            ChangedCharts.AddRange(request.CurrentValues);
             return new CatalogMaintenanceWriteReceipt(true, request.MaintenanceInfos.Count,
                 request.Songs.Count(chart => chart.Kind == ChartFileKind.Bms), request.Songs.Count(chart => chart.Kind == ChartFileKind.Bmson), 0);
         }
-        internal CatalogMaintenanceWriteRequest CreateRequest() => new(maintenanceInfos, songs, currentValues: ChangedCharts);
+        /// <summary>評価結果の現在値を一つの保存要求へ添えます。現在値だけの場合はDB書込みを要求しません。</summary>
+        internal CatalogMaintenanceWriteRequest CreateRequest(IEnumerable<ChartFile> currentValues) => new(maintenanceInfos, songs, currentValues: currentValues);
     }
 
     private MaintenanceWorkflowResult UpdateMaintenanceInfoSnapshotPipeline(
@@ -785,7 +779,10 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     reloadedFiles.Add(itemResult.ReloadedBmsChart);
                 }
-                if (itemResult.CurrentChart != null && (itemResult.MaintenanceInfoChanged || itemResult.ReloadedBmsChart != null))
+                // 保存値とは別に警告の現在値も比較し、同じ表示の再評価では更新を増やしません。
+                if (itemResult.CurrentChart != null && (itemResult.MaintenanceInfoChanged || itemResult.ReloadedBmsChart != null
+                    || !itemResult.CurrentChart.Warnings.Select(warning => (warning.Kind, warning.Message))
+                        .SequenceEqual(item.Target.Chart.Warnings.Select(warning => (warning.Kind, warning.Message)))))
                 {
                     currentValues.Add(itemResult.CurrentChart);
                 }
@@ -808,11 +805,12 @@ internal sealed class BmsLibraryMaintenanceService
             if (changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
             {
                 ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(changedMaintenanceInfos, reloadedFiles, currentValues: currentValues));
-                result.HasUpdates = true;
                 result.MaintenanceInfoUpsertCount += changedMaintenanceInfos.Count;
                 result.ReloadedSongCount += reloadedFiles.Count;
                 result.SongUpsertCount += reloadedFiles.Count;
             }
+            result.ChangedCharts.AddRange(currentValues);
+            result.HasUpdates |= currentValues.Count > 0 || changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0;
             commitStopwatch.Stop();
 
             readTicks += chunkReadTicks;
@@ -1152,7 +1150,8 @@ internal sealed class BmsLibraryMaintenanceService
             result.EncodingReloadElapsedTicks = reloaded ? result.EncodingElapsedTicks : 0;
         }
         result.MaintenanceInfo = after;
-        result.MaintenanceInfoChanged = !Equals(before is null ? null : before with { Origin = MaintenanceInfoOrigin.Calculated }, after);
+        // 取得の由来は保存しないため、保存列の変更判定へ混ぜません。
+        result.MaintenanceInfoChanged = !Equals(before is null ? null : before with { Origin = after.Origin }, after);
         result.CurrentChart = ChartFileProjection.WithMaintenance(parsed with { Resources = null }, after);
         result.CacheHitCount = lookup?.CacheHitCount ?? 0;
         result.ResourceIndexHitCount = lookup?.ResourceIndexHitCount ?? 0;
@@ -1275,7 +1274,7 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return;
         }
-        warnings.Add(ChartWarning.Create(kind, string.Format(warningFormat, health, defined - existing, defined)));
+        warnings.Add(ChartWarning.Create(kind, string.Format(warningFormat, health, existing, defined)));
     }
 
     private static void AppendFlagWarning(List<ChartWarning> warnings, bool? isHealthy, ChartWarningKind kind, string warningText)

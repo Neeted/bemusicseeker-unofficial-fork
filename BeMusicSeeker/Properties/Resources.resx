@@ -1938,14 +1938,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>インストール先フォルダが見つかりません。
 {0}</value>
   </data>
-  <data name="Estimate_merge_loc" xml:space="preserve">
-    <value>マージ先を推定</value>
-  </data>
-  <data name="Msg_estimate_merge_confirm" xml:space="preserve">
-    <value>元フォルダの同梱リソースを使わず、既存リソースだけで成立するマージ先を再推定します。
-既存の推定先は上書きされます。
-続行しますか？</value>
-  </data>
   <data name="Details_test_keep_installable_pending" xml:space="preserve">
     <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
@@ -2317,13 +2309,13 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 {1}</value>
   </data>
   <data name="Warning_WavFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] WAVファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] WAV使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_BgaFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] BGAファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] BGA使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_MovieFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] MOVIEファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] MOVIE使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_StagefileNotFound" xml:space="preserve">
     <value>[ 0%] STAGEFILEが見つかりませんでした。(1/1)</value>
@@ -3711,5 +3703,11 @@ uBMplayが正常に動作するか確認してください。</value>
   </data>
   <data name="Play_history_read_failed" xml:space="preserve">
     <value>履歴の取得に失敗しました。</value>
+  </data>
+  <data name="Details_require_complete_used_resources_for_auto_install" xml:space="preserve">
+    <value>自動新規インストールにすべての使用リソースを要求する</value>
+  </data>
+  <data name="Details_require_complete_used_resources_for_auto_install_description" xml:space="preserve">
+    <value>OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。</value>
   </data>
 </root>

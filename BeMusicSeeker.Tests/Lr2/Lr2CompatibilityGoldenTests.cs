@@ -252,7 +252,7 @@ public sealed class Lr2CompatibilityGoldenTests
     public void EvaluatorFlagsCp932DecodeUnsupportedResourceAndContinuesLengthEvaluation()
     {
         string longRawPath = new string('a', 260) + ".wav";
-        byte[] bytes = Encoding.UTF8.GetBytes("#WAV01 sound😀.wav\r\n#WAV02 " + longRawPath + "\r\n");
+        byte[] bytes = Encoding.UTF8.GetBytes("#WAV01 sound😀.wav\r\n#00101:01\r\n#WAV02 " + longRawPath + "\r\n");
         var snapshot = new ChartFileSnapshot(
             @"D:\BMS\Pack\Song\chart.bms",
             bytes,
@@ -361,9 +361,9 @@ public sealed class Lr2CompatibilityGoldenTests
             ?? throw new AssertFailedException("長さ境界の入力には親フォルダが必要です。");
         Assert.AreEqual(259, StrictShiftJisByteCount(directory));
         ChartFileSnapshot bmsSnapshot = ChartFileContentReader.CreateSnapshot(path,
-            Encoding.UTF8.GetBytes("#WAV01 \r\n#WAV02 \t \r\n#WAV03 \r\n#BMP01 \t\r\n#STAGEFILE \r\n#BACKBMP \t\r\n#BANNER \t \r\n"), DateTime.UnixEpoch);
+            Encoding.UTF8.GetBytes("#WAV01 \r\n#00101:01\r\n#WAV02 \t \r\n#00101:02\r\n#WAV03 \r\n#00101:03\r\n#BMP01 \t\r\n#00104:01\r\n#STAGEFILE \r\n#BACKBMP \t\r\n#BANNER \t \r\n"), DateTime.UnixEpoch);
         ChartFileSnapshot bmsonSnapshot = ChartFileContentReader.CreateSnapshot(System.IO.Path.ChangeExtension(path, ".bmson"),
-            Encoding.UTF8.GetBytes("{\"info\":{\"title\":\"Empty\",\"banner_image\":\"\",\"back_image\":\" \\t \",\"eyecatch_image\":\"\",\"preview_music\":\"\"},\"sound_channels\":[{\"name\":\"\",\"notes\":[]},{\"name\":\" \\t \",\"notes\":[]}],\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"\"}]}}"), DateTime.UnixEpoch);
+            Encoding.UTF8.GetBytes("{\"info\":{\"title\":\"Empty\",\"banner_image\":\"\",\"back_image\":\" \\t \",\"eyecatch_image\":\"\",\"preview_music\":\"\"},\"sound_channels\":[{\"name\":\"\",\"notes\":[{\"x\":1,\"y\":0}]},{\"name\":\" \\t \",\"notes\":[{\"x\":1,\"y\":0}]}],\"bga\":{\"bga_header\":[{\"id\":1,\"name\":\"\"}],\"bga_events\":[{\"id\":1,\"y\":0}]}}"), DateTime.UnixEpoch);
         ChartFile[] charts =
         [
             (BmsChartFileParser.ParseSnapshot(bmsSnapshot)),
@@ -371,7 +371,8 @@ public sealed class Lr2CompatibilityGoldenTests
         ];
         foreach (ChartFile chart in charts)
         {
-            Assert.AreEqual(7, chart.Resources.Count);
+            // bmsonの空previewは省略し、使用される音声2件・BGA1件と補助3役割の空原文は保持します。
+            Assert.AreEqual(chart.Kind == ChartFileKind.Bms ? 7 : 6, chart.Resources.Count);
             Assert.IsTrue(chart.Resources.All(reference => reference.Status == ChartResourcePathNormalizationStatus.Empty));
             Assert.IsTrue(chart.Resources.All(reference => string.IsNullOrWhiteSpace(reference.RawPath)));
             var snapshot = ChartResourceSnapshot.Create(chart);

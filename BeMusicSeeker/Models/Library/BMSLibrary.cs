@@ -419,7 +419,6 @@ public partial class BMSLibrary : ObservableObject
 
         internal List<ChartPackage> DeferredPackages { get; } = [];
 
-        internal Dictionary<ChartPackage, int> DeferredSourceHealthByPackage { get; } = [];
 
         internal PendingEstimateSourceBatchSnapshot BatchSourceSnapshot { get; set; }
     }
@@ -2491,7 +2490,8 @@ public partial class BMSLibrary : ObservableObject
 
         public List<PackageChartEntry> AlreadyInstalledEntries { get; set; } = [];
 
-        public List<PackageChartEntry> MissingEntries { get; set; } = [];
+        /// <summary>未所持群を優先し、全既所持の場合は全対象を評価します。</summary>
+        public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
         public ChartInstallationEstimateMode EstimateMode { get; set; }
 
@@ -2499,9 +2499,10 @@ public partial class BMSLibrary : ObservableObject
 
         public PendingEstimateSourceBatchPackageState BatchState { get; set; }
 
-        public bool HasMissingFiles => MissingEntries.Count > 0;
+        /// <summary>この要求が評価する譜面群を持つかを返します。</summary>
+        public bool HasTargetEntries => TargetEntries.Count > 0;
 
-        public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasMissingFiles;
+        public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasTargetEntries;
     }
 
     private sealed class PendingPackageChartEntryPartition
@@ -2511,6 +2512,9 @@ public partial class BMSLibrary : ObservableObject
         public List<PackageChartEntry> AlreadyInstalledEntries { get; } = [];
 
         public List<PackageChartEntry> MissingEntries { get; } = [];
+
+        /// <summary>未所持があればその群、なければ既所持を含む全群を評価します。追加の集合は保持しません。</summary>
+        public List<PackageChartEntry> EstimationEntries => MissingEntries.Count > 0 ? MissingEntries : PackageEntries;
     }
 
     private sealed class PendingInstallEstimateEvaluationContext
@@ -3328,7 +3332,7 @@ public partial class BMSLibrary : ObservableObject
                                     Package = state.Package,
                                     DisplayName = state.DisplayName,
                                     AlreadyInstalledEntries = [.. state.AlreadyInstalledEntries],
-                                    MissingEntries = [.. state.MissingEntries],
+                                    TargetEntries = [.. state.TargetEntries],
                                     EstimateMode = state.EstimateMode,
                                     WasPendingAtPreparation = ChartPackagesPending.Contains(state.Package),
                                     BatchState = state
@@ -3346,7 +3350,7 @@ public partial class BMSLibrary : ObservableObject
                                     Package = package,
                                     DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
                                     AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
-                                    MissingEntries = partition.MissingEntries,
+                                    TargetEntries = partition.EstimationEntries,
                                     EstimateMode = ChartInstallationEstimateMode.Normal,
                                     WasPendingAtPreparation = package != null && ChartPackagesPending.Contains(package),
                                     BatchState = null
@@ -3509,7 +3513,7 @@ public partial class BMSLibrary : ObservableObject
                 }
             }
             SetPendingInstallEstimateSearchingEntries(
-                searchingRequests.SelectMany(searchingRequest => searchingRequest?.MissingEntries ?? []), isSearching: false);
+                searchingRequests.SelectMany(searchingRequest => searchingRequest?.TargetEntries ?? []), isSearching: false);
         }
         if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
         if (failures.Count > 1) { throw new AggregateException(failures); }
@@ -3552,15 +3556,15 @@ public partial class BMSLibrary : ObservableObject
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NotEvaluated;
             return result;
         }
-        if (!request.HasMissingFiles)
+        if (!request.HasTargetEntries)
         {
             return result;
         }
-        foreach (PackageChartEntry entry in request.MissingEntries)
+        foreach (PackageChartEntry entry in request.TargetEntries)
         {
             entry.AcquireResources();
         }
-        if (HasUnsupportedResourcePath(request.MissingEntries))
+        if (HasUnsupportedResourcePath(request.TargetEntries))
         {
             result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath;
             return result;
@@ -3570,29 +3574,33 @@ public partial class BMSLibrary : ObservableObject
         {
             result.InstalledResolution = request.BatchState?.PreparationInstalledResolution?.Success == true
                 ? request.BatchState.PreparationInstalledResolution
-                : EvaluateInstalledDestinationFromPackage(request.Package, request.MissingEntries, evaluationContext);
+                : EvaluateInstalledDestinationFromPackage(request.Package, request.TargetEntries, evaluationContext);
             if (result.InstalledResolution.Success)
             {
                 result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
                 result.EstimationData = EvaluateInstalledChartHashDestination(
                     result.InstalledResolution.InstallDirectory,
-                    request.MissingEntries,
+                    request.TargetEntries,
                     useThreadSafeResolver: true,
-                    evaluationContext.OptionsSnapshot);
+                    evaluationContext.OptionsSnapshot, package: request.Package, batchState: request.BatchState, directoryLookupCache: evaluationContext.DirectoryLookupCacheSnapshot);
+                if (result.EstimationData.SourceSurfaceScanLimitExceeded)
+                {
+                    result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded;
+                }
                 return result;
             }
             if (result.InstalledResolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
             {
                 if (!HasUsableDirectoryLookupCache(evaluationContext?.DirectoryLookupCacheSnapshot))
                 {
-                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + request.MissingEntries.Count + " candidateDirs=" + result.InstalledResolution.CandidateDirectoryCount);
+                    LogInstallPerformance("mixed_package_resolve failed reason=resource_index_unavailable missing=" + request.TargetEntries.Count + " candidateDirs=" + result.InstalledResolution.CandidateDirectoryCount);
                     result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.NoOp;
                     return result;
                 }
                 result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
                 result.EstimationData = EvaluateInstallEstimation(
                     request.Package,
-                    request.MissingEntries,
+                    request.TargetEntries,
                     executionPolicy.CandidateEvaluationDegree,
                     request.EstimateMode,
                     evaluationContext.OptionsSnapshot,
@@ -3616,7 +3624,7 @@ public partial class BMSLibrary : ObservableObject
         result.OutcomeKind = PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult;
         result.EstimationData = EvaluateInstallEstimation(
             request.Package,
-            request.MissingEntries,
+            request.TargetEntries,
             executionPolicy.CandidateEvaluationDegree,
             request.EstimateMode,
             evaluationContext.OptionsSnapshot,
@@ -3661,7 +3669,7 @@ public partial class BMSLibrary : ObservableObject
         ref PerformanceInteraction? firstVisibleInteraction)
     {
         PendingInstallEstimateEvaluationRequest request = evaluationResult?.Request;
-        List<PackageChartEntry> dispatchedSearchingEntries = [.. (dispatchedRequest?.MissingEntries ?? [])
+        List<PackageChartEntry> dispatchedSearchingEntries = [.. (dispatchedRequest?.TargetEntries ?? [])
             .Where(entry => entry != null)
             .Distinct()];
         string currentDisplayName = request?.DisplayName ?? string.Empty;
@@ -3729,31 +3737,33 @@ public partial class BMSLibrary : ObservableObject
         package.DeferredEstimateReason = PendingEstimateDeferredReason.None;
         ApplyPackageMixedInstallWarningsToEntries(request.AlreadyInstalledEntries.Where(entry => entry?.Chart != null && ContainsInstalledChartUnsafe(entry.Chart)));
 
-        List<PackageChartEntry> currentMissingEntries = [.. request.MissingEntries.Where(entry => entry?.Chart != null && !ContainsInstalledChartUnsafe(entry.Chart))];
-        if (currentMissingEntries.Count == 0)
+        var previouslyOwned = request.AlreadyInstalledEntries.ToHashSet();
+        List<PackageChartEntry> currentTargetEntries = [.. request.TargetEntries.Where(entry => entry?.Chart != null
+            && (previouslyOwned.Contains(entry) || !ContainsInstalledChartUnsafe(entry.Chart)))];
+        if (currentTargetEntries.Count == 0)
         {
             return false;
         }
-        if (currentMissingEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)))
+        if (currentTargetEntries.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination)))
         {
             return false;
         }
 
         if (request.AttemptInstalledResolve)
         {
-            LogMixedPackageResolution(evaluationResult.InstalledResolution, package.path, request.MissingEntries.Count);
+            LogMixedPackageResolution(evaluationResult.InstalledResolution, package.path, request.TargetEntries.Count);
         }
 
         switch (evaluationResult.OutcomeKind)
         {
             case PendingInstallEstimateEvaluationOutcomeKind.UnsupportedResourcePath:
-                ApplyUnsupportedResourcePathToPackageUnsafe(package, currentMissingEntries);
+                ApplyUnsupportedResourcePathToPackageUnsafe(package, currentTargetEntries);
                 return false;
             case PendingInstallEstimateEvaluationOutcomeKind.SourceSurfaceScanLimitExceeded:
                 LogSourceSurfaceScanLimitExceeded(evaluationResult.EstimationData, package?.path);
                 ApplySourceSurfaceScanLimitExceededToPackageUnsafe(
                     package,
-                    currentMissingEntries,
+                    currentTargetEntries,
                     evaluationResult.EstimationData?.SourceSurfaceMaxVisitedFileSystemEntryCount ?? PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries);
                 return false;
             case PendingInstallEstimateEvaluationOutcomeKind.EstimatedResult:
@@ -3761,16 +3771,16 @@ public partial class BMSLibrary : ObservableObject
                     LogInstallEstimationEvaluation(evaluationResult.EstimationData);
                     if (request.AttemptInstalledResolve && evaluationResult.EstimationData?.Result?.HasViableDestination != true)
                     {
-                        ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentMissingEntries);
+                        ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentTargetEntries);
                         return false;
                     }
-                    ApplyInstallEstimationResultToEntries(currentMissingEntries, evaluationResult.EstimationData?.Result);
-                    return HasPendingLowConfidenceInstallDestination(currentMissingEntries);
+                    ApplyInstallEstimationResultToEntries(currentTargetEntries, evaluationResult.EstimationData?.Result);
+                    return HasPendingLowConfidenceInstallDestination(currentTargetEntries);
                 }
             case PendingInstallEstimateEvaluationOutcomeKind.NoOp:
                 if (request.AttemptInstalledResolve)
                 {
-                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentMissingEntries);
+                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentTargetEntries);
                 }
                 return false;
             default:
@@ -3811,7 +3821,7 @@ public partial class BMSLibrary : ObservableObject
 
     private void SetPendingInstallEstimateSearchingState(PendingInstallEstimateEvaluationRequest request, bool isSearching)
     {
-        SetPendingInstallEstimateSearchingEntries(request?.MissingEntries, isSearching);
+        SetPendingInstallEstimateSearchingEntries(request?.TargetEntries, isSearching);
     }
 
     private void SetPendingInstallEstimateSearchingEntries(
@@ -3992,22 +4002,18 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private void LogPendingEstimateSkippedPackage(string source, ChartPackage package, int sourceHealth)
+    private void LogPendingEstimateSkippedPackage(string source, ChartPackage package)
     {
         PendingEstimateDeferredReason reason = package?.DeferredEstimateReason ?? PendingEstimateDeferredReason.None;
         string reasonLog = reason switch
         {
-            PendingEstimateDeferredReason.HealthySourceBaseline => "healthy_source_baseline",
+            PendingEstimateDeferredReason.CompleteSourceAudio => "complete_source_audio",
             PendingEstimateDeferredReason.UnsupportedResourcePath => "unsupported_resource_path",
             PendingEstimateDeferredReason.InstalledDestinationResolveFailed => "installed_destination_resolve_failed",
             PendingEstimateDeferredReason.SourceSurfaceScanLimitExceeded => "source_surface_scan_limit_exceeded",
             _ => "unknown"
         };
         string message = "pending_estimate_batch skipped source=" + source + " package=" + (package?.path ?? string.Empty) + " reason=" + reasonLog;
-        if (reason == PendingEstimateDeferredReason.HealthySourceBaseline)
-        {
-            message += " sourceHealth=" + sourceHealth;
-        }
         LogInstallPerformance(message);
     }
 
@@ -4033,22 +4039,15 @@ public partial class BMSLibrary : ObservableObject
 
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
-                if (HasUnsupportedResourcePath(state.MissingEntries)
+                if (HasUnsupportedResourcePath(state.TargetEntries)
                     || HasInstalledDestinationResolveFailed(state)
                     || HasSourceSurfaceScanLimitExceeded(state))
                 {
                     continue;
                 }
 
-                bool deferred = ShouldDeferPendingEstimateBatchPackageUnsafe(
-                    state,
-                    installEstimationService,
-                    out int sourcePrimaryHealth);
-                state.BaselinePrefilter = new SourceBaselinePrefilterResult
-                {
-                    Deferred = deferred,
-                    PrimaryHealth = sourcePrimaryHealth
-                };
+                state.SkipAutomaticEstimation = source == PendingInstallEstimateBatchSource.AutoInstall
+                    && ShouldDeferPendingEstimateBatchPackageUnsafe(state);
             }
 
             PendingInstallEstimatePreparationResult result = CommitPendingEstimatePreparationUnsafe(candidateSnapshot);
@@ -4099,10 +4098,10 @@ public partial class BMSLibrary : ObservableObject
         {
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
-                if (HasUnsupportedResourcePath(state.MissingEntries))
+                if (HasUnsupportedResourcePath(state.TargetEntries))
                 {
                     ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries);
-                    ApplyUnsupportedResourcePathToPackageUnsafe(state.Package, state.MissingEntries);
+                    ApplyUnsupportedResourcePathToPackageUnsafe(state.Package, state.TargetEntries);
                     committedResult.DeferredPackages.Add(state.Package);
                     continue;
                 }
@@ -4111,7 +4110,7 @@ public partial class BMSLibrary : ObservableObject
                 {
                     state.Package.DeferredEstimateReason = PendingEstimateDeferredReason.InstalledDestinationResolveFailed;
                     ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries);
-                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(state.Package, state.MissingEntries);
+                    ApplyInstalledDestinationResolveFailedToPackageUnsafe(state.Package, state.TargetEntries);
                     committedResult.DeferredPackages.Add(state.Package);
                     continue;
                 }
@@ -4121,18 +4120,17 @@ public partial class BMSLibrary : ObservableObject
                     ApplyPackageMixedInstallWarningsToEntries(state.AlreadyInstalledEntries);
                     ApplySourceSurfaceScanLimitExceededToPackageUnsafe(
                         state.Package,
-                        state.MissingEntries,
+                        state.TargetEntries,
                         state.SourceSurface?.MaxVisitedFileSystemEntryCount ?? PackageInstallEstimationSnapshotBuilder.DefaultSourceSurfaceMaxVisitedFileSystemEntries);
                     committedResult.DeferredPackages.Add(state.Package);
                     continue;
                 }
 
-                if (state.BaselinePrefilter.Deferred)
+                if (state.SkipAutomaticEstimation)
                 {
-                    state.Package.DeferredEstimateReason = PendingEstimateDeferredReason.HealthySourceBaseline;
+                    state.Package.DeferredEstimateReason = PendingEstimateDeferredReason.CompleteSourceAudio;
                     ClearInstallEstimationStateUnsafe(state.PackageEntries);
                     committedResult.DeferredPackages.Add(state.Package);
-                    committedResult.DeferredSourceHealthByPackage[state.Package] = state.BaselinePrefilter.PrimaryHealth;
                     continue;
                 }
 
@@ -4161,7 +4159,7 @@ public partial class BMSLibrary : ObservableObject
         foreach (ChartPackage package in packageList ?? Enumerable.Empty<ChartPackage>())
         {
             PendingPackageChartEntryPartition partition = BuildPendingPackageChartEntryPartitionUnsafe(package);
-            foreach (PackageChartEntry entry in partition.MissingEntries)
+            foreach (PackageChartEntry entry in partition.EstimationEntries)
             {
                 entry.AcquireResources();
             }
@@ -4172,21 +4170,21 @@ public partial class BMSLibrary : ObservableObject
                 SourceDirectory = ResolvePendingEstimateSourceDirectory(package?.path),
                 PackageEntries = partition.PackageEntries,
                 AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
-                MissingEntries = partition.MissingEntries,
-                ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingEntries.Select(entry => entry.Chart)),
+                TargetEntries = partition.EstimationEntries,
+                ChartResources = ChartResourceSnapshot.CreateAggregate((partition.EstimationEntries).Select(entry => entry.Chart)),
                 EstimateMode = ChartInstallationEstimateMode.Normal
             };
             if (state.AttemptInstalledResolve)
             {
                 state.PreparationInstalledResolution = installEstimationService.TryResolveInstalledDestinationFromPackage(
                     package,
-                    state.MissingEntries,
+                    state.TargetEntries,
                     preparationContext.InstalledChartLookupIndex);
             }
 
-            if (state.HasMissingFiles
+            if (state.HasTargetEntries
                 && !HasInstalledDestinationResolveFailed(state)
-                && !HasUnsupportedResourcePath(state.MissingEntries)
+                && !HasUnsupportedResourcePath(state.TargetEntries)
                 && LongPathFileSystem.DirectoryExists(state.Package?.path)
                 && !string.IsNullOrWhiteSpace(state.SourceDirectory)
                 && LongPathFileSystem.DirectoryExists(state.SourceDirectory))
@@ -4206,7 +4204,7 @@ public partial class BMSLibrary : ObservableObject
                 continue;
             }
 
-            if (HasUnsupportedResourcePath(state.MissingEntries))
+            if (HasUnsupportedResourcePath(state.TargetEntries))
             {
                 continue;
             }
@@ -4216,7 +4214,7 @@ public partial class BMSLibrary : ObservableObject
                 continue;
             }
 
-            if (!state.HasMissingFiles || string.IsNullOrWhiteSpace(state.SourceDirectory))
+            if (!state.HasTargetEntries || string.IsNullOrWhiteSpace(state.SourceDirectory))
             {
                 continue;
             }
@@ -4312,33 +4310,21 @@ public partial class BMSLibrary : ObservableObject
             && state.PreparationInstalledResolution.Reason != InstalledDirectoryResolveReason.MultipleCandidateDirectories;
     }
 
-    private bool ShouldDeferPendingEstimateBatchPackageUnsafe(PendingEstimateSourceBatchPackageState state, BmsLibraryInstallEstimationService installEstimationService, out int sourcePrimaryHealth)
+    private static bool ShouldDeferPendingEstimateBatchPackageUnsafe(PendingEstimateSourceBatchPackageState state)
     {
-        sourcePrimaryHealth = 0;
-        if (state?.Package == null || installEstimationService == null || !LongPathFileSystem.DirectoryExists(state.Package.path))
-        {
-            return false;
-        }
-        if (!state.HasMissingFiles)
-        {
-            return false;
-        }
-        if (state.PreparationInstalledResolution?.Success == true)
-        {
-            return false;
-        }
-        if (state.SourceSurface?.ResourceEntry == null)
+        if (state?.Package == null || !state.HasTargetEntries)
         {
             return false;
         }
 
-        BmsLibraryInstallEstimationService.SourceBaselineEvaluation baseline = installEstimationService.EvaluateSourceBaseline(
-            state.ChartResources,
-            state.SourceDirectory,
-            state.SourceSurface.ResourceEntry,
-            state.SourceSurface.ResourceEntry);
-        sourcePrimaryHealth = baseline.PrimaryHealth;
-        return baseline.IsViableDestination;
+        // 既知のハッシュ候補は完全音源でもStrong評価を残し、新たなリソース探索だけを省略します。
+        if (state.PreparationInstalledResolution?.Success == true
+            || state.PreparationInstalledResolution?.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
+        {
+            return false;
+        }
+
+        return BmsLibraryInstallEstimationService.HasCompleteAudio(state.ChartResources, state.SourceSurface?.ResourceEntry, null);
     }
 
     private static string ResolvePendingEstimateSourceDirectory(string packagePath)
@@ -8869,16 +8855,30 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    /// <summary>ハッシュ候補をサービスで評価し、通常の推定結果と同じ反映単位へ渡します。資源入力は構築しません。</summary>
-    private InstallEstimationEvaluationData EvaluateInstalledChartHashDestination(string destinationDirectory, IReadOnlyCollection<PackageChartEntry> entries, bool useThreadSafeResolver = false, BmsLibraryOptionsSnapshot optionsSnapshot = null)
+    /// <summary>ハッシュ候補をサービスで評価し、通常の推定結果と同じ反映単位へ渡します。同じ入力資源と候補索引で音源完全性を確認し、入力元走査の上限超過を既存の保留・警告へ渡します。</summary>
+    private InstallEstimationEvaluationData EvaluateInstalledChartHashDestination(string destinationDirectory, IReadOnlyCollection<PackageChartEntry> entries, bool useThreadSafeResolver = false, BmsLibraryOptionsSnapshot optionsSnapshot = null, ChartPackage package = null, PendingEstimateSourceBatchPackageState batchState = null, DirectoryResourceLookupCache directoryLookupCache = null)
     {
+        foreach (PackageChartEntry entry in entries)
+        {
+            entry.AcquireResources();
+        }
+
+        PackageInstallEstimationSnapshot resources = package == null
+            ? PackageInstallEstimationSnapshotBuilder.BuildForLooseEntries(entries)
+            : batchState?.SourceSurface == null ? package.GetOrBuildInstallEstimationSnapshotFromEntries(entries)
+                : package.BuildInstallEstimationSnapshotFromEntries(entries, PackageInstallEstimationSnapshotBuilder.BuildSharedInstallSurfaceSnapshot(
+                    package.path, batchState.SourceDirectory, batchState.SourceSurface, includeBundledResources: true), false, true, batchState.ChartResources);
         return new InstallEstimationEvaluationData
         {
             ChartCount = entries.Count,
+            SourceSurfaceScanLimitExceeded = resources.SourceSurfaceScanLimitExceeded,
+            SourceSurfaceVisitedFileSystemEntryCount = resources.SourceSurfaceVisitedFileSystemEntryCount,
+            SourceSurfaceMaxVisitedFileSystemEntryCount = resources.SourceSurfaceMaxVisitedFileSystemEntryCount,
             Result = CreateInstallEstimationService(optionsSnapshot).EvaluateInstalledChartHashDestination(
                 destinationDirectory,
                 entries,
-                useThreadSafeResolver ? ResolveInstallDestinationMetadataProfileThreadSafe : ResolveInstallDestinationMetadataProfileUnsafe)
+                useThreadSafeResolver ? ResolveInstallDestinationMetadataProfileThreadSafe : ResolveInstallDestinationMetadataProfileUnsafe,
+                resources, directoryLookupCache ?? libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache)
         };
     }
 
@@ -9046,16 +9046,16 @@ public partial class BMSLibrary : ObservableObject
     private static ChartResourceSnapshot ResolvePrecomputedDefinedResources(PendingEstimateSourceBatchPackageState batchState, IReadOnlyList<PackageChartEntry> targetEntries)
     {
         if (batchState?.ChartResources == null
-            || batchState.MissingEntries == null
+            || batchState.TargetEntries == null
             || targetEntries == null
-            || batchState.MissingEntries.Count != targetEntries.Count)
+            || batchState.TargetEntries.Count != targetEntries.Count)
         {
             return null;
         }
 
         for (int i = 0; i < targetEntries.Count; i++)
         {
-            if (!ReferenceEquals(batchState.MissingEntries[i], targetEntries[i]))
+            if (!ReferenceEquals(batchState.TargetEntries[i], targetEntries[i]))
             {
                 return null;
             }

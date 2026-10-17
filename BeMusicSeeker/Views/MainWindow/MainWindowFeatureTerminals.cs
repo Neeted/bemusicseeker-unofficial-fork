@@ -329,17 +329,18 @@ internal sealed class MainWindowPackageCatalogTerminal
 }
 
 /// <summary>
-/// Owns pending-install destination estimation requests from compiled package and chart menus.
+/// 実メニューから保留パッケージと選択譜面の導入先推定を受け渡します。
 /// </summary>
 internal sealed class MainWindowPendingInstallEstimationTerminal
 {
-    private readonly Func<PendingInstallDestinationSearchKind, IEnumerable<ChartPackage>, Task> searchPackages;
+    private readonly Func<IEnumerable<ChartPackage>, Task> searchPackages;
     private readonly Func<PendingInstallDestinationSearchRequest, Task> searchPending;
     private readonly Func<PendingInstallDestinationClearRequest, Task> clearPending;
     private readonly Func<IEnumerable<ChartPackage>, Task> clearPackages;
 
+    /// <summary>通常推定と解除の非同期終端を実画面へ接続します。</summary>
     internal MainWindowPendingInstallEstimationTerminal(
-        Func<PendingInstallDestinationSearchKind, IEnumerable<ChartPackage>, Task> searchPackages,
+        Func<IEnumerable<ChartPackage>, Task> searchPackages,
         Func<PendingInstallDestinationSearchRequest, Task> searchPending,
         Func<PendingInstallDestinationClearRequest, Task> clearPending,
         Func<IEnumerable<ChartPackage>, Task> clearPackages)
@@ -350,8 +351,9 @@ internal sealed class MainWindowPendingInstallEstimationTerminal
         this.clearPackages = clearPackages ?? throw new ArgumentNullException(nameof(clearPackages));
     }
 
-    internal Task SearchPackagesAsync(PendingInstallDestinationSearchKind kind, IEnumerable<ChartPackage> packages)
-        => searchPackages(kind, packages ?? throw new ArgumentNullException(nameof(packages)));
+    /// <summary>既所持だけの場合も含めて通常の保留パッケージ推定へ渡します。</summary>
+    internal Task SearchPackagesAsync(IEnumerable<ChartPackage> packages)
+        => searchPackages(packages ?? throw new ArgumentNullException(nameof(packages)));
 
     internal Task SearchPendingAsync(PendingInstallDestinationSearchRequest request)
         => searchPending(request ?? throw new ArgumentNullException(nameof(request)));

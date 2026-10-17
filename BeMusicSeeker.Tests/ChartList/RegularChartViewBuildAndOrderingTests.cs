@@ -601,11 +601,11 @@ public sealed class RegularChartViewBuildAndOrderingTests
         {
             var library = new TestBmsLibrary(path);
             CatalogOwnedCollectionOwner catalog = OwnedChartCollectionTestSupport.GetOwnedCollectionOwner(library);
-            // 既存の健全性算式で25から75へ変わる保守入力を使い、算式自体の条件網羅は保守側へ分担します。
+            // 使用ファイルの単純充足率で25から75へ変わる保守入力を使い、算式自体の条件網羅は保守側へ分担します。
             ChartFile[] charts = new[] { "A", "B" }.Select(name => ChartFileProjection.WithMaintenance(
                 CreateSourceRow("Folder", name).Chart with { Token = new OwnedChartToken() },
                 new ResourceHealthMaintenanceSnapshot
-                { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 120, WavFilesExisting = 36 })).ToArray();
+                { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 1 })).ToArray();
             catalog.ReplaceCharts(charts, []);
             catalog.IncrementVersion();
             CatalogChartCollectionSnapshot previous = library.CaptureNormalLibraryChartSnapshot(false);
@@ -621,7 +621,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             {
                 catalog.Collection.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(chart,
                     new ResourceHealthMaintenanceSnapshot
-                    { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 120, WavFilesExisting = 100 }));
+                    { Origin = MaintenanceInfoOrigin.Calculated, WavFilesDefined = 4, WavFilesExisting = 3 }));
             }
             catalog.IncrementVersion();
             var batch = new NormalLibraryRefreshNotificationBatch(1, library.OwnedCollectionVersion,
@@ -651,7 +651,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
             Assert.AreEqual(1, rows.RealizedRowCount);
             Assert.AreEqual(75, realized.WAVHealth);
             Assert.AreEqual(75, ((LibraryChartRow)rows[1]).WAVHealth);
-            Assert.AreEqual(36, previous.BmsRows[1].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.AreEqual(1, previous.BmsRows[1].ResourceHealthMaintenanceSnapshot.WavFilesExisting);
         });
     }
 
