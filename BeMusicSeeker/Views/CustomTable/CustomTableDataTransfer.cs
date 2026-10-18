@@ -98,6 +98,12 @@ internal static class CustomTableDataTransfer
         }
     }
 
+    /// <summary>
+    /// 可視列の編集値をコピー用に正規化し、列区切りのTABと行区切りのCRLFを保ったTSVを作ります。
+    /// </summary>
+    /// <param name="rows">コピーする行。nullの行は除外します。</param>
+    /// <param name="columns">出力順の列。非表示列は除外します。</param>
+    /// <returns>コピーするTSV。行または列の指定がなければ空文字。</returns>
     internal static string BuildTsv(IReadOnlyList<object> rows, IReadOnlyList<CustomTableColumn> columns)
     {
         if (rows == null || rows.Count == 0 || columns == null || columns.Count == 0)
@@ -125,6 +131,12 @@ internal static class CustomTableDataTransfer
         return builder.ToString();
     }
 
+    /// <summary>
+    /// モデルの編集値を変更せず、単一セルとTSVで共通のコピー用正規化を適用します。
+    /// </summary>
+    /// <param name="row">コピー元の行。</param>
+    /// <param name="column">表示値と区別した編集値を取得する列。</param>
+    /// <returns>制御文字を空白へ置換した編集値。行・列・編集値がnull、または編集値が空なら空文字。</returns>
     internal static string BuildCellText(object row, CustomTableColumn column)
     {
         if (row == null || column == null)
@@ -202,12 +214,34 @@ internal static class CustomTableDataTransfer
         return false;
     }
 
+    /// <summary>
+    /// セル内のUnicode制御文字（U+0000–001F、U+007F–009F）を1文字につきASCII空白1個へ置換します。
+    /// </summary>
+    /// <param name="text">コピーするセルの編集値。</param>
+    /// <returns>制御文字以外を保持した文字列。nullまたは空なら空文字。</returns>
+    /// <remarks>通常のセルで不要な文字列を生成しないよう、制御文字がある場合だけ複製します。</remarks>
     internal static string NormalizeCellText(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
             return string.Empty;
         }
-        return text.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (!char.IsControl(text[i]))
+            {
+                continue;
+            }
+            char[] characters = text.ToCharArray();
+            for (int j = i; j < characters.Length; j++)
+            {
+                if (char.IsControl(characters[j]))
+                {
+                    characters[j] = ' ';
+                }
+            }
+            return new string(characters);
+        }
+        return text;
     }
 }

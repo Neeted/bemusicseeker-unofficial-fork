@@ -850,7 +850,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsNull(urlColumn);
     }
 
-    /// <summary>題名・作者の二行を表示列だけのTSVへ変換しセル内Tab・改行を空白にすることを確認し、セルの文字が別列や別行として出力される誤りを検出します。</summary>
+    /// <summary>題名・作者の二行を可視列順のTSVへ変換し、セル内Tab・NUL・改行だけを空白にして入力値を保つことを確認し、NUL以降の欠落や列・行の区切りの破壊を検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_BuildsVisibleColumnTsvAndNormalizesCellText()
     {
@@ -858,19 +858,24 @@ public sealed class CustomTableColumnFactoryTests
         CustomTableColumn[] columns = [.. CustomTableColumnFactory.CreateMainColumns(settings)];
         var rows = new[]
         {
-            new { Title = "A\tTitle", Artist = "Artist\r\nOne" },
-            new { Title = "B", Artist = "Artist Two" }
+            new { Title = "A\tTitle", Artist = "Artist\0Part\r\nOne" },
+            new { Title = "B\0Title", Artist = "Artist Two" }
         };
 
         string tsv = CustomTableDataTransfer.BuildTsv(rows, columns);
 
-        Assert.AreEqual("A Title\tArtist  One\r\nB\tArtist Two", tsv);
+        Assert.AreEqual("A Title\tArtist Part  One\r\nB Title\tArtist Two", tsv);
+        Assert.AreEqual("A\tTitle", rows[0].Title);
+        Assert.AreEqual("Artist\0Part\r\nOne", rows[0].Artist);
+        Assert.AreEqual("B\0Title", rows[1].Title);
+        Assert.AreEqual("Artist Two", rows[1].Artist);
     }
 
-    /// <summary>操作表示とは別の編集URLを単一セルのコピー値に使い、制御文字と欠損対象を正規化することを確認し、表示ラベルのコピーやセル境界の破壊を検出します。</summary>
+    /// <summary>表示ラベルではなく編集値をコピーし、C0・C1の各文字を空白一つへ変換してNUL前後と通常文字・Unicodeを保ち、欠損対象・null・空の編集値を空文字にすることを確認し、文字の欠落や過剰な正規化を検出します。</summary>
     [TestMethod]
     public void CustomTableDataTransfer_BuildsSingleCellTextFromEditTextAndNormalizes()
     {
+        string? editText = "https://example.test/a\tb\r\nc";
         var column = new CustomTableColumn(
             "Url",
             "URL",
@@ -879,13 +884,34 @@ public sealed class CustomTableColumnFactoryTests
             null,
             TextAlignment.Left,
             row => "display icon",
-            editTextSelector: row => "https://example.test/a\tb\r\nc");
+            editTextSelector: row => editText);
 
         string text = CustomTableDataTransfer.BuildCellText(new object(), column);
 
         Assert.AreEqual("https://example.test/a b  c", text);
         Assert.AreEqual(string.Empty, CustomTableDataTransfer.BuildCellText(null, column));
         Assert.AreEqual(string.Empty, CustomTableDataTransfer.BuildCellText(new object(), null));
+
+        const string controlCharacters =
+            "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000A\u000B\u000C\u000D\u000E\u000F"
+            + "\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F"
+            + "\u007F\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008A\u008B\u008C\u008D\u008E\u008F"
+            + "\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009A\u009B\u009C\u009D\u009E\u009F";
+        const string ordinaryText = " 日本語 × (括弧)  ~\u00A0\u200B\u2028\u2029😀 ";
+        (string Name, string? Input, string Expected)[] cases =
+        [
+            ("C0・C1の65文字", controlCharacters, new string(' ', 65)),
+            ("NULの前後", "before\0after", "before after"),
+            ("通常文字・空白・制御文字以外のUnicode", ordinaryText, ordinaryText),
+            ("nullの編集値", null, string.Empty),
+            ("空の編集値", string.Empty, string.Empty)
+        ];
+        foreach ((string name, string? input, string expected) in cases)
+        {
+            editText = input;
+
+            Assert.AreEqual(expected, CustomTableDataTransfer.BuildCellText(new object(), column), name);
+        }
     }
 
     /// <summary>Ctrl+C・Ctrl+Shift+C・Ctrl+Aを各操作へ割り当て、Alt併用は受理しないことを確認し、コピーの単位や無関係な修飾キーを取り違える誤りを検出します。</summary>
