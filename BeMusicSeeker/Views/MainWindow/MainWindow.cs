@@ -129,6 +129,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly PlaylistLampViewerWindowManager playlistLampViewerWindowManager;
 
+    private readonly ChartPropertiesWindowManager chartPropertiesWindowManager;
+
     private readonly MainWindowForegroundTerminal mainWindowForegroundTerminal;
 
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
@@ -151,6 +153,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>Gets the owner-scoped manager for modeless playlist lamp viewers.</summary>
     internal PlaylistLampViewerWindowManager PlaylistLampViewerWindows => playlistLampViewerWindowManager;
+
+    /// <summary>このメイン画面から開く独立プロパティ窓と実読取りの所有者です。</summary>
+    internal ChartPropertiesWindowManager ChartPropertiesWindows => chartPropertiesWindowManager;
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {
@@ -370,12 +375,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="mainWindowForegroundTerminal">
     /// playlist lamp navigation 成功後の shell restore/activation/focus terminal。未指定時は WPF shell に接続します。
     /// </param>
+    /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
 #nullable enable
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
         IUiDialogService? playlistWorkspaceDialogService = null,
-        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -401,7 +408,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             playlistWorkspaceDialogService,
-            mainWindowForegroundTerminal)
+            mainWindowForegroundTerminal,
+            chartPropertiesManagerFactory)
     {
     }
 
@@ -481,6 +489,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="progressStatusBarTerminals">compiled status-bar action terminals。</param>
     /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
     /// <param name="mainWindowForegroundTerminal">successful playlist lamp navigation 後の shell focus terminal。</param>
+    /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -506,7 +515,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowProgressStatusBarTerminals? progressStatusBarTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
-        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
     {
         if (viewModel == null)
         {
@@ -553,6 +563,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             viewModel.PlaylistWorkspace,
             this.playlistWorkspaceDialogService,
             historicalSourceContextFactory: viewModel.ResolvePlaylistLampHistoricalScoreSourceContext);
+        chartPropertiesWindowManager = chartPropertiesManagerFactory?.Invoke(this) ?? new ChartPropertiesWindowManager(this);
         DataContext = viewModel;
         InitializeComponent();
         KeywordSearchEditor.Configure(viewModel.ChartFilters.KeywordSearchAssistanceOwner);
@@ -1618,12 +1629,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         bulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
         Task lampCleanupTask = playlistLampViewerWindowManager.DisposeAsync().AsTask();
+        Task chartPropertiesReadTask = chartPropertiesWindowManager.CompleteShutdownAsync();
 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
         await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask,
-            lampCleanupTask, propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
+            lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
@@ -1644,6 +1656,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();
+        chartPropertiesWindowManager.BeginShutdown();
         CaptureWindowStateForClosing();
         UnsubscribeViewModelUiInteractions();
     }
@@ -1662,6 +1675,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
+            chartPropertiesWindowManager.BeginShutdown();
             // Pの実終端待ちより前に所有dialogへcloseを伝えます。applyは捨てず、
             // 後段で実Task・DataContext回収までjoinするため終了待ちとの循環を作りません。
             activePlaylistPropertyDialog?.CloseForOwnerShutdown();
@@ -1693,6 +1707,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         settingsWindow?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.CloseAll();
+        chartPropertiesWindowManager.BeginShutdown();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
     }
@@ -8237,9 +8252,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void TableContextMenuItemChartPropertiesClick(object sender, RoutedEventArgs e)
     {
+        string chartPath = null;
         try
         {
-            if (!TryGetContextMenuRow(e.Source, out object row))
+            if (IsShellClosingOrClosed() || !TryGetContextMenuRow(e.Source, out object row))
             {
                 return;
             }
@@ -8255,14 +8271,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 return;
             }
             e.Handled = true;
-            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService.ShowWindowAsync(
-                new UiWindowDialogRequest<ChartPropertiesWindow, object>(
-                    () => new ChartPropertiesWindow(new ChartPropertiesViewModel(target.Chart)), _ => null, this));
-            ThrowIfWindowDialogFailed(result.Status, result.Error, "Chart properties");
+            chartPath = target.Chart.Path;
+            chartPropertiesWindowManager.Open(target.Chart);
         }
         catch (Exception exception)
         {
-            await NotifyMainWindowOperationFailureAsync(exception, nameof(TableContextMenuItemChartPropertiesClick));
+            string route = nameof(TableContextMenuItemChartPropertiesClick) + ": path=" + chartPath;
+            if (IsShellClosingOrClosed())
+            {
+                TryLogMainWindowFailure(exception, route);
+            }
+            else
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, route);
+            }
         }
     }
 

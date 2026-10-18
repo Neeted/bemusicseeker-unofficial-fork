@@ -5,8 +5,8 @@
     xmlns:v="clr-namespace:BeMusicSeeker.Views"
     xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
     Width="820" Height="620" MinWidth="580" MinHeight="380" ResizeMode="CanResize"
-    ShowInTaskbar="False" WindowStartupLocation="CenterOwner"
-    Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartProperties, Mode=OneWay}" Loaded="WindowLoaded" Closed="WindowClosed" PreviewKeyDown="WindowKeyDown">
+    ShowInTaskbar="True" WindowStartupLocation="CenterOwner"
+    Title="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartProperties, Mode=OneWay}" Closed="WindowClosed" PreviewKeyDown="WindowKeyDown">
   <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
     <Grid.Resources>
       <ResourceDictionary>

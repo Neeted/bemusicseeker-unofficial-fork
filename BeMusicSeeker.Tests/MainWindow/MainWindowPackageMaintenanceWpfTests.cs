@@ -1667,9 +1667,10 @@ internal static class MainWindowPackageMaintenanceTestHarness
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
         Action<MainWindowViewModel>? prepareViewModel = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
-        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null)
+        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
+        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
         => RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
-            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation);
+            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation, chartPropertiesManagerFactory);
 
     /// <summary>親子Windowに同じ表示scopeを渡し、実MainWindow寿命を共通補助で回収します。</summary>
     internal static void RunConstructorOnly(
@@ -1691,7 +1692,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
         Action<MainWindowViewModel>? prepareViewModel = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
-        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null)
+        Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
+        Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -1733,7 +1735,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     playbackTerminal,
                     playlistWorkspaceTerminals,
                     pendingPackageMutationViewTerminal: pendingPackageMutationViewTerminal,
-                    playlistWorkspaceDialogService: playlistWorkspaceDialogService));
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService,
+                    chartPropertiesManagerFactory: chartPropertiesManagerFactory == null ? null : owner => chartPropertiesManagerFactory(windowTest, owner)));
                 prepareWindowForPresentation?.Invoke(windowTest, window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 test(windowTest, viewModel, window);

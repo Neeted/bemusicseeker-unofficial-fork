@@ -14,7 +14,7 @@
 
 機能側は、通知・確認・選択・進捗・子ウィンドウの意図を型付きの要求として渡します。`MainWindowViewModel` の通常通知・確認は共通表示窓口へ接続し、画面固有の非通知操作は型付きイベントで `MainWindow` へ渡します。文字列のメッセージキーから処理内容を選ぶ経路は設けません。
 
-`MainWindow` は進捗を `RunWithProgressAsync`、ファイル・フォルダ選択を表示窓口、子ウィンドウを `ShowWindowAsync` へ渡します。重ね合わせ表示は `ShowOverlayDialog` / `HideOverlayDialog` で管理し、初期言語画面から設定画面への遷移も明示します。
+`MainWindow` は進捗を `RunWithProgressAsync`、ファイル・フォルダ選択を表示窓口、モーダルの子ウィンドウを `ShowWindowAsync` へ渡します。重ね合わせ表示は `ShowOverlayDialog` / `HideOverlayDialog` で管理し、初期言語画面から設定画面への遷移も明示します。
 
 ライブラリ操作は [BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/Dialogs/BmsLibraryDialogService.cs) と[変更結果の表示](../library/mutations.md)の境界に従います。表示処理の統一を理由に、モデルの排他権を保持したまま画面の応答を待ちません。
 
@@ -27,6 +27,12 @@
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | テーマに従うメッセージ画面の表示部品。 |
 | `BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs` | 通常の表示基盤を使えない場合の標準メッセージボックス。 |
 | `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | 進捗、選択、子ウィンドウ等の実表示。 |
+
+### 独立した非モーダルウィンドウ
+
+ランプビューアと[譜面プロパティ](chart-properties.md)は、画面側の専用managerが直接 `Show` と窓・開始済み処理の寿命を所有します。共通モーダルAPIへ非モーダルの意味を混ぜません。ランプビューアは集計・sessionの回収を持ち、譜面プロパティは要求ごとに新しい窓と一回の読取りを持ちます。プロパティは初期配置だけ一時Ownerを使い、表示後はOwnerを外してタスクバーへ個別表示します。
+
+譜面プロパティの表示失敗は実WindowのCloseで回収し、終了受付前だけshellへ一度通知します。終了後の遅い通知を抑止しても元原因のログと開始済み処理の回収を省きません。取得・解析失敗は各プロパティ画面内で扱います。
 
 ### 要求と失敗の扱い
 

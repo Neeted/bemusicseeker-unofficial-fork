@@ -17,6 +17,10 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Tests;
 
@@ -1043,82 +1047,172 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             playlistWorkspaceDialogService: dialogs);
     }
 
-    /// <summary>compiledプロパティメニューから単一実ファイルをOwner付き表示要求へ渡します。メニュー表示時は譜面を読まず、複数選択と欠損を無効にします。保留可否の条件網羅はChartPropertiesViewModelTestsへ分担します。</summary>
+    /// <summary>compiledメニューから同じAを二度、個別Close後にBを独立表示します。メニュー表示では読まず、読取中もメイン操作を許可し、選択変更と元ファイル削除で既結果を差し替えません。対象条件表はVMへ分担します。</summary>
     [TestMethod]
-    public void ChartPropertiesMenu_ConnectsSingleLocalChartToOwnedDialogRequest()
+    public void ChartPropertiesMenu_OpensFreshIndependentWindowsAndKeepsCapturedResults()
     {
         string path = Path.GetTempFileName();
-        var dialogs = new ChartPropertiesRecordingDialogs();
+        string otherPath = Path.GetTempFileName();
+        using var release = new ManualResetEventSlim();
+        var windows = new List<ChartPropertiesWindow>();
+        TaskCompletionSource<bool>[] entered = new[] { NewCompletion<bool>(), NewCompletion<bool>(), NewCompletion<bool>() };
+        int calls = 0;
         try
         {
             LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
-            LibraryChartRow second = CreateChartRow(ChartFileKind.Bms, new string('b', 32), path);
+            LibraryChartRow second = CreateChartRow(ChartFileKind.Bms, new string('b', 32), otherPath);
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 MainWindowViewModelTestFactory.CreateIsolatedSettings(),
-                (viewModel, window) =>
+                (scope, viewModel, window) =>
                 {
-                    var table = (CustomTableView)window.FindName("customTableView");
-                    table.ItemsSource = new List<object> { row, second };
-                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
-                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
-                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
-                    table.SelectRowsByPredicate(_ => false);
-                    OpenContextMenu(menu);
-                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
-                    Assert.IsTrue(item.IsEnabled);
-                    Assert.AreEqual(0, dialogs.Calls);
-                    Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "chart properties compiled click");
-                    Assert.AreEqual(1, dialogs.Calls);
-                    Assert.AreSame(window, dialogs.Owner);
-                    Assert.AreEqual(path, dialogs.Path);
-                    table.SelectRowsByPredicate(_ => true);
-                    OpenContextMenu(menu);
-                    Assert.IsFalse(item.IsEnabled);
-                    table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
-                    File.Delete(path);
-                    OpenContextMenu(menu);
-                    Assert.IsFalse(item.IsEnabled);
+                    MainWindowViewHostTests.ShowMainWindow(scope, window);
+                    try
+                    {
+                        var table = (CustomTableView)window.FindName("customTableView");
+                        table.ItemsSource = new List<object> { row, second };
+                        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                        var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                        var placement = new FrameworkElement { DataContext = row };
+                        menu.PlacementTarget = placement;
+                        table.SelectRowsByPredicate(_ => false);
+                        OpenContextMenu(menu);
+                        MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
+                        Assert.IsTrue(item.IsEnabled);
+                        Assert.AreEqual(0, calls);
+                        for (int i = 0; i < 2; i++)
+                        {
+                            Task terminal = MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "chart-properties-menu");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                                entered[i].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader"), "chart-properties-reader");
+                        }
+                        Assert.AreEqual(2, windows.Count);
+                        Assert.IsTrue(windows.All(w => w.IsVisible && w.Owner == null));
+                        Assert.IsTrue(window.IsEnabled, "独立窓の読取り中もメインを操作できます。");
+                        string closedTitle = ((ChartPropertiesViewModel)windows[0].DataContext).Title;
+                        windows[0].Close();
+                        Assert.IsTrue(windows[1].IsVisible);
+                        placement.DataContext = second;
+                        table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, second));
+                        OpenContextMenu(menu);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-menu-b");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            entered[2].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader-b"), "chart-properties-reader-b");
+                        release.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.ChartPropertiesWindows.ReadCompletion, "chart-properties-all-results");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Path);
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Title);
+                        Assert.AreEqual(otherPath, ((ChartPropertiesViewModel)windows[2].DataContext).Title);
+                        Assert.AreEqual(closedTitle, ((ChartPropertiesViewModel)windows[0].DataContext).Title);
+                        File.Delete(path);
+                        table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
+                        OpenContextMenu(menu);
+                        Assert.IsFalse(item.IsEnabled);
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Title);
+                        Assert.AreEqual(3, calls);
+                    }
+                    finally
+                    {
+                        release.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.ChartPropertiesWindows.CompleteShutdownAsync(), "chart-properties-menu-finally");
+                    }
                 },
-                playlistWorkspaceDialogService: dialogs);
+                chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
+                    chart =>
+                    {
+                        int index = windows.Count;
+                        var model = new ChartPropertiesViewModel(chart, () =>
+                        {
+                            Interlocked.Increment(ref calls);
+                            entered[index].TrySetResult(true);
+                            release.Wait();
+                            return new ChartResourceDiagnostics(chart.Path, "Artist", [], [], []);
+                        });
+                        var child = new ChartPropertiesWindow(model);
+                        windows.Add(child);
+                        return child;
+                    }, child =>
+                    {
+                        Assert.IsTrue(child.ShowInTaskbar, "scope介入前の本番設定を観測します。");
+                        scope.PrepareForOwnedPresentation(child);
+                    }));
         }
         finally
         {
+            release.Set();
             File.Delete(path);
+            File.Delete(otherPath);
         }
     }
 
-    private sealed class ChartPropertiesRecordingDialogs : IUiDialogService
+    /// <summary>実Show内部の失敗をCloseで回収し、compiledイベントが終了前はshellへ一度通知し、Show中にメイン終了が再入した後は遅い通知を抑止して終端します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartPropertiesMenu_ShowFailureClosesWindowAndHonorsShutdownNotificationBoundary(bool closeDuringShow)
     {
-        internal int Calls { get; private set; }
-        internal Window? Owner { get; private set; }
-        internal string? Path { get; private set; }
-
-        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request,
-            CancellationToken cancellationToken = default) where TWindow : Window
+        string path = Path.GetTempFileName();
+        var messages = new FileDbReportRecordingDialogs();
+        ChartPropertiesShowFaultWindow? child = null;
+        MainWindow? shell = null;
+        int calls = 0;
+        DirectoryInfo logDirectory = Directory.CreateTempSubdirectory("chart-properties-show-failure-");
+        LoggingConfiguration? previousConfiguration = LogManager.Configuration;
+        var capture = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+        try
         {
-            Calls++;
-            Owner = request.Owner;
-            TWindow window = request.CreateWindow();
-            try
-            {
-                Assert.IsInstanceOfType<ChartPropertiesWindow>(window);
-                Assert.IsInstanceOfType<ChartPropertiesViewModel>(window.DataContext);
-                Path = ((ChartPropertiesViewModel)window.DataContext).Path;
-                return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.ClosedByUser));
-            }
-            finally
-            {
-                window.Close();
-            }
+            LogManager.Configuration = new LoggingConfiguration();
+            NLogWrapper.ConfigureApplicationFileLogging(logDirectory.FullName, LogLevel.Info, enableInstallPerformanceLogging: false);
+            var configuration = new LoggingConfiguration();
+            configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, capture);
+            LogManager.Configuration = configuration;
+            LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                MainWindowViewModelTestFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    shell = window;
+                    MainWindowViewHostTests.ShowMainWindow(scope, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new[] { row };
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    OpenContextMenu(menu);
+                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        MainWindowPresentationTestHarness.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-show-failure");
+                    Assert.IsNotNull(child);
+                    Assert.IsTrue(child.ThemeCloseCompleted);
+                    Assert.IsFalse(child.IsVisible);
+                    Assert.AreEqual(0, calls);
+                    Assert.AreEqual(closeDuringShow ? 0 : 1, messages.Messages.Count);
+                    string[] failures = capture.Logs.Where(log => log.Contains(path, StringComparison.Ordinal)).ToArray();
+                    Assert.AreEqual(1, failures.Length);
+                    StringAssert.Contains(failures[0], "chart properties real Show failure");
+                    StringAssert.Contains(failures[0], nameof(InvalidOperationException));
+                },
+                playlistWorkspaceDialogService: messages,
+                chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
+                    chart =>
+                    {
+                        child = new ChartPropertiesShowFaultWindow(new ChartPropertiesViewModel(chart, () =>
+                    {
+                        Interlocked.Increment(ref calls);
+                        return new ChartResourceDiagnostics("", "", [], [], []);
+                    }), () => { if (closeDuringShow) { shell?.Close(); } });
+                        return child;
+                    }, scope.PrepareForOwnedPresentation));
         }
-
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
-        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        finally
+        {
+            LogManager.Flush();
+            LogManager.Configuration = previousConfiguration;
+            logDirectory.Delete(recursive: true);
+            File.Delete(path);
+        }
     }
 
     private static MainWindowSelectedChartContextMenuTerminals CreateTerminals(

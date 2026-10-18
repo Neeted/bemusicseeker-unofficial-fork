@@ -1,5 +1,4 @@
 using System;
-using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.ViewModels;
 
@@ -10,16 +9,13 @@ public partial class ChartPropertiesWindow : ThemedWindow
 {
     private readonly ChartPropertiesViewModel viewModel;
 
-    /// <summary>専用の表示モデルを接続します。読取りは表示時に一度だけ開始します。</summary>
+    /// <summary>専用の表示モデルを接続します。読取り開始と実Taskの所有は専用managerが担当します。</summary>
     internal ChartPropertiesWindow(ChartPropertiesViewModel viewModel)
     {
         this.viewModel = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
         InitializeComponent();
         DataContext = viewModel;
     }
-
-    private async void WindowLoaded(object sender, RoutedEventArgs e)
-        => await viewModel.LoadAsync();
 
     private void WindowClosed(object sender, EventArgs e) => viewModel.Close();
 

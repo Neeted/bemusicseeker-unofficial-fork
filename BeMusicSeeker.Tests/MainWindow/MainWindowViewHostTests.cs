@@ -266,6 +266,90 @@ public sealed class MainWindowViewHostTests
         });
     }
 
+    /// <summary>実MainWindowの最初のCloseで全独立窓と新規受付を閉じ、先に個別Closeした成功readerも通常失敗readerも最終終了前にjoinします。shell準備完了後も最後のgateまで終端せず、finallyで全gate・Task・Windowを回収します。</summary>
+    [TestMethod]
+    public void MainWindowClose_JoinsAllChartPropertyReadsIncludingIndividuallyClosedWindow()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var firstRelease = new ManualResetEventSlim();
+            using var secondRelease = new ManualResetEventSlim();
+            TaskCompletionSource[] entered = new[]
+            {
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously),
+                new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+            };
+            var children = new List<ChartPropertiesWindow>();
+            var lifetime = new RecordingApplicationLifetime();
+            Settings settings = MainWindowViewModelTestFactory.CreateIsolatedSettings();
+            ApplicationComposition composition = CreateComposition(new RecordingSettingsEditSession(settings, () => { }), lifetime);
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
+            viewModel.StartupUpdateWorkflow.NotifyClosing();
+            var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+            ownership.Run(() =>
+            {
+                MainWindow window = ownership.CreateWindow(() => new MainWindow(viewModel, settingsWindowCreated: null,
+                    chartPropertiesManagerFactory: owner => new ChartPropertiesWindowManager(owner, chart =>
+                    {
+                        int index = children.Count;
+                        var model = new ChartPropertiesViewModel(chart, () =>
+                        {
+                            entered[index].TrySetResult();
+                            (index == 0 ? firstRelease : secondRelease).Wait();
+                            if (index == 1) { throw new IOException("late property read during main shutdown"); }
+                            return new ChartResourceDiagnostics("late title", "", [], [], []);
+                        });
+                        var child = new ChartPropertiesWindow(model);
+                        children.Add(child);
+                        return child;
+                    }, scope.PrepareForOwnedPresentation)));
+                try
+                {
+                    ShowMainWindow(scope, window);
+                    window.ChartPropertiesWindows.Open(ChartTestValues.Empty());
+                    window.ChartPropertiesWindows.Open(ChartTestValues.Empty());
+                    Task reads = window.ChartPropertiesWindows.ReadCompletion;
+                    foreach (TaskCompletionSource notification in entered)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            notification.Task, reads, "main-properties-read-entered"), "main-properties-read-entered");
+                    }
+                    children[0].Close();
+                    var secondClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    children[1].Closed += (_, _) => secondClosed.TrySetResult();
+                    window.Close();
+                    Assert.IsTrue(viewModel.ShellShutdownWorkflow.IsClosingOrClosed);
+                    window.ChartPropertiesWindows.Open(ChartTestValues.Empty());
+                    Assert.AreEqual(2, children.Count);
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(secondClosed.Task, "main-properties-second-closed");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "main-properties-shell-prepared");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task, "main-properties-terminal-dispatched");
+                    Assert.IsFalse(window.CloseCompletion.IsCompleted);
+                    Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
+                    firstRelease.Set();
+                    // readerの到達は上で観測済み。同じ実Taskを取得して最初の終端を待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(((ChartPropertiesViewModel)children[0].DataContext).LoadAsync(), "main-properties-first-read-complete");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }).Task, "main-properties-after-first-read");
+                    Assert.IsFalse(window.CloseCompletion.IsCompleted);
+                    Assert.IsFalse(lifetime.ShutdownRequested.Task.IsCompleted);
+                    secondRelease.Set();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.CloseCompletion, "main-properties-close-complete");
+                    Assert.IsTrue(lifetime.ShutdownRequested.Task.IsCompletedSuccessfully);
+                    Assert.AreEqual(1, lifetime.RequestShutdownCount);
+                    Assert.AreEqual(string.Empty, ((ChartPropertiesViewModel)children[0].DataContext).Title);
+                    Assert.AreEqual(string.Empty, ((ChartPropertiesViewModel)children[1].DataContext).Status);
+                }
+                finally
+                {
+                    firstRelease.Set();
+                    secondRelease.Set();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(window.ChartPropertiesWindows.CompleteShutdownAsync(), "main-properties-finally");
+                }
+            });
+        });
+    }
+
     /// <summary>利用者が保存した行・見出し・文字サイズと初期選択を実画面へ反映し、操作後の画面幅を実Close時に同じ設定主体へ保存します。</summary>
     [TestMethod]
     public void MainWindowViewSettingsBindAndCaptureThroughHostStore()
@@ -591,7 +675,8 @@ public sealed class MainWindowViewHostTests
         }
     }
 
-    private static void ShowPlaybackHostMainWindow(TestWindowPresentationScope scope, MainWindow window)
+    /// <summary>保存配置復元後も共通scopeの保護を維持し、実MainWindowの描画完了を待ちます。</summary>
+    internal static void ShowMainWindow(TestWindowPresentationScope scope, MainWindow window)
     {
         // 保存配置の復元がLoadedの画面外配置を後から更新するため、既存MainWindow表示テストと同じRender入口で再配置します。
         RoutedEventHandler position = (_, _) => window.Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
@@ -654,7 +739,7 @@ public sealed class MainWindowViewHostTests
                     && viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
                 ui.Arm();
                 activation = viewModel.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
-                ShowPlaybackHostMainWindow(scope, window);
+                ShowMainWindow(scope, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(ui.Entered.Task, activation, "rendered-host-required-ui"), "rendered-host-required-ui");
                 Assert.IsFalse(viewModel.IsInitializationCompleted);
                 ui.Release.TrySetResult();
@@ -735,7 +820,7 @@ public sealed class MainWindowViewHostTests
                 };
                 initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
                     () => { }, action => action(), () => false);
-                ShowPlaybackHostMainWindow(scope, window);
+                ShowMainWindow(scope, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     TestUiDispatcherHost.AwaitNotificationAsync(bmtPreparationEntered.Task, initialization, "startup-bmt-preparation"),
                     "startup-bmt-preparation-entered");
@@ -933,7 +1018,7 @@ public sealed class MainWindowViewHostTests
                 };
                 initialization = viewModel.ShellActivationWorkflow.ActivateRenderedShell(
                     () => { }, action => action(), () => false);
-                ShowPlaybackHostMainWindow(scope, window);
+                ShowMainWindow(scope, window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     TestUiDispatcherHost.AwaitNotificationAsync(startupPlayer.HostAttached.Task, initialization, "player-drain.initialization-host"),
                     "player-drain-initialization");
