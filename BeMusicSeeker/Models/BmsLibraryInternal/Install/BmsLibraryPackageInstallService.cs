@@ -1817,6 +1817,11 @@ internal sealed class BmsLibraryPackageInstallService
 
             FileDbMutationReceipt receipt = executor.Execute(() =>
             {
+                // preflightの投影は維持し、単独実行も物理配置の成功後に保存用Txtを確定します。
+                IReadOnlyList<ChartFile> installedCharts =
+                    Lr2TextGroupResolver.ResolveCurrentChartFlags(detachedPackageResult.AddedCharts);
+                detachedPackageResult.AddedCharts.Clear();
+                detachedPackageResult.AddedCharts.AddRange(installedCharts);
                 FileDbMutationCommitResult databaseResult = applyDurableCommit(detachedPackageResult);
                 if (!databaseResult.DurableCommit)
                 {

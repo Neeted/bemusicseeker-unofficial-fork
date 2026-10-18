@@ -126,6 +126,8 @@ flowchart TB
 
 導入先の採番と型衝突の検査は物理処理の前に行い、決定した実パスを保存結果とパッケージ状態に共通して使います。永続化前の準備では保存用のコピーを作り、liveな `PackageChartEntry` の現在値や所持共通現在値のパスを一時的に差し替えません。DBと所持集合の確定後に、成功対象だけの共通現在値を捕捉して安定した項目へ渡します。新しい所持tokenを共有し、同じ項目の排他境界で現在値・導入状態を反映します。通知は項目の排他を解放し、既存の操作単位の延期境界を終えてから公開します。
 
+導入するBMSの `Txt` は、物理配置に成功した後、保存する譜面の親フォルダ直下に `.txt` があれば1、なければ0とします。入力元の値や子フォルダだけのtxtは判定に使いません。同じ変更セッションの後続パッケージがtxtを初めて配置する場合も、全成功分を保存する時点の配置から先行譜面を含めて決め、DB・所持共通現在値・導入済みパッケージの現在値へ同じ値を渡します。確定後の保守・解析の入力も所持正本から再捕捉し、確定前の値を再保存しません。判定は `Lr2TextGroupResolver` に統一し、同じ保存境界の同一フォルダで共有します。今回の導入分は、配置・更新日時・内容が変わらなければ、直後の差分読込みで `Txt` の相違による再解析を必要としません。既存カタログ全件の修復は行いません。
+
 後続パッケージの分類に使う一時情報へ追加するのは、先行する物理処理の成功だけです。失敗、取消、未処理、推定先の解除は所持成功に加えません。開始前に欠落を確認した入力は失敗として保持し、独立した後続パッケージを処理できます。コピー開始後の入力消失は予期しない物理処理の失敗であり、依存する後続を止めます。
 
 リソース上書きの成功件数は、物理準備だけでなくカタログと必須反映の完了で確定します。後片付けだけの失敗は確定成功を取り消しません。推定先の状態更新と `PackageChartEntry.PropertyChanged` の公開は分け、公開は排他権の解放後に行います。
@@ -227,6 +229,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 導入先の直下txtに基づくBMSの保存値と直後の差分読込み | `LibraryMutationSession.Commit`、[`Lr2TextGroupResolver`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2TextGroupResolver.cs)、`BmsLibraryPackageInstallService.MovePackageFilesCore`、[`BMSLibrary.PackageInstall`](../../../BeMusicSeeker/Models/Library/BMSLibrary.PackageInstall.cs) の `BuildEstimatedInstallMaintenanceTargets` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `EstimatedInstall_TextFlagMatchesFinalPlacementWithoutImmediateFileDiffReparse` は、入力Txt0と既存直下txt、同じセッションの後続だけが同梱するtxt、入力Txt1と子だけのtxtの3条件でDB・所持正本・導入済み項目を照合する。二パッケージでも保存反映一回を確認し、固定実走査からのLR2差分読込みで追加解析・txtのみの更新が0件となることを確認する。既存の物理失敗・補償・確定失敗・一括確定の保証は既存テストに分担する。 |
 | 保留フォルダ削除前の全譜面確認と部分管理列 | [`BmsLibraryPackageInstallService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/BmsLibraryPackageInstallService.cs) の全所持判定・`DeletePendingChartTargets` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `DeletePendingCharts_IncompleteDiscoveredPackagesDeleteOnlySelectedFiles` は発見・復元相当の不完全入力と管理列外の未選択BMSONを保持し、選択BMSだけを実削除する。`DeletePendingCharts_DeletesWholePackageDirectoryWhenSelectionCoversPackage` は管理列外の譜面も選択した場合のフォルダ削除と実件数・成功パスを確認する。全所持削除は高度保留操作の実owner試験へ分担する。 |
 | 高度保留操作の実owner・store・FS・DBの正常接続 | `PendingPackageWorkflowOwner`、`BmsLibraryPendingPackageStore` | [`PendingPackageWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Install/PendingPackageWorkflowOwnerNormalMutationTests.cs) の `DeleteInstalledOnlyPendingPackageSourcesAsync_RealStoreDeletesOnlyAllOwnedSources` は全所持folder・単体だけを削除し、混在・未所持、install行、所持実体と単体の兄弟を保つ。`RenamePendingZeroNoteChartsAsync_RealStoreInvalidatesOnlyZeroNoteBmsAndPms` は実0note BMS/PMSだけを無効化し、非0note・BMSON・既無効と異内容ファイル・directory衝突先を保つ。操作終端後の正本・DBと受付解放を観測し、resource-only上書きと衝突の詳細条件は既存系列へ分担する。 |
 | 通常・追加・root基点とsrc/dst/親再帰の実交差、表0基点 | `Lr2SynchronizationOwner` | [`FolderMutation_UsesPlaylistAdmissionOnlyForActualManagedIntersection`](../../../BeMusicSeeker.Tests/Library/BmsLibraryMutationBoundaryTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |

@@ -28,6 +28,117 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>
+    /// 導入先の既存直下txt、後続パッケージが初めて配置するtxt、直下なしで子だけにtxtがある条件で、
+    /// 入力Txtに依存せずDB・所持正本・導入済み項目が実配置に一致し、直後のLR2差分読込みで再解析しないことを保証します。
+    /// </summary>
+    /// <remarks>ケース専用の実FS・SQLite・固定設定を使い、一操作一回の保存反映とfile_diffへの実接続を確認します。</remarks>
+    [DataTestMethod]
+    [DataRow(0, true, false, 1)]
+    [DataRow(0, false, true, 1)]
+    [DataRow(1, false, false, 0)]
+    public void EstimatedInstall_TextFlagMatchesFinalPlacementWithoutImmediateFileDiffReparse(
+        int inputTxt, bool existingDirectText, bool laterPackageText, int expectedTxt)
+    {
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string destination = Path.Combine(root, "installed");
+            Directory.CreateDirectory(destination);
+            if (existingDirectText)
+            {
+                File.WriteAllText(Path.Combine(destination, "existing.txt"), "existing text");
+            }
+            string childDirectory = Path.Combine(destination, "child");
+            Directory.CreateDirectory(childDirectory);
+            File.WriteAllText(Path.Combine(childDirectory, "child-only.txt"), "child text");
+
+            var packages = new List<ChartPackage>();
+            var installedPaths = new List<string>();
+            for (int index = 0; index < (laterPackageText ? 2 : 1); index++)
+            {
+                string source = Path.Combine(root, "pending-" + index);
+                string name = "chart-" + index + ".bms";
+                string sourcePath = CreateBmsFile(source, name,
+                    BmsLibraryInitializationTestSupport.CreateValidBmsText("Text flag " + index));
+                ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(sourcePath);
+                ChartFile chart = BmsChartFileParser.ParseSnapshot(snapshot) with
+                {
+                    Txt = inputTxt,
+                    Date = Lr2SongRowEnricher.ToLr2UnixSeconds(snapshot.LastWriteTimeUtc)
+                };
+                if (laterPackageText && index == 1)
+                {
+                    File.WriteAllText(Path.Combine(source, "bundled.txt"), "bundled text");
+                }
+                ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                    ChartPackageTestExtensions.CreateEntryWithInstallDestination(chart, destination));
+                package.path = source;
+                package.delete_parent = false;
+                packages.Add(package);
+                installedPaths.Add(Path.Combine(destination, name));
+            }
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = false,
+                BMSInstallDir = destination,
+                FolderNameFormat = "%TITLE%",
+                DeletePendingPackageSourceAfterInstall = false,
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            };
+            var library = new TestBmsLibrary(songDbPath, null, null,
+                new RealFileMutationService(), new RecordingDialogService(), new TestUiScheduler(() => null),
+                () => options)
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+                ChartPackagesPending = CreatePackageCollection(packages),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+
+            Assert.IsTrue(result.HasDurableCommit);
+            Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
+            Assert.AreEqual(0, result.FailedPackages.Count);
+            Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
+            Assert.AreEqual(packages.Count, library.BmsCharts.Count);
+            Assert.AreEqual(packages.Count, library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Count());
+            Assert.AreEqual(existingDirectText || laterPackageText,
+                Directory.EnumerateFiles(destination, "*.txt", System.IO.SearchOption.TopDirectoryOnly).Any());
+            using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(songDbPath).OpenSongDbReadOnly())
+            {
+                foreach (string path in installedPaths)
+                {
+                    Assert.IsTrue(File.Exists(path));
+                    Assert.AreEqual(expectedTxt, verifySongDb.ExecuteScalar<int>("SELECT txt FROM song WHERE path = ?;", path), path);
+                    Assert.AreEqual(expectedTxt, library.BmsCharts.Single(chart => chart.Path == path).Txt, path);
+                    Assert.AreEqual(expectedTxt, library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries)
+                        .Single(entry => entry.Chart.Path == path).Chart.Txt, path);
+                }
+            }
+
+            // 物理配置後の固定実走査を渡し、Everythingの更新待ちに判定を依存させません。
+            ChartScanResult scan = BmsLibraryInitializationTestSupport.CreateScanResult(
+                Directory.EnumerateFiles(destination, "*.bms", System.IO.SearchOption.AllDirectories),
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [destination] = Directory.EnumerateFiles(destination, "*", System.IO.SearchOption.AllDirectories)
+                        .Select(path => Path.GetRelativePath(destination, path)).ToArray()
+                });
+            SongTableFileCheckResult diff = new BmsLibraryInitializationService().ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath), new EverythingNative(ApplicationPathPolicy.Current),
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, library.BmsCharts,
+                new ChartScanExecutionResult { Success = true, Result = scan }, 0,
+                () => throw new AssertFailedException("固定走査があるため追加走査は不要です。"),
+                new RecordingDialogService());
+            Assert.IsTrue(diff.Lr2ScanSurfaceAvailable);
+            Assert.AreEqual(installedPaths.Count, diff.BmsPathCount);
+            Assert.AreEqual(0, diff.BmsAddedTargetCount);
+            Assert.AreEqual(0, diff.BmsTextOnlyUpdateCount);
+        });
+    }
+
     /// <summary>部分列挙の観測済み資源は全種別で存在として扱い、未観測の参照は候補索引が空でも不足警告や0%へ変換しません。配置に保持した同じ文脈も未確認を返します。</summary>
     [TestMethod]
     [DataRow(false)]

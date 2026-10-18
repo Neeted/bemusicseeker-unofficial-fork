@@ -46,6 +46,8 @@ LR2に見せるjukeboxルートと、本アプリが譜面・リソースを走�
 
 譜面本体を読み取れない場合は、DB境界で同じ完全一致パスとMD5の既存行を使い、未取得の生成列を保持します。現在のテキストグループと取得済み詳細の限定列だけを反映し、保存行を共通現在値や同期要求へ逆参照させません。
 
+差分インストール時のBMSの `song.txt` は、[導入の保存境界](../library/mutations.md#導入と導入先修正)で導入先の実配置から確定します。保存値と導入後の共通現在値を一致させ、配置・更新日時・内容が不変の直後の差分読込みで不要なtxt差分再解析を発生させません。BMSONへこのLR2列の規則は追加しません。
+
 独立した基本読取り・ハッシュ・軽量解析の通常の未知失敗も、今回の対象を非採用にして旧楽曲行と利用者列、正常な別対象を保持します。未知失敗を正常な代替行の生成へ置き換えず、恒久的な解析不能行を作りません。既知のI/O失敗と読取りバッファーを得られない場合の既存の互換代替は維持し、扱いが異なる用途の分類だけを残します。失敗対象の順序位置も終端まで処理し、欠番によって後続を止めません。次の通常の解析機会で再評価し、自動再試行は追加しません。
 
 独立した詳細解析だけの通常の未知失敗は、[共通評価](../library/chart-info.md#失敗)で今回の対象失敗として終え、正常に得た基本楽曲行と正常な別対象の詳細を保持します。未完成の結果を成功採用することや、純粋な取得・生成の捕捉へDB確定・必須引渡し・共有更新を含めることはありません。要求取消と待ち行列等の基盤故障は、この対象スキップと区別し、通常の開始済み処理の終端まで扱います。
@@ -171,6 +173,7 @@ sequenceDiagram
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 差分インストールのtxt保存とfile_diffへの接続 | [`Lr2TextGroupResolver`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2TextGroupResolver.cs)、`LibraryMutationSession.Commit` | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `EstimatedInstall_TextFlagMatchesFinalPlacementWithoutImmediateFileDiffReparse` は既存直下txt・後続同梱txt・子だけのtxtを分担し、実SQLiteのtxtと導入後の現在値、LR2モードの `BmsAddedTargetCount=0`・`BmsTextOnlyUpdateCount=0` を確認する。既存の [`BmsLibraryInstallEstimationServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryInstallEstimationServiceTests.cs) の `PackageChartEntry_BmsCurrentChartRecomputesTextGroupOnInstalledPath`・`PackageChartEntry_BmsCurrentChartClearsStaleTextGroupOnInstalledPath` は項目単独の判定、[`BmsLibraryInitializationFileScanTests`](../../../BeMusicSeeker.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) は差分判定の詳細条件を担う。 |
 | 両受付の開始競合、準備・書込み0と部分取得解放 | `Lr2SongDbSyncRequestCoordinator` | [`QueueLr2SongDbSync_CompetingAdmissionSkipsBeforePreparationAndReleasesPartialLease`](../../../BeMusicSeeker.Tests/Lr2/BmsLibraryLr2SongDbSyncTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 差分の実chart/通常フォルダ確定と全体同期競合skipの区別 | `FileDiffReloadWorkflowOwner` | [`DailyLibraryDiffAndIndependentPlaylistRegistration_CompleteActualChangesConcurrently`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionAdmissionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 全原文のLR2評価、照合別名との分離、CP932境界 | [`Lr2CompatibilityEvaluator`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2CompatibilityEvaluator.cs) | [`Lr2CompatibilityGoldenTests`](../../../BeMusicSeeker.Tests/Lr2/Lr2CompatibilityGoldenTests.cs) は原文の `.flac` / `.jpeg` の259・260バイト、同キーの全原文、非空の空キー・種類不明、長いdirectoryで空定義だけの最大相対長がnullとなる条件、パスなし診断と別参照の長さを確認する。同期への接続と既存健全性の保持は `QueueLr2SongDbSync_ProjectsLr2CompatibilityWarningsToLiveRows`。 |

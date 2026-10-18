@@ -380,6 +380,7 @@ internal sealed partial class LibraryMutationOwner
 
         /// <summary>
         /// 確定事実を一回適用し、導入の必須後処理が全て成功した場合だけ、今回の現在値を加入済み項目へ渡します。
+        /// 導入するBMSのTxtは、全成功パッケージの物理配置後に保存時点の親フォルダ直下から確定します。
         /// DB確定後の失敗は証票に保持し、物理処理の巻戻しや再実行は行いません。公開通知は排他解放後へ延期します。
         /// 導入先の走査・逆引き反映の例外も必須反映失敗として保持し、依存する後処理と完全成功の公開を止めます。
         /// 不完全な走査の既存スキップ方針は維持し、その性能診断の失敗は確定結果へ加えません。
@@ -418,7 +419,8 @@ internal sealed partial class LibraryMutationOwner
             FileDbMutationCommitResult applyResult;
             if (hasInstallChanges)
             {
-                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
+                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+                    Lr2TextGroupResolver.ResolveCurrentChartFlags(installedPackageCharts));
                 applyResult = owner.CommitInstalledSessionChanges(
                     installedTargets,
                     installPathsToDelete,

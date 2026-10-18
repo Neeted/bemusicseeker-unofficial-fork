@@ -891,7 +891,7 @@ public partial class BMSLibrary
         mutationSession.AppendRequiredDurableFinalizer(() =>
         {
             var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
-                deferredMaintenanceCharts);
+                BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts));
             if (installedTargets.Charts.Count == 0)
             {
                 return;
@@ -942,15 +942,23 @@ public partial class BMSLibrary
     }
 
 
-    private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
+    /// <summary>
+    /// 導入確定後の保守・解析対象を現在の所持正本から捕捉し、確定前のTxt等を再保存しません。
+    /// 同一対象は一件へ集約し、物理成功分が正本から解決できなければ必須後処理の失敗として扱います。
+    /// </summary>
+    private List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
     {
         var targetsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile target in NormalizeResourceMaintenanceTargetCharts(charts))
+        lock (lockOwnedChartCollection)
         {
-            string key = target.Kind + "|" + target.Path;
-            if (!string.IsNullOrWhiteSpace(target.Path))
+            foreach (ChartFile target in NormalizeResourceMaintenanceTargetCharts(charts))
             {
-                targetsByKey[key] = target;
+                string key = target.Kind + "|" + target.Path;
+                if (!string.IsNullOrWhiteSpace(target.Path))
+                {
+                    targetsByKey[key] = catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                        LibraryChartRef.FromChartFile(target)) ?? throw new KeyNotFoundException();
+                }
             }
         }
         return [.. targetsByKey.Values];
