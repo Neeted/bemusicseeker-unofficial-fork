@@ -28,13 +28,15 @@
 
 詳細は `ShowInTooltip=true` のメッセージを優先順位順に改行して表示します。`DisplayWarning` と `WarningTooltipText` は詳細、`WarningDigestText` は要約です。一件でも `HighlightRow=true` なら行を強調します。
 
-`ResourceHealth` の要約は、その譜面の導入先が未設定の場合だけ表示します。設定後も詳細は残します。導入先は `ChartFile.InstallDestination` を通してパッケージ・一時状態から明示的に重ね、DBから読んだ共通基本値に含まれると仮定しません。
+保留の `ResourceHealth` は導入先が設定済みでも不足の要約・詳細を表示します。導入先は `ChartFile.InstallDestination` を通してパッケージ・一時状態から明示的に重ね、DBから読んだ共通基本値に含まれると仮定しません。
 
 ### リソース状態の評価
 
 一覧への所属判定は警告集合を変更せず、保守情報に基づく副作用のない索引で行います。BMSONは現在のMD5と一致する計算済みの保守情報を使い、未計算・旧ハッシュなら参照と現在のファイル状態から一時的に評価します。索引を優先し、必要な場合だけ実ファイルを確認します。
 
-保留のリソース警告は導入前の配置に対する一時状態です。導入成功時に分類単位で解除し、通常・新規一覧では導入後の保守情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
+保留の健康度とリソース警告は、設定済みの `INSTL DST`、未設定なら先頭候補、どちらもなければ現在の入力元配置を評価する一時状態です。設定先・候補では実際に持ち込む同梱資源を加算し、各譜面固有の使用集合を照合します。単一BMS・BMSONの親全体は同梱としません。推定・編集・候補選択・空編集・明示クリア・再グループ化の完了時に更新します。導入成功時に分類単位で解除し、通常・新規一覧では導入後の保守情報から表示します。保留の警告を所持カタログやDB行へ書き戻しません。
+
+推定結果の反映には、評価で使った同梱と候補の照合入力を共有し、未取得の候補索引を反映時の最新索引で補いません。現在配置と通常所持の物理的な存在確認は既存の二値判定を維持します。I/Oで存在を確認できない場合もfalseとなる既存の限界があります。
 
 導入の必須後処理が全て成功したら、今回の所持現在値を加入済みentryへ渡し、通常・新規一覧で同じ計算済みのWAV・BGA・MOVIE充足値を表示します。要求数0件の充足値は対象外のnullで、表示は `-` です。検査済み0件と未検査・未解決は保存件数と取得状態で区別し、nullを旧100%で補いません。保存値と算式は[リソース健全性](../core/data-and-indexes.md#リソース健全性)に従います。
 
@@ -56,7 +58,9 @@
 | `DuplicateChart` | `Duplicate` | 30 | `重複譜面` | true | 該当する警告がある場合 |
 | `InstallEstimationAmbiguous` | `InstallEstimation` | 40 | `推定先複数` | true | 該当する警告がある場合 |
 | `InstallEstimationMetadataMismatch` | `InstallEstimation` | 41 | `TITLE/ARTIST未確認` | true | 該当する警告がある場合 |
-| `InstallEstimationReinstallNotImproved` | `InstallEstimation` | 42 | `再導入改善なし` | true | 該当する警告がある場合 |
+| `InstallEstimationAudioMissing` | `InstallEstimation` | 42 | `導入後音源不足` | true | 有効候補への音源完全性が欠損で不成立の場合 |
+| `InstallEstimationAudioUnverifiable` | `InstallEstimation` | 42 | `導入後音源未確認` | true | 有効候補への音源完全性を確認できない場合 |
+| `InstallEstimationReinstallNotImproved` | `InstallEstimation` | 43 | `再導入改善なし` | true | 該当する警告がある場合 |
 | `InstalledDestinationAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | 該当する警告がある場合 |
 | `InstalledDestinationAutoAppliedAmbiguous` | `InstallEstimation` | 43 | `導入先複数` | true | 該当する警告がある場合 |
 | `UnsupportedResourcePath` | `InstallEstimation` | 44 | `リソースパス非対応` | false | 該当する警告がある場合 |
@@ -66,18 +70,20 @@
 | `AlreadyInstalled` | `InstalledState` | 50 | `既に導入済み` | false | 該当する警告がある場合 |
 | `SingleBmsFile` | `PackageLayout` | 60 | `単体BMS` | false | 該当する警告がある場合 |
 | `SingleBmsonFile` | `PackageLayout` | 60 | `単体BMSON` | false | 該当する警告がある場合 |
-| `ResourceWavMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告があり、導入先が未設定の場合 |
-| `ResourceBgaMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告があり、導入先が未設定の場合 |
-| `ResourceMovieMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告があり、導入先が未設定の場合 |
+| `ResourceWavMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告がある場合（保留は設定後も表示） |
+| `ResourceBgaMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告がある場合（保留は設定後も表示） |
+| `ResourceMovieMissing` | `ResourceHealth` | 80 | `リソース不足` | false | 該当する警告がある場合（保留は設定後も表示） |
 | `ResourceStagefileMissing` | `ResourceHealth` | 83 | `画像不足` | false | 要約には出さず、ツールチップだけに表示 |
 | `ResourceBackbmpMissing` | `ResourceHealth` | 83 | `画像不足` | false | 要約には出さず、ツールチップだけに表示 |
 | `ResourceBannerMissing` | `ResourceHealth` | 83 | `画像不足` | false | 要約には出さず、ツールチップだけに表示 |
+
+選択された有効候補への音源完全性はTITLE/ARTISTと独立して評価します。欠損と照合不能・未取得を区別し、推定対象群の全行へ見送り理由を付けます。自身のWAVが100%の行にも付け、候補なしでは付けません。現在の配置での不足警告とは別の結果です。再グループ化では元の対象行の理由と評価先を引き継ぎ、新グループの他行へ広げません。
 
 ### 種類ごとの更新
 
 | 種類・分類 | 生成と解除 |
 | --- | --- |
-| `InstallEstimation` | 推定結果、手動確定、導入成功、推定解除で分類単位に更新する。複数候補の自動適用と未適用は別の種類とし、候補を詳細に残す |
+| `InstallEstimation` | 再推定で分類単位に置換し、明示クリア・導入成功で解除する。候補選択・手動入力・空編集では推定時の理由を保持する。複数候補の自動適用と未適用は別の種類とし、候補を詳細に残す |
 | `UnsupportedResourcePath` | 親参照 `..` がある場合に付け、推定しない |
 | `SourceSurfaceScanLimitExceeded` | ディレクトリパッケージ自身の50000件上限超過で付ける。単一ファイルの親の規模では付けない |
 | `DuplicateChart` | 重複の種類だけを設定・解除する |
@@ -95,6 +101,7 @@ LR2用パスを表現できないことを理由にBMS行を削除しません�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 種類、優先順位、要約の重複抑止、詳細、強調 | [`ChartWarning`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningCollection`](../../../BeMusicSeeker/Models/Chart/ChartWarning.cs)、[`ChartWarningProjectionFormatter`](../../../BeMusicSeeker/ViewModels/ChartList/ChartWarningProjectionFormatter.cs) | [`ChartWarningCollectionTests`](../../../BeMusicSeeker.Tests/Chart/ChartWarningCollectionTests.cs) |
+| 保留の配置優先・同梱合成・欠損と未確認・音源見送り理由 | `ChartResourcePlacement`、`BmsLibraryPackageInstallService`、`PackageChartEntry` | `BmsLibraryPackageInstallServiceTests.RefreshPendingResourceHealth_SelectsPlacementAndCombinesAllResourceKinds` と `RefreshPendingResourceHealth_DistinguishesUnknownZeroAndSingleFileScope` は全資源と配置・未確認・0件・単一ファイルを確認する。`BmsLibraryPendingPackageRegroupTests.SearchAndEdit_GroupAudioReasonRemainsIndependentOfCurrentHealth` は実推定と編集・再推定・クリアの配送を確認する。`TryRegroupPendingPackagesForSourceDirectories_ReevaluatesBundledResourcesAndPreservesOriginalAudioReason` は同梱範囲の変更による不足解消と元行だけの理由保持を確認し、要約の併記・順序・強調は `ChartWarningCollectionTests` へ分担する。 |
 | BMS・BMSON・保留の状態分離 | [`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs)、[`ChartFileTransientState`](../../../BeMusicSeeker/Models/Chart/ChartFileTransientState.cs)、[`PackageChartEntry`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageChartEntry.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs)、[`ChartInfoInstallFailureRetryTests`](../../../BeMusicSeeker.Tests/ChartInfo/ChartInfoInstallFailureRetryTests.cs) |
 | 導入後の不足継続・解消と初回表示 | [`LibraryMutationSession`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Session.cs)、[`PackageLifecycleOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageLifecycleOwner.CurrentCharts.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`BmsLibraryPackageInstallServiceTests`](../../../BeMusicSeeker.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `InstallPendingPackages_ProjectsCurrentResourceWarningsInNewAndNormalViews`。実Force・推定先導入したBMS/BMSONのDB件数、所持現在値・entry・新規・通常行のCalculatedと既知の充足値・同token、一時警告解除と要約・詳細、通知時のリース解放を、構築済み・未構築の索引で確認する。要求0件の対象外表示も確認する。 |
 | 使用件数、単純率、未解決警告と参照解放後の投影 | [`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs)、[`ChartFileProjection`](../../../BeMusicSeeker/Models/Chart/ChartFileProjection.cs) | [`BmsLibraryMaintenanceServiceTests`](../../../BeMusicSeeker.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) で使用集合・キャッシュ・保存・警告生産を確認する。旧100%から未判定への投影と通常一覧への接続、DB復元後の保存同値再スキャンによる詳細取得・DB非書込み・対象通知・同値再通知抑制を含める。 |

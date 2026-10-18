@@ -197,7 +197,8 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
+    /// <summary>既存の入力元cacheを共有し、推定と保留配置評価で同じ同梱範囲を使います。</summary>
+    internal PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
     {
         lock (installEstimationSnapshotLock)
         {

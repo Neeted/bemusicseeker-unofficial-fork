@@ -119,7 +119,8 @@ internal sealed class LibraryChartRow : NotificationObject
         return new LibraryChartRow(
             chart,
             chartProvider: () => entry.Chart,
-            packageEntry: entry);
+            packageEntry: entry,
+            hideResourceHealthDigestWhenInstallDestinationSet: false);
     }
 
     /// <summary>

@@ -2879,4 +2879,24 @@ public class Resources
 
     /// <summary>準備済み譜面対象の所持識別・形式・配置が一致せず、変更を実行しなかった原因を示します。</summary>
     public static string Error_PreparedChartTargetMismatch => ResourceManager.GetString("Error_PreparedChartTargetMismatch", resourceCulture);
+    public static string WarningDigest_InstallEstimationAudioMissing => ResourceManager.GetString("WarningDigest_InstallEstimationAudioMissing", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationAudioUnverifiable => ResourceManager.GetString("WarningDigest_InstallEstimationAudioUnverifiable", resourceCulture);
+
+    public static string Warning_InstallEstimationAudioMissing => ResourceManager.GetString("Warning_InstallEstimationAudioMissing", resourceCulture);
+
+    public static string Warning_InstallEstimationAudioUnverifiable => ResourceManager.GetString("Warning_InstallEstimationAudioUnverifiable", resourceCulture);
+
+    public static string ChartPropertiesVerificationBasis => ResourceManager.GetString("ChartPropertiesVerificationBasis", resourceCulture);
+
+    public static string ChartPropertiesVerificationPath => ResourceManager.GetString("ChartPropertiesVerificationPath", resourceCulture);
+
+    public static string ChartPropertiesConfiguredDestination => ResourceManager.GetString("ChartPropertiesConfiguredDestination", resourceCulture);
+
+    public static string ChartPropertiesFirstCandidate => ResourceManager.GetString("ChartPropertiesFirstCandidate", resourceCulture);
+
+    public static string ChartPropertiesCurrentPlacement => ResourceManager.GetString("ChartPropertiesCurrentPlacement", resourceCulture);
+
+    public static string ChartPropertiesUnverifiable => ResourceManager.GetString("ChartPropertiesUnverifiable", resourceCulture);
+
 }

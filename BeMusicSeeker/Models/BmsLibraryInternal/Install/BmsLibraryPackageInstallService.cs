@@ -639,7 +639,7 @@ internal sealed class BmsLibraryPackageInstallService
             .Concat(resources.MovieRelativePaths);
     }
 
-    private static ResourceHealthMaintenanceSnapshot BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry)
+    private static ResourceHealthMaintenanceSnapshot BuildPendingResourceHealthMaintenanceInfo(PackageChartEntry entry, ChartResourcePlacement placement)
     {
         if (entry?.Chart == null)
         {
@@ -647,23 +647,23 @@ internal sealed class BmsLibraryPackageInstallService
         }
 
         ChartFile chart = entry.Chart;
-        ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart);
+        ResourceHealthMaintenanceSnapshot result = BmsLibraryMaintenanceService.BuildResourceHealthSnapshot(chart, placement: placement);
         ResourceHealthMaintenanceSnapshot captured = BmsLibraryMaintenanceService.GetResourceHealthSnapshot(chart);
-        // 同じ操作で計算し検査完了した値だけ、全定義の消費時に確定したLR2診断を引き継ぎます。DB由来の古い診断は再利用しません。
+        // 全定義を消費した時点の計算済みLR2診断は、配置の存在確認が未判定でも引き継ぎます。DB由来の古い診断は再利用しません。
         // 所持譜面の手動再スキャンは別入口で本文を再解析し、全定義から再評価します。
-        return result != null && captured?.Origin == MaintenanceInfoOrigin.Calculated && captured.IsInformationChecked && chart.Kind == ChartFileKind.Bms
+        return result != null && captured?.Origin == MaintenanceInfoOrigin.Calculated && captured.Lr2WarningFlags.HasValue && chart.Kind == ChartFileKind.Bms
             ? result with { Lr2WarningFlags = captured.Lr2WarningFlags, Lr2ResourceMaxRelativeCp932Bytes = captured.Lr2ResourceMaxRelativeCp932Bytes, Lr2ResourceHasParentTraversal = captured.Lr2ResourceHasParentTraversal }
             : result;
     }
 
     /// <summary>同じ取得結果から件数・警告・LR2診断を項目へ投影し、消費済みの未使用定義を解放します。</summary>
     internal static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry)
-        => ApplyPendingResourceHealthProjection(entry, out _);
+        => ApplyPendingResourceHealthProjection(entry, out _, entry?.ResourcePlacement);
 
-    private static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry, out ResourceHealthMaintenanceSnapshot maintenanceInfo)
+    private static IReadOnlyList<ChartWarning> ApplyPendingResourceHealthProjection(PackageChartEntry entry, out ResourceHealthMaintenanceSnapshot maintenanceInfo, ChartResourcePlacement placement = null)
     {
         entry?.AcquireResources();
-        maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry);
+        maintenanceInfo = BuildPendingResourceHealthMaintenanceInfo(entry, placement);
         if (maintenanceInfo == null)
         {
             entry?.ClearWarningsByCategory(ChartWarningCategory.ResourceHealth);
@@ -675,8 +675,25 @@ internal sealed class BmsLibraryPackageInstallService
         using IDisposable deferredNotification = entry.DeferPropertyChangedNotifications();
         entry.ApplyCurrentChart(evaluated with { Resources = evaluated.Resources.Where(reference => reference.IsUsed || reference.Usage == ChartResourceUsage.InputDiagnostic).ToImmutableList() });
         entry.ReplaceWarningsByCategory(ChartWarningCategory.Lr2Compatibility, evaluated.Warnings.Where(warning => warning.Category == ChartWarningCategory.Lr2Compatibility));
-        entry.ReplaceResourceHealthProjection(maintenanceInfo, warnings);
+        entry.ReplaceResourceHealthProjection(maintenanceInfo, warnings, placement);
         return warnings;
+    }
+
+    /// <summary>一操作の同梱索引と候補索引を共有し、現在の導入先に対応する健康度を完了時に更新します。</summary>
+    internal static void RefreshPendingResourceHealth(IEnumerable<PackageChartEntry> entries, ChartPackage package, DirectoryResourceLookupCache cache, DirectoryResourceLookupCache.Entry capturedBundled = null, bool capturedBundledComplete = true)
+    {
+        List<PackageChartEntry> targets = [.. (entries ?? []).Where(entry => entry?.Chart != null)];
+        bool hasDestination = targets.Any(entry => !string.IsNullOrWhiteSpace(entry.Chart.InstallDestination) || entry.Chart.InstallDestinationSuggestions.Count > 0);
+        PackageInstallSurfaceSnapshot surface = hasDestination && capturedBundled == null
+            ? package?.GetOrBuildInstallEstimationSurfaceSnapshot(out _) : null;
+        // 通常失敗の観測済み資源は利用し、未観測の参照だけを未確認として扱います。
+        bool bundledComplete = capturedBundled != null ? capturedBundledComplete : package == null || surface?.IsComplete == true;
+        DirectoryResourceLookupCache.Entry bundled = capturedBundled ?? surface?.BundledResources;
+        foreach (PackageChartEntry entry in targets)
+        {
+            var placement = ChartResourcePlacement.Select(entry.Chart, bundled, cache, bundledComplete);
+            ApplyPendingResourceHealthProjection(entry, out _, placement);
+        }
     }
 
     internal static int ApplyPendingResourceHealthProjectionToEntries(IEnumerable<PackageChartEntry> entries)

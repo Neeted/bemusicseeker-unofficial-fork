@@ -35,7 +35,7 @@ public sealed class ChartPropertiesWindowManagerTests
             });
             ChartPropertiesWindow? child = null;
             int created = 0;
-            var manager = new ChartPropertiesWindowManager(owner, _ =>
+            var manager = new ChartPropertiesWindowManager(owner, (_, _) =>
             {
                 created++;
                 return child = new ChartPropertiesWindow(model);
@@ -86,7 +86,7 @@ public sealed class ChartPropertiesWindowManagerTests
             });
             ChartPropertiesWindowManager? manager = null;
             var child = new ChartPropertiesShowFaultWindow(model, () => manager?.BeginShutdown(), fail: false);
-            manager = new ChartPropertiesWindowManager(owner, _ => child, scope.PrepareForOwnedPresentation);
+            manager = new ChartPropertiesWindowManager(owner, (_, _) => child, scope.PrepareForOwnedPresentation);
             try
             {
                 manager.Open(ChartTestValues.Empty());
@@ -114,7 +114,7 @@ public sealed class ChartPropertiesWindowManagerTests
                 return new ChartResourceDiagnostics("", "", [], [], []);
             });
             var child = new ChartPropertiesShowFaultWindow(model);
-            var manager = new ChartPropertiesWindowManager(owner, _ => child, scope.PrepareForOwnedPresentation);
+            var manager = new ChartPropertiesWindowManager(owner, (_, _) => child, scope.PrepareForOwnedPresentation);
             try
             {
                 InvalidOperationException failure = Assert.ThrowsException<InvalidOperationException>(() => manager.Open(ChartTestValues.Empty()));

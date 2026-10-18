@@ -1131,5 +1131,15 @@
   "Statusbar_progress_task_playlist_external_property_initialization": "외부 데이터로 플레이리스트 속성 초기화",
   "Error_PreparedChartTargetMismatch": "준비된 차트 대상이 현재 보유 항목, 형식 또는 위치와 일치하지 않습니다. 변경은 실행되지 않았습니다.",
   "Details_require_complete_used_resources_for_auto_install": "자동 신규 설치에 사용되는 모든 리소스 요구",
-  "Details_require_complete_used_resources_for_auto_install_description": "OFF: 음원이 완전하면 BGA·동영상·보조 이미지가 부족해도 자동으로 신규 설치합니다. ON: 사용되는 모든 리소스를 요구합니다. 음원은 완전하고 비음성 리소스만 부족하면 보류하고 새 후보의 자동 검색을 생략합니다. 보유 차트에서 후보를 알 수 있으면 TITLE/ARTIST로 판정합니다. 보류 화면에서 경고를 확인하고 수동 추정할 수 있습니다. 음원이 부족하면 자동 추정합니다."
+  "Details_require_complete_used_resources_for_auto_install_description": "OFF: 음원이 완전하면 BGA·동영상·보조 이미지가 부족해도 자동으로 신규 설치합니다. ON: 사용되는 모든 리소스를 요구합니다. 음원은 완전하고 비음성 리소스만 부족하면 보류하고 새 후보의 자동 검색을 생략합니다. 보유 차트에서 후보를 알 수 있으면 TITLE/ARTIST로 판정합니다. 보류 화면에서 경고를 확인하고 수동 추정할 수 있습니다. 음원이 부족하면 자동 추정합니다.",
+  "WarningDigest_InstallEstimationAudioMissing": "설치 후 음원 누락",
+  "WarningDigest_InstallEstimationAudioUnverifiable": "설치 후 음원 확인 불가",
+  "Warning_InstallEstimationAudioMissing": "추정 대상의 음원이 설치 후에도 부족하여 설치 위치를 자동 설정하지 않았습니다. 후보: {0}",
+  "Warning_InstallEstimationAudioUnverifiable": "추정 대상의 설치 후 음원 완전성을 확인할 수 없어 설치 위치를 자동 설정하지 않았습니다. 후보: {0}",
+  "ChartPropertiesVerificationBasis": "확인 기준",
+  "ChartPropertiesVerificationPath": "확인 경로",
+  "ChartPropertiesConfiguredDestination": "설정한 설치 위치",
+  "ChartPropertiesFirstCandidate": "첫 번째 후보",
+  "ChartPropertiesCurrentPlacement": "현재 위치",
+  "ChartPropertiesUnverifiable": "조회 데이터를 가져올 수 없어 확인 불가"
 }

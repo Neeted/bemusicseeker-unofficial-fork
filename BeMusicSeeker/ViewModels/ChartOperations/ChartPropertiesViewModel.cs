@@ -20,17 +20,30 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     private bool closed;
 
     /// <summary>捕捉された選択譜面の実パスと読取り処理で表示を準備します。構築時には読みません。</summary>
-    internal ChartPropertiesViewModel(ChartFile chart, Func<ChartResourceDiagnostics> read = null)
+    internal ChartPropertiesViewModel(ChartFile chart, Func<ChartResourceDiagnostics> read = null, ChartResourcePlacement placement = null)
     {
         ArgumentNullException.ThrowIfNull(chart);
         kind = chart.Kind;
         Path = chart.Path;
         Title = chart.Title;
         Artist = chart.Artist;
-        this.read = read ?? (() => new ChartResourceDiagnosticsService().Read(chart.Path, chart.Kind));
+        placement ??= new ChartResourcePlacement(ChartResourcePlacementBasis.Current, System.IO.Path.GetDirectoryName(chart.Path));
+        VerificationPath = placement.Directory;
+        VerificationBasis = placement.Basis switch
+        {
+            ChartResourcePlacementBasis.Destination => Resources.ChartPropertiesConfiguredDestination,
+            ChartResourcePlacementBasis.FirstCandidate => Resources.ChartPropertiesFirstCandidate,
+            _ => Resources.ChartPropertiesCurrentPlacement
+        };
+        ChartResourcePlacement capturedPlacement = placement;
+        this.read = read ?? (() => new ChartResourceDiagnosticsService().Read(chart.Path, chart.Kind, capturedPlacement));
     }
 
-    /// <summary>一件のローカル実ファイルを対象にできるかを判定します。保留の導入先へ読み替えません。</summary>
+    /// <summary>プロパティを開く時点の配置を機能側で捕捉します。通常所持は実配置を維持します。</summary>
+    internal static ChartResourcePlacement CapturePlacement(ChartOperationTarget target)
+        => target.IsPending ? target.PackageEntry?.ResourcePlacement ?? ChartResourcePlacement.Select(target.Chart, null, null) : null;
+
+    /// <summary>一件のローカル実ファイルを対象にできるかを判定します。譜面本体は元の実ファイルから読みます。</summary>
     internal static ChartOperationTarget ResolveTarget(IReadOnlyList<ChartOperationTarget> targets)
         => targets?.Count == 1 && !targets[0].IsPlaylistMissing
             && !string.IsNullOrWhiteSpace(targets[0].Chart.Path)
@@ -38,6 +51,10 @@ internal sealed class ChartPropertiesViewModel : ViewModel
 
     /// <summary>捕捉した譜面パスです。</summary>
     public string Path { get; }
+    /// <summary>開いた時点で捕捉した資源の確認基準です。</summary>
+    public string VerificationBasis { get; }
+    /// <summary>開いた時点で捕捉した資源の確認先です。</summary>
+    public string VerificationPath { get; }
     /// <summary>読み取ったタイトルです。</summary>
     public string Title { get; private set; }
     /// <summary>読み取ったアーティストです。</summary>
@@ -116,6 +133,7 @@ internal sealed class ChartPropertiesViewModel : ViewModel
     private static string FormatReason(ChartResourceDiagnosticReason reason) => reason switch
     {
         ChartResourceDiagnosticReason.Missing => Resources.ChartPropertiesMissing,
+        ChartResourceDiagnosticReason.Unverifiable => Resources.ChartPropertiesUnverifiable,
         ChartResourceDiagnosticReason.InvalidPath => Resources.ChartPropertiesInvalidPath,
         ChartResourceDiagnosticReason.Cp932DecodeUnsupported => Resources.ChartPropertiesCp932Unsupported,
         _ => Resources.ChartPropertiesUnsupported

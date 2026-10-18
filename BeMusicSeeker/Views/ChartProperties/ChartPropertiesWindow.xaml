@@ -59,14 +59,18 @@
       <DockPanel LastChildFill="True">
         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
           <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
         <TextBlock Grid.Row="0" Margin="0,4,12,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Title, Mode=OneWay}" />
         <TextBox x:Name="valueTitle" Grid.Row="0" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding Title, Mode=OneWay}" />
         <TextBlock Grid.Row="1" Margin="0,4,12,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Artist, Mode=OneWay}" />
         <TextBox x:Name="valueArtist" Grid.Row="1" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding Artist, Mode=OneWay}" />
         <TextBlock Grid.Row="2" Margin="0,4,12,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesPath, Mode=OneWay}" />
         <TextBox x:Name="valuePath" Grid.Row="2" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding Path, Mode=OneWay}" />
-          <TextBox x:Name="readStatus" Grid.Row="3" Grid.ColumnSpan="2" Style="{StaticResource FailureValue}" Text="{Binding Status, Mode=OneWay}" />
+        <TextBlock Grid.Row="3" Margin="0,4,12,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesVerificationBasis, Mode=OneWay}" />
+        <TextBox x:Name="valueVerificationBasis" Grid.Row="3" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding VerificationBasis, Mode=OneWay}" />
+        <TextBlock Grid.Row="4" Margin="0,4,12,0" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesVerificationPath, Mode=OneWay}" />
+        <TextBox x:Name="valueVerificationPath" Grid.Row="4" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding VerificationPath, Mode=OneWay}" />
+          <TextBox x:Name="readStatus" Grid.Row="5" Grid.ColumnSpan="2" Style="{StaticResource FailureValue}" Text="{Binding Status, Mode=OneWay}" />
         </Grid>
         <ListBox x:Name="categoryNavigation" DockPanel.Dock="Top" SelectedIndex="0" Margin="0,0,0,8"
                  Style="{StaticResource App.Canonical.TopNavigationStyle}">

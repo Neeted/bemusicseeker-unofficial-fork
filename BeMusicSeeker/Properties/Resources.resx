@@ -3752,4 +3752,34 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="ChartPropertiesBmsonUndefinedDescription" xml:space="preserve">
     <value>BGAイベントから参照されているものの、対応する bga_header 定義が存在しない定義番号を表示します。</value>
   </data>
+  <data name="WarningDigest_InstallEstimationAudioMissing" xml:space="preserve">
+    <value>導入後音源不足</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationAudioUnverifiable" xml:space="preserve">
+    <value>導入後音源未確認</value>
+  </data>
+  <data name="Warning_InstallEstimationAudioMissing" xml:space="preserve">
+    <value>推定対象の音源が導入後も不足するため、自動設定を見送りました。候補: {0}</value>
+  </data>
+  <data name="Warning_InstallEstimationAudioUnverifiable" xml:space="preserve">
+    <value>推定対象の導入後の音源完全性を確認できないため、自動設定を見送りました。候補: {0}</value>
+  </data>
+  <data name="ChartPropertiesVerificationBasis" xml:space="preserve">
+    <value>確認基準</value>
+  </data>
+  <data name="ChartPropertiesVerificationPath" xml:space="preserve">
+    <value>確認先</value>
+  </data>
+  <data name="ChartPropertiesConfiguredDestination" xml:space="preserve">
+    <value>設定先</value>
+  </data>
+  <data name="ChartPropertiesFirstCandidate" xml:space="preserve">
+    <value>先頭候補</value>
+  </data>
+  <data name="ChartPropertiesCurrentPlacement" xml:space="preserve">
+    <value>現在の配置</value>
+  </data>
+  <data name="ChartPropertiesUnverifiable" xml:space="preserve">
+    <value>照合入力を取得できず確認不能</value>
+  </data>
 </root>

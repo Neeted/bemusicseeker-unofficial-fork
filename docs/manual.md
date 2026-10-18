@@ -527,9 +527,9 @@ Choose `Delete file` → `Rename to invalid extension (*.bmx/*.pmx)`. If a same-
 
 ### Checking Chart Properties
 
-Select one chart with a local file and choose `Chart properties` from the list context menu. Charts inside pending packages are supported too: the actual pending file is checked, rather than its installation destination. Multiple selections and unowned charts are unavailable.
+Select one chart with a local file and choose `Chart properties` from the list context menu. Charts inside pending packages are supported too. The chart is read from its original file; resources are checked against the configured installation destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates. Multiple selections and unowned charts are unavailable.
 
-The window shows the title, artist and chart path, with three categories:
+The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:
 
 - `Missing / unverifiable`: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as `#WAV01 sound.wav (Missing)` or `#BMP02 movie.mp4 (Missing)`. Specified STAGEFILE/BACKBMP/BANNER images are included.
 - `Unused resource definitions`: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.
@@ -979,13 +979,14 @@ For example, a differential chart by itself is typically added to `Pending` with
 
 `INSTL DST TITLE` and `INSTL DST ARTIST` show the most frequent pair among charts with both values present, after removing subtitles and chart-author annotations. Destination estimation compares this pair, as well as title and artist information individually, with the pending charts’ information alongside resource matching. Both columns are blank when no chart has both values. When the destination is still unset, the displayed pair belongs to the first candidate. If a title–artist pair is unavailable on either side, the candidates are shown and the destination is left for manual confirmation.
 
-`WARNING` shows a `[type count] label` summary; hover for details. Several missing-resource types can share one label. Resource shortages may disappear from the summary when a destination is set, so check the details too.
+`WARNING` shows a `[type count] label` summary; hover for details. Several missing-resource types can share one label. Resource shortages in pending packages remain in the summary after a destination is set.
 
 | Main warning | How to decide |
 | --- | --- |
 | Multiple estimated / install destinations | Compare candidate locations, titles, and artists. |
 | TITLE/ARTIST unconfirmed / Install estimation | Matching resources may still give a low-confidence result. Check that it is the correct work. |
-| Missing resources | Check the existing / required WAV, BGA, or video file counts. A standalone additional chart normally lacks resources before installation. |
+| Audio missing after installation / Audio after installation unverified | Estimation found that the group would lack audio after installation, or its completeness could not be verified. This reason also appears on rows whose own WAV is 100%. It remains after manual destination changes and is updated by re-estimation. |
+| Missing resources | For pending charts, check each chart against the configured destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates. |
 | Install destination unknown / Unsupported resource path / Search limit | Read the details and specify a destination manually or re-estimate. |
 | Already installed | The package contains owned charts. For resource updates, consider merging or [Advanced Features](#advanced-features). |
 

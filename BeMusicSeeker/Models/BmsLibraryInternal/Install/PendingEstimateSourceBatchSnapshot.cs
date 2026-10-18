@@ -20,6 +20,9 @@ internal sealed class SourceSurfaceEntryView
 
     public string ScanBackend { get; set; } = string.Empty;
 
+    /// <summary>観測済み同梱にない資源の不存在を確定できるかを共有します。</summary>
+    public bool IsComplete { get; set; } = true;
+
     public bool ScanLimitExceeded { get; set; }
 
     public int VisitedFileSystemEntryCount { get; set; }

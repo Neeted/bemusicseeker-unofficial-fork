@@ -1131,5 +1131,15 @@
   "Statusbar_progress_task_playlist_external_property_initialization": "以外部資料初始化播放清單屬性",
   "Error_PreparedChartTargetMismatch": "已準備的譜面目標與目前持有的項目、格式或位置不符。未執行任何變更。",
   "Details_require_complete_used_resources_for_auto_install": "自動新安裝時要求所有使用的資源完整",
-  "Details_require_complete_used_resources_for_auto_install_description": "關閉：音源完整時，即使 BGA、影片或輔助圖片缺失也自動新安裝。開啟：要求所有使用的資源完整。若音源完整且僅非音訊資源缺失，則保留待處理並略過新候選目錄的自動搜尋。如果能從已持有的譜面確定候選目錄，仍會進行 TITLE/ARTIST 比對。可在待處理畫面查看警告並手動推測。音源缺失時會自動推測。"
+  "Details_require_complete_used_resources_for_auto_install_description": "關閉：音源完整時，即使 BGA、影片或輔助圖片缺失也自動新安裝。開啟：要求所有使用的資源完整。若音源完整且僅非音訊資源缺失，則保留待處理並略過新候選目錄的自動搜尋。如果能從已持有的譜面確定候選目錄，仍會進行 TITLE/ARTIST 比對。可在待處理畫面查看警告並手動推測。音源缺失時會自動推測。",
+  "WarningDigest_InstallEstimationAudioMissing": "安裝後音源缺失",
+  "WarningDigest_InstallEstimationAudioUnverifiable": "安裝後音源未確認",
+  "Warning_InstallEstimationAudioMissing": "推定對象安裝後仍會缺少音源，因此未自動設定安裝目錄。候選：{0}",
+  "Warning_InstallEstimationAudioUnverifiable": "無法確認推定對象安裝後的音源完整性，因此未自動設定安裝目錄。候選：{0}",
+  "ChartPropertiesVerificationBasis": "核對依據",
+  "ChartPropertiesVerificationPath": "核對路徑",
+  "ChartPropertiesConfiguredDestination": "已設定的安裝目錄",
+  "ChartPropertiesFirstCandidate": "第一個候選",
+  "ChartPropertiesCurrentPlacement": "目前位置",
+  "ChartPropertiesUnverifiable": "無法核對：未取得比對資料"
 }

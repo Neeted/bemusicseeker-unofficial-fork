@@ -3794,7 +3794,7 @@ public partial class BMSLibrary : ObservableObject
                         ApplyInstalledDestinationResolveFailedToPackageUnsafe(package, currentTargetEntries);
                         return false;
                     }
-                    ApplyInstallEstimationResultToEntries(currentTargetEntries, evaluationResult.EstimationData?.Result);
+                    ApplyInstallEstimationResultToEntries(currentTargetEntries, evaluationResult.EstimationData?.Result, package);
                     return HasPendingLowConfidenceInstallDestination(currentTargetEntries);
                 }
             case PendingInstallEstimateEvaluationOutcomeKind.NoOp:
@@ -4146,7 +4146,7 @@ public partial class BMSLibrary : ObservableObject
                 if (state.SkipAutomaticEstimation)
                 {
                     state.Package.DeferredEstimateReason = PendingEstimateDeferredReason.CompleteSourceAudio;
-                    ClearInstallEstimationStateUnsafe(state.PackageEntries);
+                    ClearInstallEstimationStateUnsafe(state.PackageEntries, state.Package);
                     committedResult.DeferredPackages.Add(state.Package);
                     continue;
                 }
@@ -4315,6 +4315,7 @@ public partial class BMSLibrary : ObservableObject
             ScanMs = snapshot?.ScanMs ?? 0L,
             HashMaterializeMs = snapshot?.HashMaterializeMs ?? 0L,
             ScanBackend = snapshot?.ScanBackend ?? "bounded_fast_source_surface",
+            IsComplete = snapshot?.IsComplete == true,
             ScanLimitExceeded = snapshot?.ScanLimitExceeded ?? false,
             VisitedFileSystemEntryCount = snapshot?.VisitedFileSystemEntryCount ?? 0,
             MaxVisitedFileSystemEntryCount = snapshot?.MaxVisitedFileSystemEntryCount ?? 0
@@ -4374,12 +4375,13 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private static void ClearInstallEstimationStateUnsafe(IEnumerable<PackageChartEntry> entries)
+    private void ClearInstallEstimationStateUnsafe(IEnumerable<PackageChartEntry> entries, ChartPackage package)
     {
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
             entry.ClearInstallDestination();
         }
+        RefreshPendingResourceHealth(entries, package);
     }
 
     private void ClearDeferredEstimateReasonForEntriesUnsafe(IEnumerable<PackageChartEntry> entries)
@@ -8915,12 +8917,26 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void ApplyInstallEstimationResultToEntries(IEnumerable<PackageChartEntry> entries, InstallEstimationResult result)
+    private void ApplyInstallEstimationResultToEntries(IEnumerable<PackageChartEntry> entries, InstallEstimationResult result, ChartPackage package = null)
     {
         foreach (PackageChartEntry entry in (entries ?? []).Where(entry => entry?.Chart != null))
         {
             entry.ApplyInstallEstimationResult(result);
         }
+        if (package != null)
+        {
+            // 未取得も含め、推定時の候補入力を行とプロパティの配置文脈へそのまま渡します。
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth(entries, package, result?.PendingDirectoryLookupCache,
+                result?.PendingBundledResources, result?.PendingBundledResourcesComplete ?? true);
+        }
+    }
+
+    /// <summary>編集・クリア等の操作では対象パッケージの配置を、その操作で捕捉した候補索引で再評価します。推定結果の反映は評価時の入力を直接渡します。</summary>
+    private void RefreshPendingResourceHealth(IEnumerable<PackageChartEntry> entries, ChartPackage package)
+    {
+        if (package == null) { return; }
+        DirectoryResourceLookupCache cache = libraryResourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
+        BmsLibraryPackageInstallService.RefreshPendingResourceHealth(entries, package, cache);
     }
 
     private static bool HasPendingLowConfidenceInstallDestination(IEnumerable<PackageChartEntry> entries)
@@ -9102,14 +9118,14 @@ public partial class BMSLibrary : ObservableObject
                 + " selected=" + (result.SelectedCandidate?.DirectoryPath ?? string.Empty)
                 + " dst=" + (result.DestinationDirectory ?? "(none)")
                 + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination
-                + " confidenceReason=" + result.ConfidenceReason + " metadata_validation=" + result.MetadataValidationSummary);
+                + " confidenceReason=" + result.ConfidenceReason + " audioCompleteness=" + result.AudioCompleteness + " metadata_validation=" + result.MetadataValidationSummary);
             return;
         }
         if (!estimationData.SourceSurfaceCacheHit && !estimationData.SourceSurfaceBatchHit && estimationData.SourceSurfaceTrackedFileCount > 0)
         {
             LogInstallPerformance("package_surface_build backend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " trackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " chartFileCount=" + estimationData.SourceSurfaceChartFileCount + " resourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " scanMs=" + estimationData.SourceSurfaceScanMs + " hashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs);
         }
-        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=relative_strict candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
+        LogInstallPerformance("estimate_install start chartCount=" + estimationData.ChartCount + " targetHashes=" + result.TargetResourceHashCount + " targetResources=" + result.TargetResourceCount + " pathAwareRefs=" + result.TargetPathAwareHashCount + " pathAwareAudioRefs=" + result.TargetPathAwareAudioHashCount + " pathAwareVisualRefs=" + result.TargetPathAwareVisualHashCount + " pathAwareMovieRefs=" + result.TargetPathAwareMovieHashCount + " pathAwareOptionalRefs=" + result.TargetPathAwareOptionalImageHashCount + " bundledAudioCount=" + result.BundledAudioCount + " bundledImageCount=" + result.BundledImageCount + " bundledMovieCount=" + result.BundledMovieCount + " evalMode=relative_strict candidateMode=" + (result.CandidateMode ?? string.Empty) + " coarseFilterMode=" + (result.CoarseFilterMode ?? string.Empty) + " candidateDegree=" + result.CandidateEvaluationDegree + " audioRefs=" + result.AudioReferenceCount + " visualRefs=" + result.VisualReferenceCount + " movieRefs=" + result.MovieReferenceCount + " optionalRefs=" + result.OptionalImageReferenceCount + " audioMinMatchRequired=" + result.AudioMinimumMatchRequired + " candidateDirsBefore=" + result.CandidateDirectoryCountBeforeHashFilter + " candidateDirsAfterBroadFilter=" + result.CandidateDirectoryCountAfterBroadFilter + " candidateDirsAfterAudioGate=" + result.CandidateDirectoryCountAfterAudioGate + " candidateDirsInHierarchy=" + result.HierarchyCandidateDirectoryCount + " shadowSuppressed=" + result.AncestorShadowSuppressedCount + " lazySelfOwnedCandidates=" + result.LazySelfOwnedEvaluationCount + " shadowMs=" + result.AncestorShadowEvaluationMs + " candidateViewBuildMs=" + result.CandidateViewBuildMs + " candidateMatchMs=" + result.CandidateMatchMs + " candidateViewBuildCount=" + result.CandidateViewBuildCount + " sourceSurfaceScanMs=" + estimationData.SourceSurfaceScanMs + " sourceSurfaceChartFileCount=" + estimationData.SourceSurfaceChartFileCount + " sourceSurfaceResourceFileCount=" + estimationData.SourceSurfaceResourceFileCount + " sourceSurfaceTrackedFileCount=" + estimationData.SourceSurfaceTrackedFileCount + " sourceSurfaceHashMaterializeMs=" + estimationData.SourceSurfaceHashMaterializeMs + " sourceSurfaceCacheHit=" + estimationData.SourceSurfaceCacheHit.ToString().ToLowerInvariant() + " sourceSurfaceBatchHit=" + estimationData.SourceSurfaceBatchHit.ToString().ToLowerInvariant() + " sourceSurfaceScanBackend=" + (estimationData.SourceSurfaceScanBackend ?? string.Empty) + " candidateDirsAfter=" + result.CandidateDirectoryCountAfterHashFilter + " candidateDirs=" + result.CandidateDirectoryCount + " evaluationMs=" + result.EvaluationMs + " confidence=" + result.Confidence + " autoApplied=" + result.ShouldAutoApplyDestination + " confidenceReason=" + (result.ConfidenceReason ?? string.Empty) + " audioCompleteness=" + result.AudioCompleteness + " lazyHashBuildMsDelta=" + estimationData.LazyHashBuildMsDelta + " lazyHashEntriesAdded=" + estimationData.LazyHashEntriesAdded + " lazyHashLookupCountDelta=" + estimationData.LazyHashLookupCountDelta + " lazyHashBuildReason=" + (estimationData.LazyHashBuildReason ?? string.Empty) + " summary=" + (result.ResourceSummary ?? string.Empty));
         if (!string.IsNullOrWhiteSpace(result.TopCandidateSummary))
         {
             LogInstallPerformance("estimate_install candidates " + result.TopCandidateSummary);
@@ -9169,7 +9185,10 @@ public partial class BMSLibrary : ObservableObject
         });
     }
 
-    internal void RemoveInstallDestination(IEnumerable<PackageChartEntry> chartEntries)
+    /// <summary>対象の導入先を明示クリアし、呼出元が解決済みの保留パッケージだけ現在配置へ戻します。</summary>
+    /// <param name="chartEntries">呼出元が解決した対象項目。</param>
+    /// <param name="package">保留の所属パッケージ。独立した所持譜面ではnullを渡します。</param>
+    internal void RemoveInstallDestination(IEnumerable<PackageChartEntry> chartEntries, ChartPackage package)
     {
         if (chartEntries == null)
         {
@@ -9181,6 +9200,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 List<PackageChartEntry> entries = [.. chartEntries.Where(entry => entry?.Chart != null)];
                 CreateInstallEstimationService().ClearInstallDestinations(entries);
+                RefreshPendingResourceHealth(entries, package);
             }
         }
     }
@@ -9214,6 +9234,7 @@ public partial class BMSLibrary : ObservableObject
                     return false;
                 }
                 ApplyResolvedInstallDestinationPathAndMetadataToEntries(selection.TargetEntries, selection.ValidatedDestinationDirectory);
+                RefreshPendingResourceHealth(selection.TargetEntries, selection.Package);
                 ClearDeferredEstimateReasonForEntriesUnsafe(selection.TargetEntries);
                 return true;
             }

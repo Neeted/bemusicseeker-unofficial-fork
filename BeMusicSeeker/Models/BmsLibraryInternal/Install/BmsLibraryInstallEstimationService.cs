@@ -429,8 +429,11 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         InstallEstimationMetadataProfile candidateProfile = metadataProfileResolver?.Invoke(destinationDirectory) ?? InstallEstimationMetadataProfile.Empty;
         var result = new InstallEstimationResult
         {
+            PendingDirectoryLookupCache = directoryLookupCache,
             FinalEvaluationMode = InstallEstimationFinalEvaluationMode.InstalledChartHash,
             HasViableDestination = true,
+            PendingBundledResources = resourceSnapshot?.BundledResources,
+            PendingBundledResourcesComplete = resourceSnapshot?.SourceSurfaceIsComplete == true,
             CandidateDirectoryCount = 1
         };
         result.Candidates.Add(new InstallEstimationCandidate
@@ -441,8 +444,11 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             RepresentativeArtist = candidateProfile.DominantPairDisplayArtist
         });
         MetadataValidationResult validation = EvaluateSelectedCandidateMetadata(destinationDirectory, targetProfile, candidateProfile);
+        result.AudioCompleteness = new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, destinationDirectory,
+            resourceSnapshot?.BundledResources, directoryLookupCache?.GetEntryOrNull(destinationDirectory),
+            resourceSnapshot?.SourceSurfaceIsComplete == true).EvaluateAudio(resourceSnapshot?.DefinedResources);
         if (ApplySelectedCandidateMetadata(result, validation) && resourceSnapshot?.SourceSurfaceScanLimitExceeded != true
-            && HasCompleteAudio(resourceSnapshot?.DefinedResources, resourceSnapshot?.BundledResources, directoryLookupCache?.GetEntryOrNull(destinationDirectory)))
+            && result.AudioCompleteness == InstallAudioCompleteness.Complete)
         {
             result.DestinationDirectory = destinationDirectory;
             result.ShouldAutoApplyDestination = true;
@@ -502,7 +508,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
 
     private InstallEstimationResult EstimateInstallationDirectory(PackageInstallEstimationSnapshot snapshot, DirectoryResourceLookupCache directoryLookupCache, int candidateEvaluationDegree, ChartInstallationEstimateMode estimateMode, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, IReadOnlyCollection<string> candidateDirectoryOverride)
     {
-        var result = new InstallEstimationResult();
+        var result = new InstallEstimationResult { PendingDirectoryLookupCache = directoryLookupCache };
         int effectiveCandidateEvaluationDegree = NormalizeCandidateEvaluationDegree(candidateEvaluationDegree);
         result.CandidateEvaluationDegree = effectiveCandidateEvaluationDegree;
         bool isReinstallCorrectionMode = estimateMode == ChartInstallationEstimateMode.ReinstallCorrection;
@@ -538,6 +544,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         result.VisualReferenceCount = resourceSnapshot.VisualReferenceCount;
         result.MovieReferenceCount = resourceSnapshot.MovieReferenceCount;
         result.OptionalImageReferenceCount = resourceSnapshot.OptionalImageReferenceCount;
+        result.PendingBundledResources = bundledResources;
+        result.PendingBundledResourcesComplete = !useBundledResources || snapshot.SourceSurfaceIsComplete;
         result.BundledAudioCount = useBundledResources ? snapshot.BundledAudioCount : 0;
         result.BundledImageCount = useBundledResources ? snapshot.BundledImageCount : 0;
         result.BundledMovieCount = useBundledResources ? snapshot.BundledMovieCount : 0;
@@ -736,6 +744,12 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         result.TopCandidateSummary = string.Join(" || ", result.Candidates.Select(candidate => candidate.ToSummary()));
         result.SelectedCandidateSummary = result.SelectedCandidate?.ToSummary() ?? selectedCandidateEvaluation.ToSummary();
 
+        if (selectedViable)
+        {
+            result.AudioCompleteness = new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, selectedCandidateEvaluation.DirectoryPath,
+                bundledResources, directoryLookupCache.GetEntryOrNull(selectedCandidateEvaluation.DirectoryPath),
+                result.PendingBundledResourcesComplete).EvaluateAudio(resourceSnapshot);
+        }
         if (!selectedViable)
         {
             SetNoViableDestinationResult(result);
@@ -815,7 +829,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
             result.DestinationDirectory = selectedCandidateEvaluation.DirectoryPath;
             result.ShouldAutoApplyDestination = true;
         }
-        if (resourceSnapshot.HasUnresolvedAudio || selectedCandidateEvaluation.AudioMatched != resourceSnapshot.AudioReferenceCount)
+        if (selectedViable && result.AudioCompleteness != InstallAudioCompleteness.Complete)
         {
             result.ShouldAutoApplyDestination = false;
             if (!result.SuggestedDestinationDirectories.Contains(selectedCandidateEvaluation.DirectoryPath))
@@ -1047,6 +1061,7 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
         }
         ChartPackage package = (pendingPackages ?? [])
             .FirstOrDefault(pkg => pkg != null && pkg.ChartEntries.Any(entry => IsSameChartTarget(entry, targetEntry)));
+        result.Package = package;
         if (package == null)
         {
             if (!allowStandaloneLibraryChart)
@@ -1417,23 +1432,8 @@ internal sealed class BmsLibraryInstallEstimationService(BmsLibraryOptionsSnapsh
     /// <summary>同梱と候補の和集合で音声欠損ゼロを検査します。未取得や定義済み参照の照合不能を空成功へ置き換えません。</summary>
     internal static bool HasCompleteAudio(ChartResourceSnapshot resources, DirectoryResourceLookupCache.Entry bundled, DirectoryResourceLookupCache.Entry candidate)
     {
-        if (resources == null || resources.HasUnresolvedAudio)
-        {
-            return false;
-        }
-
-        if (resources.AudioReferenceCount == 0)
-        {
-            return true;
-        }
-
-        if (candidate == null && bundled == null)
-        {
-            return false;
-        }
-
-        return CountMatchedReferences(resources.AudioReferences, CreateCandidateResourceView(candidate).AudioRelativePathHashes,
-            CreateCandidateResourceView(bundled).AudioRelativePathHashes) == resources.AudioReferenceCount;
+        return new ChartResourcePlacement(ChartResourcePlacementBasis.Destination, string.Empty, bundled, candidate)
+            .EvaluateAudio(resources) == InstallAudioCompleteness.Complete;
     }
 
     private static void ApplyMetadataTieBreakFrontier(List<CandidateEvaluation> orderedCandidates, InstallEstimationMetadataProfile targetMetadataProfile, Func<string, InstallEstimationMetadataProfile> metadataProfileResolver, Func<string, int> candidateDirectoryUniquePrimaryHashCountResolver, InstallEstimationResult result)

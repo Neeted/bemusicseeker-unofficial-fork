@@ -1659,7 +1659,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         {
             ClearPackage(package);
         }
-        library.RemoveInstallDestination(request.LooseEntries);
+        library.RemoveInstallDestination(request.LooseEntries, null);
         return [.. request.LooseEntries.Select(entry => entry?.Chart).Where(chart => chart != null)];
     }
 
@@ -1680,7 +1680,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         {
             ClearPackage(package);
         }
-        library.RemoveInstallDestination(remainingEntries);
+        library.RemoveInstallDestination(remainingEntries, null);
         return [.. remainingEntries.Select(entry => entry.Chart)];
     }
 
@@ -1855,5 +1855,7 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
         {
             entry?.ClearInstallDestination();
         }
+        // 明示クリア後は候補もなく、入力元の現在配置だけを対象パッケージ内で再評価します。
+        BmsLibraryPackageInstallService.RefreshPendingResourceHealth(package?.ChartEntries, package, null);
     }
 }

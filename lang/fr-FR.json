@@ -1131,5 +1131,15 @@
   "Statusbar_progress_task_playlist_external_property_initialization": "Initialisation des propriétés des playlists depuis les sources externes",
   "Error_PreparedChartTargetMismatch": "La cible de partition préparée ne correspond pas à l’élément actuellement présent dans la bibliothèque, à son format ou à son emplacement. Aucune modification n’a été effectuée.",
   "Details_require_complete_used_resources_for_auto_install": "Exiger toutes les ressources utilisées pour une nouvelle installation automatique",
-  "Details_require_complete_used_resources_for_auto_install_description": "Désactivé : installer automatiquement si les sons sont complets, même si des BGA, vidéos ou images auxiliaires manquent. Activé : exiger toutes les ressources utilisées. Si les sons sont complets et seules des ressources non sonores manquent, conserver le paquet en attente sans rechercher automatiquement de nouveaux candidats. Les candidats connus grâce aux partitions possédées restent évalués selon TITLE/ARTIST. Consultez les avertissements et lancez une estimation manuelle depuis la vue en attente. Des sons manquants déclenchent une estimation automatique."
+  "Details_require_complete_used_resources_for_auto_install_description": "Désactivé : installer automatiquement si les sons sont complets, même si des BGA, vidéos ou images auxiliaires manquent. Activé : exiger toutes les ressources utilisées. Si les sons sont complets et seules des ressources non sonores manquent, conserver le paquet en attente sans rechercher automatiquement de nouveaux candidats. Les candidats connus grâce aux partitions possédées restent évalués selon TITLE/ARTIST. Consultez les avertissements et lancez une estimation manuelle depuis la vue en attente. Des sons manquants déclenchent une estimation automatique.",
+  "WarningDigest_InstallEstimationAudioMissing": "Audio manquant après installation",
+  "WarningDigest_InstallEstimationAudioUnverifiable": "Audio après installation non vérifié",
+  "Warning_InstallEstimationAudioMissing": "L’audio du groupe estimé resterait incomplet après installation. La destination n’a donc pas été définie automatiquement. Candidat : {0}",
+  "Warning_InstallEstimationAudioUnverifiable": "L’intégralité de l’audio du groupe estimé après installation n’a pas pu être vérifiée. La destination n’a donc pas été définie automatiquement. Candidat : {0}",
+  "ChartPropertiesVerificationBasis": "Base de vérification",
+  "ChartPropertiesVerificationPath": "Chemin de vérification",
+  "ChartPropertiesConfiguredDestination": "Destination définie",
+  "ChartPropertiesFirstCandidate": "Premier candidat",
+  "ChartPropertiesCurrentPlacement": "Emplacement actuel",
+  "ChartPropertiesUnverifiable": "Non vérifiable : données de recherche indisponibles"
 }

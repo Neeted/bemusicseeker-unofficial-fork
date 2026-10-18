@@ -13,6 +13,31 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartResourceDiagnosticsTests
 {
+    /// <summary>元ファイルを一度解析した定義番号・未使用・未定義を保ち、存在確認だけを導入後の同梱＋候補へ向けます。入力元の音源で候補の欠損を誤って埋めません。</summary>
+    [TestMethod]
+    public void Read_PreservesOriginalDefinitionsWhileUsingCapturedInstallationPlacement()
+    {
+        string directory = CreateDirectory();
+        try
+        {
+            string path = Path.Combine(directory, "chart.bms");
+            File.WriteAllText(path, "#WAV01 tone.wav\n#WAV02 absent.wav\n#WAV03 unused.wav\n#00111:0102ZZ\n", Encoding.ASCII);
+            File.WriteAllText(Path.Combine(directory, "absent.ogg"), "source only");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(@"C:\Candidate", ["tone.ogg"]);
+            var placement = new ChartResourcePlacement(ChartResourcePlacementBasis.FirstCandidate, @"C:\Candidate", candidate: cache.GetEntryOrNull(@"C:\Candidate"));
+            ChartResourceDiagnostics result = new ChartResourceDiagnosticsService().Read(path, ChartFileKind.Bms, placement);
+            Assert.AreEqual(1, result.Issues.Length);
+            Assert.AreEqual("02", result.Issues.Single().Definition.Id);
+            Assert.AreEqual(ChartResourceDiagnosticReason.Missing, result.Issues.Single().Reason);
+            Assert.AreEqual("03", result.UnusedDefinitions.Single().Id);
+            Assert.AreEqual("ZZ", result.UndefinedReferences.Single().Id);
+            ChartResourceDiagnostics current = new ChartResourceDiagnosticsService().Read(path, ChartFileKind.Bms);
+            Assert.AreEqual("01", current.Issues.Single().Definition.Id);
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
     /// <summary>WAV/BMPの未定義は別名前空間で重複排除し、BASE62の大小文字を維持します。未使用BMPの同番号複数定義と別番号同パスを残し、空パスの定義を未定義番号へ変換しません。</summary>
     [TestMethod]
     public void Diagnose_BmsUnifiesResourceDefinitionsWithoutMergingNumberNamespaces()

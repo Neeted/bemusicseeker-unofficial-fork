@@ -1287,8 +1287,8 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If an identical file already exists at the destination or a numbered candidate name, the original chart is deleted as a duplicate. Keep a copy first if you need the original.</p></div>
 <p>Choose <code>Delete file</code> → <code>Rename to invalid extension (*.bmx/*.pmx)</code>. If a same-name file has different contents, or a same-name folder exists, an available numbered name such as <code>name(1).bmx</code> is used. Processed charts are removed from the library list or pending package.</p>
 <h3 id="checking-chart-properties">Checking Chart Properties</h3>
-<p>Select one chart with a local file and choose <code>Chart properties</code> from the list context menu. Charts inside pending packages are supported too: the actual pending file is checked, rather than its installation destination. Multiple selections and unowned charts are unavailable.</p>
-<p>The window shows the title, artist and chart path, with three categories:</p>
+<p>Select one chart with a local file and choose <code>Chart properties</code> from the list context menu. Charts inside pending packages are supported too. The chart is read from its original file; resources are checked against the configured installation destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates. Multiple selections and unowned charts are unavailable.</p>
+<p>The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:</p>
 <ul>
 <li><code>Missing / unverifiable</code>: Required, defined references shown with their command, definition number, original filename and a reason at the end, such as <code>#WAV01 sound.wav (Missing)</code> or <code>#BMP02 movie.mp4 (Missing)</code>. Specified STAGEFILE/BACKBMP/BANNER images are included.</li>
 <li><code>Unused resource definitions</code>: #WAV and #BMP definitions not referenced for sound or display in this chart. Another definition number or chart may use the same file.</li>
@@ -1705,7 +1705,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tbody>
 </table></div>
 <p><code>INSTL DST TITLE</code> and <code>INSTL DST ARTIST</code> show the most frequent pair among charts with both values present, after removing subtitles and chart-author annotations. Destination estimation compares this pair, as well as title and artist information individually, with the pending charts’ information alongside resource matching. Both columns are blank when no chart has both values. When the destination is still unset, the displayed pair belongs to the first candidate. If a title–artist pair is unavailable on either side, the candidates are shown and the destination is left for manual confirmation.</p>
-<p><code>WARNING</code> shows a <code>[type count] label</code> summary; hover for details. Several missing-resource types can share one label. Resource shortages may disappear from the summary when a destination is set, so check the details too.</p>
+<p><code>WARNING</code> shows a <code>[type count] label</code> summary; hover for details. Several missing-resource types can share one label. Resource shortages in pending packages remain in the summary after a destination is set.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1723,8 +1723,12 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <td>Matching resources may still give a low-confidence result. Check that it is the correct work.</td>
 </tr>
 <tr>
+<td>Audio missing after installation / Audio after installation unverified</td>
+<td>Estimation found that the group would lack audio after installation, or its completeness could not be verified. This reason also appears on rows whose own WAV is 100%. It remains after manual destination changes and is updated by re-estimation.</td>
+</tr>
+<tr>
 <td>Missing resources</td>
-<td>Check the existing / required WAV, BGA, or video file counts. A standalone additional chart normally lacks resources before installation.</td>
+<td>For pending charts, check each chart against the configured destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates.</td>
 </tr>
 <tr>
 <td>Install destination unknown / Unsupported resource path / Search limit</td>

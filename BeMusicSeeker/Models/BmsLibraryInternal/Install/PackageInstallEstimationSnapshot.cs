@@ -10,6 +10,7 @@ internal sealed class PackageInstallSurfaceSnapshot
 {
     public static PackageInstallSurfaceSnapshot Empty { get; } = new PackageInstallSurfaceSnapshot
     {
+        IsComplete = false,
         SourcePath = string.Empty,
         SourceDirectory = string.Empty,
         BundledResources = new DirectoryResourceLookupCache.Entry(),
@@ -36,6 +37,9 @@ internal sealed class PackageInstallSurfaceSnapshot
     public long HashMaterializeMs { get; set; }
 
     public string ScanBackend { get; set; } = string.Empty;
+
+    /// <summary>同梱資源の不存在を確定できる、成功した完全な列挙結果かを示します。</summary>
+    public bool IsComplete { get; set; } = true;
 
     public bool ScanLimitExceeded { get; set; }
 
@@ -125,6 +129,9 @@ internal sealed class PackageInstallEstimationSnapshot
 
     public string SourceSurfaceScanBackend { get; set; } = string.Empty;
 
+    /// <summary>観測済みの同梱にない参照を欠損と判定できるかを示します。</summary>
+    public bool SourceSurfaceIsComplete { get; set; } = true;
+
     public bool SourceSurfaceScanLimitExceeded { get; set; }
 
     public int SourceSurfaceVisitedFileSystemEntryCount { get; set; }
@@ -157,6 +164,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceCacheHit = sourceSurfaceCacheHit,
             SourceSurfaceBatchHit = sourceSurfaceBatchHit,
             SourceSurfaceScanBackend = installSurfaceSnapshot?.ScanBackend ?? string.Empty,
+            SourceSurfaceIsComplete = installSurfaceSnapshot?.IsComplete == true,
             SourceSurfaceScanLimitExceeded = installSurfaceSnapshot?.ScanLimitExceeded ?? false,
             SourceSurfaceVisitedFileSystemEntryCount = installSurfaceSnapshot?.VisitedFileSystemEntryCount ?? 0,
             SourceSurfaceMaxVisitedFileSystemEntryCount = installSurfaceSnapshot?.MaxVisitedFileSystemEntryCount ?? 0
@@ -189,6 +197,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             SourceSurfaceCacheHit = false,
             SourceSurfaceBatchHit = false,
             SourceSurfaceScanBackend = sourceSurfaceSnapshot.ScanBackend,
+            SourceSurfaceIsComplete = sourceSurfaceSnapshot.IsComplete,
             SourceSurfaceScanLimitExceeded = sourceSurfaceSnapshot.ScanLimitExceeded,
             SourceSurfaceVisitedFileSystemEntryCount = sourceSurfaceSnapshot.VisitedFileSystemEntryCount,
             SourceSurfaceMaxVisitedFileSystemEntryCount = sourceSurfaceSnapshot.MaxVisitedFileSystemEntryCount
@@ -210,6 +219,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             TrackedFileCount = sourceSurface?.TrackedFileCount ?? 0,
             HashMaterializeMs = 0L,
             ScanBackend = sourceSurface?.ScanBackend ?? string.Empty,
+            IsComplete = !includeBundledResources || sourceSurface?.IsComplete == true,
             ScanLimitExceeded = sourceSurface?.ScanLimitExceeded ?? false,
             VisitedFileSystemEntryCount = sourceSurface?.VisitedFileSystemEntryCount ?? 0,
             MaxVisitedFileSystemEntryCount = sourceSurface?.MaxVisitedFileSystemEntryCount ?? 0
@@ -297,7 +307,12 @@ internal static class PackageInstallEstimationSnapshotBuilder
 
     private static PackageInstallSurfaceSnapshot CreateDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, int maxVisitedFileSystemEntryCount)
     {
-        RootFileEnumerationResult enumerationResult = EnumerateSourceSurfaceBounded(sourceDirectory, maxVisitedFileSystemEntryCount);
+        return BuildDirectoryInstallSurfaceSnapshot(sourcePath, sourceDirectory, EnumerateSourceSurfaceBounded(sourceDirectory, maxVisitedFileSystemEntryCount));
+    }
+
+    /// <summary>同じ列挙結果から観測済み資源と完全性を捕捉します。通常失敗の部分資源を推定入力から除外しません。</summary>
+    internal static PackageInstallSurfaceSnapshot BuildDirectoryInstallSurfaceSnapshot(string sourcePath, string sourceDirectory, RootFileEnumerationResult enumerationResult)
+    {
         int chartFileCount = enumerationResult.GetPaths(ChartDirectoryScanBuilder.ChartGroupName).Count;
         int resourceFileCount = CountDistinctPaths(
             enumerationResult.GetPaths(ChartDirectoryScanBuilder.AudioGroupName),
@@ -341,6 +356,7 @@ internal static class PackageInstallEstimationSnapshotBuilder
             TrackedFileCount = trackedFileCount,
             HashMaterializeMs = stopwatch.ElapsedMilliseconds,
             ScanBackend = enumerationResult?.BackendName ?? "bounded_fast_source_surface",
+            IsComplete = enumerationResult.Success && enumerationResult.IsComplete && !enumerationResult.ScanLimitExceeded,
             ScanLimitExceeded = enumerationResult?.ScanLimitExceeded ?? false,
             VisitedFileSystemEntryCount = enumerationResult?.VisitedFileSystemEntryCount ?? 0,
             MaxVisitedFileSystemEntryCount = enumerationResult?.MaxVisitedFileSystemEntryCount ?? 0

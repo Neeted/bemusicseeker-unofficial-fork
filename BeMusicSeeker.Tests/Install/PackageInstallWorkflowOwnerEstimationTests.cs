@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
-    /// <summary>元音源99%でも欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略します。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
+    /// <summary>元音源99%でも欠損1件を補う候補へ実自動推定します。画像不足またはBMSONの親参照補助だけの厳格保留は自動推定を省略し、照合不能を実欠損の画像警告へ変換しません。通常画像不足で手動推定を許し、準備中のprovider変更は次操作へ反映します。</summary>
     [TestMethod]
     [DataRow(false, false)]
     [DataRow(true, false)]
@@ -114,8 +114,17 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 Assert.AreEqual(invalidAuxiliary ? PendingEstimateDeferredReason.UnsupportedResourcePath : PendingEstimateDeferredReason.CompleteSourceAudio,
                     package.DeferredEstimateReason);
                 Assert.IsTrue(string.IsNullOrEmpty(package.ChartEntries.Single().Chart.InstallDestination));
-                ChartWarningKind expectedWarning = invalidAuxiliary ? ChartWarningKind.ResourceStagefileMissing : ChartWarningKind.ResourceBgaMissing;
-                Assert.IsTrue(package.ChartEntries.Single().Chart.Warnings.Any(warning => warning.Kind == expectedWarning));
+                ChartFile pendingChart = package.ChartEntries.Single().Chart;
+                if (invalidAuxiliary)
+                {
+                    Assert.IsNull(pendingChart.StagefileHealth);
+                    Assert.IsFalse(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceStagefileMissing));
+                    Assert.IsTrue(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.UnsupportedResourcePath));
+                }
+                else
+                {
+                    Assert.IsTrue(pendingChart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+                }
                 if (!invalidAuxiliary)
                 {
                     library.SearchEstimatedInstallationDirectory(package);

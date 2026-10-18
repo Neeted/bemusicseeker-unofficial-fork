@@ -31,7 +31,7 @@ public sealed class ChartPropertiesWindowTests
                 return new ChartResourceDiagnostics("Title", "Artist",
                     [new ChartResourceDiagnosticIssue(new ChartResourceDefinition("#WAV", "01", ChartResourceReference.Parse("missing.wav", ChartResourceKind.Audio)), ChartResourceDiagnosticReason.Missing)],
                     [new ChartResourceDefinition("#WAV", "02", ChartResourceReference.Parse("unused.wav", ChartResourceKind.Audio))], [new ChartResourceReferenceNumber("#WAV", "ZZ")]);
-            });
+            }, new ChartResourcePlacement(ChartResourcePlacementBasis.FirstCandidate, @"C:\Candidate"));
             var window = new ChartPropertiesWindow(model);
             Task? operation = null;
             try
@@ -51,7 +51,9 @@ public sealed class ChartPropertiesWindowTests
                 Assert.AreEqual("Title", ((TextBox)window.FindName("valueTitle")).Text);
                 Assert.AreEqual("Artist", ((TextBox)window.FindName("valueArtist")).Text);
                 Assert.AreEqual("chart.bms", ((TextBox)window.FindName("valuePath")).Text);
-                foreach (string name in new[] { "valueTitle", "valueArtist", "valuePath" })
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.ChartPropertiesFirstCandidate, ((TextBox)window.FindName("valueVerificationBasis")).Text);
+                Assert.AreEqual(@"C:\Candidate", ((TextBox)window.FindName("valueVerificationPath")).Text);
+                foreach (string name in new[] { "valueTitle", "valueArtist", "valuePath", "valueVerificationBasis", "valueVerificationPath" })
                 {
                     var value = (TextBox)window.FindName(name);
                     Assert.IsTrue(value.IsReadOnly);

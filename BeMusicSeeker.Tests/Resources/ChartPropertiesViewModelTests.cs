@@ -13,6 +13,53 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartPropertiesViewModelTests
 {
+    /// <summary>開く時点の保留配置を捕捉し、背景読取りをgateで停止中の候補・設定先変更へ追従しません。配置入力の捕捉と三分類の反映は機能側で確認し、実WindowのBindingは既存画面テストへ分担します。</summary>
+    [TestMethod]
+    public async Task LoadAsync_KeepsPlacementCapturedBeforeDestinationChanges()
+    {
+        DirectoryInfo directory = Directory.CreateTempSubdirectory("chart-properties-placement-");
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task operation = Task.CompletedTask;
+        try
+        {
+            string path = System.IO.Path.Combine(directory.FullName, "chart.bms");
+            File.WriteAllText(path, "#WAV01 tone.wav\n#00111:01\n");
+            var entry = PackageChartEntry.FromPath(path);
+            entry.ApplyInstallDestinationMetadata(@"C:\Original", "", "");
+            var cache = new DirectoryResourceLookupCache();
+            cache.AddDir(@"C:\Original", []);
+            cache.AddDir(@"C:\Later", ["tone.ogg"]);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, cache);
+            var target = new ChartOperationTarget(entry.Chart, null, ChartOperationSourceScope.PendingPackage, false, true, false, ChartOperationCapabilities.None, entry);
+            ChartResourcePlacement placement = ChartPropertiesViewModel.CapturePlacement(target);
+            using var model = new ChartPropertiesViewModel(entry.Chart, () =>
+            {
+                entered.TrySetResult();
+                release.Wait();
+                return new ChartResourceDiagnosticsService().Read(path, ChartFileKind.Bms, placement);
+            }, placement);
+            operation = model.LoadAsync();
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "chart-properties-placement-entered");
+            entry.ApplyInstallDestinationMetadata(@"C:\Later", "", "");
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, cache);
+            Assert.AreEqual(100, entry.Chart.WAVHealth);
+            Assert.AreEqual(Resources.ChartPropertiesConfiguredDestination, model.VerificationBasis);
+            Assert.AreEqual(@"C:\Original", model.VerificationPath);
+            release.Set();
+            await operation;
+            StringAssert.Contains(model.Issues, "tone.wav");
+            StringAssert.Contains(model.Issues, Resources.ChartPropertiesMissing);
+            Assert.AreEqual(@"C:\Original", model.VerificationPath);
+        }
+        finally
+        {
+            release.Set();
+            await operation;
+            directory.Delete(true);
+        }
+    }
+
     /// <summary>構築時には読まず、背景実行をgateで観測して二度の要求でも一回だけ読みます。成功した三分類とメタデータを表示へ渡し、実Taskをfinallyで回収します。</summary>
     [TestMethod]
     public async Task LoadAsync_RunsOnceInBackgroundAndPublishesResult()

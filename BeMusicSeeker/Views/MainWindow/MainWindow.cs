@@ -8272,7 +8272,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             e.Handled = true;
             chartPath = target.Chart.Path;
-            chartPropertiesWindowManager.Open(target.Chart);
+            chartPropertiesWindowManager.Open(target.Chart, ChartPropertiesViewModel.CapturePlacement(target));
         }
         catch (Exception exception)
         {

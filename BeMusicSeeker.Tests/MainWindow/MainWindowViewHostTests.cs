@@ -290,7 +290,7 @@ public sealed class MainWindowViewHostTests
             ownership.Run(() =>
             {
                 MainWindow window = ownership.CreateWindow(() => new MainWindow(viewModel, settingsWindowCreated: null,
-                    chartPropertiesManagerFactory: owner => new ChartPropertiesWindowManager(owner, chart =>
+                    chartPropertiesManagerFactory: owner => new ChartPropertiesWindowManager(owner, (chart, placement) =>
                     {
                         int index = children.Count;
                         var model = new ChartPropertiesViewModel(chart, () =>

@@ -1131,5 +1131,15 @@
   "Statusbar_progress_task_playlist_external_property_initialization": "プレイリストの外部プロパティ初期化",
   "Error_PreparedChartTargetMismatch": "準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。",
   "Details_require_complete_used_resources_for_auto_install": "自動新規インストールにすべての使用リソースを要求する",
-  "Details_require_complete_used_resources_for_auto_install_description": "OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。"
+  "Details_require_complete_used_resources_for_auto_install_description": "OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。",
+  "WarningDigest_InstallEstimationAudioMissing": "導入後音源不足",
+  "WarningDigest_InstallEstimationAudioUnverifiable": "導入後音源未確認",
+  "Warning_InstallEstimationAudioMissing": "推定対象の音源が導入後も不足するため、自動設定を見送りました。候補: {0}",
+  "Warning_InstallEstimationAudioUnverifiable": "推定対象の導入後の音源完全性を確認できないため、自動設定を見送りました。候補: {0}",
+  "ChartPropertiesVerificationBasis": "確認基準",
+  "ChartPropertiesVerificationPath": "確認先",
+  "ChartPropertiesConfiguredDestination": "設定先",
+  "ChartPropertiesFirstCandidate": "先頭候補",
+  "ChartPropertiesCurrentPlacement": "現在の配置",
+  "ChartPropertiesUnverifiable": "照合入力を取得できず確認不能"
 }

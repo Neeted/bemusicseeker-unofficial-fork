@@ -26,7 +26,8 @@ internal enum ChartResourceDiagnosticReason
     Missing,
     InvalidPath,
     Unsupported,
-    Cp932DecodeUnsupported
+    Cp932DecodeUnsupported,
+    Unverifiable
 }
 
 /// <summary>必要な参照と、それを確認できなかった理由です。</summary>
@@ -40,15 +41,15 @@ internal sealed record ChartResourceDiagnostics(
     ImmutableArray<ChartResourceDefinition> UnusedDefinitions,
     ImmutableArray<ChartResourceReferenceNumber> UndefinedReferences);
 
-/// <summary>選択譜面一件を既存の軽量パーサーで読み、そのディレクトリの資源だけを照合します。DB、管理主体、索引へ依存しません。</summary>
+/// <summary>選択譜面一件を既存の軽量パーサーで読み、捕捉した配置文脈で資源を照合します。DB、管理主体、索引へ依存しません。</summary>
 internal sealed class ChartResourceDiagnosticsService
 {
     /// <summary>一回捕捉したファイルを診断します。取得・解析の失敗を呼出元へ伝えます。</summary>
-    internal ChartResourceDiagnostics Read(string path, ChartFileKind kind)
-        => Diagnose(ChartFileContentReader.ReadSnapshot(path), kind);
+    internal ChartResourceDiagnostics Read(string path, ChartFileKind kind, ChartResourcePlacement placement = null)
+        => Diagnose(ChartFileContentReader.ReadSnapshot(path), kind, placement);
 
     /// <summary>捕捉済み内容の全行を既存規則で解析します。未定義IDから必要ファイルを生成しません。</summary>
-    internal ChartResourceDiagnostics Diagnose(ChartFileSnapshot snapshot, ChartFileKind kind)
+    internal ChartResourceDiagnostics Diagnose(ChartFileSnapshot snapshot, ChartFileKind kind, ChartResourcePlacement placement = null)
     {
         var details = new ChartResourceParseDetails();
         ChartFile chart;
@@ -63,7 +64,7 @@ internal sealed class ChartResourceDiagnosticsService
             // 診断は定義ごとの採用行・使用状態を使い、健康度用の全体InputDiagnosticを流用しません。
         }
 
-        string directory = Path.GetDirectoryName(snapshot.Path);
+        placement ??= new ChartResourcePlacement(ChartResourcePlacementBasis.Current, Path.GetDirectoryName(snapshot.Path));
         ImmutableArray<ChartResourceDiagnosticIssue>.Builder issues = ImmutableArray.CreateBuilder<ChartResourceDiagnosticIssue>();
         foreach (ChartResourceDefinition definition in details.Definitions.Where(item => item.Reference.IsUsed))
         {
@@ -80,22 +81,14 @@ internal sealed class ChartResourceDiagnosticsService
                 ChartResourcePathNormalizationStatus.ParentTraversalUnsupported => ChartResourceDiagnosticReason.Unsupported,
                 _ => ChartResourceDiagnosticReason.InvalidPath
             };
-            string[] extensions = reference.Usage is ChartResourceUsage.Stagefile or ChartResourceUsage.Backbmp or ChartResourceUsage.Banner
-                ? ChartResourceExtensions.ImageExtensions
-                : reference.Kind switch
-                {
-                    ChartResourceKind.Audio => ChartResourceExtensions.AudioExtensions,
-                    ChartResourceKind.Image => ChartResourceExtensions.ImageExtensions,
-                    ChartResourceKind.Movie => ChartResourceExtensions.MovieExtensions,
-                    _ => []
-                };
-            if (reason == null && extensions.Length == 0)
+            if (reason == null && reference.Usage == ChartResourceUsage.Normal && reference.Kind == ChartResourceKind.Unknown)
             {
                 reason = ChartResourceDiagnosticReason.Unsupported;
             }
-            if (reason == null && !ChartResourceExistence.ExistsWithCompatibleExtensions(directory, reference.LookupKey, extensions))
+            if (reason == null)
             {
-                reason = ChartResourceDiagnosticReason.Missing;
+                bool? exists = placement.Exists(reference);
+                reason = exists == true ? null : exists == false ? ChartResourceDiagnosticReason.Missing : ChartResourceDiagnosticReason.Unverifiable;
             }
             if (reason.HasValue)
             {

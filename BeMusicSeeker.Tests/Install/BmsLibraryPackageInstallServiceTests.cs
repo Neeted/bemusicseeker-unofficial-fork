@@ -28,6 +28,130 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed partial class BmsLibraryPackageInstallServiceTests
 {
+    /// <summary>部分列挙の観測済み資源は全種別で存在として扱い、未観測の参照は候補索引が空でも不足警告や0%へ変換しません。配置に保持した同じ文脈も未確認を返します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RefreshPendingResourceHealth_PartialSourceSurfaceDoesNotInventMissingResources(bool observed)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string path = CreateBmsFile(root, "chart.bms", "#TITLE Song\n#WAV01 tone.wav\n#BMP01 visual.bmp\n#BMP02 movie.avi\n#STAGEFILE stage.bmp\n#BACKBMP back.bmp\n#BANNER banner.bmp\n#00111:01\n#00104:0102\n");
+            var entry = PackageChartEntry.FromPath(path);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = root;
+            var enumeration = new RootFileEnumerationResult { Success = false, IsComplete = false, ErrorReason = "access_denied" };
+            enumeration.PathsByGroup[ChartDirectoryScanBuilder.AudioGroupName] = [Path.Combine(root, observed ? "tone.ogg" : "other.ogg")];
+            enumeration.PathsByGroup[ChartDirectoryScanBuilder.ImageGroupName] = observed
+                ? [.. new[] { "visual.jpg", "stage.jpg", "back.png", "banner.png" }.Select(name => Path.Combine(root, name))] : [];
+            enumeration.PathsByGroup[ChartDirectoryScanBuilder.MovieGroupName] = observed ? [Path.Combine(root, "movie.mp4")] : [];
+            PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildDirectoryInstallSurfaceSnapshot(root, root, enumeration);
+            // 既存のパッケージcache境界へ実builderの部分結果を接続し、手動変更時の再評価経路を通します。
+            FieldInfo field = typeof(ChartPackage).GetField("packageInstallSurfaceSnapshot", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Package source-surface cache field is unavailable.");
+            field.SetValue(package, surface);
+            string destination = Path.Combine(root, "Destination");
+            entry.ApplyInstallDestinationMetadata(destination, "", "");
+            var index = new DirectoryResourceLookupCache();
+            index.AddDir(destination, []);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, index);
+            Assert.AreEqual(observed ? 100 : (int?)null, entry.Chart.WAVHealth);
+            Assert.AreEqual(observed ? 100 : (int?)null, entry.Chart.BGAHealth);
+            Assert.AreEqual(observed ? 100 : (int?)null, entry.Chart.MovieHealth);
+            Assert.AreEqual(observed ? true : (bool?)null, entry.Chart.StagefileHealth);
+            Assert.AreEqual(observed ? true : (bool?)null, entry.Chart.BackbmpHealth);
+            Assert.AreEqual(observed ? true : (bool?)null, entry.Chart.BannerHealth);
+            Assert.AreEqual(observed ? true : (bool?)null, entry.ResourcePlacement.Exists("tone", ChartResourceKind.Audio));
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Category == ChartWarningCategory.ResourceHealth));
+        });
+    }
+
+    /// <summary>設定先優先・先頭候補・入力元を実パッケージ同梱と固定候補索引で照合し、全六種類の健康度と不足警告を同じ結果へ揃えます。使用集合の重複と未使用定義も分母へ混ぜません。</summary>
+    [TestMethod]
+    [DataRow("configured")]
+    [DataRow("candidate")]
+    [DataRow("current")]
+    public void RefreshPendingResourceHealth_SelectsPlacementAndCombinesAllResourceKinds(string selection)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "Source");
+            string path = CreateBmsFile(source, "chart.bms", "#TITLE Song\n#WAV01 tone.wav\n#WAV02 absent.wav\n#WAV03 unused.wav\n#BMP01 visual.bmp\n#BMP02 movie.avi\n#STAGEFILE stage.bmp\n#BACKBMP back.bmp\n#BANNER banner.bmp\n#00111:010201\n#00104:0102\n");
+            File.WriteAllText(Path.Combine(source, "tone.ogg"), "audio");
+            File.WriteAllText(Path.Combine(source, "stage.jpg"), "image");
+            var entry = PackageChartEntry.FromPath(path);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            var cache = new DirectoryResourceLookupCache();
+            string candidate = Path.Combine(root, "Candidate");
+            string configured = Path.Combine(root, "Configured");
+            cache.AddDir(candidate, ["absent.ogg", "visual.jpg", "movie.mp4", "back.png", "banner.png"]);
+            cache.AddDir(configured, ["visual.jpg"]);
+            if (selection != "current")
+            {
+                entry.ApplyCurrentChart(entry.Chart with { InstallDestinationSuggestions = [candidate] });
+            }
+            if (selection == "configured") { entry.ApplyInstallDestinationMetadata(configured, "", ""); }
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache);
+            ChartFile chart = entry.Chart;
+            Assert.AreEqual(selection == "candidate" ? 100 : 50, chart.WAVHealth);
+            Assert.AreEqual(selection == "current" ? 0 : 100, chart.BGAHealth);
+            Assert.AreEqual(selection == "candidate" ? 100 : 0, chart.MovieHealth);
+            Assert.AreEqual(true, chart.StagefileHealth);
+            Assert.AreEqual(selection == "candidate", chart.BackbmpHealth);
+            Assert.AreEqual(selection == "candidate", chart.BannerHealth);
+            Assert.AreEqual(2, chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+            Assert.AreEqual(selection == "configured" ? configured : selection == "candidate" ? candidate : source, entry.ResourcePlacement.Directory);
+            Assert.AreEqual(selection != "candidate", chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual(selection != "candidate", chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceMovieMissing));
+            Assert.AreEqual(selection == "current", chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBgaMissing));
+            Assert.IsFalse(chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceStagefileMissing));
+            Assert.AreEqual(selection != "candidate", chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBackbmpMissing));
+            Assert.AreEqual(selection != "candidate", chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBannerMissing));
+        });
+    }
+
+    /// <summary>未取得候補・照合不能は未確認として欠損件数を作らず、0件は検査済みの対象外を保ちます。単一ファイルの親に音源があっても同梱としません。</summary>
+    [TestMethod]
+    [DataRow("unavailable")]
+    [DataRow("invalid")]
+    [DataRow("zero")]
+    [DataRow("single-file")]
+    public void RefreshPendingResourceHealth_DistinguishesUnknownZeroAndSingleFileScope(string state)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string text = state == "zero" ? "#TITLE Empty\n" : "#WAV01 " + (state == "invalid" ? ".wav" : "tone.wav") + "\n#00111:01\n";
+            string path = CreateBmsFile(root, "chart.bms", text);
+            File.WriteAllText(Path.Combine(root, "tone.ogg"), "audio");
+            var entry = PackageChartEntry.FromPath(path);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = path;
+            string destination = Path.Combine(root, "Destination");
+            entry.ApplyInstallDestinationMetadata(destination, "", "");
+            var cache = new DirectoryResourceLookupCache();
+            if (state != "unavailable") { cache.AddDir(destination, []); }
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, cache);
+            if (state is "unavailable" or "invalid")
+            {
+                Assert.IsNull(entry.Chart.WAVHealth);
+                Assert.IsNull(entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+                Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            }
+            else if (state == "zero")
+            {
+                Assert.IsNull(entry.Chart.WAVHealth);
+                Assert.AreEqual(0, entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesDefined);
+                Assert.AreEqual(0, entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            }
+            else
+            {
+                Assert.AreEqual(0, entry.Chart.WAVHealth);
+                Assert.IsTrue(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceWavMissing));
+            }
+        });
+    }
+
     /// <summary>発見時の全定義契約を維持します。未使用定義の実在、または実在しなくても未使用の共通定義があれば一つのフォルダパッケージにまとめます。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -59,7 +183,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
-    /// <summary>同じ実入力を設定ON/OFFで分類し、非音声だけの欠損はOFFで許可、ONで保留とします。音源欠損は行頭の空白種別にかかわらず保留し、未定義ID・未使用定義は要求へ混入させません。</summary>
+    /// <summary>同じ実入力を設定ON/OFFで分類し、非音声だけの欠損はOFFで許可、ONで保留とします。音源欠損は行頭の空白種別にかかわらず保留し、未定義ID・未使用定義は要求へ混入させず、配置未確認になっても全定義由来のLR2診断を保持します。</summary>
     [TestMethod]
     [DataRow("image")]
     [DataRow("movie")]
@@ -91,7 +215,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 "space-tab-audio" => "#WAV02 missing.wav\n \t#00111:02\n",
                 "fullwidth-audio" => "#WAV02 missing.wav\n\u3000#00111:02\n",
                 "undefined-audio" => "#00101:02\n",
-                "unused" => "#WAV02 missing.wav\n#BMP01 missing.png\n#WAV03 ../unused.wav\n",
+                "unused" => "#WAV02 missing.wav\n#BMP01 missing.png\n#WAV03 ../unused.wav\n#STAGEFILE stage.png\n",
                 _ => ""
             });
             if (condition == "zero-audio")
@@ -99,6 +223,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 text = "#TITLE Song\n#BMP01 missing.png\n#00104:01\n";
             }
 
+            if (condition == "unused") { File.WriteAllText(Path.Combine(directory, "stage.png"), "image"); }
             bool invalidAuxiliary = condition.StartsWith("invalid-", StringComparison.Ordinal);
             if (invalidAuxiliary)
             {
@@ -129,6 +254,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(true, chart.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal);
                     PackageChartEntry entry = result.DiscoveredPackages.Single().ChartEntries.Single();
                     BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjection(entry);
+                    Assert.AreEqual(true, entry.Chart.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal);
+                    // 単一ファイル相当の導入先照合が未取得でも、解放した未使用定義のLR2診断は消しません。
+                    entry.ApplyInstallDestinationMetadata(@"C:\UnindexedDestination", "", "");
+                    BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, null);
+                    Assert.IsNull(entry.Chart.StagefileHealth);
+                    BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], null, null);
                     Assert.AreEqual(true, entry.Chart.ResourceHealthMaintenanceSnapshot.Lr2ResourceHasParentTraversal);
                 }
             }

@@ -55,9 +55,9 @@ internal sealed class BmsLibraryMaintenanceService
             && string.Equals(value.Hash, chart.Md5, StringComparison.OrdinalIgnoreCase) ? value : null;
     }
 
-    /// <summary>取得済み使用資源を評価し、不変の保守値を返します。発見だけはincludeUnusedで全定義を一時評価します。保存行と譜面の現在値を変更しません。</summary>
+    /// <summary>取得済み使用資源を評価し、不変の保守値を返します。発見だけはincludeUnusedで全定義を一時評価します。配置指定時はその不変照合入力を使い、保存行と譜面の現在値を変更しません。</summary>
     internal static ResourceHealthMaintenanceSnapshot BuildResourceHealthSnapshot(
-        ChartFile chart, ResourceHealthLookupContext lookupContext = null, bool forceUpdate = false, bool includeUnused = false)
+        ChartFile chart, ResourceHealthLookupContext lookupContext = null, bool forceUpdate = false, bool includeUnused = false, ChartResourcePlacement placement = null)
     {
         if (chart == null || string.IsNullOrWhiteSpace(chart.Path)
             || (chart.Resources == null && !LongPathFileSystem.FileExists(chart.Path)))
@@ -71,8 +71,21 @@ internal sealed class BmsLibraryMaintenanceService
         }
         var resources = ChartResourceSnapshot.Create(chart.Resources ?? throw new InvalidOperationException("Resource references have not been acquired."), includeUnused);
         ResourceHealthLookupContext.ResourceHealthSetSignature signature = BuildResourceHealthSetSignature(resources);
+        int? placementAudio = placement?.CountExisting(resources.AudioReferences, ChartResourceKind.Audio);
+        int? placementVisual = placement?.CountExisting(resources.VisualReferences, ChartResourceKind.Image);
+        int? placementMovie = placement?.CountExisting(resources.MovieReferences, ChartResourceKind.Movie);
         ResourceHealthLookupContext.ResourceHealthCounts counts;
-        if (lookupContext?.TryGetResourceHealthCounts(chartDirectory, signature, out counts) != true)
+        if (placement != null)
+        {
+            counts = new ResourceHealthLookupContext.ResourceHealthCounts(
+                resources.AudioReferenceCount, placementAudio ?? 0,
+                resources.VisualReferenceCount, placementVisual ?? 0,
+                resources.MovieReferenceCount, placementMovie ?? 0,
+                IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Stagefile)), resources.GetOptionalImage(ChartResourceUsage.Stagefile) is { } stage && placement.Exists(stage) == true,
+                IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Backbmp)), resources.GetOptionalImage(ChartResourceUsage.Backbmp) is { } back && placement.Exists(back) == true,
+                IsOptionalImageDefined(resources.GetOptionalImage(ChartResourceUsage.Banner)), resources.GetOptionalImage(ChartResourceUsage.Banner) is { } banner && placement.Exists(banner) == true);
+        }
+        else if (lookupContext?.TryGetResourceHealthCounts(chartDirectory, signature, out counts) != true)
         {
             counts = ComputeResourceHealthCounts(chart, chartDirectory, resources, lookupContext);
             lookupContext?.SetResourceHealthCounts(chartDirectory, signature, counts);
@@ -87,18 +100,18 @@ internal sealed class BmsLibraryMaintenanceService
             Hash = chart.Md5,
             Encoding = chart.Kind == ChartFileKind.Bmson ? "utf-8" : null,
             Origin = MaintenanceInfoOrigin.Calculated,
-            WavFilesDefined = !includeUnused && resources.HasUnresolvedAudio ? null : counts.AudioDefined,
-            WavFilesExisting = !includeUnused && resources.HasUnresolvedAudio ? null : counts.AudioExisting,
-            BgaFilesDefined = !includeUnused && resources.HasUnresolvedVisual ? null : counts.VisualDefined,
-            BgaFilesExisting = !includeUnused && resources.HasUnresolvedVisual ? null : counts.VisualExisting,
-            MovieFilesDefined = !includeUnused && resources.HasUnresolvedMovie ? null : counts.MovieDefined,
-            MovieFilesExisting = !includeUnused && resources.HasUnresolvedMovie ? null : counts.MovieExisting,
+            WavFilesDefined = !includeUnused && (resources.HasUnresolvedAudio || (placement != null && !placementAudio.HasValue)) ? null : counts.AudioDefined,
+            WavFilesExisting = !includeUnused && (resources.HasUnresolvedAudio || (placement != null && !placementAudio.HasValue)) ? null : counts.AudioExisting,
+            BgaFilesDefined = !includeUnused && (resources.HasUnresolvedVisual || (placement != null && !placementVisual.HasValue)) ? null : counts.VisualDefined,
+            BgaFilesExisting = !includeUnused && (resources.HasUnresolvedVisual || (placement != null && !placementVisual.HasValue)) ? null : counts.VisualExisting,
+            MovieFilesDefined = !includeUnused && (resources.HasUnresolvedMovie || (placement != null && !placementMovie.HasValue)) ? null : counts.MovieDefined,
+            MovieFilesExisting = !includeUnused && (resources.HasUnresolvedMovie || (placement != null && !placementMovie.HasValue)) ? null : counts.MovieExisting,
             StagefileDefined = counts.StagefileDefined,
-            StagefileExisting = counts.StagefileDefined ? counts.StagefileExisting : null,
+            StagefileExisting = counts.StagefileDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Stagefile) is { } referenceStagefile ? placement.Exists(referenceStagefile) : counts.StagefileExisting) : null,
             BackbmpDefined = counts.BackbmpDefined,
-            BackbmpExisting = counts.BackbmpDefined ? counts.BackbmpExisting : null,
+            BackbmpExisting = counts.BackbmpDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Backbmp) is { } referenceBackbmp ? placement.Exists(referenceBackbmp) : counts.BackbmpExisting) : null,
             BannerDefined = counts.BannerDefined,
-            BannerExisting = counts.BannerDefined ? counts.BannerExisting : null,
+            BannerExisting = counts.BannerDefined ? (placement != null && resources.GetOptionalImage(ChartResourceUsage.Banner) is { } referenceBanner ? placement.Exists(referenceBanner) : counts.BannerExisting) : null,
             FilesWarningIgnored = !forceUpdate && chart.ResourceHealthWarningsIgnored,
             Lr2WarningFlags = chart.Kind == ChartFileKind.Bms ? (int)(path.WarningFlags | resource.WarningFlags) : null,
             Lr2ResourceMaxRelativeCp932Bytes = chart.Kind == ChartFileKind.Bms ? resource.MaxRelativeCp932Bytes : null,

@@ -1131,5 +1131,15 @@
   "Statusbar_progress_task_playlist_external_property_initialization": "Initializing playlist properties from external sources",
   "Error_PreparedChartTargetMismatch": "The prepared chart target does not match the currently owned item, format, or location. No changes were made.",
   "Details_require_complete_used_resources_for_auto_install": "Require all used resources for automatic new installation",
-  "Details_require_complete_used_resources_for_auto_install_description": "OFF: Automatically install when audio is complete, even if BGA, movies or auxiliary images are missing. ON: Require all used resources. If audio is complete and only non-audio resources are missing, keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Check warnings and estimate manually in the pending view. Missing audio triggers automatic estimation."
+  "Details_require_complete_used_resources_for_auto_install_description": "OFF: Automatically install when audio is complete, even if BGA, movies or auxiliary images are missing. ON: Require all used resources. If audio is complete and only non-audio resources are missing, keep the package pending and skip searching for new candidates. Candidates known from owned charts still undergo TITLE/ARTIST matching. Check warnings and estimate manually in the pending view. Missing audio triggers automatic estimation.",
+  "WarningDigest_InstallEstimationAudioMissing": "Audio missing after installation",
+  "WarningDigest_InstallEstimationAudioUnverifiable": "Audio after installation unverified",
+  "Warning_InstallEstimationAudioMissing": "The estimated group would still have missing audio after installation, so the destination was not set automatically. Candidate: {0}",
+  "Warning_InstallEstimationAudioUnverifiable": "Audio completeness after installation could not be verified for the estimated group, so the destination was not set automatically. Candidate: {0}",
+  "ChartPropertiesVerificationBasis": "Verification basis",
+  "ChartPropertiesVerificationPath": "Verification path",
+  "ChartPropertiesConfiguredDestination": "Configured destination",
+  "ChartPropertiesFirstCandidate": "First candidate",
+  "ChartPropertiesCurrentPlacement": "Current location",
+  "ChartPropertiesUnverifiable": "Unverifiable: lookup data unavailable"
 }

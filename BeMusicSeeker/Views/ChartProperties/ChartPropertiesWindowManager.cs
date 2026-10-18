@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 
@@ -13,7 +14,7 @@ namespace BeMusicSeeker.Views;
 internal sealed class ChartPropertiesWindowManager
 {
     private readonly Window mainWindow;
-    private readonly Func<ChartFile, Window> createWindow;
+    private readonly Func<ChartFile, ChartResourcePlacement, Window> createWindow;
     private readonly Action<Window> prepareWindowForShow;
     private readonly HashSet<Window> windows = [];
     private readonly HashSet<Task> reads = [];
@@ -24,19 +25,19 @@ internal sealed class ChartPropertiesWindowManager
 
     /// <summary>初期配置の基準となるメイン画面を接続します。任意の生成はChartPropertiesViewModelをDataContextへ接続した実Windowを返し、表示前準備はその寿命を置き換えずに接続します。</summary>
     internal ChartPropertiesWindowManager(Window mainWindow,
-        Func<ChartFile, Window> createWindow = null,
+        Func<ChartFile, ChartResourcePlacement, Window> createWindow = null,
         Action<Window> prepareWindowForShow = null)
     {
         this.mainWindow = mainWindow ?? throw new ArgumentNullException(nameof(mainWindow));
-        this.createWindow = createWindow ?? (chart => new ChartPropertiesWindow(new ChartPropertiesViewModel(chart)));
+        this.createWindow = createWindow ?? ((chart, placement) => new ChartPropertiesWindow(new ChartPropertiesViewModel(chart, placement: placement)));
         this.prepareWindowForShow = prepareWindowForShow;
     }
 
     /// <summary>毎回新しい窓を非モーダル表示し、表示が続いていれば一度だけ読取りを開始します。終了受付後は生成も読取りもしません。</summary>
-    internal void Open(ChartFile chart)
+    internal void Open(ChartFile chart, ChartResourcePlacement placement = null)
     {
         if (shuttingDown) { return; }
-        Window window = createWindow(chart);
+        Window window = createWindow(chart, placement);
         windows.Add(window);
         window.Closed += WindowClosed;
         try

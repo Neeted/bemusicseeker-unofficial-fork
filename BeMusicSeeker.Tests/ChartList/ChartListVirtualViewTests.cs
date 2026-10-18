@@ -2475,8 +2475,8 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(sourceRow.WAVHealth, row.WAVHealth);
         Assert.AreEqual(sourceRow.BGAHealth, row.BGAHealth);
         Assert.AreEqual(sourceRow.MovieHealth, row.MovieHealth);
-        Assert.IsFalse(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
-        Assert.IsFalse(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsTrue(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsTrue(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(sourceRow.Chart.Warnings), "WAV missing");
         StringAssert.Contains(row.WarningTooltipText, "WAV missing");
 
@@ -2484,8 +2484,24 @@ public sealed class ChartListVirtualViewTests
 
         Assert.AreEqual(@"D:\BMS\Next", sourceRow.InstallDestination);
         Assert.AreEqual(@"D:\BMS\Next", row.instl_dst);
-        Assert.IsFalse(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
-        Assert.IsFalse(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsTrue(sourceRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        Assert.IsTrue(row.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        int healthNotifications = 0;
+        bool observeHealth = true;
+        entry.PropertyChanged += (_, _) =>
+        {
+            if (!observeHealth) { return; }
+            healthNotifications++;
+            Assert.AreEqual(75, sourceRow.WAVHealth);
+            Assert.AreEqual(75, row.WAVHealth);
+            StringAssert.Contains(row.WarningTooltipText, "Next WAV missing");
+        };
+        entry.ReplaceResourceHealthProjection(maintenanceInfo with { WavFilesExisting = 3 },
+            [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "Next WAV missing")]);
+        observeHealth = false;
+        Assert.AreEqual(1, healthNotifications);
+        Assert.AreEqual(75, sourceRow.WAVHealth);
+        Assert.AreEqual(75, row.WAVHealth);
         ChartFile captured = entry.Chart;
         entry.ApplyCurrentChart(captured with
         {
@@ -2645,6 +2661,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>library未接続でもpackage導入先を消去しadapterを作らず、未接続時の消去漏れを検出します。</summary>
+    /// <remarks>対象識別とadapter非生成を確認するため、仮パスの譜面は参照取得済みの空集合として用意します。実ファイルの取得・配置評価はInstall側の試験へ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPackagesWithoutLibraryClearsAdapterlessBmsonEntry()
@@ -2654,7 +2671,7 @@ public sealed class ChartListVirtualViewTests
         using BeMusicSeeker.ViewModels.SettingsDialogViewModel viewModelSettingsLifetime = viewModel.SettingDialog;
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
-                (CreateBmsonSong()),
+                (CreateBmsonSong() with { Resources = [] }),
                 @"C:\Installed\Target",
                 "Installed",
                 "Artist",
@@ -2668,6 +2685,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>実libraryの保留packageへ消去要求を渡すと導入先を空にしadapterを作らず、実操作から旧BMS経路へ戻る誤りを検出します。</summary>
+    /// <remarks>対象識別とadapter非生成を確認するため、仮パスの譜面は参照取得済みの空集合として用意します。実ファイルの取得・配置評価はInstall側の試験へ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingClearsAdapterlessBmsonPackageEntryWithoutMaterializing()
@@ -2679,7 +2697,7 @@ public sealed class ChartListVirtualViewTests
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        ChartFile bmsonSong = CreateBmsonSong();
+        ChartFile bmsonSong = CreateBmsonSong() with { Resources = [] };
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 (bmsonSong),
@@ -2721,6 +2739,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>同じpathのpackage項目と独立譜面を選んでもpackage導入先だけ消し、独立譜面の値とadapter非生成を保持して対象混同を検出します。</summary>
+    /// <remarks>対象識別とadapter非生成を確認するため、仮パスの譜面は参照取得済みの空集合として用意します。実ファイルの取得・配置評価はInstall側の試験へ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingDoesNotResolveLooseBmsonCompatibilityAdapterWhenStandaloneTargetSharesPath()
@@ -2732,7 +2751,7 @@ public sealed class ChartListVirtualViewTests
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        ChartFile bmsonSong = CreateBmsonSong();
+        ChartFile bmsonSong = CreateBmsonSong() with { Resources = [] };
         var adapterlessBmsonEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 (bmsonSong),
@@ -2898,6 +2917,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     /// <summary>捕捉後に同じ譜面の項目を置換しても現在項目の導入先を消し、旧項目だけを編集する誤りを検出します。</summary>
+    /// <remarks>対象識別とadapter非生成を確認するため、仮パスの譜面は参照取得済みの空集合として用意します。実ファイルの取得・配置評価はInstall側の試験へ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public async Task InstallDestinationWorkflow_ClearPendingResolvesReplacedPackageEntryByChartIdentity()
@@ -2909,7 +2929,7 @@ public sealed class ChartListVirtualViewTests
         Directory.CreateDirectory(tempRootPath);
         string songDbPath = Path.Combine(tempRootPath, "song.db");
         File.WriteAllBytes(songDbPath, []);
-        ChartFile bmsonSong = CreateBmsonSong();
+        ChartFile bmsonSong = CreateBmsonSong() with { Resources = [] };
         var staleEntry = PackageChartEntry.FromChart(
             ChartFileProjection.WithPackageState(
                 (bmsonSong),

@@ -1035,7 +1035,7 @@ public partial class BMSLibrary
                         return;
                     }
                     LogInstallEstimationEvaluation(estimationData);
-                    ApplyInstallEstimationResultToEntries(targetEntryList, estimationData.Result);
+                    ApplyInstallEstimationResultToEntries(targetEntryList, estimationData.Result, package);
                 }
                 finally
                 {
@@ -1057,7 +1057,7 @@ public partial class BMSLibrary
         }
     }
 
-    private static void ApplyInstalledDestinationResolveFailedToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
+    private void ApplyInstalledDestinationResolveFailedToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
     {
         if (package != null)
         {
@@ -1067,6 +1067,7 @@ public partial class BMSLibrary
         {
             entry.ApplyInstalledDestinationResolveFailed();
         }
+        RefreshPendingResourceHealth(missingEntries, package);
     }
 
     private static bool HasUnsupportedResourcePath(IEnumerable<PackageChartEntry> entries)
@@ -1074,7 +1075,7 @@ public partial class BMSLibrary
         return (entries ?? []).Any(entry => entry?.Chart != null && entry.ResourceSnapshot.HasUnsupportedParentTraversalReference);
     }
 
-    private static void ApplyUnsupportedResourcePathToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
+    private void ApplyUnsupportedResourcePathToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries)
     {
         if (package != null)
         {
@@ -1091,9 +1092,10 @@ public partial class BMSLibrary
                 entry.ClearInstallDestination();
             }
         }
+        RefreshPendingResourceHealth(missingEntries, package);
     }
 
-    private static void ApplySourceSurfaceScanLimitExceededToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries, int maxVisitedFileSystemEntryCount)
+    private void ApplySourceSurfaceScanLimitExceededToPackageUnsafe(ChartPackage package, IEnumerable<PackageChartEntry> missingEntries, int maxVisitedFileSystemEntryCount)
     {
         if (package != null)
         {
@@ -1106,6 +1108,7 @@ public partial class BMSLibrary
         {
             entry.ApplySourceSurfaceScanLimitExceededWarning(normalizedMax);
         }
+        RefreshPendingResourceHealth(missingEntries, package);
     }
 
     private InstalledDirectoryLookupResult ResolveInstalledDestinationFromPackage(ChartPackage package, IReadOnlyCollection<PackageChartEntry> missingEntries)
@@ -1186,7 +1189,7 @@ public partial class BMSLibrary
                                     return;
                                 }
                                 LogInstallEstimationEvaluation(hashEstimation);
-                                ApplyInstallEstimationResultToEntries(targetEntries, hashEstimation.Result);
+                                ApplyInstallEstimationResultToEntries(targetEntries, hashEstimation.Result, package);
                                 return;
                             }
                             if (resolution.Reason == InstalledDirectoryResolveReason.MultipleCandidateDirectories)
@@ -1215,7 +1218,7 @@ public partial class BMSLibrary
                                 LogInstallEstimationEvaluation(estimationData);
                                 if (estimationData.Result?.HasViableDestination == true)
                                 {
-                                    ApplyInstallEstimationResultToEntries(targetEntries, estimationData.Result);
+                                    ApplyInstallEstimationResultToEntries(targetEntries, estimationData.Result, package);
                                 }
                                 else
                                 {
@@ -2850,7 +2853,9 @@ public partial class BMSLibrary
         {
             if (BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndex, entry.Chart).Count > 0)
             {
+                ChartWarning[] audioReasons = CaptureInstallAudioEstimationWarnings(entry);
                 entry.ClearInstallDestination();
+                foreach (ChartWarning warning in audioReasons) { entry.SetWarning(warning.Kind, warning.Message); }
             }
             else
             {
@@ -2891,6 +2896,10 @@ public partial class BMSLibrary
         return true;
     }
 
+    /// <summary>再編成は新たな推定ではないため、元の対象と評価先を示す音源見送り理由だけを引き継ぎます。</summary>
+    private static ChartWarning[] CaptureInstallAudioEstimationWarnings(PackageChartEntry entry)
+        => [.. entry.Chart.Warnings.Where(warning => warning.Kind is ChartWarningKind.InstallEstimationAudioMissing or ChartWarningKind.InstallEstimationAudioUnverifiable)];
+
     private void ReinitializePendingWarningsForPackageUnsafe(ChartPackage package, IPrimaryHashLookup installedHashes)
     {
         if (package == null)
@@ -2908,7 +2917,9 @@ public partial class BMSLibrary
             }
 
             bool isBmson = chart.Kind == ChartFileKind.Bmson;
+            ChartWarning[] audioReasons = CaptureInstallAudioEstimationWarnings(entry);
             entry.ClearStructuredWarnings();
+            foreach (ChartWarning warning in audioReasons) { entry.SetWarning(warning.Kind, warning.Message); }
 
             string key = ChartLookupKey.GetPrimaryHash(chart);
             if (!string.IsNullOrWhiteSpace(key) && installedHashLookup.ContainsPrimaryHash(key))
@@ -2922,7 +2933,7 @@ public partial class BMSLibrary
                 entry.SetWarning(isBmson ? ChartWarningKind.SingleBmsonFile : ChartWarningKind.SingleBmsFile, isBmson ? Resources.Warning_SingleBmsonFile : Resources.Warning_SingleBmsFile);
             }
         }
-        BmsLibraryPackageInstallService.ApplyPendingResourceHealthProjectionToEntries(package.ChartEntries);
+        RefreshPendingResourceHealth(package.ChartEntries, package);
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
     }
 

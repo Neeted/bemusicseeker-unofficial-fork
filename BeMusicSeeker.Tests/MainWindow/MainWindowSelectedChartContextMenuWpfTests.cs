@@ -1049,7 +1049,9 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
 
     /// <summary>compiledメニューから同じAを二度、個別Close後にBを独立表示します。メニュー表示では読まず、読取中もメイン操作を許可し、選択変更と元ファイル削除で既結果を差し替えません。対象条件表はVMへ分担します。</summary>
     [TestMethod]
-    public void ChartPropertiesMenu_OpensFreshIndependentWindowsAndKeepsCapturedResults()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartPropertiesMenu_OpensFreshIndependentWindowsAndKeepsCapturedResults(bool pending)
     {
         string path = Path.GetTempFileName();
         string otherPath = Path.GetTempFileName();
@@ -1061,6 +1063,13 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
         {
             LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
             LibraryChartRow second = CreateChartRow(ChartFileKind.Bms, new string('b', 32), otherPath);
+            if (pending)
+            {
+                var firstEntry = PackageChartEntry.FromChart(row.Chart);
+                firstEntry.ApplyInstallDestinationMetadata(@"C:\PendingDestination", "", "");
+                row = LibraryChartRow.FromPackageChartEntry(firstEntry);
+                second = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(second.Chart));
+            }
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
                 MainWindowViewModelTestFactory.CreateIsolatedSettings(),
                 (scope, viewModel, window) =>
@@ -1070,7 +1079,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     {
                         var table = (CustomTableView)window.FindName("customTableView");
                         table.ItemsSource = new List<object> { row, second };
-                        viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                        viewModel.MainChartList.SetOperationContext(pending ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected);
                         var menu = (ContextMenu)window.FindResource("tableContextMenu");
                         var placement = new FrameworkElement { DataContext = row };
                         menu.PlacementTarget = placement;
@@ -1120,16 +1129,23 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     }
                 },
                 chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
-                    chart =>
+                    (chart, placement) =>
                     {
                         int index = windows.Count;
+                        if (pending && index < 2)
+                        {
+                            Assert.IsNotNull(placement);
+                            Assert.AreEqual(ChartResourcePlacementBasis.Destination, placement.Basis);
+                            Assert.AreEqual(@"C:\PendingDestination", placement.Directory);
+                        }
+                        else if (!pending) { Assert.IsNull(placement); }
                         var model = new ChartPropertiesViewModel(chart, () =>
                         {
                             Interlocked.Increment(ref calls);
                             entered[index].TrySetResult(true);
                             release.Wait();
                             return new ChartResourceDiagnostics(chart.Path, "Artist", [], [], []);
-                        });
+                        }, placement);
                         var child = new ChartPropertiesWindow(model);
                         windows.Add(child);
                         return child;
@@ -1196,7 +1212,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 },
                 playlistWorkspaceDialogService: messages,
                 chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
-                    chart =>
+                    (chart, placement) =>
                     {
                         child = new ChartPropertiesShowFaultWindow(new ChartPropertiesViewModel(chart, () =>
                     {

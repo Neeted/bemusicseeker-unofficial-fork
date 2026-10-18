@@ -6,6 +6,7 @@ using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Tests.Performance;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -14,6 +15,83 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryInstallEstimationServiceTests
 {
+    /// <summary>通常の部分列挙は観測済み資源を候補評価へ渡し、全参照が観測できれば自動確定します。未観測の参照は欠損へ変換せず、直接・共有入力と通常・ハッシュ入口の両方で確認不能理由を保ちます。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Estimate_PartialSourceSurfacePreservesObservedResourcesAndUnverifiableReason(bool hash, bool observedComplete)
+    {
+        WithWorkspace((root, service) =>
+        {
+            string source = Path.Combine(root, "Source");
+            Directory.CreateDirectory(source);
+            ChartFile chart = CreateFile("md5", Path.Combine(source, "chart.bms"), "one.wav", "two.wav", "three.wav", "four.wav", "last.wav")
+                with
+            { RawTitle = "Song", Artist = "Artist" };
+            var entry = PackageChartEntry.FromChart(chart);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = source;
+            var enumeration = new RootFileEnumerationResult { Success = false, IsComplete = false, ErrorReason = "access_denied" };
+            enumeration.PathsByGroup[ChartDirectoryScanBuilder.AudioGroupName] = [Path.Combine(source, observedComplete ? "last.ogg" : "one.ogg")];
+            PackageInstallSurfaceSnapshot surface = PackageInstallEstimationSnapshotBuilder.BuildDirectoryInstallSurfaceSnapshot(source, source, enumeration);
+            Assert.IsFalse(surface.IsComplete);
+            Assert.IsFalse(surface.ScanLimitExceeded);
+            Assert.AreEqual(1, surface.BundledResources.AudioFileNameHashCount);
+            // 自動推定のルート共有も同じ部分性を渡し、入力面を完全へ昇格しません。
+            PackageInstallSurfaceSnapshot shared = PackageInstallEstimationSnapshotBuilder.BuildSharedInstallSurfaceSnapshot(source, source,
+                new SourceSurfaceEntryView { ResourceEntry = surface.SourceCandidateResources, IsComplete = surface.IsComplete }, true);
+            PackageInstallEstimationSnapshot snapshot = PackageInstallEstimationSnapshotBuilder.Build(package, [entry], hash ? surface : shared, false);
+            Assert.IsFalse(snapshot.SourceSurfaceIsComplete);
+            var index = new DirectoryResourceLookupCache();
+            string candidate = Path.Combine(root, "Candidate");
+            index.AddDir(candidate, ["one.wav", "two.wav", "three.wav", "four.wav"]);
+            InstallEstimationResult result = hash
+                ? service.EvaluateInstalledChartHashDestination(candidate, [entry], _ => snapshot.TargetMetadataProfile, snapshot, index)
+                : service.EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal, _ => snapshot.TargetMetadataProfile);
+            Assert.IsTrue(result.HasViableDestination);
+            Assert.AreEqual(observedComplete, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(observedComplete ? InstallAudioCompleteness.Complete : InstallAudioCompleteness.Unverifiable, result.AudioCompleteness);
+            Assert.IsFalse(result.PendingBundledResourcesComplete);
+            entry.ApplyInstallEstimationResult(result);
+            BmsLibraryPackageInstallService.RefreshPendingResourceHealth([entry], package, result.PendingDirectoryLookupCache, result.PendingBundledResources, result.PendingBundledResourcesComplete);
+            Assert.AreEqual(observedComplete ? 100 : (int?)null, entry.Chart.WAVHealth);
+            Assert.AreEqual(observedComplete ? 5 : (int?)null, entry.Chart.ResourceHealthMaintenanceSnapshot.WavFilesExisting);
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind is ChartWarningKind.InstallEstimationAudioMissing or ChartWarningKind.ResourceWavMissing));
+            Assert.AreEqual(!observedComplete, entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioUnverifiable));
+        });
+    }
+
+    /// <summary>メタデータ不一致でも音源の欠損理由を評価して併記します。通常とハッシュの両入口でStrongや候補順位を変更しません。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Estimate_AudioReasonIsIndependentOfMetadataMismatch(bool hash)
+    {
+        ChartFile target = CreateFile("md5", @"C:\Source\chart.bms", "one.wav", "two.wav", "three.wav", "four.wav", "missing.wav") with { RawTitle = "Target", Artist = "Artist" };
+        var snapshot = new PackageInstallEstimationSnapshot
+        {
+            RepresentativeChart = target,
+            DefinedResources = ChartResourceSnapshot.Create(target),
+            TargetMetadataProfile = InstallEstimationMetadataNormalizer.BuildProfile([("Target", "Artist", "chart.bms")])
+        };
+        var index = new DirectoryResourceLookupCache();
+        index.AddDir(@"C:\Candidate", ["one.ogg", "two.wav", "three.wav", "four.wav"]);
+        InstallEstimationMetadataProfile profile = InstallEstimationMetadataNormalizer.BuildProfile([("Other", "Other artist", "base.bms")]);
+        var entry = PackageChartEntry.FromChart(target);
+        InstallEstimationResult result = hash
+            ? CreateService().EvaluateInstalledChartHashDestination(@"C:\Candidate", [entry], _ => profile, snapshot, index)
+            : CreateService().EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal, _ => profile);
+        Assert.IsTrue(result.HasViableDestination);
+        Assert.IsFalse(result.ShouldAutoApplyDestination);
+        Assert.AreEqual(InstallEstimationLowConfidenceKind.MetadataMismatch, result.LowConfidenceKind);
+        Assert.AreEqual(InstallAudioCompleteness.Missing, result.AudioCompleteness);
+        entry.ApplyInstallEstimationResult(result);
+        CollectionAssert.AreEquivalent(new[] { ChartWarningKind.InstallEstimationMetadataMismatch, ChartWarningKind.InstallEstimationAudioMissing },
+            entry.Chart.Warnings.Select(warning => warning.Kind).ToArray());
+    }
+
     /// <summary>同梱98件で両候補が100%になる場合も、候補自身の一致90件を2件より優先します。同梱との重複を二重計数しません。</summary>
     [TestMethod]
     public void EstimateInstallationDirectory_UnionFulfillmentRanksCandidateOwnMatches()
@@ -60,7 +138,12 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             index.AddDir(@"C:\Candidate", names.Take(matched));
             InstallEstimationResult result = CreateService().EstimateInstallationDirectory(snapshot, index, false, ChartInstallationEstimateMode.Normal, _ => profile);
             Assert.AreEqual(viable, result.HasViableDestination);
+            Assert.AreEqual(viable ? InstallAudioCompleteness.Missing : InstallAudioCompleteness.NotEvaluated, result.AudioCompleteness);
             Assert.IsFalse(result.ShouldAutoApplyDestination);
+            var projection = PackageChartEntry.FromChart(target);
+            projection.ApplyInstallEstimationResult(result);
+            Assert.AreEqual(viable, projection.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioMissing));
+            Assert.IsFalse(projection.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioUnverifiable));
             if (viable)
             {
                 CollectionAssert.Contains(result.SuggestedDestinationDirectories, @"C:\Candidate");
@@ -113,7 +196,15 @@ public sealed class BmsLibraryInstallEstimationServiceTests
             InstallEstimationResult result = CreateService().EvaluateInstalledChartHashDestination(@"C:\Candidate", entries, _ => profile,
                 state == "unavailable" ? null : snapshot, state == "unavailable" || bundledOnly ? null : index);
             Assert.AreEqual(apply, result.ShouldAutoApplyDestination);
+            Assert.AreEqual(apply ? InstallAudioCompleteness.Complete
+                : state is "empty-key" or "unavailable" or "bundled-partial" ? InstallAudioCompleteness.Unverifiable : InstallAudioCompleteness.Missing,
+                result.AudioCompleteness);
             Assert.AreEqual(apply, result.Success);
+            entries[0].ApplyInstallEstimationResult(result);
+            Assert.AreEqual(result.AudioCompleteness == InstallAudioCompleteness.Missing,
+                entries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioMissing));
+            Assert.AreEqual(result.AudioCompleteness == InstallAudioCompleteness.Unverifiable,
+                entries[0].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioUnverifiable));
             Assert.AreEqual(@"C:\Candidate", result.SelectedCandidate.DirectoryPath);
             if (!apply)
             {

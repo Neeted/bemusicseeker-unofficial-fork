@@ -13,6 +13,24 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class ChartWarningCollectionTests
 {
+    /// <summary>推定時音源理由をTITLE/ARTISTの直後へ併記し、各理由だけでも行を強調します。現在の不足要約は保留では設定先ありでも表示します。</summary>
+    [TestMethod]
+    [DataRow("missing")]
+    [DataRow("unverifiable")]
+    public void WarningDigest_AudioReasonFollowsMetadataAndHighlightsPendingRow(string state)
+    {
+        using IDisposable culture = TestResourceInitializer.UseJapaneseCulture();
+        var audio = ChartWarning.Create(state == "missing" ? ChartWarningKind.InstallEstimationAudioMissing : ChartWarningKind.InstallEstimationAudioUnverifiable, "audio reason");
+        ChartWarning[] warnings = [audio, ChartWarning.Create(ChartWarningKind.InstallEstimationMetadataMismatch, "metadata reason"),
+            ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "current missing")];
+        string digest = ChartWarningCollection.BuildDigestText(warnings, @"C:\Destination", false);
+        Assert.IsTrue(digest.IndexOf(Resources.WarningDigest_InstallEstimationMetadataMismatch, StringComparison.Ordinal)
+            < digest.IndexOf(audio.DigestLabel, StringComparison.Ordinal));
+        StringAssert.Contains(digest, Resources.WarningDigest_ResourceMissing);
+        StringAssert.Contains(ChartWarningCollection.BuildTooltipText(warnings), "audio reason");
+        Assert.IsTrue(ChartWarningCollection.HasAnyHighlightedWarning([audio]));
+    }
+
     /// <summary>
     /// 複数種類の不足警告は件数を保って同じラベルを重複表示せず、詳細には各本文を残して件数や診断の欠落を検出する。
     /// </summary>

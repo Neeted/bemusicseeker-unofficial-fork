@@ -137,6 +137,18 @@ internal sealed class InstallEstimationResult
 
     public bool ShouldAutoApplyDestination { get; set; }
 
+    /// <summary>選択された有効候補への音源完全性です。TITLE/ARTISTの結果とは独立しています。</summary>
+    internal InstallAudioCompleteness AudioCompleteness { get; set; }
+
+    /// <summary>評価で使った候補索引を複製せず共有します。未取得のnullもそのまま反映へ渡し、最新索引で補いません。</summary>
+    internal DirectoryResourceLookupCache PendingDirectoryLookupCache { get; set; }
+
+    /// <summary>同じ推定操作で捕捉した同梱索引です。反映時の健康度評価で入力元を再列挙しません。</summary>
+    internal DirectoryResourceLookupCache.Entry PendingBundledResources { get; set; }
+
+    /// <summary>同梱の不存在を確定できる完全な列挙結果かを、観測済み索引とともに渡します。</summary>
+    internal bool PendingBundledResourcesComplete { get; set; } = true;
+
     /// <summary>資源充足またはハッシュの単独最多・一意条件を満たす候補の有無です。自動適用にはStrongも必要です。</summary>
     public bool HasViableDestination { get; set; }
 

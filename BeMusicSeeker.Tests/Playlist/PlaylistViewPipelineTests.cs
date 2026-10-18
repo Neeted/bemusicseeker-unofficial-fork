@@ -2783,9 +2783,9 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(bmson.Md5, chartRef.Md5);
     }
 
-    /// <summary>package表示行は導入先未定の資源不足を要約へ出し、導入先確定後は要約だけを隠して警告全文を保持します。</summary>
+    /// <summary>保留のpackage表示行は導入先の設定前後とも資源不足の要約と詳細を保持し、設定済みだけで不足を隠す誤りを検出します。</summary>
     [TestMethod]
-    public void LibraryChartRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
+    public void LibraryChartRow_FromPackageChartEntry_PreservesResourceHealthDigestWhenInstallDestinationSetAndKeepsTooltip()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2805,13 +2805,14 @@ public sealed class PlaylistViewPipelineTests
         entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var resolvedRow = LibraryChartRow.FromPackageChartEntry(entry);
 
-        Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(resolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+        StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
         StringAssert.Contains(resolvedRow.WarningTooltipText, "WAV missing detail");
     }
 
-    /// <summary>package sourceでも導入先確定時に資源不足要約だけを隠し、chart警告の詳細を消してしまいません。</summary>
+    /// <summary>保留のpackage sourceでも導入先の設定前後とも資源不足の要約と譜面警告の詳細を保持し、生成済み入力行の表示固定を検出します。</summary>
     [TestMethod]
-    public void ChartListSourceRow_FromPackageChartEntry_HidesResourceHealthDigestWhenInstallDestinationSetButKeepsTooltip()
+    public void ChartListSourceRow_FromPackageChartEntry_PreservesResourceHealthDigestWhenInstallDestinationSetAndKeepsTooltip()
     {
         ChartFile bmson = ChartTestValues.Empty(ChartFileKind.Bmson) with
         {
@@ -2831,7 +2832,8 @@ public sealed class PlaylistViewPipelineTests
         entry.ApplyInstallDestinationMetadata("C:\\Library\\Destination", string.Empty, string.Empty);
         var resolvedRow = ChartListSourceRow.FromPackageChartEntry(entry);
 
-        Assert.IsFalse(resolvedRow.WarningDigestText.Contains(BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing));
+        StringAssert.Contains(resolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
+        StringAssert.Contains(unresolvedRow.WarningDigestText, BeMusicSeeker.Properties.Resources.WarningDigest_ResourceMissing);
         StringAssert.Contains(ChartWarningCollection.BuildTooltipText(resolvedRow.Chart.Warnings), "source WAV missing detail");
     }
 
