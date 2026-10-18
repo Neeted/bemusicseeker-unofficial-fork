@@ -32,10 +32,23 @@ internal sealed class InstallEstimationMetadataProfile
 internal static class InstallEstimationMetadataNormalizer
 {
     private const double TitleFuzzyStrongThreshold = 0.88;
+    private const string ArtistGeneralCreditNames = "featuring|feat|pmsobj|reobj|obj|odj|bga|bgi|movie|mov|illustration|illust|vocals?|差分|譜面";
+    private const string ArtistShortCreditNames = "ft|vo";
+    private const string ArtistCommonCreditNames = "notes?|object(?:ed)?|bg|bms|charts?|graphics?|sliced?|guitars?|pms|patterns?|sequence|lyrics?|image|artwork|visual";
+    private const string ArtistMusicCreditNames = "(?:re)?mix(?:ed)?|rmx|arr(?:ange(?:d|ment)?)?|cover(?:ed)?|compose(?:d|r)?";
+    private const string ArtistExplicitMusicCreditNames = "music|midi|作曲|編曲";
+    private const string ArtistRoleName = $"(?:(?<music>{ArtistMusicCreditNames}|{ArtistExplicitMusicCreditNames})|{ArtistGeneralCreditNames}|{ArtistShortCreditNames}|{ArtistCommonCreditNames})";
+    private const string ArtistRoleLeftBoundary = @"(?<![a-z0-9_-])-?";
 
     private static readonly Regex whitespaceRegex = new("\\s+", RegexOptions.Compiled);
 
-    private static readonly string[] artistDiffPrefixes = ["notes", "note", "obj"];
+    // 直接つながる役割を先に一括認識し、制作担当を含む兼任と純副役割を区別する。
+    // スラッシュでの兼任は語への直結だけとし、Frontier Lyric / objの名義を削らない。
+    // 短語・一般名詞には記号またはbyを要求し、名義中のmusic等で保持を再開しない。
+    // 導入記号とbyも消費し、Remix / 作者のスラッシュを別の区切りとして扱わない。
+    private static readonly Regex artistRoleRegex = new(
+        $@"{ArtistRoleLeftBoundary}(?:{ArtistRoleName}(?:(?:\s*[&+]\s*|/){ArtistRoleName})+(?=$|[\s.:;,=/])|(?<music>{ArtistMusicCreditNames})(?=$|[\s.:;,=/])|(?<music>{ArtistExplicitMusicCreditNames})(?=\s*[.:;,=/]|\s+by(?=$|[\s.:;,=/]))|(?:{ArtistGeneralCreditNames})(?=[\s.:;,=/])|(?:{ArtistShortCreditNames})(?=\s*[.:;,=]|/(?![\s/]))|(?:{ArtistCommonCreditNames})(?=\s*[.:;,=]|/(?![\s/])|\s+by(?=$|[\s.:;,=/])))[\s.:;,=/]*(?:by(?=$|[\s.:;,=/])[\s.:;,=/]*)?",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     /// <summary>表示と共通の主題整理を行い、比較用の小文字キーを返します。</summary>
     internal static string NormalizeTitleForTieBreak(string value) => NormalizeTitleDisplay(value).ToLowerInvariant();
@@ -58,7 +71,7 @@ internal static class InstallEstimationMetadataNormalizer
         return normalized;
     }
 
-    /// <summary>表示と共通の作者整理を行い、比較用の小文字キーを返します。</summary>
+    /// <summary>副役割の区間を除き、主名義と明示された音楽制作担当から比較用の小文字キーを作ります。</summary>
     internal static string NormalizeArtistForTieBreak(string value) => NormalizeArtistDisplay(value).ToLowerInvariant();
 
     private static string NormalizeArtistDisplay(string value)
@@ -69,19 +82,7 @@ internal static class InstallEstimationMetadataNormalizer
             return string.Empty;
         }
 
-        int diffMarkerIndex = FindArtistDiffMarkerIndex(normalized);
-        if (diffMarkerIndex >= 0)
-        {
-            normalized = normalized.Substring(0, diffMarkerIndex).TrimEnd(' ', '.', ';', ':');
-        }
-
-        int slashIndex = normalized.IndexOf('/');
-        if (slashIndex > 0)
-        {
-            normalized = normalized.Substring(0, slashIndex).Trim();
-        }
-
-        return NormalizeCommon(normalized);
+        return RemoveArtistSecondaryCredits(normalized);
     }
 
     /// <summary>正規化済みTITLE同士を、UTF-16の重複2-gram付きDice係数で比較します。切断・小文字化は再実行しません。</summary>
@@ -246,44 +247,103 @@ internal static class InstallEstimationMetadataNormalizer
         _ => '\0'
     };
 
-    private static int FindArtistDiffMarkerIndex(string normalized)
+    private static string RemoveArtistSecondaryCredits(string artist)
     {
-        for (int i = 0; i < normalized.Length; i++)
+        var result = new StringBuilder();
+        var closingDelimiters = new List<char>();
+        Match role = artistRoleRegex.Match(artist);
+        int segmentStart = 0;
+        bool keepSegment = true;
+        for (int index = 0; index < artist.Length; index++)
         {
-            foreach (string marker in artistDiffPrefixes)
+            if (role.Success && role.Index == index)
             {
-                if (i + marker.Length > normalized.Length || !normalized.AsSpan(i, marker.Length).Equals(marker.AsSpan(), StringComparison.OrdinalIgnoreCase))
+                if (keepSegment)
                 {
-                    continue;
+                    AppendArtistSegment(result, artist, segmentStart, index);
                 }
-                if (i > 0 && char.IsLetterOrDigit(normalized[i - 1]))
-                {
-                    continue;
-                }
+                // 制作役割でも区間を分け、先行する副役割や括弧の有無によらず同じキーを作る。
+                keepSegment = role.Groups["music"].Success;
+                segmentStart = index;
+                index += role.Length - 1;
+                role = role.NextMatch();
+                continue;
+            }
 
-                int separatorIndex = i + marker.Length;
-                while (separatorIndex < normalized.Length && normalized[separatorIndex] == ' ')
+            bool isSlash = artist[index] == '/' && index > 0 && closingDelimiters.Count == 0
+                && (artist[index - 1] is ' ' or '/' || index + 1 < artist.Length && artist[index + 1] is ' ' or '/');
+            if (isSlash)
+            {
+                if (keepSegment)
                 {
-                    separatorIndex++;
+                    AppendArtistSegment(result, artist, segmentStart, index);
                 }
-                if (separatorIndex >= normalized.Length)
-                {
-                    continue;
-                }
-                if (!IsArtistDiffSeparator(normalized[separatorIndex]))
-                {
-                    continue;
-                }
+                keepSegment = false;
+            }
 
-                return i;
+            char close = GetClosingDelimiter(artist[index]);
+            if (close != '\0')
+            {
+                closingDelimiters.Add(close);
+            }
+            else if (artist[index] is ')' or ']' or '>' or '】' or '》')
+            {
+                int openingIndex = closingDelimiters.LastIndexOf(artist[index]);
+                if (openingIndex >= 0)
+                {
+                    closingDelimiters.RemoveAt(openingIndex);
+                }
             }
         }
-        return -1;
+        if (keepSegment)
+        {
+            AppendArtistSegment(result, artist, segmentStart, artist.Length);
+        }
+        return result.ToString();
     }
 
-    private static bool IsArtistDiffSeparator(char value)
+    private static void AppendArtistSegment(StringBuilder result, string artist, int start, int end)
     {
-        return value == '.' || value == ';' || value == ':';
+        end = TrimArtistCreditSeparators(artist, start, end);
+        if (end <= start)
+        {
+            return;
+        }
+        if (result.Length > 0)
+        {
+            result.Append(' ');
+        }
+        result.Append(artist, start, end - start);
+    }
+
+    private static int TrimArtistCreditSeparators(string artist, int start, int end)
+    {
+        while (end > start)
+        {
+            int previousEnd = end;
+            // 全体保持時も同じ末尾整理を行い、役割除去で閉じ括弧が失われた区間と揃える。
+            while (end > start && (artist[end - 1] is ' ' or '/' or ')' or ']' or '>' or '】' or '》'
+                || GetClosingDelimiter(artist[end - 1]) != '\0'))
+            {
+                end--;
+            }
+
+            int separatorStart = end;
+            while (separatorStart > start && artist[separatorStart - 1] is '.' or ':' or ';' or ',' or '=' or '/' or '|' or '&' or '+' or '-')
+            {
+                separatorStart--;
+            }
+            // SKY.の末尾など名義につながった句読点を保ち、空白区切りの独立した記号だけを取り除く。
+            if (separatorStart < end && (separatorStart == start || artist[separatorStart - 1] == ' '))
+            {
+                end = separatorStart;
+            }
+            if (end == previousEnd)
+            {
+                break;
+            }
+        }
+        return end;
     }
 
     private static Dictionary<string, int> BuildBigramCounts(string value)

@@ -8814,13 +8814,15 @@ public partial class BMSLibrary : ObservableObject
     }
     private static readonly string DuplicateWarningMessage = Resources.Warning_DuplicateBmsFile;
 
-    /// <summary>既存の実パス索引から、共通現在値の原題・作者・パスを集計入力として取得します。</summary>
+    /// <summary>既存の実パス索引から、原題とBMSの元作者・bmsonの現在の作者を取得し、対象側と同じ集計入力にします。</summary>
     private IEnumerable<(string Title, string Artist, string Path)> EnumerateInstalledChartMetadataRecordsUnsafe(string normalizedDestinationDirectory)
     {
         return CreateOwnedRealPathChartRefsUnsafe(normalizedDestinationDirectory)
             .Select(chartRef => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(chartRef))
             .Where(chart => chart != null)
-            .Select(chart => (chart.RawTitle ?? string.Empty, chart.Artist ?? string.Empty, chart.Path ?? string.Empty));
+            .Select(chart => (chart.RawTitle ?? string.Empty,
+                (chart.Kind == ChartFileKind.Bms ? chart.RawArtist : chart.Artist) ?? string.Empty,
+                chart.Path ?? string.Empty));
     }
     private static string NormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
     {

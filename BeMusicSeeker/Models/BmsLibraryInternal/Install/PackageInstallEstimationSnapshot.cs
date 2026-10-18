@@ -465,13 +465,15 @@ internal static class PackageInstallEstimationSnapshotBuilder
         }
     }
 
-    /// <summary>取得済み譜面から対象群の実在最頻ペアを作り、資源評価とハッシュ候補評価で共用します。</summary>
+    /// <summary>原題と、BMSの元作者・bmsonの現在の作者から対象群の実在最頻ペアを作り、資源評価とハッシュ候補評価で共用します。</summary>
     internal static InstallEstimationMetadataProfile BuildTargetMetadataProfile(IEnumerable<PackageChartEntry> targetEntries)
     {
         return InstallEstimationMetadataNormalizer.BuildProfile(
             (targetEntries ?? [])
                 .Select(entry => entry?.Chart)
                 .Where(chart => chart != null)
-                .Select(chart => (chart.RawTitle ?? string.Empty, chart.Artist ?? string.Empty, chart.Path ?? string.Empty)));
+                .Select(chart => (chart.RawTitle ?? string.Empty,
+                    (chart.Kind == ChartFileKind.Bms ? chart.RawArtist : chart.Artist) ?? string.Empty,
+                    chart.Path ?? string.Empty)));
     }
 }

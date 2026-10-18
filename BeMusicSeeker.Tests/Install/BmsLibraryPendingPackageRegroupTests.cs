@@ -1546,7 +1546,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
 
             // 同じ実パスの所持現在値を変更し、既存キャッシュの失効でStrongと表示が同時に更新されることを確認します。
             library.RemoveInstallDestination([pendingEntry], pendingPackage);
-            library.BmsCharts = [.. library.BmsCharts.Select(chart => chart with { RawTitle = "Ark (remix/5keys)", Artist = string.Empty })];
+            library.BmsCharts = [.. library.BmsCharts.Select(chart => chart with { RawTitle = "Ark (remix/5keys)", Artist = string.Empty, RawArtist = string.Empty })];
             library.SearchEstimatedInstallationDirectory(pendingPackage);
             Assert.IsTrue(string.IsNullOrWhiteSpace(pendingEntry.Chart.InstallDestination));
             Assert.AreEqual("Ark (remix", pendingEntry.Chart.InstallDestinationTitle);
@@ -1718,8 +1718,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>Bmsonの所持ハッシュから結合先を直接解決し、BMSが無く作者が空でも導入先と代表TITLEを反映する。</summary>
-    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
+    /// <summary>Bmsonの所持ハッシュから結合先を解決し、非空RawArtistに引きずられずArtistを正規化して代表表示へ渡す。空Artistも補完しない。</summary>
+    /// <remarks>chart役割付きsubartistsを実解析し、対象と所持のRawArtistを異なる現在値へ替え、空作者行ではArtistを空にして、RawArtistを誤採用した一致・補完を検出する。実SQLiteと所持索引を接続し、falseは主作者、trueは空作者のStrongによる自動適用を確認する。</remarks>
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1730,17 +1730,19 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         {
             string sourceDirectoryPath = Path.Combine(tempRootPath, "Pending", "BmsonMergeResolved");
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "BmsonMergeResolved");
-            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", emptyArtist ? "" : "Bmson Artist");
-            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", emptyArtist ? "" : "Bmson Artist");
-            var pendingBmsonEntry = PackageChartEntry.FromChart((ChartTestValues.ReadBmson(pendingBmsonPath)));
+            string pendingBmsonPath = CreateBmsonFile(sourceDirectoryPath, "pending.bmson", "Installed Bmson", "Bmson Artist", "chart: Contributor");
+            string installedBmsonPath = CreateBmsonFile(destinationDirectoryPath, "installed.bmson", "Installed Bmson", "Bmson Artist", "chart: Contributor");
+            ChartFile pendingBmson = ChartTestValues.ReadBmson(pendingBmsonPath);
+            ChartFile installedBmson = ChartTestValues.ReadBmson(installedBmsonPath);
+            Assert.AreNotEqual(installedBmson.RawArtist, installedBmson.Artist);
+            pendingBmson = pendingBmson with { RawArtist = "Pending Raw Artist", Artist = emptyArtist ? string.Empty : pendingBmson.Artist };
+            installedBmson = installedBmson with { RawArtist = "Installed Raw Artist", Artist = emptyArtist ? string.Empty : installedBmson.Artist };
+            var pendingBmsonEntry = PackageChartEntry.FromChart(pendingBmson);
             var pendingPackage = ChartPackage.FromChartEntries([pendingBmsonEntry]);
             pendingPackage.path = sourceDirectoryPath;
             pendingPackage.delete_parent = false;
             library.BmsCharts = [];
-            library.BmsonCharts =
-            [
-                ChartTestValues.ReadBmson(installedBmsonPath)
-            ];
+            library.BmsonCharts = [installedBmson];
             SeedPendingPackages(library, songDbPath, pendingPackage);
 
             File.WriteAllText(Path.Combine(destinationDirectoryPath, "sound.wav"), "audio");
@@ -1751,6 +1753,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.AreEqual(destinationDirectoryPath, entry.Chart.InstallDestination);
             Assert.AreEqual("Installed Bmson", entry.Chart.InstallDestinationTitle);
             Assert.AreEqual(emptyArtist ? string.Empty : "Bmson Artist", entry.Chart.InstallDestinationArtist);
+            Assert.IsFalse(entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationMetadataMismatch));
 
         });
     }
@@ -1961,8 +1964,8 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         });
     }
 
-    /// <summary>保留entryへ手動導入先を指定すると、代表タイトル・作者も更新し、低確度候補を新しく作らない。</summary>
-    /// <remarks>実譜面とリソースを候補評価へ渡し、実SQLiteの保留行とライブラリ窓口を接続する。画面構築は不要で、設定はケース固有に分離する。</remarks>
+    /// <summary>所持BMSのRawTitle・RawArtistから実在最頻ペアを手動導入先の代表表示へ渡し、合成表示の未知SUBARTIST混入と同じパスの現在値変更後のキャッシュ残存を検出する。</summary>
+    /// <remarks>所持索引と実SQLiteの保留entryを接続し、副題と未知の副作者を含む実BMSを使う。全RawTitleが空なら合成Titleから補わず代表情報を空にする。</remarks>
     [TestMethod]
     public void SetPendingInstallDestination_UpdatesRepresentativeMetadata()
     {
@@ -1973,7 +1976,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed", "Manual");
             string pendingFilePath = CreateBmsFileWithContents(pendingDirectoryPath, "pending.bms", "#PLAYER 1\r\n#TITLE Pending\r\n#ARTIST Test\r\n");
             string minorityPath = CreateBmsFileWithContents(destinationDirectoryPath, "a.bms", "#TITLE Minority\r\n#ARTIST Other\r\n");
-            string installedFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#SUBTITLE Alternate Name\r\n#ARTIST Installed Artist OBJ: Diff\r\n");
+            string installedFilePath = CreateBmsFileWithContents(destinationDirectoryPath, "installed.bms", "#PLAYER 1\r\n#TITLE Installed Title\r\n#SUBTITLE Alternate Name\r\n#ARTIST Installed Artist\r\n#SUBARTIST Unrelated Contribution\r\n");
             string majorityPath = CreateBmsFileWithContents(destinationDirectoryPath, "z.bms", "#TITLE Installed Title\r\n#ARTIST Installed Artist\r\n");
 
             ChartFile pendingFile = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(pendingFilePath));
@@ -1995,7 +1998,7 @@ public sealed class BmsLibraryPendingPackageRegroupTests
             Assert.IsFalse(ChartWarningTestHelpers.ContainsLowConfidenceInstallEstimationWarning(pendingEntry));
 
             // 同じ所持パスの現在値を入れ替え、比較と表示の共通キャッシュが同じ失効で更新されることを確認します。
-            library.BmsCharts = [.. library.BmsCharts.Select(chart => chart with { RawTitle = "Updated", Artist = "Updated Artist" })];
+            library.BmsCharts = [.. library.BmsCharts.Select(chart => chart with { RawTitle = "Updated", RawArtist = "Updated Artist", Artist = "Updated Artist Unrelated Contribution" })];
             Assert.IsTrue(library.SetPendingInstallDestination(pendingEntry, destinationDirectoryPath));
             Assert.AreEqual("Updated", pendingEntry.Chart.InstallDestinationTitle);
             Assert.AreEqual("Updated Artist", pendingEntry.Chart.InstallDestinationArtist);
@@ -2531,13 +2534,15 @@ public sealed class BmsLibraryPendingPackageRegroupTests
     /// <summary>テスト入力の実BMSを現在の解析器で読み取ります。</summary>
     private static ChartFile ReadChart(string path) => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
 
-    private static string CreateBmsonFile(string directoryPath, string fileName, string title, string artist)
+    private static string CreateBmsonFile(string directoryPath, string fileName, string title, string artist, string? subartist = null)
     {
         Directory.CreateDirectory(directoryPath);
         string filePath = Path.Combine(directoryPath, fileName);
         File.WriteAllText(filePath, "{"
             + "\"version\":\"1.0.0\","
-            + "\"info\":{\"title\":\"" + title + "\",\"artist\":\"" + artist + "\",\"mode_hint\":\"beat-7k\"},"
+            + "\"info\":{\"title\":\"" + title + "\",\"artist\":\"" + artist + "\""
+            + (subartist == null ? string.Empty : ",\"subartists\":[\"" + subartist + "\"]")
+            + ",\"mode_hint\":\"beat-7k\"},"
             + "\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]"
             + "}");
         return filePath;
