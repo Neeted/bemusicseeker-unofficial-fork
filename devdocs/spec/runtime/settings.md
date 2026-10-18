@@ -40,6 +40,8 @@
 
 全般ではLR2の場所、状態、手動同期、履歴DBの状態を区別します。音声設定は出力設定、音量、専用テスト、詳細な音声設定を別々のセクションにします。プレイリストのURL対応表とプリセット、バックアップ、危険な削除操作はそれぞれの目的が分かる見出しで示します。「このソフトについて」はバージョン、ライセンス、リンク、読み取り専用のリリースノートを扱います。リリースノート画面は設定画面を所有者とし、設定編集の状態を持ちません。文化圏変更の購読は表示中だけ保持します。
 
+詳細設定のインストールでは、保留維持、全使用リソース要求、複数候補の自動確定の3項目を `SettingsCheckBoxOption` で表示します。既存の標準CheckBoxと設定値への直接Bindingを内容に残し、説明と余白だけを共通化します。説明は常時表示し、ラベル文字の左端に揃えて本文幅で折り返し、他の設定説明と同じテーマ対応の薄い文字色を使います。ラベル・順序・保存・取消・標準のキーボード操作は維持し、説明部品にフォーカス対象や設定状態を増やしません。
+
 ### 言語辞書と資源の代替
 
 表示文字列は、指定カルチャのJSON、指定カルチャの埋込み資源、日本語の埋込み資源の順で解決します。利用者が編集した日本語JSONも優先します。UTF-8/BOM、任意キー、大小文字を区別する辞書と既存の `DataContractJsonSerializer` による受理を維持し、辞書の整合検査を実行時の追加拒否条件にはしません。
@@ -74,6 +76,8 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 
 詳細のインストール設定に `RequireCompleteUsedResourcesForAutoInstall` を配置します。既定はfalseで、旧設定にキーがなくてもOFFです。編集・取消・保存・再読込みは既存の設定経路を使い、チェックボックスの直下へON/OFF時の動作を説明します。
 
+画面説明では、OFFは使用音源がそろえばBGA・動画・補助画像が不足していても自動新規導入の対象にすること、ONは全使用リソースを要求して不足時に保留へ追加することを別の行から示します。保留画面で不足を確認し、未制作のBGA・動画などがなくても問題ないと判断すれば「新規としてインストール」を実行できることも案内します。推定の詳細はこの説明へ混在させません。
+
 | 使用音源 | 非音声の使用リソース | OFF | ON | 保留になった場合の新規リソース探索 |
 | --- | --- | --- | --- | --- |
 | 完全（要求0件を含む） | 完全 | 自動新規導入を許可 | 自動新規導入を許可 | 不要 |
@@ -87,6 +91,12 @@ JSONの欠落・アクセス・読取り失敗、シリアライザーの入力�
 自動推定の対象で完全音源の場合に省略するのは、リソースから新たに候補を探す処理だけです。混在パッケージで既所持ハッシュの候補が分かる場合は、一意先のStrong判定と同点の限定候補評価を残します。未所持群だけを評価し、Strongと音源完全性が成立すれば導入先を設定します。不成立・比較不能では候補と警告を保持して未設定とし、別候補へ迂回しません。未定義IDは必要集合へ含めず、分類・警告・推定可否へ影響させません。
 
 初期分類、保留追加、後続推定は同じ操作で捕捉した設定と取得済みのリソースを使います。途中で設定を再取得して分類を変えません。この設定は自動新規導入と保留後の自動推定の要否を変えるもので、[導入先自動確定の音源完全性](../library/install-estimation.md#確信度と画面への適用)を緩めません。
+
+### 新規判定の保留と複数候補の説明
+
+`KeepInstallablePackagesPending` は、新規と判定されたパッケージを導入前に保留画面で確認したい場合の設定として説明します。① #BMP定義やARTIST名の修正などで全同梱譜面のハッシュが変わった既所持作品を既所持フォルダへまとめられるか確認する用途、② 同梱譜面が削除された難易度表パッケージなどを新規導入で別フォルダに分けたくない用途を、別々の行に示します。自動の導入先推定は行わず、必要ならパッケージを選択して「インストール」→「インストール先を推定」を実行することを案内します。
+
+`AutoApplyAmbiguousInstallDestination` は、同じ構成のBMS作品が複数フォルダにあるなど候補が同率で残る場合の設定として説明します。ONは自動確定条件を満たす第1候補を設定し、OFFは候補を確認して選択します。既所持譜面を手掛かりに比較できる経路では追加差分による譜面数の違いなどで絞れること、一意に決まる場合はこの設定によらず自動確定することを案内します。譜面数の補助判断を全リソース探索の優先条件として説明しません。判断条件の正本は[導入先推定](../library/install-estimation.md#メタデータの強一致と同順位の解決)です。
 
 ### LR2の場所と設定XML
 
@@ -229,7 +239,8 @@ Allでは必要な出力配置の移行と旧BMTの整理を一回行い、新�
 | --- | --- | --- |
 | 自動新規導入の完全性設定、既定OFF、実編集・取消・保存・再読込み | [`Settings`](../../../BeMusicSeeker/Properties/Settings.cs)、[`SettingsDialogViewModel`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、[`AdvancedSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/AdvancedSettingsPage.xaml) | [`PortableSettingsPersistenceTests`](../../../BeMusicSeeker.Tests/Settings/PortableSettingsPersistenceTests.cs) の欠落キー既定値、[`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の詳細設定の実Bindingと保存・新provider・取消を確認する。分類と同一操作の設定捕捉は[導入先推定の対応表](../library/install-estimation.md#実装とテストの対応)に分担する。 |
 | 起動設定の保存警告と必須失敗の分離 | [`ApplicationSettingsLifecycle`](../../../BeMusicSeeker/Models/Settings/ApplicationSettingsLifecycle.cs) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs)の`ValidSaveBlockedInputWarnsAndMaterializesCanonicalValuesWhileReadFailureIsFatal`、`VersionUpdateDistinguishesReadFailureFromPublicationFailure`は実XMLで両保存警告の通常完了・コールバック例外と、同じ値・バイト列・文化圏・テーマを確認します。`InitializeLegacyMigrationFailureIsFatalWithoutSaveWarningOrStoreRead`は実移行の公開失敗を警告へ変換せず停止することを分担します。 |
-| 10カテゴリのcompiled編集から実保存・稼働値・新画面への接続 | `SettingsWindow`、`SettingsDialogViewModel`、実編集session・専用provider、`ApplicationComposition` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は一般・導入・playlist・外観・再生・音声・録音・backup・詳細・右クリックの各一代表を実Bindingで変更し、専用providerの新reader、本番が参照する設定窓口、新dialogのeditor値を確認する。保存後の取消と再表示、未編集設定・別Web actionも保持する。個々の副作用、外部起動・引数展開、未知キーの条件は既存機能・永続化系列へ分担し、文化・テーマ・Window・設定ownerの終端を回収する。 |
+| 10カテゴリのcompiled編集から実保存・稼働値・新画面への接続 | `SettingsWindow`、`SettingsDialogViewModel`、実編集session・専用provider、`ApplicationComposition` | [`SettingDialogEditCompletionTests`](../../../BeMusicSeeker.Tests/Settings/SettingDialogCategoryPersistenceTests.cs) の `CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog` は一般・導入・playlist・外観・再生・音声・録音・backup・右クリックの各一代表と、詳細の説明付き3項目を実Bindingで変更し、専用providerの新reader、本番が参照する設定窓口、新dialogのeditor値を確認する。説明付き項目は内容の実CheckBoxを編集し、boolの自動伝播、保存後の取消と再表示、未編集設定・別Web actionも保持する。個々の副作用、外部起動・引数展開、未知キーの条件は既存機能・永続化系列へ分担し、文化・テーマ・Window・設定ownerの終端を回収する。 |
+| 説明付き3項目の表示と翻訳 | `AdvancedSettingsPage`、`SettingsCheckBoxOption`、`SettingsControls.xaml`、`Resources`、6言語JSON | `SettingsWindowPresentationTests.SettingsWindow_AllPagesFitActualMinimumWidthViewport` が最小幅の横はみ出しを回帰確認する。文案・操作名の対応、改行、ラベル左端との一致、常時表示・折返し、日本語と長い翻訳、Light/Darkの説明ブラシへの追随は変更時の静的確認と画面外の実BAML観測で確認する。資源・辞書の全件整合は `LocalizationResourceParityTests` に分担する。 |
 | 実生成アプリデータの撤去とLR2・利用者データ保全 | [`LR2SongDBExtended`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs)、[`Lr2ApplicationDataUninstallStore`](../../../BeMusicSeeker/Models/LR2/Lr2ApplicationDataUninstallStore.cs) | [`LR2SongDBExtendedUninstallTests`](../../../BeMusicSeeker.Tests/Lr2/LR2SongDBExtendedUninstallTests.cs)の実起動/アプリスキーマ・IR保存・フォルダ索引前後の`sqlite_schema`差分、実撤去後の新規接続観測と非対象行・`sqlite_sequence`・譜面保全。受付・取消・失敗・通知・終了は既存 [`ApplicationDataUninstallWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationDataUninstallWorkflowOwnerTests.cs)が分担する。 |
 | 標準ScoreOnlyの保存後Close、同権限と実score公開 | `SettingsDialogViewModel` | [`ApplySettingsAsync_DefaultScoreOnlyPublishesChangedRealScoreAfterClosing`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs): 実到達・実結果・Task終端を確認し、保持点はfinallyで解放して全開始Taskを待機する。 |
 | 保存済み配置と公開後の任意通知の購読処理の故障、古い編集画面の現在配置 | [`ApplicationComposition`](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs) | [`DefaultComposition_OutputPlacementChangesAfterPersistenceAndPlaylistNotificationDrainsOnClose`](../../../BeMusicSeeker.Tests/Settings/SettingDialogEditCompletionTests.cs)は、未保存の編集中のA出力・交差受付・全体同期の現行性と、保存後の実`user.config`・両設定取得窓口・B出力を確認する。空の通知結果の配送成功／購読処理の故障の両行で、配送一回、設定失敗なし、保存一回、未完了なし、設定画面の閉鎖要求と自動再表示なしを確認し、変更なしの明示保存でも追加保存・再配送を行わない。古い編集画面のBへの保存、DBカテゴリと旧A残余の保持も確認する。 |

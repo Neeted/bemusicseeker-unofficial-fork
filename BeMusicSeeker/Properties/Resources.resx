@@ -3708,7 +3708,8 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>自動新規インストールにすべての使用リソースを要求する</value>
   </data>
   <data name="Details_require_complete_used_resources_for_auto_install_description" xml:space="preserve">
-    <value>OFF: 音源がそろっていれば、BGA・動画・補助画像が不足しても自動新規インストールします。ON: すべての使用リソースを要求します。音源が完全で画像・動画等のみ不足する場合は保留にして新しい候補の自動探索を省略します。既所持譜面から候補が分かる場合はTITLE/ARTISTで判定します。保留画面で不足を確認し、手動推定できます。音源が不足する場合は自動推定します。</value>
+    <value>OFF: 使用音源がそろっていれば、BGA・動画・補助画像が不足していても自動新規インストールの対象にします。
+ON: すべての使用リソースがそろった場合のみ、自動新規インストールの対象にし、不足があれば保留に追加します。保留画面で不足を確認し、未制作のBGA・動画などで問題ないと判断した場合は、「新規としてインストール」を実行できます。</value>
   </data>
   <data name="ChartProperties" xml:space="preserve">
     <value>譜面プロパティ</value>
@@ -3781,5 +3782,15 @@ uBMplayが正常に動作するか確認してください。</value>
   </data>
   <data name="ChartPropertiesUnverifiable" xml:space="preserve">
     <value>照合入力を取得できず確認不能</value>
+  </data>
+  <data name="Details_test_keep_installable_pending_description" xml:space="preserve">
+    <value>新規と判定されたパッケージを、導入前に保留画面で確認したい場合に使います。
+① #BMP定義やARTIST名の修正などで全同梱譜面のハッシュが変わった既所持作品について、既所持フォルダへまとめられるか確認する場合。
+② 同梱譜面が削除された難易度表パッケージなどを、新規インストールで別フォルダに分けたくない場合。
+自動でのインストール先推定は行いません。必要に応じてパッケージを選択し、「インストール」→「インストール先を推定」を実行してください。</value>
+  </data>
+  <data name="Details_auto_apply_ambiguous_install_destination_description" xml:space="preserve">
+    <value>同じ構成のBMS作品が複数フォルダにあるなど、候補が同率で残る場合の設定です。ONでは、自動確定の条件を満たす第1候補をインストール先に設定します。OFFでは、候補を確認して選択します。
+既所持譜面を手掛かりに候補を比較できる場合は、追加差分による譜面数の違いなどで候補を絞れます。候補が一意に決まる場合、この設定に関わらずインストール先を自動確定します。</value>
   </data>
 </root>

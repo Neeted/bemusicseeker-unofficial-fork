@@ -281,7 +281,13 @@ public class Resources
 
     public static string Details_test_download_and_install => ResourceManager.GetString("Details_test_download_and_install", resourceCulture);
 
+    /// <summary>新規判定の保留用途と手動のインストール先推定を説明します。</summary>
+    public static string Details_test_keep_installable_pending_description => ResourceManager.GetString("Details_test_keep_installable_pending_description", resourceCulture);
+
     public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
+
+    /// <summary>同率候補の自動確定と、既所持譜面を手掛かりにした絞込みを説明します。</summary>
+    public static string Details_auto_apply_ambiguous_install_destination_description => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination_description", resourceCulture);
 
     public static string Details_auto_apply_ambiguous_install_destination => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination", resourceCulture);
 
@@ -1644,7 +1650,7 @@ public class Resources
     /// <summary>全使用リソースを必須にする詳細設定の表示名です。</summary>
     public static string Details_require_complete_used_resources_for_auto_install => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install", resourceCulture);
 
-    /// <summary>設定ON/OFFと新規候補の自動探索省略を説明します。既知ハッシュ候補のTITLE/ARTIST判定は残します。</summary>
+    /// <summary>設定ON/OFFの自動新規導入条件と、不足を確認した後の手動導入を説明します。</summary>
     public static string Details_require_complete_used_resources_for_auto_install_description => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install_description", resourceCulture);
 
     public static string Warning_WavFilesNotFound => ResourceManager.GetString("Warning_WavFilesNotFound", resourceCulture);

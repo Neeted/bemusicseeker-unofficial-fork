@@ -10,6 +10,16 @@ using System.Windows.Media;
 
 namespace BeMusicSeeker.Views.Settings;
 
+/// <summary>内容の標準CheckBoxに設定値と入力を任せ、ラベル直下の説明と余白だけをまとめます。</summary>
+public class SettingsCheckBoxOption : ContentControl
+{
+    /// <summary>チェックボックスの下に常時表示する説明を識別します。</summary>
+    public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingsCheckBoxOption), new PropertyMetadata(string.Empty));
+
+    /// <summary>設定の使い方を説明する文字列を取得または設定します。</summary>
+    public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
+}
+
 /// <summary>Presents a major settings section without owning settings state.</summary>
 public class SettingsSection : HeaderedContentControl
 {

@@ -30,6 +30,7 @@ public sealed partial class SettingDialogEditCompletionTests
     [DataRow("Backup", "LR2BackupNum")]
     [DataRow("Advanced", "KeepInstallablePackagesPending")]
     [DataRow("Advanced", "RequireCompleteUsedResourcesForAutoInstall")]
+    [DataRow("Advanced", "AutoApplyAmbiguousInstallDestination")]
     [DataRow("RightClick", "RightClickActionSettingsEditor.SelectedWebAction.Name")]
     public void CompiledCategoryEditor_SaveReachesFreshProviderLiveSettingsAndNewDialog(string category, string bindingPath)
     {
@@ -65,6 +66,7 @@ public sealed partial class SettingDialogEditCompletionTests
                 values.LR2BackupNum = 2;
                 values.KeepInstallablePackagesPending = false;
                 values.RequireCompleteUsedResourcesForAutoInstall = false;
+                values.AutoApplyAmbiguousInstallDestination = false;
                 values.FolderNameFormat = "%TITLE%";
                 values.RightClickActionsJson = "{\"webActions\":[{\"id\":\"edited\",\"name\":\"Before\",\"urlTemplate\":\"https://example.com/{md5}\",\"enabled\":true,\"chartKind\":\"All\"},{\"id\":\"kept\",\"name\":\"Other\",\"urlTemplate\":\"https://example.org/{md5}\",\"enabled\":true,\"chartKind\":\"BmsOnly\"}],\"programActions\":[]}";
                 values.Save();
@@ -187,12 +189,15 @@ public sealed partial class SettingDialogEditCompletionTests
         return control.GetValue(property);
     }
 
-    /// <summary>実controlを編集して明示UpdateSourceし、OSフォーカス移動に依存せず保存入力へ届けます。</summary>
+    /// <summary>実controlを編集し、boolは標準の即時Binding伝播、それ以外は明示UpdateSourceで保存入力へ届けます。</summary>
     private static void EditCategoryControl(SettingsWindow window, string category, string path, object value)
     {
         (FrameworkElement control, DependencyProperty property) = GetCategoryControl(window, category, path);
         control.SetCurrentValue(property, value);
-        (control.GetBindingExpression(property) ?? throw new AssertFailedException()).UpdateSource();
+        if (control is not CheckBox)
+        {
+            (control.GetBindingExpression(property) ?? throw new AssertFailedException()).UpdateSource();
+        }
         TestUiDispatcherHost.ProcessQueuedPresentation();
     }
 
@@ -212,7 +217,14 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, ((IPlayerSettingsGateway)ReadField(composition, "playerSettingsGateway")).CaptureSnapshot().SampleRateConversionQuality); break;
             case "Recording": Assert.AreEqual(1.3f, ((IAudioSettingsGateway)ReadField(composition, "audioSettingsGateway")).CaptureEncodingSettings().EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, composition.StartupSettingsProvider().LR2BackupNum); break;
-            case "Advanced": Assert.IsTrue(bindingPath == "RequireCompleteUsedResourcesForAutoInstall" ? composition.BmsLibraryOptionsProvider().RequireCompleteUsedResourcesForAutoInstall : composition.BmsLibraryOptionsProvider().KeepInstallablePackagesPending); break;
+            case "Advanced":
+                Assert.IsTrue(bindingPath switch
+                {
+                    "RequireCompleteUsedResourcesForAutoInstall" => composition.BmsLibraryOptionsProvider().RequireCompleteUsedResourcesForAutoInstall,
+                    "KeepInstallablePackagesPending" => composition.BmsLibraryOptionsProvider().KeepInstallablePackagesPending,
+                    "AutoApplyAmbiguousInstallDestination" => composition.BmsLibraryOptionsProvider().AutoApplyAmbiguousInstallDestination,
+                    _ => throw new AssertFailedException(bindingPath)
+                }); break;
             case "RightClick": AssertCustomWebActions(((RightClickActionSettingsStore)ReadField(owner.SelectedChartExternalActions, "rightClickActionSettingsStore")).Load()); break;
         }
     }
@@ -230,7 +242,14 @@ public sealed partial class SettingDialogEditCompletionTests
             case "Audio": Assert.AreEqual(4, settings.PlayerResamplingQuality); break;
             case "Recording": Assert.AreEqual(1.3f, settings.EncoderAmplifier); break;
             case "Backup": Assert.AreEqual(5, settings.LR2BackupNum); break;
-            case "Advanced": Assert.IsTrue(bindingPath == "RequireCompleteUsedResourcesForAutoInstall" ? settings.RequireCompleteUsedResourcesForAutoInstall : settings.KeepInstallablePackagesPending); break;
+            case "Advanced":
+                Assert.IsTrue(bindingPath switch
+                {
+                    "RequireCompleteUsedResourcesForAutoInstall" => settings.RequireCompleteUsedResourcesForAutoInstall,
+                    "KeepInstallablePackagesPending" => settings.KeepInstallablePackagesPending,
+                    "AutoApplyAmbiguousInstallDestination" => settings.AutoApplyAmbiguousInstallDestination,
+                    _ => throw new AssertFailedException(bindingPath)
+                }); break;
             case "RightClick": AssertCustomWebActions(new RightClickActionSettingsStore(() => settings).Load()); break;
         }
     }

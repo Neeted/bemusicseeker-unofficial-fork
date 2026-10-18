@@ -4191,6 +4191,7 @@ public sealed class SettingsWindowPresentationTests
                                 or SettingsSection
                                 or SettingsField
                                 or SettingsOptionRow
+                                or SettingsCheckBoxOption
                                 or SettingsPathPicker
                                 or SettingsListEditor
                                 or TextBox
