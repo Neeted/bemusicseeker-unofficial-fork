@@ -2478,6 +2478,7 @@ internal sealed class BmsLibraryPackageInstallService
     /// <summary>
     /// auto-install 候補を一つの operation-scoped mutation session へ逐次追加します。
     /// 後続候補の重複判定には、この session で実際に physical success した chart のみを使用します。
+    /// 推定候補は初期分類で保留となった対象に限定し、新規導入候補の保留登録では広げません。
     /// </summary>
     /// <param name="workflow">副作用なしに構築済みの auto-install workflow。</param>
     /// <param name="keepInstallablePackagesPending">install 可能 package を pending に残すか。</param>
@@ -2616,7 +2617,7 @@ internal sealed class BmsLibraryPackageInstallService
         var applyStopwatch = Stopwatch.StartNew();
         result.PendingPackagesToAdd.AddRange(pendingPackagesToAdd);
         result.InstallRowsToUpsert.AddRange(pendingPackagesToAdd.Where(package => !string.IsNullOrWhiteSpace(package.path)));
-        result.EstimateTargets.AddRange(pendingPackagesToAdd);
+        result.EstimateTargets.AddRange(workflow.PendingPackagesToAdd.Where(package => package != null));
         applyStopwatch.Stop();
         result.ApplyMs = applyStopwatch.ElapsedMilliseconds;
         totalStopwatch.Stop();

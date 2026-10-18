@@ -558,7 +558,7 @@ public partial class BMSLibrary
                         sessionReceipt);
                 }
 
-                PendingInstallEstimatePreparationResult estimatePreparation = PreparePendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall, options);
+                PendingInstallEstimatePreparationResult estimatePreparation = PrepareAutomaticPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, options);
                 pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
                 deferredPendingEstimatePackages = estimatePreparation.DeferredPackages;
                 pendingBatchSourceSnapshot = estimatePreparation.BatchSourceSnapshot;
@@ -567,7 +567,8 @@ public partial class BMSLibrary
                 {
                     LogPendingEstimateSkippedPackage("auto_install", deferredPackage);
                 }
-                if (!token.IsCancellationRequested && pendingPackagesToEstimate.Count > 0)
+                if (!token.IsCancellationRequested
+                    && (pendingPackagesToEstimate.Count > 0 || regroupEligibleSourceDirectories.Count > 0))
                 {
                     string displayName = PendingInstallEstimateBatchRequest.GetDisplayName(pendingPackagesToEstimate.FirstOrDefault()?.path);
                     estimateRequest = new(
@@ -1158,7 +1159,7 @@ public partial class BMSLibrary
                             return;
                         }
                         List<PackageChartEntry> alreadyInstalledEntries = partition.AlreadyInstalledEntries;
-                        List<PackageChartEntry> targetEntries = partition.EstimationEntries;
+                        List<PackageChartEntry> targetEntries = partition.ManualEstimationEntries;
                         ApplyPackageMixedInstallWarningsToEntries(alreadyInstalledEntries);
 
                         foreach (PackageChartEntry entry in targetEntries)

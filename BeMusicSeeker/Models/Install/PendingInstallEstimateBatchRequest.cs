@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.Models;
 
+/// <summary>同じ受理操作の推定と末尾の再グループ化を引き渡します。推定対象0件でも入力元の再グループ化を継続できます。</summary>
 internal sealed class PendingInstallEstimateBatchRequest
 {
     public PendingInstallEstimateBatchSource Source { get; }

@@ -2513,8 +2513,8 @@ public partial class BMSLibrary : ObservableObject
 
         public List<PackageChartEntry> MissingEntries { get; } = [];
 
-        /// <summary>未所持があればその群、なければ既所持を含む全群を評価します。追加の集合は保持しません。</summary>
-        public List<PackageChartEntry> EstimationEntries => MissingEntries.Count > 0 ? MissingEntries : PackageEntries;
+        /// <summary>手動推定では未所持があればその群、なければ既所持を含む全群を評価します。</summary>
+        public List<PackageChartEntry> ManualEstimationEntries => MissingEntries.Count > 0 ? MissingEntries : PackageEntries;
     }
 
     private sealed class PendingInstallEstimateEvaluationContext
@@ -3204,8 +3204,14 @@ public partial class BMSLibrary : ObservableObject
 
     private void ProcessPendingInstallEstimateBatch(PendingInstallEstimateBatchRequest request, CancellationToken token)
     {
-        if (request == null || request.PackageCount == 0)
+        if (request == null)
         {
+            return;
+        }
+        if (request.PackageCount == 0)
+        {
+            token.ThrowIfCancellationRequested();
+            RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token);
             return;
         }
         var stopwatch = Stopwatch.StartNew();
@@ -3242,20 +3248,7 @@ public partial class BMSLibrary : ObservableObject
                     ref completed,
                     ref lowConfidenceCount,
                     ref firstVisibleInteraction);
-                if (!token.IsCancellationRequested && request.RegroupEligibleSourceDirectories.Length > 0)
-                {
-                    using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
-                    using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-                    {
-                        using (rwlockPendingInstallCharts.GetWriterGuard())
-                        {
-                            using (rwlockBMSFiles.GetReaderGuard())
-                            {
-                                TryRegroupPendingPackagesForSourceDirectoriesUnsafe(request.RegroupEligibleSourceDirectories);
-                            }
-                        }
-                    }
-                }
+                RegroupPendingInstallBatchSources(request.RegroupEligibleSourceDirectories, token);
             }
             stopwatch.Stop();
             LogInstallPerformance("pending_estimate_batch done source=" + source + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " packageDegree=" + executionPolicy.WorkItemDegree + " estimated=" + completed + " completed=" + (completed + request.DeferredPackageCount) + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " lowConfidence=" + lowConfidenceCount);
@@ -3273,6 +3266,26 @@ public partial class BMSLibrary : ObservableObject
         finally
         {
             ClearInstallEstimationProgress();
+        }
+    }
+
+    /// <summary>同じ受理操作の末尾で、取消されていない入力元ごとの保留を既存条件で再グループ化します。推定対象がない場合も共用します。</summary>
+    private void RegroupPendingInstallBatchSources(string[] sourceDirectories, CancellationToken token)
+    {
+        if (token.IsCancellationRequested || sourceDirectories.Length == 0)
+        {
+            return;
+        }
+        using IDisposable collectionMutationScope = packageLifecycleOwner.BeginCollectionMutationScope();
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            using (rwlockPendingInstallCharts.GetWriterGuard())
+            {
+                using (rwlockBMSFiles.GetReaderGuard())
+                {
+                    TryRegroupPendingPackagesForSourceDirectoriesUnsafe(sourceDirectories);
+                }
+            }
         }
     }
 
@@ -3344,13 +3357,20 @@ public partial class BMSLibrary : ObservableObject
                             foreach (ChartPackage package in request.Packages)
                             {
                                 PendingPackageChartEntryPartition partition = BuildPendingPackageChartEntryPartitionUnsafe(package);
+                                List<PackageChartEntry> targetEntries = request.Source == PendingInstallEstimateBatchSource.AutoInstall
+                                    ? partition.MissingEntries
+                                    : partition.ManualEstimationEntries;
+                                if (request.Source == PendingInstallEstimateBatchSource.AutoInstall && targetEntries.Count == 0)
+                                {
+                                    continue;
+                                }
                                 requests.Add(new PendingInstallEstimateEvaluationRequest
                                 {
                                     OrderIndex = orderIndex++,
                                     Package = package,
                                     DisplayName = PendingInstallEstimateBatchRequest.GetDisplayName(package?.path),
                                     AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
-                                    TargetEntries = partition.EstimationEntries,
+                                    TargetEntries = targetEntries,
                                     EstimateMode = ChartInstallationEstimateMode.Normal,
                                     WasPendingAtPreparation = package != null && ChartPackagesPending.Contains(package),
                                     BatchState = null
@@ -4017,8 +4037,8 @@ public partial class BMSLibrary : ObservableObject
         LogInstallPerformance(message);
     }
 
-    /// <summary>同じ取り込み操作の推定へ渡す分割・入力資源・保留理由を一度準備します。</summary>
-    private PendingInstallEstimatePreparationResult PreparePendingEstimatePackagesUnsafe(IEnumerable<ChartPackage> packages, PendingInstallEstimateBatchSource source, BmsLibraryOptionsSnapshot options)
+    /// <summary>同じ取り込み操作の非新規保留から、未所持を含む対象だけの分割・入力資源・保留理由を準備します。</summary>
+    private PendingInstallEstimatePreparationResult PrepareAutomaticPendingEstimatePackagesUnsafe(IEnumerable<ChartPackage> packages, BmsLibraryOptionsSnapshot options)
     {
         List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null).Distinct()];
         if (packageList.Count == 0)
@@ -4026,16 +4046,14 @@ public partial class BMSLibrary : ObservableObject
             return new PendingInstallEstimatePreparationResult();
         }
 
-        string sourceLogValue = ToPendingEstimateBatchSourceLogValue(source);
+        const string sourceLogValue = "auto_install";
         BmsLibraryInstallEstimationService installEstimationService = CreateInstallEstimationService(options);
         {
-            PendingInstallEstimateEvaluationContext preparationContext =
-                CreatePendingInstallEstimateEvaluationContextUnsafe(options);
             PendingEstimateSourceBatchSnapshot candidateSnapshot =
-                BuildPendingEstimateSourceBatchSnapshotUnsafe(
+                BuildAutomaticPendingEstimateSourceBatchSnapshotUnsafe(
                     packageList,
                     installEstimationService,
-                    preparationContext);
+                    options);
 
             foreach (PendingEstimateSourceBatchPackageState state in candidateSnapshot.PackageStates)
             {
@@ -4046,8 +4064,7 @@ public partial class BMSLibrary : ObservableObject
                     continue;
                 }
 
-                state.SkipAutomaticEstimation = source == PendingInstallEstimateBatchSource.AutoInstall
-                    && ShouldDeferPendingEstimateBatchPackageUnsafe(state);
+                state.SkipAutomaticEstimation = ShouldDeferPendingEstimateBatchPackageUnsafe(state);
             }
 
             PendingInstallEstimatePreparationResult result = CommitPendingEstimatePreparationUnsafe(candidateSnapshot);
@@ -4145,12 +4162,13 @@ public partial class BMSLibrary : ObservableObject
         return committedResult;
     }
 
-    private PendingEstimateSourceBatchSnapshot BuildPendingEstimateSourceBatchSnapshotUnsafe(
+    /// <summary>権威ある所持索引で未所持を確認してから、自動推定用の資源と入力元を捕捉します。</summary>
+    private PendingEstimateSourceBatchSnapshot BuildAutomaticPendingEstimateSourceBatchSnapshotUnsafe(
         List<ChartPackage> packageList,
         BmsLibraryInstallEstimationService installEstimationService,
-        PendingInstallEstimateEvaluationContext preparationContext)
+        BmsLibraryOptionsSnapshot options)
     {
-        ArgumentNullException.ThrowIfNull(preparationContext);
+        PendingInstallEstimateEvaluationContext preparationContext = null;
         var snapshot = new PendingEstimateSourceBatchSnapshot();
         var stopwatch = Stopwatch.StartNew();
         var sourceSurfaceByRoot = new Dictionary<string, SourceSurfaceEntryView>(StringComparer.OrdinalIgnoreCase);
@@ -4159,7 +4177,13 @@ public partial class BMSLibrary : ObservableObject
         foreach (ChartPackage package in packageList ?? Enumerable.Empty<ChartPackage>())
         {
             PendingPackageChartEntryPartition partition = BuildPendingPackageChartEntryPartitionUnsafe(package);
-            foreach (PackageChartEntry entry in partition.EstimationEntries)
+            if (partition.MissingEntries.Count == 0)
+            {
+                continue;
+            }
+            installEstimationExecutionObserver?.ObservePreparation(new(PendingInstallEstimateBatchSource.AutoInstall, package.path));
+            preparationContext ??= CreatePendingInstallEstimateEvaluationContextUnsafe(options);
+            foreach (PackageChartEntry entry in partition.MissingEntries)
             {
                 entry.AcquireResources();
             }
@@ -4170,8 +4194,8 @@ public partial class BMSLibrary : ObservableObject
                 SourceDirectory = ResolvePendingEstimateSourceDirectory(package?.path),
                 PackageEntries = partition.PackageEntries,
                 AlreadyInstalledEntries = partition.AlreadyInstalledEntries,
-                TargetEntries = partition.EstimationEntries,
-                ChartResources = ChartResourceSnapshot.CreateAggregate((partition.EstimationEntries).Select(entry => entry.Chart)),
+                TargetEntries = partition.MissingEntries,
+                ChartResources = ChartResourceSnapshot.CreateAggregate(partition.MissingEntries.Select(entry => entry.Chart)),
                 EstimateMode = ChartInstallationEstimateMode.Normal
             };
             if (state.AttemptInstalledResolve)

@@ -7,6 +7,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal interface IInstallEstimationExecutionObserver
 {
+    /// <summary>対象資格を満たしたパッケージの推定用資源取得を開始する直前に通知します。</summary>
+    /// <param name="observation">変更不能な操作種別とパッケージパス。</param>
+    void ObservePreparation(InstallEstimationPreparationObservation observation) { }
+
     /// <summary>
     /// 一評価の設定と寿命を観測します。返したscopeは評価の成功・失敗を問わず終端で破棄します。
     /// </summary>
@@ -32,6 +36,11 @@ internal interface IInstallEstimationExecutionObserver
     /// <summary>取消・評価失敗を観測し、未適用兄弟の回収へ移ったことを通知します。</summary>
     void ObserveDispatchStopped() { }
 }
+
+/// <summary>推定準備へ到達した操作種別とパッケージパスを示します。</summary>
+internal readonly record struct InstallEstimationPreparationObservation(
+    PendingInstallEstimateBatchSource Source,
+    string PackagePath);
 
 /// <summary>
 /// 一評価の実行並列度と対象識別を示します。

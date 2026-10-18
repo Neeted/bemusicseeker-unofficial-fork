@@ -39,7 +39,7 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public List<PackageChartEntry> AlreadyInstalledEntries { get; set; } = [];
 
-    /// <summary>未所持群、または全既所持時の全対象です。</summary>
+    /// <summary>自動推定で評価する未所持群です。全既所持パッケージの準備状態は作りません。</summary>
     public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
