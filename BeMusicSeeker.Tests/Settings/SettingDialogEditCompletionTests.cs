@@ -4701,7 +4701,7 @@ public sealed partial class SettingDialogEditCompletionTests
         finally { releaseNotification.Set(); Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>旧IR通信中の実All再構築を受理し、親解放後の必須UI成功・失敗と終了で、保存済み設定・新組採用・旧組停止を保持します。</summary>
+    /// <summary>初回のbackfill・hydrationの実Task終端とL/Pの実解放後も旧IR通信を保持して実All再構築を受理し、親解放後の必須UI成功・失敗と終了で、保存済み設定・新組採用・旧組停止を保持します。</summary>
     /// <remarks>通常起動と設定Allの実接続を既存Dispatcherで観測します。Succeededは新DB・実表示・次のPと旧IR非保存、RequiredUiFailedは実UI Taskの元失敗と採用済みscore、Shutdownは開始済み走査と親cleanupの回収を確認します。純score通知の故障耐性はStartupRequiredInitializationTestsへ分担します。</remarks>
     [DataTestMethod]
     [DataRow("Succeeded")]
@@ -4825,11 +4825,56 @@ public sealed partial class SettingDialogEditCompletionTests
                 }
                 Task? apply = null;
                 Task? shutdown = null;
+                Exception? primaryFailure = null;
+                var backfillWork = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var hydrationWork = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
+                BMSLibrary? initialLibrary = null;
+                Func<string, string, string, Func<Task>, bool>? initialScheduler = null;
+                bool backfillRegistered = false;
+                bool hydrationRegistered = false;
+                void CaptureInitialBackgroundWork()
+                {
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Initial library was not attached.");
+                    Func<string, string, string, Func<Task>, bool> scheduler = library.StartupBackgroundTaskScheduler
+                        ?? throw new InvalidOperationException("Initial library scheduler was not attached.");
+                    initialLibrary = library;
+                    initialScheduler = scheduler;
+                    library.StartupBackgroundTaskScheduler = (name, reason, dependency, work) =>
+                    {
+                        TaskCompletionSource<Task>? capture = null;
+                        if (name == "chart_info_backfill") { backfillRegistered = true; capture = backfillWork; }
+                        else if (name == "maintenance_hydration") { hydrationRegistered = true; capture = hydrationWork; }
+                        if (capture == null) { return scheduler(name, reason, dependency, work); }
+                        bool accepted = scheduler(name, reason, dependency, () => CaptureStartupBackgroundWorkTask(work, capture));
+                        if (!accepted) { capture.TrySetException(new InvalidOperationException("初回保守の受付が拒否されました: " + name)); }
+                        return accepted;
+                    };
+                }
+                void RunCleanup(Action cleanup)
+                {
+                    try { cleanup(); }
+                    catch (Exception failure)
+                    {
+                        if (primaryFailure == null) { primaryFailure = failure; throw; }
+                        TestContext.WriteLine("All reconstruction cleanup: " + failure);
+                    }
+                }
                 try
                 {
-                    Task<bool> initialize = owner.InitializeAsync();
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "all-reconstruction-first-initialize");
-                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    owner.RequiredStartupUiApplying += CaptureInitialBackgroundWork;
+                    try
+                    {
+                        Task<bool> initialize = owner.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "all-reconstruction-first-initialize");
+                        Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    }
+                    finally
+                    {
+                        owner.RequiredStartupUiApplying -= CaptureInitialBackgroundWork;
+                        if (initialLibrary != null && initialScheduler != null) { initialLibrary.StartupBackgroundTaskScheduler = initialScheduler; }
+                    }
+                    Assert.IsTrue(backfillRegistered, "初回backfillが標準スケジューラーへ登録される必要があります。");
+                    Assert.IsTrue(hydrationRegistered, "初回hydrationが標準スケジューラーへ登録される必要があります。");
                     (BMSLibrary Library, bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score) initialScore = scoreObservations.First();
                     Assert.IsTrue(initialScore.AllFree && initialScore.MinFree && initialScore.LibraryFree && initialScore.PlaylistFree);
                     Assert.IsTrue(initialScore.Ready);
@@ -4837,9 +4882,16 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(1, initialScore.Subscriptions);
                     Assert.AreEqual(687, initialScore.Score);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(irClient.Started.Task, "all-reconstruction-old-ir-started");
-                    Assert.IsFalse(owner.IsLibraryOperationInProgress, "完了余韻・IR通信を新設定のBusy条件にしません。");
                     BMSLibrary original = factory.CreatedLibrary ?? throw new InvalidOperationException("Initial library was not attached.");
                     BMSPlaylist originalPlaylist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Initial playlist was not attached.");
+                    // 標準schedulerが開始する実Taskだけを待つ。旧IR中に開始しないidle-only保守は待たない。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(backfillWork.Task.Unwrap(), hydrationWork.Task.Unwrap()),
+                        "all-reconstruction-first-background-work-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(
+                        composition.OperationAdmission.WaitForIdleAsync(),
+                        composition.PlaylistOperationAdmission.WaitForIdleAsync()),
+                        "all-reconstruction-first-admissions-released");
+                    Assert.IsFalse(owner.IsLibraryOperationInProgress, "完了余韻・IR通信を新設定のBusy条件にしません。");
                     var oldRankingTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     original.PropertyChanged += (_, args) =>
                     {
@@ -4853,6 +4905,10 @@ public sealed partial class SettingDialogEditCompletionTests
                     Assert.AreEqual(SettingsDialogViewModel.RestartMode.All, owner.SettingDialog.IsNeedRestartForSaved());
                     hold = true;
                     completionUi.Arm();
+                    Assert.IsTrue(composition.OperationAdmission.CanEnter);
+                    Assert.IsTrue(composition.PlaylistOperationAdmission.CanEnter);
+                    Assert.IsFalse(irClient.Release.Task.IsCompleted, "有限保守の待機で旧IR通信を解放しません。");
+                    Assert.IsFalse(irClient.Completed.Task.IsCompleted, "旧IR通信中に設定Allを開始します。");
                     apply = owner.SettingDialog.ApplySettingsAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(closeEntered.Task, apply, "all-reconstruction-close-arrival"), "all-reconstruction-close-arrival");
                     Assert.AreEqual(1, session.SaveCount);
@@ -4972,18 +5028,41 @@ public sealed partial class SettingDialogEditCompletionTests
                     }
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                 }
+                catch (Exception failure)
+                {
+                    primaryFailure = failure;
+                    throw;
+                }
                 finally
                 {
                     closeRelease.TrySetResult();
                     release.Set();
                     irClient.Release.TrySetResult();
                     completionUi.Release.TrySetResult();
-                    try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-cleanup-apply"); } }
+                    try { if (apply != null) { RunCleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "all-reconstruction-cleanup-apply")); } }
                     finally
                     {
-                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown ?? owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "all-reconstruction-cleanup-close");
-                        foreach ((BMSLibrary Library, Action<ScoreSnapshotChange> Handler) subscription in scoreSubscriptions) { subscription.Library.ScoreSnapshotChanged -= subscription.Handler; }
-                        owner.SettingDialog.Dispose();
+                        try { RunCleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown ?? owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "all-reconstruction-cleanup-close")); }
+                        finally
+                        {
+                            try
+                            {
+                                // 終了で破棄され得る未開始workの捕捉通知は待たず、開始済みの実Taskだけを回収する。
+                                foreach (TaskCompletionSource<Task> capture in new[] { backfillWork, hydrationWork })
+                                {
+                                    if (capture.Task.IsCompletedSuccessfully)
+                                    {
+                                        RunCleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(capture.Task.GetAwaiter().GetResult(), "all-reconstruction-cleanup-background-work"));
+                                    }
+                                    else if (capture.Task.IsFaulted) { _ = capture.Task.Exception; }
+                                }
+                            }
+                            finally
+                            {
+                                foreach ((BMSLibrary Library, Action<ScoreSnapshotChange> Handler) subscription in scoreSubscriptions) { subscription.Library.ScoreSnapshotChanged -= subscription.Handler; }
+                                RunCleanup(() => owner.SettingDialog.Dispose());
+                            }
+                        }
                     }
                 }
 
@@ -7095,6 +7174,22 @@ public sealed partial class SettingDialogEditCompletionTests
         string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_SettingDialogEditCompletion_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         return root;
+    }
+
+    /// <summary>標準schedulerが開始した仕事の同じ実Taskを捕捉し、同期開始失敗も待ち手へ伝えます。</summary>
+    private static Task CaptureStartupBackgroundWorkTask(Func<Task> work, TaskCompletionSource<Task> capture)
+    {
+        try
+        {
+            Task task = work();
+            capture.TrySetResult(task);
+            return task;
+        }
+        catch (Exception failure)
+        {
+            capture.TrySetException(failure);
+            throw;
+        }
     }
 
     /// <summary>次の明示操作の準備として、起動後にLを取得し得る受理済み保守の実終端を待ちます。必須起動成功の条件は変更しません。</summary>

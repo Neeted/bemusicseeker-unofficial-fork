@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-右クリック操作からWebページと外部プログラムを解決・起動する仕様です。保存する定義、単一譜面の条件、クリック時の再検証、失敗表示を定めます。
+右クリック操作からWebページと外部プログラムを解決・起動する仕様です。保存する定義、単一譜面の条件、クリック時の再検証、失敗表示と、譜面ビューア登録時のファイル送信を定めます。
 
 ## 用語
 
@@ -55,6 +55,12 @@ Web操作は固定ID、空白でない名前、URLテンプレート、有効設
 
 Webは既存のブラウザ・シェル境界へ渡します。プログラムはクリック時に実行ファイルと譜面の絶対パスを確認し、`UseShellExecute=false`、作業ディレクトリは実行ファイルの親、引数は一つずつ `ArgumentList` に設定します。一回開始して待たず、プロセスを保持しません。標準入出力の転送、生の `Arguments`、関連付け起動への代替は使いません。
 
+### 譜面ビューア登録時のファイル送信
+
+譜面ビューアへの登録は、`AppScoreViewerRegistrationGateway` から `AppHttpClient.PostFile` を呼び、`HttpClient` で登録先へ `multipart/form-data` のPOSTを送ります。ファイル部分のフィールド名は `file`、`filename` は譜面の元のファイル名とします。日本語・アクセント付き文字・補助平面文字などの非ASCII名も、MIME encoded-word / Base64や代替名へ変換せず、UTF-8の生バイトでヘッダーへ出力します。ASCII名とファイル本体のバイト列も保持します。
+
+要求の `Accept` は `application/json` とし、応答はUTF-8で読み取って先頭のBOMだけを除きます。非成功HTTP応答は既存の失敗ログへ応答本文を含めて例外を返し、応答JSONの解釈、登録の成功・拒否・例外、確認と結果通知は登録ワークフローが扱います。
+
 ### 一覧再生の外部プレイヤー所有範囲
 
 再生後のメイン画面復元と表フォーカスは任意表示です。Dispatcher予約と実コールバックの故障は局所診断で止め、再生結果を変更しません。既存の画面生存・終了保護処理、前面表示条件、有限回数の確認だけを使い、故障後の再試行や高頻度の同期診断を追加しません。
@@ -83,6 +89,8 @@ LR2の通常window styleは、従来どおり `GWL_STYLE` が試聴用の値へ�
 | 所持状態に依存しないファイル条件、クリック時の設定再解決とプロセス起動条件 | [`SelectedChartExternalActionWorkflowOwner`](../../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartExternalActionWorkflowOwner.cs)、[`ExternalProgramLaunchGateway`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalProgramLaunchGateway.cs) | [`SelectedChartExternalActionWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/SelectedChartExternalActionWorkflowOwnerTests.cs) の `Execute_ConfiguredProgramRechecksActionAndPassesResolvedTokens` は通常所持BMSと保留BMS/bmsonの正確なパス・引数、設定削除後の起動拒否を確認する。`ResolveConfiguredProgram_RejectsUnavailableFileTargetsWithoutLaunching` は未所持プレイリスト・ハッシュのみ・保留ファイル欠落・開く権限なしを確認する。実プロセス起動条件は [`ExternalProgramLaunchGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalProgramLaunchGatewayTests.cs) が担う。 |
 | 単一行のメニュー、保留BMS/bmsonの対象取り直し、履歴・未所持の区別 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowSelectedChartContextMenuWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `CompiledPendingProgramMenuLaunchesCurrentRightClickedChartWithMultipleSelection` は実際の入力生成・設定解決・引数展開へ接続し、複数選択中の右クリック行の親子メニューと、メニュー表示後に更新された正確なパスでの起動要求を確認する。既存の同クラスが通常メニューの接続を、[`MainWindowPlayHistoryWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs) が履歴との区別を担う。 |
 | 型付きの起動失敗メッセージ、多言語リソースの整合 | [`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowContextMenuResourceTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)、[`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
+| 譜面ビューア登録のUTF-8ファイル名、ファイル本体、応答BOM | [`AppHttpClient.PostFile`](../../../BeMusicSeeker/Ribbit/Net/AppHttpClient.cs) | [`AppHttpClientTests`](../../../BeMusicSeeker.Tests/Runtime/AppHttpClientTests.cs) の `PostFile_PreservesUtf8FileNameAndBytesAndStripsResponseBom` は、非ASCII名 `譜面-é😀.bms` とASCII名 `score.bms` の実ファイルを送信し、loopbackで受信したPOST、multipartのフィールド名・ファイル名の生バイト、バイナリ本文の一致、応答BOMだけの除去を確認する。 |
+| 譜面ビューア登録の応答解釈、成功・拒否・例外、確認と結果通知 | [`ScoreViewerRegistration`](../../../BeMusicSeeker/ViewModels/ChartOperations/ScoreViewerRegistration.cs) | [`ScoreViewerRegistrationWorkflowOwnerTests`](../../../BeMusicSeeker.Tests/ChartOperations/ScoreViewerRegistrationWorkflowOwnerTests.cs) がJSON解析と登録ワークフローの結果・通知を担う。登録先、`Accept` とHTTP失敗ログ・例外経路の維持は差分の静的確認で扱う。 |
 | 一覧再生のプロセス所有、開始失敗時の状態解除、補助window操作のbest-effort化 | [`PlaybackPanelViewModel`](../../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`PlaybackPanelViewModelTests`](../../../BeMusicSeeker.Tests/Playback/PlaybackPanelViewModelTests.cs)、[`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs) |
 | LR2試聴の五項目、通常/extended style、他のXML値、設定編集、開始・終了失敗 | [`LR2body`](../../../BeMusicSeeker/Models/LR2/LR2body.cs)、[`ExternalPlayerWindowHost`](../../../BeMusicSeeker/Models/Utils/Processes/ExternalPlayerWindowHost.cs) | [`ExternalPlayerProcessGatewayTests`](../../../BeMusicSeeker.Tests/Processes/ExternalPlayerProcessGatewayTests.cs)、[`SettingsDialogBehaviorTests`](../../../BeMusicSeeker.Tests/Settings/SettingsDialogBehaviorTests.cs) |
 | ubmplayの一時INI生成、値の制限、設定読み戻し | [`uBMplay`](../../../BeMusicSeeker/Models/Playback/uBMplay.cs) | [`UbmplaySettingsTests`](../../../BeMusicSeeker.Tests/Playback/UbmplaySettingsTests.cs) |

@@ -330,7 +330,7 @@ internal sealed class AppHttpClient
     }
 
     /// <summary>
-    /// 指定ファイルを multipart/form-data で POST します。
+    /// 指定ファイルを multipart/form-data で POST します。ファイル名は MIME 符号化せず UTF-8 で直接送信し、ファイル本体のバイト列を保持します。
     /// </summary>
     /// <param name="uri">送信先 URI。</param>
     /// <param name="filePath">送信するファイルパス。</param>
@@ -366,6 +366,7 @@ internal sealed class AppHttpClient
             fileName = Path.GetFileName(filePath);
         }
         using MultipartFormDataContent multipartFormDataContent = [];
+        multipartFormDataContent.HeaderEncodingSelector = (_, _) => Encoding.UTF8;
         if (additionalFormFields != null)
         {
             foreach (KeyValuePair<string, string> additionalFormField in additionalFormFields)
@@ -378,9 +379,11 @@ internal sealed class AppHttpClient
         byteArrayContent.Headers.ContentDisposition = new ContentDispositionHeaderValue("form-data")
         {
             Name = QuoteContentDispositionValue(formFieldName),
-            FileName = QuoteContentDispositionValue(fileName),
             FileNameStar = null
         };
+        // FileName プロパティの非 ASCII 名への MIME 符号化を避け、登録先が解釈する UTF-8 の filename を送る。
+        byteArrayContent.Headers.ContentDisposition.Parameters.Add(
+            new NameValueHeaderValue("filename", QuoteContentDispositionValue(fileName)));
         multipartFormDataContent.Add(byteArrayContent);
         using HttpResponseMessage httpResponseMessage = Send(HttpMethod.Post, uri, multipartFormDataContent, headers, throwOnNonSuccess: false);
         byte[] responseBytes = ReadResponseBytes(httpResponseMessage);

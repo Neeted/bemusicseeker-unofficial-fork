@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -87,14 +88,23 @@ public sealed class AppHttpClientTests
         Assert.AreEqual("POST", server.RequestMethod);
     }
 
-    /// <summary>所有ファイルを実HTTPのPOSTへ渡して応答BOMだけを除き、アップロード経路の解析入力を保持します。</summary>
-    [TestMethod]
+    /// <summary>
+    /// 非ASCII名は元のUTF-8バイトで、ASCII名は従来の名前で送信し、名前のMIME符号化・置換とバイナリ本文の変化を検出します。
+    /// 実HTTPのPOSTと応答BOMだけを除く保証も同じ経路で維持します。
+    /// </summary>
+    [DataTestMethod]
+    [DataRow("譜面-é😀.bms")]
+    [DataRow("score.bms")]
     [TestCategory("Http")]
-    public async Task PostFile_StripsUtf8BomFromResponse()
+    public async Task PostFile_PreservesUtf8FileNameAndBytesAndStripsResponseBom(string fileName)
     {
-        string uploadFilePath = CreateTempFileWithBytes(Encoding.UTF8.GetBytes("upload"));
+        string uploadDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(uploadDirectory);
         try
         {
+            byte[] uploadBytes = [0x00, 0xFF, 0x81, 0x40, 0x0D, 0x0A, 0xFE, 0x41];
+            string uploadFilePath = Path.Combine(uploadDirectory, fileName);
+            File.WriteAllBytes(uploadFilePath, uploadBytes);
             await using var server = new SingleRequestHttpServer(CreateUtf8BomBytes("{\"uploaded\":true}"));
 
             string response = await StartSynchronousRequest(() =>
@@ -102,10 +112,38 @@ public sealed class AppHttpClientTests
 
             Assert.AreEqual("{\"uploaded\":true}", response);
             Assert.AreEqual("POST", server.RequestMethod);
+
+            var contentType = MediaTypeHeaderValue.Parse(server.RequestContentType);
+            Assert.AreEqual("multipart/form-data", contentType.MediaType, ignoreCase: true);
+            string boundary = contentType.Parameters.Single(parameter =>
+                string.Equals(parameter.Name, "boundary", StringComparison.OrdinalIgnoreCase)).Value?.Trim('"')
+                ?? throw new AssertFailedException("multipartのboundaryがありません。");
+            byte[] openingBoundary = Encoding.ASCII.GetBytes("--" + boundary + "\r\n");
+            byte[] closingBoundary = Encoding.ASCII.GetBytes("\r\n--" + boundary + "--\r\n");
+            byte[] requestBody = server.RequestBody;
+            Assert.IsTrue(requestBody.AsSpan().StartsWith(openingBoundary), "先頭のmultipart境界が一致しません。");
+            Assert.IsTrue(requestBody.AsSpan().EndsWith(closingBoundary), "末尾のmultipart境界が一致しません。");
+            int headerLength = requestBody.AsSpan(openingBoundary.Length).IndexOf("\r\n\r\n"u8);
+            Assert.IsTrue(headerLength >= 0, "ファイル部分のヘッダー終端がありません。");
+            int bodyStart = openingBoundary.Length + headerLength + 4;
+
+            // ヘッダーだけを1バイト対1文字で扱い、MIME復号せず送信された値の生バイトを比較する。
+            string partHeaders = Encoding.Latin1.GetString(requestBody, openingBoundary.Length, headerLength);
+            string disposition = partHeaders.Split("\r\n").Single(line =>
+                line.StartsWith("Content-Disposition:", StringComparison.OrdinalIgnoreCase));
+            var parameters = disposition.Split(';').Skip(1)
+                .Select(parameter => parameter.Split('=', 2))
+                .ToDictionary(parameter => parameter[0].Trim(), parameter => parameter[1].Trim().Trim('"'),
+                    StringComparer.OrdinalIgnoreCase);
+            CollectionAssert.AreEqual(Encoding.ASCII.GetBytes("file"), Encoding.Latin1.GetBytes(parameters["name"]));
+            CollectionAssert.AreEqual(Encoding.UTF8.GetBytes(fileName), Encoding.Latin1.GetBytes(parameters["filename"]),
+                "filenameは元のファイル名のUTF-8バイトで送信する必要があります。");
+            CollectionAssert.AreEqual(uploadBytes, requestBody[bodyStart..^closingBoundary.Length],
+                "ファイル本体は文字コード変換せず送信する必要があります。");
         }
         finally
         {
-            File.Delete(uploadFilePath);
+            Directory.Delete(uploadDirectory, recursive: true);
         }
     }
 
